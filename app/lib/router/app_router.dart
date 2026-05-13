@@ -1,0 +1,87 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../providers/session_provider.dart';
+import '../ui/history_detail_screen.dart';
+import '../ui/home_screen.dart';
+import '../ui/wechat_oauth_callback_screen.dart';
+import '../ui/login_screen.dart';
+import '../ui/policy_screen.dart';
+import '../ui/baby_bind_screen.dart';
+import '../ui/baby_profile_edit_screen.dart';
+import '../ui/settings_screen.dart';
+import '../ui/splash_screen.dart';
+import '../ui/trends_screen.dart';
+
+/// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
+/// 若此处 watch 会在 Splash 等异步流程中途销毁整个路由树，导致白屏与
+/// “widget has been unmounted” 错误。
+final goRouterProvider = Provider<GoRouter>((ref) {
+  final session = ref.read(sessionProvider);
+  return GoRouter(
+    initialLocation: '/splash',
+    refreshListenable: session,
+    redirect: (context, state) {
+      final loggingIn = state.matchedLocation == '/login';
+      final splash = state.matchedLocation == '/splash';
+      if (splash) return null;
+      if (session.isLoggedIn && loggingIn) {
+        return '/home';
+      }
+      return null;
+    },
+    routes: [
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/auth/wechat/callback',
+        builder: (context, state) => const WeChatOAuthCallbackScreen(),
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: '/home',
+        builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/trends',
+        builder: (context, state) => const TrendsScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/baby',
+        builder: (context, state) => const BabyProfileEditScreen(),
+      ),
+      GoRoute(
+        path: '/settings/bind-baby',
+        builder: (context, state) => const BabyBindScreen(),
+      ),
+      GoRoute(
+        path: '/history/:recordId',
+        builder: (context, state) {
+          final id = state.pathParameters['recordId']!;
+          return HistoryDetailScreen(recordId: id);
+        },
+      ),
+      GoRoute(
+        path: '/policy',
+        builder: (context, state) {
+          final url = state.uri.queryParameters['url'];
+          return PolicyScreen(initialUrl: url);
+        },
+      ),
+    ],
+    errorBuilder: (context, state) => Scaffold(
+      appBar: AppBar(title: const Text('路由错误')),
+      body: Center(child: Text(state.error?.message ?? '未知路径：${state.uri}')),
+    ),
+  );
+});

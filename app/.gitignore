@@ -1,0 +1,16 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+**/Generated.xcconfig
+**/flutter_export_environment.sh
+**/Flutter.podspec
+**/Pods/
+**/.symlinks/
+**/local.properties
+*.iml
+.idea/
+
+# 密钥与本地配置（勿提交真实值）
+.env
+**/key.properties

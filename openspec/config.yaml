@@ -1,0 +1,14 @@
+schema: spec-driven
+
+# 项目上下文：生成 OpenSpec 制品（proposal / design / specs / tasks）时供 AI 参考。
+context: |
+  语言与文档：所有 OpenSpec 变更下的 Markdown 制品（proposal.md、design.md、tasks.md、specs/**/*.md）
+  的正文、章节标题、需求描述、场景、任务说明必须使用简体中文撰写。
+  可保留必要的技术专有名词（如 Flutter、SSE、WebView、OAuth、App Store、DTO、API 等）及代码标识符（类名、包名、路由名等）原文。
+  规范文档中的需求表述以中文为主，使用「必须 / 不得」等明确语态；场景建议使用「当……则……」结构。
+  OpenSpec 校验器要求每条 `### Requirement` 正文中仍须出现英文 **SHALL** 或 **MUST**（建议首行用一句英文规范性摘要，后附中文细则）。
+
+# 可按需为各制品追加规则，例如：
+# rules:
+#   proposal:
+#     - 单篇提案控制在约两页内

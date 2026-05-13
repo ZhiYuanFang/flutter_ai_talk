@@ -1,0 +1,98 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../api/api_client.dart';
+import '../api/api_exceptions.dart';
+import '../providers/authorized_api_client_provider.dart';
+import '../providers/device_no_notifier.dart';
+import '../providers/toast_bus.dart';
+import 'history_mapper.dart';
+import 'models.dart';
+import 'repositories.dart' show TrendRange, TrendsRepository;
+
+/// 事件目录：`GET /device/history/api/event/options`；序列：`GET /device/history/api/piece`。
+class RemoteTrendsRepository implements TrendsRepository {
+  RemoteTrendsRepository(this._ref);
+
+  final Ref _ref;
+
+  ApiClient get _api => _ref.read(authorizedApiClientProvider);
+
+  String? get _deviceNo => _ref.read(deviceNoNotifierProvider).asData?.value;
+
+  void _toast(String m) => _ref.read(apiToastProvider.notifier).state = m;
+
+  (int startSec, int endSec) _rangeBounds(TrendRange range) {
+    final now = DateTime.now();
+    final end = now.millisecondsSinceEpoch ~/ 1000;
+    final start = switch (range) {
+      TrendRange.today => DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/ 1000,
+      TrendRange.week => now.subtract(const Duration(days: 7)).millisecondsSinceEpoch ~/ 1000,
+      TrendRange.month => now.subtract(const Duration(days: 30)).millisecondsSinceEpoch ~/ 1000,
+      TrendRange.quarter => now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/ 1000,
+    };
+    return (start, end);
+  }
+
+  @override
+  Future<List<TrendCatalogItem>> loadCatalog() async {
+    try {
+      final data = await _api.getEnvelope('/device/history/api/event/options');
+      if (data == null) return const [];
+      final list = data['list'] as List<dynamic>? ?? const [];
+      final out = <TrendCatalogItem>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final id = e['id'];
+        final name = e['name'] as String? ?? '事件';
+        final key = id == null ? name : id.toString();
+        out.add(TrendCatalogItem(eventKey: key, title: name));
+      }
+      return out;
+    } on ApiBusinessException catch (e) {
+      _toast(e.message);
+      return const [];
+    }
+  }
+
+  @override
+  Future<TrendSeries> loadSeries(String eventKey, TrendRange range) async {
+    final dn = _deviceNo;
+    if (dn == null || dn.isEmpty) {
+      return TrendSeries(eventKey: eventKey, points: const []);
+    }
+    final eventId = int.tryParse(eventKey) ?? 0;
+    if (eventId <= 0) {
+      return TrendSeries(eventKey: eventKey, points: const []);
+    }
+    final bounds = _rangeBounds(range);
+    try {
+      final data = await _api.getEnvelope(
+        '/device/history/api/piece',
+        query: {
+          'deviceNo': dn,
+          'eventId': '$eventId',
+          'startTime': '${bounds.$1}',
+          'endTime': '${bounds.$2}',
+        },
+      );
+      if (data == null) {
+        return TrendSeries(eventKey: eventKey, points: const []);
+      }
+      final list = data['list'] as List<dynamic>? ?? const [];
+      final pts = <TrendPoint>[];
+      for (final e in list) {
+        if (e is! Map<String, dynamic>) continue;
+        final rec = historyRecordFromServerMap(e);
+        final p = rec.rawPayload;
+        final numVal = p['eventNumber'];
+        final v = (numVal is num) ? numVal.toDouble() : double.tryParse(numVal?.toString() ?? '') ?? 0;
+        pts.add(TrendPoint(t: rec.createdAt, value: v));
+      }
+      pts.sort((a, b) => a.t.compareTo(b.t));
+      return TrendSeries(eventKey: eventKey, points: pts);
+    } on ApiBusinessException catch (e) {
+      _toast(e.message);
+      return TrendSeries(eventKey: eventKey, points: const []);
+    }
+  }
+}

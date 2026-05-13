@@ -1,0 +1,11 @@
+{
+  "name": "胖宝",
+  "short_name": "胖宝",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1976D2",
+  "description": "胖宝 — 母婴喂养记录",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false
+}
