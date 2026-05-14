@@ -1,7 +1,10 @@
-# 在 app/ 目录：docker compose up -d --build
-# 可选：在同目录创建 .env，写入 API_BASE_URL=... 等，Compose 会传入 build args。
+# 在 app/ 目录推荐：
+#   docker compose --env-file .env.example -f docker-compose.yml up -d --build
+# 在仓库根目录若要用「app/」前缀路径，见 README。
 services:
   web:
+    image: pangbao-web:latest
+    container_name: pangbao-web
     build:
       context: .
       dockerfile: Dockerfile

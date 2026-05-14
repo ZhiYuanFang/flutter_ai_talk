@@ -157,61 +157,66 @@ server {
 
 - `app/Dockerfile`：多阶段构建（**`debian:bookworm-slim` 内自装 Flutter SDK** → `nginx:alpine`；避免部分环境使用 `cirruslabs/flutter` 时出现 `unable to find user root`）
 - `app/docker/nginx-flutter.conf`：静态资源 + `try_files` 回退 `index.html`（适配 PathUrlStrategy）
-- `app/docker-compose.yml`：一键构建并映射端口（默认 **8080→80**）
+- `app/docker-compose.yml`：Compose 构建并运行（镜像 **`pangbao-web:latest`**，容器 **`pangbao-web`**，默认 **8080→80**）
+- `app/.env.example`：复制为 **`.env`** 后填写网关等变量；与 **`--env-file`** 配合使用（`.env` 勿提交）
 
 #### 1. 把代码弄到服务器
 
 任选：`git clone` 后进入本仓库的 **`app/`** 目录（与 `pubspec.yaml` 同级），或用 `rsync`/`scp` 同步整个仓库（至少包含 **`app/`** 下源码与 `pubspec.lock`）。
 
-#### 2. 在服务器上构建并运行
+#### 2. 推荐：在 `app/` 目录用 docker compose
 
-在 **`app/`** 目录执行：
+**路径是相对「当前工作目录」解析的。** 若在 **`app/`** 下执行，**不能**写 `app/.env.example`、`app/docker-compose.yml`（会变成 `app/app/...`，文件不存在）。
+
+在 **`app/`** 下请使用：
 
 ```bash
 cd app
+cp .env.example .env
+# 编辑 .env（或继续用 .env.example 作模板时把下面 --env-file 指到对应文件）
+docker compose --env-file .env.example -f docker-compose.yml up -d --build
+```
 
-# 生产环境建议传入网关地址（与「Web：本地构建」中 dart-define 含义相同）
+上线时把 **`--env-file .env.example`** 换成 **`--env-file .env`**，并在 `.env` 中填写真实 **`API_BASE_URL`** / **`WS_HISTORY_URL`** 等。
+
+**`--env-file` 的作用**：只负责把文件里的变量代入 `docker-compose.yml` 里的 **`${…}`**（含 `build.args`），从而在 **构建镜像** 时传给 Dockerfile；**不会**默认写进运行中容器进程（静态 Web 的网关地址已在编译时打进前端）。改环境后需带 **`--build`** 才会重新构建。
+
+浏览器访问 **`http://服务器IP:8080`**（或 `.env` 里 **`WEB_PORT`**）。未设置 **`API_BASE_URL`** 时与未传 dart-define 的 release 一致，使用 `env.dart` 默认基址。
+
+**子路径**：在 env 文件中设 **`BASE_HREF=/pangbao/`**（**末尾 /**），并配置反代。
+
+**若在仓库根目录**（`flutter_ai_talk/` 与 `app/` 同级）执行、且希望路径里带 **`app/`** 前缀，可用：
+
+```bash
+docker compose --env-file app/.env.example -f app/docker-compose.yml up -d --build
+```
+
+（此时 `--env-file` 指向 **`app/.env.example`**，`-f` 指向 **`app/docker-compose.yml`**。）
+
+**更新发版**：在所用目录再次执行同一条 compose 命令（带 **`--build`**）。**停止容器**：`docker compose -f … down`（在 **`app/`** 下可省略 `-f`）。
+
+#### 3. 等价方式：`docker build` + `docker run`（不用 Compose 时）
+
+在 **`app/`** 目录：
+
+```bash
+cd app
 docker build -t pangbao-web \
   --build-arg API_BASE_URL=https://你的网关域名 \
   --build-arg WS_HISTORY_URL=wss://你的网关域名/device/app/ws/history \
   .
-
 docker run -d --name pangbao-web -p 8080:80 --restart unless-stopped pangbao-web
 ```
 
-浏览器访问 **`http://服务器IP:8080`**。若省略 `--build-arg`，镜像内会使用 `env.dart` 中的默认 `API_BASE_URL` 等（与未传 dart-define 的 release 构建一致）。
+若已用 Compose 起过同名容器，先 **`docker rm -f pangbao-web`** 再 `docker run`，或统一只用 Compose。
 
-**子路径部署**（例如反代到 `https://域名/pangbao/`）需同时：
-
-- 构建时：`--build-arg BASE_HREF=/pangbao/`（**末尾必须有 /**）
-- 反代：把该路径前缀转到容器根 `/`（或按你网关规则调整）
-
-#### 3. 使用 docker compose（可选）
-
-在 **`app/`** 下可建 `.env`（勿提交密钥，仅作部署机本地配置）：
-
-```env
-API_BASE_URL=https://你的网关域名
-WS_HISTORY_URL=wss://你的网关域名/device/app/ws/history
-WEB_PORT=8080
-```
-
-然后：
-
-```bash
-cd app
-docker compose up -d --build
-```
-
-更新版本：`git pull`（或重新同步代码）后再次 **`docker compose up -d --build`** 或 **`docker build` + 删旧容器再 `docker run`**。
-
-#### 4. 架构与资源说明
+#### 4. 架构与资源说明（Docker）
 
 - **首次构建**会拉取 **Debian** 基础镜像、`git clone` Flutter 并执行 **`flutter precache --web`**，体积与时间均大于仅拉现成 Flutter 镜像；层缓存命中后会快很多。建议云主机 **≥2GB 内存**。
 - 云主机为 **ARM**（如部分云 ARM 规格）时，若在 **x86** 机器上交叉构建，可加 `docker build --platform linux/arm64 ...`；镜像与目标机 CPU 需一致或由 Docker 做 qemu（较慢，优先在同架构机上构建）。
 - 对外正式域名、HTTPS 仍建议在容器前加 **云负载均衡 / Nginx / Caddy** 终止 TLS，再反代到 `8080`；**CORS / mixed content** 要求与上文「与后端联调注意」「Web 与跨域」相同。
 
-**构建失败：`unable to find user root: invalid argument`**：常见于宿主机 **runc/containerd** 与某些 **第三方 Flutter 基础镜像**不兼容。本仓库 Dockerfile 已改为在 **Debian** 中自装 Flutter；若仍失败，再升级 **`docker-ce`、`containerd.io`**，或执行 `DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；仍失败请附上 `docker version` 与 `docker build --progress=plain …` 日志。
+**构建失败：`unable to find user root: invalid argument`**：常见于宿主机 **runc/containerd** 与某些 **第三方 Flutter 基础镜像**不兼容。本仓库 Dockerfile 已改为在 **Debian** 中自装 Flutter；若仍失败，再升级 **`docker-ce`、`containerd.io`**，或先关 BuildKit：`DOCKER_BUILDKIT=0 docker compose … build` / `DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；仍失败请附上 `docker version` 与 `docker build --progress=plain …` 日志。
 
 中国大陆访问 GitHub/pub 较慢时，可在 Dockerfile 里 **`flutter pub get` 之前**增加（勿提交含密钥的私有地址）：
 
@@ -348,5 +353,5 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 
 - `lib/`：应用源码（路由、页面、HTTP/WebSocket 仓库、主题）。
 - `android/` / `web/`：平台工程（Android 需 `local.properties`）。
-- `Dockerfile`、`docker-compose.yml`：云端 Docker 构建并运行 Web（见「Web：云服务器 Docker」）。
+- `Dockerfile`、`docker-compose.yml`、`.env.example`：云端 Docker / Compose（见「Web：云服务器 Docker」）。
 - `docker/nginx-flutter.conf`：容器内 Nginx 的 SPA 回退配置。
