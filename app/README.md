@@ -155,7 +155,7 @@ server {
 
 仓库已提供：
 
-- `app/Dockerfile`：多阶段构建（`ghcr.io/cirruslabs/flutter:stable` → `nginx:alpine`）
+- `app/Dockerfile`：多阶段构建（**`debian:bookworm-slim` 内自装 Flutter SDK** → `nginx:alpine`；避免部分环境使用 `cirruslabs/flutter` 时出现 `unable to find user root`）
 - `app/docker/nginx-flutter.conf`：静态资源 + `try_files` 回退 `index.html`（适配 PathUrlStrategy）
 - `app/docker-compose.yml`：一键构建并映射端口（默认 **8080→80**）
 
@@ -207,11 +207,18 @@ docker compose up -d --build
 
 #### 4. 架构与资源说明
 
-- **首次构建**会拉取 Flutter 基础镜像，体积较大、耗时较长；之后层缓存会快很多。
+- **首次构建**会拉取 **Debian** 基础镜像、`git clone` Flutter 并执行 **`flutter precache --web`**，体积与时间均大于仅拉现成 Flutter 镜像；层缓存命中后会快很多。建议云主机 **≥2GB 内存**。
 - 云主机为 **ARM**（如部分云 ARM 规格）时，若在 **x86** 机器上交叉构建，可加 `docker build --platform linux/arm64 ...`；镜像与目标机 CPU 需一致或由 Docker 做 qemu（较慢，优先在同架构机上构建）。
 - 对外正式域名、HTTPS 仍建议在容器前加 **云负载均衡 / Nginx / Caddy** 终止 TLS，再反代到 `8080`；**CORS / mixed content** 要求与上文「与后端联调注意」「Web 与跨域」相同。
 
-**构建失败：`unable to find user root: invalid argument`**：多为宿主机 **Docker / containerd / runc** 版本或配置问题（与 `flutter build` 无直接关系）。可依次尝试：升级 **`docker-ce`、`containerd.io`** 到发行版仓库最新稳定版；临时关闭 BuildKit 再构建：`DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；确认未混用损坏的 **Podman 兼容层**。仍失败时把完整 `docker version` 与 `docker build --progress=plain …` 日志贴出排查。
+**构建失败：`unable to find user root: invalid argument`**：常见于宿主机 **runc/containerd** 与某些 **第三方 Flutter 基础镜像**不兼容。本仓库 Dockerfile 已改为在 **Debian** 中自装 Flutter；若仍失败，再升级 **`docker-ce`、`containerd.io`**，或执行 `DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；仍失败请附上 `docker version` 与 `docker build --progress=plain …` 日志。
+
+中国大陆访问 GitHub/pub 较慢时，可在 Dockerfile 里 **`flutter pub get` 之前**增加（勿提交含密钥的私有地址）：
+
+```dockerfile
+ENV PUB_HOSTED_URL=https://pub.flutter-io.cn
+ENV FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+```
 
 ## Web 与跨域（CORS）
 

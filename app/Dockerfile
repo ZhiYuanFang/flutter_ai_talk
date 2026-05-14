@@ -1,9 +1,24 @@
 # 在云服务器上构建 Flutter Web，并用 Nginx 提供静态资源（PathUrlStrategy 需 SPA 回退）。
-# 构建上下文须为 app/：在仓库中执行 cd app && docker build -t pangbao-web .
-# https://github.com/cirruslabs/docker-images-flutter
-FROM ghcr.io/cirruslabs/flutter:stable AS build
+# 构建上下文须为 app/：cd app && docker build -t pangbao-web .
+#
+# 构建阶段使用官方 Debian slim + 自装 Flutter，避免部分云主机在 cirruslabs/flutter 等镜像上触发
+# runc: unable to find user root: invalid argument。
+FROM debian:bookworm-slim AS build
 
-USER root
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git unzip xz-utils zip \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV FLUTTER_HOME=/opt/flutter
+ENV FLUTTER_ROOT=/opt/flutter
+ENV PATH="${FLUTTER_HOME}/bin:${PATH}"
+
+# 固定 channel；需要可锁版本时改为例如 3.27.0（须为仓库存在的 tag）
+ARG FLUTTER_BRANCH=stable
+RUN git clone --depth 1 --branch "${FLUTTER_BRANCH}" https://github.com/flutter/flutter.git "${FLUTTER_HOME}" \
+    && flutter config --no-analytics \
+    && flutter precache --web
 
 WORKDIR /app
 
@@ -16,7 +31,6 @@ RUN flutter pub get
 
 COPY . .
 
-# 用 Dockerfile 变量替换拼参数，避免未加引号的 $extra 被 shell 拆词；URL 勿含未转义双引号。
 RUN flutter build web --release \
   ${API_BASE_URL:+--dart-define=API_BASE_URL=${API_BASE_URL}} \
   ${WS_HISTORY_URL:+--dart-define=WS_HISTORY_URL=${WS_HISTORY_URL}} \
