@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../config/web_home_input_mode.dart';
+import '../data/history_line_format.dart';
 import '../data/models.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../providers/toast_bus.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -30,6 +32,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   List<HistoryRecord> _items = [];
   StreamSubscription<SseHistoryPayload>? _sseSub;
+  StreamSubscription<bool>? _wsReadySub;
+  var _wsReady = false;
 
   final _webController = TextEditingController();
   String? _chatReply;
@@ -61,8 +65,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
       setState(() {});
     }
-    await _reloadHistory();
-    _sseSub = ref.read(feedRepositoryProvider).watchLatest().listen((payload) {
+    if (ref.read(sessionProvider).isLoggedIn) {
+      await ref.read(deviceNoNotifierProvider.notifier).refresh();
+    }
+    await _reloadHistoryIfLoggedIn();
+    final feed = ref.read(feedRepositoryProvider);
+    _wsReady = feed.isHistoryWebSocketReady;
+    _wsReadySub = feed.historyWsReadyStream.listen((v) {
+      if (mounted) setState(() => _wsReady = v);
+    });
+    _sseSub = feed.watchLatest().listen((payload) {
       final removed = payload.removedRecordId;
       if (removed != null) {
         setState(() {
@@ -72,14 +84,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
       final r = payload.record!;
       setState(() {
-        final i = _items.indexWhere((e) => e.id == r.id);
-        if (i >= 0) {
-          final next = [..._items];
-          next[i] = r;
-          _items = next;
-        } else {
-          _items = [..._items, r];
-        }
+        // 与底部「消息往上顶」一致：推送来的记录（新建或更新）始终放在列表末尾（视觉最下方）。
+        _items = [..._items.where((e) => e.id != r.id), r];
       });
     });
   }
@@ -124,10 +130,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return true;
   }
 
+  bool _ensureHistoryWsForSend() {
+    final ok = ref.read(feedRepositoryProvider).isHistoryWebSocketReady;
+    if (!ok) {
+      ref.read(apiToastProvider.notifier).state = '历史实时连接未就绪，无法发送，请点击右上角「重连历史」后再试';
+    }
+    return ok;
+  }
+
+  Future<void> _reconnectHistoryWs() async {
+    await ref.read(feedRepositoryProvider).reconnectHistoryWebSocket();
+  }
+
   Future<void> _reloadHistory() async {
     final list = await ref.read(feedRepositoryProvider).loadHistory();
     if (!mounted) return;
-    setState(() => _items = list);
+    // 接口为最新在前；首页 `_items` 按时间升序（最旧→最新），配合 reverse ListView 让最新靠近底部输入区。
+    setState(() => _items = list.reversed.toList());
+  }
+
+  /// 已登录时拉取历史列表；未登录不请求接口（列表保持空）。
+  Future<void> _reloadHistoryIfLoggedIn() async {
+    if (!ref.read(sessionProvider).isLoggedIn) {
+      if (!mounted) return;
+      setState(() => _items = []);
+      return;
+    }
+    await _reloadHistory();
   }
 
   Future<void> _onVoiceEnd() async {
@@ -138,21 +167,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _partial = '';
     if (text.isEmpty) return;
     if (!await _ensureRemoteGate()) return;
+    if (!_ensureHistoryWsForSend()) return;
     final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
     if (!mounted) return;
     setState(() => _chatReply = reply?.trim().isNotEmpty == true ? reply : null);
-    await _reloadHistory();
   }
 
   Future<void> _onWebSubmit() async {
     final text = _webController.text.trim();
     if (text.isEmpty) return;
     if (!await _ensureRemoteGate()) return;
+    if (!_ensureHistoryWsForSend()) return;
     final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
     _webController.clear();
     if (!mounted) return;
     setState(() => _chatReply = reply?.trim().isNotEmpty == true ? reply : null);
-    await _reloadHistory();
   }
 
   Future<void> _openHistory(HistoryRecord record) async {
@@ -160,13 +189,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (!mounted) return;
     final changed = await context.push<bool>('/history/${record.id}');
     if (changed == true && mounted) {
-      await _reloadHistory();
+      await _reloadHistoryIfLoggedIn();
     }
   }
 
   @override
   void dispose() {
     _sseSub?.cancel();
+    _wsReadySub?.cancel();
     _webController.dispose();
     super.dispose();
   }
@@ -180,12 +210,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     await context.push('/settings/bind-baby');
     if (mounted) {
       await ref.read(deviceNoNotifierProvider.notifier).refresh();
-      await _reloadHistory();
+      await _reloadHistoryIfLoggedIn();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
+      if (!loggedIn) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reloadHistoryIfLoggedIn();
+      });
+    });
+    ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
+      if (!ref.read(sessionProvider).isLoggedIn) return;
+      final nextDn = next.asData?.value;
+      if (nextDn == null || nextDn.isEmpty) return;
+      final prevDn = prev?.asData?.value;
+      if (prevDn == nextDn) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reloadHistoryIfLoggedIn();
+      });
+    });
     final count = _items.length;
     // 仅当本地未缓存 deviceNo 时提示绑定；无历史记录见下方「暂无历史记录」。
     final dnAsync = ref.watch(deviceNoNotifierProvider);
@@ -198,6 +244,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text('胖宝'),
         actions: [
+          IconButton(
+            tooltip: _wsReady ? '历史连接就绪' : '重连历史连接',
+            icon: Icon(_wsReady ? Icons.cloud_done_outlined : Icons.cloud_off_outlined),
+            color: _wsReady ? null : Theme.of(context).colorScheme.error,
+            onPressed: _reconnectHistoryWs,
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => context.push('/settings'),
@@ -252,9 +304,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                                   child: Align(
                                     alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      record.displayLine,
-                                      style: TextStyle(fontSize: fontSize, height: 1.25),
+                                    child: Text.rich(
+                                      TextSpan(
+                                        style: TextStyle(fontSize: fontSize, height: 1.25),
+                                        children: historyLineSpans(
+                                          record,
+                                          TextStyle(
+                                            fontSize: fontSize,
+                                            height: 1.25,
+                                            color: Theme.of(context).colorScheme.onSurface,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -343,6 +404,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         Listener(
           onPointerDown: (_) async {
             if (!await _ensureRemoteGate()) return;
+            if (!_ensureHistoryWsForSend()) return;
             if (!_speechReady) return;
             setState(() {
               _listening = true;

@@ -1,0 +1,14 @@
+# 在 app/ 目录：docker compose up -d --build
+# 可选：在同目录创建 .env，写入 API_BASE_URL=... 等，Compose 会传入 build args。
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        API_BASE_URL: ${API_BASE_URL:-}
+        WS_HISTORY_URL: ${WS_HISTORY_URL:-}
+        BASE_HREF: ${BASE_HREF:-/}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped

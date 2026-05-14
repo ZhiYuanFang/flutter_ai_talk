@@ -17,7 +17,7 @@ class DeviceNoNotifier extends StateNotifier<AsyncValue<String?>> {
       state = const AsyncValue.data(null);
       return;
     }
-    state = const AsyncValue.loading();
+    // 不使用 loading：否则 `asData?.value` 在刷新窗口内为 null，远程仓库无法拉历史。
     try {
       final prefs = await SharedPreferences.getInstance();
       final v = prefs.getString(_kDeviceNoCache);

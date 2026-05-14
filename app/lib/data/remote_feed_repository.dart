@@ -33,12 +33,32 @@ class RemoteFeedRepository implements FeedRepository {
 
   final List<HistoryRecord> _cache = [];
   final StreamController<SseHistoryPayload> _controller = StreamController<SseHistoryPayload>.broadcast();
+  final StreamController<bool> _wsReadyController = StreamController<bool>.broadcast();
+
   WebSocketChannel? _ws;
-  var _wsStarted = false;
+  StreamSubscription<dynamic>? _wsSub;
+  var _wsReady = false;
 
   void _toast(String m) {
     _ref.read(apiToastProvider.notifier).state = m;
   }
+
+  void _emitWsReady(bool v) {
+    if (_wsReady == v) return;
+    _wsReady = v;
+    if (!_wsReadyController.isClosed) {
+      _wsReadyController.add(v);
+    }
+  }
+
+  @override
+  bool get isHistoryWebSocketReady =>
+      _wsUrl.isNotEmpty &&
+      (_deviceNoGetter()?.isNotEmpty ?? false) &&
+      _wsReady;
+
+  @override
+  Stream<bool> get historyWsReadyStream => _wsReadyController.stream;
 
   void _mergeInbound(HistoryRecord incoming) {
     final i = _cache.indexWhere((e) => e.id == incoming.id);
@@ -59,15 +79,49 @@ class RemoteFeedRepository implements FeedRepository {
     }
   }
 
+  void _tearDownWs() {
+    _wsSub?.cancel();
+    _wsSub = null;
+    try {
+      _ws?.sink.close();
+    } catch (_) {}
+    _ws = null;
+    _emitWsReady(false);
+  }
+
   void _ensureWs() {
-    if (_wsStarted) return;
-    _wsStarted = true;
-    if (_wsUrl.isEmpty) return;
+    if (_wsUrl.isEmpty) {
+      _emitWsReady(false);
+      return;
+    }
     final dn = _deviceNoGetter();
-    if (dn == null || dn.isEmpty) return;
+    if (dn == null || dn.isEmpty) {
+      _emitWsReady(false);
+      return;
+    }
+    if (_ws != null) return;
+    _openSocket();
+  }
+
+  void _openSocket() {
+    if (_wsUrl.isEmpty) {
+      _emitWsReady(false);
+      return;
+    }
+    final dn = _deviceNoGetter();
+    if (dn == null || dn.isEmpty) {
+      _emitWsReady(false);
+      return;
+    }
+    final token = _ref.read(sessionProvider).accessToken;
+    if (token == null || token.isEmpty) {
+      _emitWsReady(false);
+      return;
+    }
+    _tearDownWs();
     try {
       _ws = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      _ws!.stream.listen(
+      _wsSub = _ws!.stream.listen(
         (raw) {
           try {
             final decoded = jsonDecode(raw as String);
@@ -77,7 +131,10 @@ class RemoteFeedRepository implements FeedRepository {
               _toast(decoded['message'] as String? ?? '连接异常');
               return;
             }
-            if (type == 'auth_ok') return;
+            if (type == 'auth_ok') {
+              _emitWsReady(true);
+              return;
+            }
             final action = decoded['action'] as String?;
             if (action == 'delete') {
               final p = decoded['payload'];
@@ -106,10 +163,14 @@ class RemoteFeedRepository implements FeedRepository {
             _mergeInbound(historyRecordFromServerMap(map));
           } catch (_) {}
         },
-        onError: (_) {},
-        onDone: () {},
+        onError: (_) {
+          _tearDownWs();
+        },
+        onDone: () {
+          _tearDownWs();
+        },
+        cancelOnError: true,
       );
-      final token = _ref.read(sessionProvider).accessToken;
       final first = jsonEncode({
         'type': 'auth',
         'accessToken': token,
@@ -118,7 +179,15 @@ class RemoteFeedRepository implements FeedRepository {
       _ws!.sink.add(first);
     } catch (_) {
       _ws = null;
+      _emitWsReady(false);
+      _toast('历史 WebSocket 连接失败，请点击重连');
     }
+  }
+
+  @override
+  Future<void> reconnectHistoryWebSocket() async {
+    _tearDownWs();
+    _openSocket();
   }
 
   @override
@@ -158,19 +227,67 @@ class RemoteFeedRepository implements FeedRepository {
     return null;
   }
 
+  void _ensureDeviceNoOnBody(Map<String, dynamic> body) {
+    final dn = body['deviceNo']?.toString() ?? '';
+    if (dn.isEmpty) {
+      final g = _deviceNoGetter();
+      if (g != null && g.isNotEmpty) {
+        body['deviceNo'] = g;
+      }
+    }
+  }
+
   @override
-  Future<void> updateHistoryRecord(String id, {String? eventName, String? action}) async {
+  Future<bool> updateHistoryRecord(
+    String id, {
+    required String remark,
+    DateTime? startTime,
+    DateTime? endTime,
+    int? usageCount,
+    bool clearEndIfNull = false,
+  }) async {
     final existing = await getRecord(id);
-    if (existing == null) return;
+    if (existing == null) return false;
     final body = buildEventUpdateBody(
       record: existing,
-      editedEventName: eventName ?? existing.eventName,
-      editedAction: action ?? existing.action,
+      remark: remark,
+      startTime: startTime,
+      endTime: endTime,
+      usageCount: usageCount,
+      clearEndIfNull: clearEndIfNull,
     );
+    _ensureDeviceNoOnBody(body);
     try {
       await _api.postJsonEnvelope('/device/history/api/event/update', body);
+      return true;
     } on ApiBusinessException catch (e) {
       _toast(e.message);
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> deleteHistoryRecord(String id) async {
+    final dn = _deviceNoGetter();
+    if (dn == null || dn.isEmpty) {
+      _toast('请先绑定宝宝信息');
+      return false;
+    }
+    final idInt = int.tryParse(id) ?? 0;
+    if (idInt == 0) {
+      _toast('记录 id 无效');
+      return false;
+    }
+    try {
+      await _api.postJsonEnvelope('/device/history/api/event/delete', {
+        'id': idInt,
+        'deviceNo': dn,
+      });
+      _removeFromCache(id);
+      return true;
+    } on ApiBusinessException catch (e) {
+      _toast(e.message);
+      return false;
     }
   }
 
@@ -179,6 +296,9 @@ class RemoteFeedRepository implements FeedRepository {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
       _toast('请先绑定宝宝信息');
+      return null;
+    }
+    if (!isHistoryWebSocketReady) {
       return null;
     }
     final trimmed = text.trim();
@@ -202,7 +322,12 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   void dispose() {
-    _ws?.sink.close();
-    _controller.close();
+    _tearDownWs();
+    if (!_wsReadyController.isClosed) {
+      _wsReadyController.close();
+    }
+    if (!_controller.isClosed) {
+      _controller.close();
+    }
   }
 }

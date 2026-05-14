@@ -1,0 +1,13 @@
+.git
+.dart_tool
+build
+**/build
+*.iml
+.idea
+.vscode
+android/.gradle
+android/app/build
+ios/Pods
+ios/.symlinks
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec

@@ -5,8 +5,9 @@ import '../api/api_exceptions.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/toast_bus.dart';
-import 'history_mapper.dart';
 import 'models.dart';
+import 'trend_point_mapper.dart';
+import 'trend_series_bucket.dart';
 import 'repositories.dart' show TrendRange, TrendsRepository;
 
 /// 事件目录：`GET /device/history/api/event/options`；序列：`GET /device/history/api/piece`。
@@ -82,14 +83,12 @@ class RemoteTrendsRepository implements TrendsRepository {
       final pts = <TrendPoint>[];
       for (final e in list) {
         if (e is! Map<String, dynamic>) continue;
-        final rec = historyRecordFromServerMap(e);
-        final p = rec.rawPayload;
-        final numVal = p['eventNumber'];
-        final v = (numVal is num) ? numVal.toDouble() : double.tryParse(numVal?.toString() ?? '') ?? 0;
-        pts.add(TrendPoint(t: rec.createdAt, value: v));
+        final pt = trendPointFromPieceJson(e);
+        if (pt != null) pts.add(pt);
       }
       pts.sort((a, b) => a.t.compareTo(b.t));
-      return TrendSeries(eventKey: eventKey, points: pts);
+      final filled = normalizeTrendSeriesForRange(pts, range, bounds.$1, bounds.$2);
+      return TrendSeries(eventKey: eventKey, points: filled);
     } on ApiBusinessException catch (e) {
       _toast(e.message);
       return TrendSeries(eventKey: eventKey, points: const []);
