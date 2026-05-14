@@ -3,6 +3,8 @@
 # https://github.com/cirruslabs/docker-images-flutter
 FROM ghcr.io/cirruslabs/flutter:stable AS build
 
+USER root
+
 WORKDIR /app
 
 ARG API_BASE_URL=
@@ -14,11 +16,11 @@ RUN flutter pub get
 
 COPY . .
 
-RUN set -eux; \
-  extra=""; \
-  if [ -n "$API_BASE_URL" ]; then extra="$extra --dart-define=API_BASE_URL=$API_BASE_URL"; fi; \
-  if [ -n "$WS_HISTORY_URL" ]; then extra="$extra --dart-define=WS_HISTORY_URL=$WS_HISTORY_URL"; fi; \
-  flutter build web --release $extra --base-href="$BASE_HREF"
+# 用 Dockerfile 变量替换拼参数，避免未加引号的 $extra 被 shell 拆词；URL 勿含未转义双引号。
+RUN flutter build web --release \
+  ${API_BASE_URL:+--dart-define=API_BASE_URL=${API_BASE_URL}} \
+  ${WS_HISTORY_URL:+--dart-define=WS_HISTORY_URL=${WS_HISTORY_URL}} \
+  --base-href="${BASE_HREF}"
 
 FROM nginx:alpine
 COPY docker/nginx-flutter.conf /etc/nginx/conf.d/default.conf

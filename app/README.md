@@ -211,6 +211,8 @@ docker compose up -d --build
 - 云主机为 **ARM**（如部分云 ARM 规格）时，若在 **x86** 机器上交叉构建，可加 `docker build --platform linux/arm64 ...`；镜像与目标机 CPU 需一致或由 Docker 做 qemu（较慢，优先在同架构机上构建）。
 - 对外正式域名、HTTPS 仍建议在容器前加 **云负载均衡 / Nginx / Caddy** 终止 TLS，再反代到 `8080`；**CORS / mixed content** 要求与上文「与后端联调注意」「Web 与跨域」相同。
 
+**构建失败：`unable to find user root: invalid argument`**：多为宿主机 **Docker / containerd / runc** 版本或配置问题（与 `flutter build` 无直接关系）。可依次尝试：升级 **`docker-ce`、`containerd.io`** 到发行版仓库最新稳定版；临时关闭 BuildKit 再构建：`DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；确认未混用损坏的 **Podman 兼容层**。仍失败时把完整 `docker version` 与 `docker build --progress=plain …` 日志贴出排查。
+
 ## Web 与跨域（CORS）
 
 `flutter run -d chrome` 时，页面源为 **`http://localhost:<随机端口>`**，而默认 `API_BASE_URL` 指向 **`http://www.cuplay.top:9702`**（或其它域名）。浏览器会按 **同源策略** 拦截跨域请求：能否发成功取决于 **服务端是否在响应里带上正确的 CORS 头**（例如 `Access-Control-Allow-Origin`，以及对 `OPTIONS` 预检的 `Access-Control-Allow-Methods` / `Allow-Headers` 等）。**Flutter / `http` 包无法在应用里“关掉”浏览器的 CORS**，这不是客户端 bug。
