@@ -8,6 +8,20 @@ context: |
   规范文档中的需求表述以中文为主，使用「必须 / 不得」等明确语态；场景建议使用「当……则……」结构。
   OpenSpec 校验器要求每条 `### Requirement` 正文中仍须出现英文 **SHALL** 或 **MUST**（建议首行用一句英文规范性摘要，后附中文细则）。
 
+  基线与可追溯（重要）：编写或评审变更时，必须考虑是否引用并遵循仓库根目录下历史 **`openspec/specs/`** 基线（若目录存在且已有能力规格）；
+  若变更涉及**用户可见行为、对外 API/契约、兼容性或安全语义**的调整，须在 OpenSpec 制品中落到明确的 **`### Requirement`** 与 **`#### Scenario`**
+  （含 `changes/<name>/specs/**` 内 ADDED/MODIFIED delta）；PR 说明、任务勾选理由或评审记录中应能一句话指回对应能力名与需求标题，禁止「只改代码、规格悬空」。
+
+# PR / 归档 / 应用变更前人工评审必选检查项（与上节 context 一致，便于单独引用）。
+review:
+  required_checks:
+    - >-
+      是否引用并遵循历史 `openspec/specs` 基线：已存在的能力是否在 proposal/specs 中声明为「修改」并阅读过原条文；
+      无根目录基线时，是否在本次变更中新增/写清规格以免行为漂移。
+    - >-
+      行为变更可追溯：凡涉及行为变更的实现，是否可在 `openspec/changes/<change>/specs/**/*.md` 中
+      对应到具体 `### Requirement` 与 `#### Scenario`（或归档后与 `openspec/specs` 的映射），且 PR/评审能引用该对应关系。
+
 # 可按需为各制品追加规则，例如：
 # rules:
 #   proposal:

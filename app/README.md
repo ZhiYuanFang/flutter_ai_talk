@@ -171,8 +171,8 @@ server {
 在 **`app/`** 下请使用：
 
 ```bash
-cd app
-cp .env.example .env
+cd /www/wwwroot/flutter/flutter_ai_talk/app/ 
+# cp .env.example .env
 # 编辑 .env（或继续用 .env.example 作模板时把下面 --env-file 指到对应文件）
 docker compose --env-file .env.example -f docker-compose.yml up -d --build
 ```
@@ -212,18 +212,13 @@ docker run -d --name pangbao-web -p 8080:80 --restart unless-stopped pangbao-web
 
 #### 4. 架构与资源说明（Docker）
 
-- **首次构建**会拉取 **Debian** 基础镜像、`git clone` Flutter 并执行 **`flutter precache --web`**，体积与时间均大于仅拉现成 Flutter 镜像；层缓存命中后会快很多。建议云主机 **≥2GB 内存**。
+- **首次构建**会拉取 **Debian**、clone Flutter、`precache --web` 与编译；**Dockerfile 已默认使用阿里云 apt 源与 Flutter 中国镜像**（`pub.flutter-io.cn` / `storage.flutter-io.cn`，Flutter SDK 默认从 Gitee 镜像 clone）。层缓存命中后会快很多。建议云主机 **≥2GB 内存**。
 - 云主机为 **ARM**（如部分云 ARM 规格）时，若在 **x86** 机器上交叉构建，可加 `docker build --platform linux/arm64 ...`；镜像与目标机 CPU 需一致或由 Docker 做 qemu（较慢，优先在同架构机上构建）。
 - 对外正式域名、HTTPS 仍建议在容器前加 **云负载均衡 / Nginx / Caddy** 终止 TLS，再反代到 `8080`；**CORS / mixed content** 要求与上文「与后端联调注意」「Web 与跨域」相同。
 
 **构建失败：`unable to find user root: invalid argument`**：常见于宿主机 **runc/containerd** 与某些 **第三方 Flutter 基础镜像**不兼容。本仓库 Dockerfile 已改为在 **Debian** 中自装 Flutter；若仍失败，再升级 **`docker-ce`、`containerd.io`**，或先关 BuildKit：`DOCKER_BUILDKIT=0 docker compose … build` / `DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；仍失败请附上 `docker version` 与 `docker build --progress=plain …` 日志。
 
-中国大陆访问 GitHub/pub 较慢时，可在 Dockerfile 里 **`flutter pub get` 之前**增加（勿提交含密钥的私有地址）：
-
-```dockerfile
-ENV PUB_HOSTED_URL=https://pub.flutter-io.cn
-ENV FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
-```
+**构建仍很慢时**：确认未并行重复执行多次 `up --build`；第二次构建应命中 Docker 层缓存。若 Gitee Flutter 镜像异常，可构建时加 **`--build-arg FLUTTER_GIT_URL=https://github.com/flutter/flutter.git`**。长期仍建议在本机/CI 构建镜像或 `build/web`，线上只拉镜像或同步静态文件。
 
 ## Web 与跨域（CORS）
 

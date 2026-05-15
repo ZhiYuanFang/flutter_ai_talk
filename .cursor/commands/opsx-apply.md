@@ -66,6 +66,7 @@ Implement tasks from an OpenSpec change.
    - Show which task is being worked on
    - Make the code changes required
    - Keep changes minimal and focused
+   - **不要**新建或扩展 `test/` 下测试文件（除非用户明确要求）；见 `.cursor/rules/no-automatic-test-files.mdc`。
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
    - Continue to next task
 
@@ -135,6 +136,7 @@ What would you like to do?
 ```
 
 **Guardrails**
+- 不要自动新增 `**/test/**` 测试文件；用户明确要求时除外（`.cursor/rules/no-automatic-test-files.mdc`）。
 - Keep going through tasks until done or blocked
 - Always read context files before starting (from the apply instructions output)
 - If task is ambiguous, pause and ask before implementing
