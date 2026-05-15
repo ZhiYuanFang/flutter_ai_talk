@@ -12,6 +12,7 @@ services:
         API_BASE_URL: ${API_BASE_URL:-}
         WS_HISTORY_URL: ${WS_HISTORY_URL:-}
         BASE_HREF: ${BASE_HREF:-/}
+        WEB_HOME_INPUT: ${WEB_HOME_INPUT:-}
     ports:
       - "${WEB_PORT:-8080}:80"
     restart: unless-stopped
