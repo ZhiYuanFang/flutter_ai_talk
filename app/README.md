@@ -218,7 +218,7 @@ docker run -d --name pangbao-web -p 8080:80 --restart unless-stopped pangbao-web
 
 **构建失败：`unable to find user root: invalid argument`**：常见于宿主机 **runc/containerd** 与某些 **第三方 Flutter 基础镜像**不兼容。本仓库 Dockerfile 已改为在 **Debian** 中自装 Flutter；若仍失败，再升级 **`docker-ce`、`containerd.io`**，或先关 BuildKit：`DOCKER_BUILDKIT=0 docker compose … build` / `DOCKER_BUILDKIT=0 docker build -t pangbao-web .`；仍失败请附上 `docker version` 与 `docker build --progress=plain …` 日志。
 
-**构建仍很慢时**：确认未并行重复执行多次 `up --build`；第二次构建应命中 Docker 层缓存。若 Gitee Flutter 镜像异常，可构建时加 **`--build-arg FLUTTER_GIT_URL=https://github.com/flutter/flutter.git`**。长期仍建议在本机/CI 构建镜像或 `build/web`，线上只拉镜像或同步静态文件。
+**构建仍很慢时**：确认未并行重复执行多次 `up --build`；第二次构建应命中 Docker 层缓存。若 Gitee Flutter 镜像异常，可构建时加 **`--build-arg FLUTTER_GIT_URL=https://github.com/flutter/flutter.git`**。若 `apt` 报证书错误，Dockerfile 已用 **`http://mirrors.aliyun.com`** 引导安装 `ca-certificates`（勿把 apt 源改成 https 直到包装好证书）。长期仍建议在本机/CI 构建镜像或 `build/web`，线上只拉镜像或同步静态文件。
 
 ## Web 与跨域（CORS）
 

@@ -6,22 +6,20 @@ FROM debian:bookworm-slim AS build
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 阿里云 Debian 源（bookworm deb822 / 传统 sources.list 均尝试替换）
+# 阿里云 Debian 源：构建初期尚无 ca-certificates，须用 http（勿用 https，否则会证书校验失败）
+ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     set -eux; \
-    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
-      [ -f "$f" ] || continue; \
-      sed -i \
-        -e 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
-        -e 's|http://security.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
-        -e 's|https://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
-        -e 's|https://security.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
-        "$f"; \
-    done; \
-    apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git unzip xz-utils zip \
-    && rm -rf /var/lib/apt/lists/*
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    printf '%s\n' \
+      "deb ${APT_MIRROR}/ bookworm main contrib non-free non-free-firmware" \
+      "deb ${APT_MIRROR}/ bookworm-updates main contrib non-free non-free-firmware" \
+      "deb ${APT_MIRROR}-security bookworm-security main contrib non-free non-free-firmware" \
+      > /etc/apt/sources.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl git unzip xz-utils zip; \
+    rm -rf /var/lib/apt/lists/*
 
 ENV FLUTTER_HOME=/opt/flutter
 ENV FLUTTER_ROOT=/opt/flutter
