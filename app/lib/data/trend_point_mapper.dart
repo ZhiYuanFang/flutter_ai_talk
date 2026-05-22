@@ -1,5 +1,5 @@
-import 'history_line_format.dart';
 import 'history_mapper.dart';
+import 'history_record_metric.dart';
 import 'models.dart';
 
 /// 从 `GET /device/history/api/piece` 单条记录映射为 [TrendPoint]。
@@ -8,22 +8,7 @@ import 'models.dart';
 TrendPoint? trendPointFromPieceJson(Map<String, dynamic> j) {
   try {
     final rec = historyRecordFromServerMap(j);
-    final p = rec.rawPayload;
-    final n = historyPayloadInt(p, 'eventNumber');
-    final double metric;
-    if (n == 0) {
-      final start = parseHistoryInstant(p['startTime']);
-      final end = parseHistoryInstant(p['endTime']);
-      if (start == null || end == null || end.isBefore(start)) {
-        metric = 0;
-      } else {
-        metric = end.difference(start).inSeconds / 3600.0;
-      }
-    } else {
-      final numVal = p['eventNumber'];
-      metric = (numVal is num) ? numVal.toDouble() : double.tryParse(numVal?.toString() ?? '') ?? 0;
-    }
-    return TrendPoint(t: rec.createdAt, value: metric);
+    return TrendPoint(t: rec.createdAt, value: historyRecordMetric(rec));
   } catch (_) {
     return null;
   }

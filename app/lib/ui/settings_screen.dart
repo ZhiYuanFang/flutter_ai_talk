@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +14,7 @@ import '../providers/device_no_notifier.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/custom_background_persist.dart';
+import 'recording_diagnostics_tile.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -48,6 +52,8 @@ class SettingsScreen extends ConsumerWidget {
               error: (e, _) => Text('加载失败：$e'),
             ),
           const SizedBox(height: 12),
+          if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) const VoiceInputSettingsGroup(),
+          if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) const Divider(height: 24),
           ListTile(
             leading: const Icon(Icons.policy),
             title: const Text('隐私政策'),

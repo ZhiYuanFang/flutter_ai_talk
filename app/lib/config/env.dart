@@ -51,6 +51,33 @@ abstract final class AppEnv {
     defaultValue: '',
   );
 
+  /// 语音转写 WebSocket **完整 URL**；为空时由 [apiBaseUrl] 推导 `/voice/asr/ws`。
+  static const wsVoiceAsrUrl = String.fromEnvironment(
+    'WS_VOICE_ASR_URL',
+    defaultValue: '',
+  );
+
+  /// 与网关约定一致：未配置时由 HTTP 基址推导 `ws(s)://host[:port]/voice/asr/ws`。
+  static String get wsVoiceAsrUrlEffective {
+    if (wsVoiceAsrUrl.isNotEmpty) return wsVoiceAsrUrl;
+    final u = Uri.parse(apiBaseUrl);
+    if (!u.hasScheme || u.host.isEmpty) return '';
+    final scheme = u.scheme == 'https' ? 'wss' : 'ws';
+    var p = u.path;
+    if (p == '/') {
+      p = '';
+    } else if (p.endsWith('/')) {
+      p = p.substring(0, p.length - 1);
+    }
+    final path = (p.isEmpty ? '/voice/asr/ws' : '$p/voice/asr/ws').replaceAll('//', '/');
+    return Uri(
+      scheme: scheme,
+      host: u.host,
+      port: u.hasPort ? u.port : null,
+      path: path.startsWith('/') ? path : '/$path',
+    ).toString();
+  }
+
   /// 与网关约定一致：未配置 `WS_HISTORY_URL` 时由 HTTP 基址推导 `ws(s)://host[:port]/device/app/ws/history`（含 [apiBaseUrl] 的 path 前缀）。
   static String get wsHistoryUrlEffective {
     if (wsHistoryUrl.isNotEmpty) return wsHistoryUrl;

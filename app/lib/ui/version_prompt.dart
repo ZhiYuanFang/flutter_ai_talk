@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../api/gateway_absolute_url.dart';
 import '../config/env.dart';
 import '../data/repositories.dart';
 import '../update/apk_update.dart';
@@ -56,7 +57,7 @@ Future<void> maybeShowVersionPrompt({
           if (defaultTargetPlatform == TargetPlatform.android)
             FilledButton(
               onPressed: () async {
-                final url = info.androidApkUrl.trim();
+                final url = resolveGatewayAbsoluteUrl(info.androidApkUrl) ?? info.androidApkUrl.trim();
                 if (url.isEmpty) {
                   if (ctx.mounted) {
                     ScaffoldMessenger.of(ctx).showSnackBar(

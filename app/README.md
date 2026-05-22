@@ -2,7 +2,7 @@
 
 **所有 `flutter` / `dart` 命令（如 `flutter run`、`flutter pub get`）必须在包含 `pubspec.yaml` 的目录执行，即本仓库的 `app/` 目录；在仓库根目录 `flutter_ai_talk/` 下运行会报 `No pubspec.yaml file found`。**
 
-OpenSpec 变更：`openspec/changes/pangbao-app`（M1）、`openspec/changes/pangbao-m2-editing-trends`（编辑/历史/趋势增强）、`openspec/changes/pangbao-web-input-mode`（Web 主输入文字/语音可配置）、`openspec/changes/pangbao-api-liantiao`（后端接口联调）、`openspec/changes/app-wechat-sdk-login`（微信 SDK / 网页授权）、`openspec/changes/pangbao-device-login-apk-install`（胖宝号默认登录、Android 缓存安装）、`openspec/changes/api-json-camelcase-fields`（网关 JSON camelCase 约定与实现）、`openspec/changes/device-login-baby-save-user-save`（胖宝号会话保存宝宝资料走 `user/save`）、`openspec/changes/feed-history-ws-after-chat`（发消息后依赖 WS 更新历史、WS 未就绪禁发 chat）、`openspec/changes/history-detail-editable-fields`（历史详情按 `eventNumber` 编辑时间与用量、备注；删除：`POST /device/history/api/event/delete`，body `id`、`deviceNo`）。
+OpenSpec 变更：`openspec/changes/android-on-device-vosk-asr`（Android 内置 Vosk 离线语音；iOS 设置中心可切换 Vosk/系统 STT）、`openspec/changes/pangbao-app`（M1）、`openspec/changes/pangbao-m2-editing-trends`（编辑/历史/趋势增强）、`openspec/changes/pangbao-web-input-mode`（Web 主输入文字/语音可配置）、`openspec/changes/pangbao-api-liantiao`（后端接口联调）、`openspec/changes/app-wechat-sdk-login`（微信 SDK / 网页授权）、`openspec/changes/pangbao-device-login-apk-install`（胖宝号默认登录、Android 缓存安装）、`openspec/changes/api-json-camelcase-fields`（网关 JSON camelCase 约定与实现）、`openspec/changes/device-login-baby-save-user-save`（胖宝号会话保存宝宝资料走 `user/save`）、`openspec/changes/feed-history-ws-after-chat`（发消息后依赖 WS 更新历史、WS 未就绪禁发 chat）、`openspec/changes/history-detail-editable-fields`（历史详情按 `eventNumber` 编辑时间与用量、备注；删除：`POST /device/history/api/event/delete`，body `id`、`deviceNo`）。
 
 ## 环境要求
 
@@ -24,6 +24,14 @@ flutter run -d android
 
 > 若缺少 iOS 工程目录，可在已安装 Xcode 的机器上执行：`flutter create . --platforms=ios`（会补齐模板文件；注意与现有 `pubspec.yaml` 合并）。
 
+### 语音模型（Vosk，随安装包内置，不分包）
+
+1. 按 **`assets/models/README.md`** 下载 `vosk-model-small-cn-0.22.zip` 并放入 `app/assets/models/`。
+2. Release 构建前可选校验：`dart run tool/check_vosk_model.dart`（缺 zip 时退出码 1）。
+3. **Android**：固定使用内置 Vosk，无需安装 Google 语音服务；release APK 约增 **50MB**（整包携带模型，不做分包）。
+4. **语音识别引擎**（设置中心）：**Android 默认「云端实时转写」**（`WS_VOICE_ASR_URL` 或基址推导的 `/voice/asr/ws`）；**iOS 默认「系统语音识别」**。另可选「端侧 Vosk」。云端断开时主页麦克风区会提示「语音转写未连接」。
+5. **iOS + Vosk**：构建 iOS 前在 `app/` 执行：`dart run vosk_flutter_service install -t ios`。
+
 ## 打包与发布（Android / iOS / Web）
 
 以下命令均在 **`app/`** 目录执行（与上文一致）。
@@ -42,8 +50,10 @@ flutter build apk --debug
 
 ```bash
 cd app
+dart run tool/check_vosk_model.dart   # 可选，确认模型 zip 已放置
 flutter build apk --release --target-platform android-arm64
 # 产物：build/app/outputs/flutter-apk/app-release.apk
+# 注：含 Vosk 中文小模型时安装包体积会明显增大（约 +50MB）
 ```
 
 - **Google Play 上架用 AAB**（推荐）：
@@ -295,6 +305,11 @@ flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
 - **约定**：HTTP/WebSocket 业务 JSON 键名使用 **lowerCamelCase**（如 `deviceNo`、`accessToken`、`refreshToken`、`downloadUrl`、`jsCode`）。客户端出站已按此发送；历史 WebSocket 鉴权首帧使用 **`accessToken`**（不再使用 `access_token` 作为正式键名）。
 - **入站兼容**：解析响应时通过 `lib/api/gateway_json.dart` 的 `readGatewayStr` **优先 camel、再回退 snake**，直至网关确认不再返回 snake 后可删除回退（见 `openspec/changes/api-json-camelcase-fields`）。
 - **后端对齐**：若网关仍只接受旧 snake 请求体或 WS 只认 `access_token`，需后端增加 camel 别名或同步升级，否则联调会失败。
+
+### 网关相对资源路径（logo、APK 等）
+
+- 服务端可将 **`logo`**（事件目录）、**`downloadUrl`**（版本检查）等返回为**去掉域名的路径**，例如 `/ai_talk_images/event_1.png`、`/device/app/apk/foo.apk`。
+- 客户端通过 `lib/api/gateway_absolute_url.dart` 的 **`resolveGatewayAbsoluteUrl`**，与 HTTP 请求相同的基址 **`API_BASE_URL`**（`AppEnv.apiBaseUrl`）拼接为可下载/可展示的绝对 URL；若已是 `http://` 或 `https://` 则原样使用。
 
 ### 微信登录（fluwx + 网页 OAuth，当前产品入口已关闭）
 

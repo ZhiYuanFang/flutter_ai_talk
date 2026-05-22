@@ -41,6 +41,41 @@ DateTime? parseHistoryInstant(Object? raw) {
 
 String _two(int v) => v.toString().padLeft(2, '0');
 
+/// 主页历史日期分块行（不含时分）。
+String formatHistoryDaySectionLabel(DateTime t, DateTime nowLocal) {
+  final a = DateTime(t.year, t.month, t.day);
+  final today = DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
+  final yest = today.subtract(const Duration(days: 1));
+
+  if (a == today) return '今天';
+  if (a == yest) return '昨天';
+  if (t.year == nowLocal.year) return '${t.month}月${t.day}日';
+  return '${t.year}年${t.month}月${t.day}日';
+}
+
+/// 主页历史记录行左列：仅 `HH:mm`。
+String formatHistoryTimeHm(DateTime t) => '${_two(t.hour)}:${_two(t.minute)}';
+
+/// 主页时间轴行用于展示/分组的时刻（与 [historyHomeRowDisplay] 一致）。
+DateTime historyHomeDisplayInstant(HistoryRecord record) {
+  final p = record.rawPayload;
+  final n = historyPayloadInt(p, 'eventNumber');
+  final end = parseHistoryInstant(p['endTime']);
+  final start = parseHistoryInstant(p['startTime']);
+  final endUnset = historyInstantUnset(end);
+
+  if (n == 1 || n > 1) {
+    return end ?? record.createdAt;
+  }
+  if (n == 0 && endUnset) {
+    return start ?? record.createdAt;
+  }
+  if (n == 0 && !endUnset && end != null) {
+    return end;
+  }
+  return record.createdAt;
+}
+
 /// 相对「当前」的列表用时间短串（本地自然日 / 年）。
 String formatHistoryInstant(DateTime t, DateTime nowLocal) {
   final a = DateTime(t.year, t.month, t.day);
@@ -167,4 +202,71 @@ List<InlineSpan> historyLineSpans(HistoryRecord record, TextStyle base, [DateTim
     ];
   }
   return [TextSpan(text: formatHistoryLine(record.eventName, record.action), style: base)];
+}
+
+/// 主页历史时间轴行展示字段（与 [historyLineSpans] 语义一致）。
+class HistoryHomeRowDisplay {
+  const HistoryHomeRowDisplay({
+    required this.timeLabel,
+    required this.eventName,
+    this.remark,
+    required this.trailing,
+  });
+
+  final String timeLabel;
+  final String eventName;
+  final String? remark;
+  final String trailing;
+}
+
+HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record, [DateTime? now]) {
+  final nowLocal = (now ?? DateTime.now()).toLocal();
+  final p = record.rawPayload;
+  final n = historyPayloadInt(p, 'eventNumber');
+  final remark = (p['remark'] as String? ?? '').trim();
+  final end = parseHistoryInstant(p['endTime']);
+  final start = parseHistoryInstant(p['startTime']);
+  final endUnset = historyInstantUnset(end);
+  final name = _displayEventName(record.eventName);
+
+  final instant = historyHomeDisplayInstant(record);
+  final timeHm = formatHistoryTimeHm(instant);
+
+  if (n == 1) {
+    return HistoryHomeRowDisplay(
+      timeLabel: timeHm,
+      eventName: name,
+      remark: remark.isEmpty ? null : remark,
+      trailing: '',
+    );
+  }
+  if (n > 1) {
+    return HistoryHomeRowDisplay(
+      timeLabel: timeHm,
+      eventName: name,
+      trailing: '→$n',
+    );
+  }
+  if (n == 0 && endUnset) {
+    return HistoryHomeRowDisplay(
+      timeLabel: timeHm,
+      eventName: name,
+      trailing: '开始计时',
+    );
+  }
+  if (n == 0 && !endUnset && end != null) {
+    final st = start ?? record.createdAt;
+    final dur = formatDurationForEvent0(st, end);
+    return HistoryHomeRowDisplay(
+      timeLabel: timeHm,
+      eventName: name,
+      trailing: '用时$dur',
+    );
+  }
+  final fallback = formatHistoryLine(record.eventName, record.action);
+  return HistoryHomeRowDisplay(
+    timeLabel: timeHm,
+    eventName: fallback,
+    trailing: '',
+  );
 }

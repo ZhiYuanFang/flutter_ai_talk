@@ -1,4 +1,5 @@
 import '../api/api_client.dart';
+import '../api/gateway_absolute_url.dart';
 import '../api/gateway_json.dart';
 import '../api/api_exceptions.dart';
 import '../config/env.dart';
@@ -29,10 +30,11 @@ class RemoteVersionRepository implements VersionRepository {
       if (data == null) return null;
       final need = data['needUpdate'] as bool? ?? false;
       if (!need) return null;
+      final downloadRaw = readGatewayStr(data, 'downloadUrl', 'download_url');
       return VersionInfo(
         latestVersion: data['latestVersion'] as String? ?? '',
         releaseNotes: (data['releaseNotes'] as String?) ?? '',
-        androidApkUrl: readGatewayStr(data, 'downloadUrl', 'download_url') ?? '',
+        androidApkUrl: resolveGatewayAbsoluteUrl(downloadRaw) ?? '',
         forceUpdate: data['forceUpdate'] as bool? ?? false,
       );
     } on ApiBusinessException {

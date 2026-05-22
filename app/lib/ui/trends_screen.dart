@@ -1,13 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 
+import '../data/event_branding.dart';
+import '../data/event_definition.dart';
 import '../data/models.dart';
 import '../data/repositories.dart';
+import '../providers/event_catalog_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import 'event_logo.dart';
 
 class TrendsScreen extends ConsumerStatefulWidget {
   const TrendsScreen({super.key});
@@ -17,7 +23,6 @@ class TrendsScreen extends ConsumerStatefulWidget {
 }
 
 class _TrendsScreenState extends ConsumerState<TrendsScreen> {
-  List<TrendCatalogItem> _catalog = const [];
   TrendRange _range = TrendRange.today;
   String? _selectedKey;
   TrendSeries? _series;
@@ -26,22 +31,24 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadCatalog();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ref.read(eventCatalogProvider.notifier).loadFromDisk();
+      _syncSelection();
+      if (mounted) setState(() {});
+      unawaited(ref.read(eventCatalogProvider.notifier).refreshFromRemote());
+    });
   }
 
-  Future<void> _loadCatalog() async {
-    final repo = ref.read(trendsRepositoryProvider);
-    final c = await repo.loadCatalog();
-    if (!mounted) return;
-    setState(() {
-      _catalog = c;
-      if (_selectedKey == null && c.isNotEmpty) {
-        _selectedKey = c.first.eventKey;
-      } else if (_selectedKey != null && !c.any((e) => e.eventKey == _selectedKey)) {
-        _selectedKey = c.isEmpty ? null : c.first.eventKey;
-      }
-    });
-    await _loadSeriesForSelection();
+  void _syncSelection() {
+    final catalog = ref.read(eventCatalogProvider);
+    if (_selectedKey == null && catalog.isNotEmpty) {
+      _selectedKey = catalog.first.id;
+    } else if (_selectedKey != null && !catalog.any((e) => e.id == _selectedKey)) {
+      _selectedKey = catalog.isEmpty ? null : catalog.first.id;
+    }
+    if (_selectedKey != null) {
+      unawaited(_loadSeriesForSelection());
+    }
   }
 
   Future<void> _loadSeriesForSelection() async {
@@ -60,9 +67,23 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     });
   }
 
+  EventDefinition? _selectedEvent(List<EventDefinition> catalog) {
+    final key = _selectedKey;
+    if (key == null) return null;
+    return lookupEventById(catalog, key);
+  }
+
   @override
   Widget build(BuildContext context) {
     final needLoginMask = !ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    final catalog = ref.watch(eventCatalogProvider);
+    ref.listen<List<EventDefinition>>(eventCatalogProvider, (prev, next) {
+      if (prev == next) return;
+      _syncSelection();
+    });
+    final selectedEvent = _selectedEvent(catalog);
+    final accent = resolveEventColor(context, selectedEvent);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('趋势中心'),
@@ -76,7 +97,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_catalog.isEmpty)
+                if (catalog.isEmpty)
                   Text(
                     '暂无事件目录，请稍后再试或检查网络',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
@@ -89,8 +110,17 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
                       value: _selectedKey,
                       hint: const Text('选择事件'),
                       items: [
-                        for (final e in _catalog)
-                          DropdownMenuItem(value: e.eventKey, child: Text(e.title)),
+                        for (final e in catalog)
+                          DropdownMenuItem(
+                            value: e.id,
+                            child: Row(
+                              children: [
+                                EventLogo(definition: e, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(e.name)),
+                              ],
+                            ),
+                          ),
                       ],
                       onChanged: (v) async {
                         if (v == null) return;
@@ -127,7 +157,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
                   : Stack(
                       fit: StackFit.expand,
                       children: [
-                        _TrendLineAndBar(series: _series, range: _range),
+                        _TrendLineAndBar(series: _series, range: _range, accentColor: accent),
                         if (needLoginMask)
                           ColoredBox(
                             color: Colors.black45,
@@ -159,10 +189,15 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
 }
 
 class _TrendLineAndBar extends StatelessWidget {
-  const _TrendLineAndBar({required this.series, required this.range});
+  const _TrendLineAndBar({
+    required this.series,
+    required this.range,
+    required this.accentColor,
+  });
 
   final TrendSeries? series;
   final TrendRange range;
+  final Color accentColor;
 
   static final _dateFmt = DateFormat('MM-dd');
   static final _timeFmt = DateFormat('HH:mm');
@@ -217,7 +252,7 @@ class _TrendLineAndBar extends StatelessWidget {
             toY: pts[i].value,
             width: 10,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-            color: Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.85),
+            color: accentColor.withValues(alpha: 0.85),
           ),
         ],
       ),
@@ -277,7 +312,7 @@ class _TrendLineAndBar extends StatelessWidget {
                   spots: spots,
                   isCurved: true,
                   dotData: const FlDotData(show: true),
-                  color: Theme.of(context).colorScheme.primary,
+                  color: accentColor,
                 ),
               ],
             ),
