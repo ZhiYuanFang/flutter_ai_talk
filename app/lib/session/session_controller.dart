@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/gateway_json.dart';
 import '../config/env.dart';
+import 'token_expiry.dart';
 
 const _kAccessKey = 'session_access_token';
 const _kRefreshKey = 'session_refresh_token';
@@ -39,6 +40,25 @@ class SessionController extends ChangeNotifier {
     await prefs.setString(_kRefreshKey, refreshToken);
     await prefs.remove(_kLegacyTokenKey);
     notifyListeners();
+  }
+
+  /// 冷启动或 access 将过期时主动 refresh；失败则 [signOut]。
+  Future<bool> ensureFreshSession() async {
+    final rt = _refreshToken;
+    final hasRefresh = rt != null && rt.isNotEmpty;
+    if (!isLoggedIn && !hasRefresh) return false;
+
+    if (!hasRefresh) return isLoggedIn;
+
+    if (!accessTokenShouldRefresh(_accessToken)) return isLoggedIn;
+
+    final ok = await trySilentRefresh();
+    if (ok) return true;
+
+    if (isLoggedIn) {
+      await signOut();
+    }
+    return false;
   }
 
   /// 使用 [AppEnv.refreshTokenPath] 与 body `{ refreshToken }` 尝试换新 access（无 path 则 false）。

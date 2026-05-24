@@ -40,7 +40,7 @@ enum HomeSpeechPrepareFailure {
 extension HomeSpeechPrepareFailureMessage on HomeSpeechPrepareFailure {
   String get message => switch (this) {
         HomeSpeechPrepareFailure.modelMissing =>
-          '语音模型未就绪，请按 assets/models/README.md 放置模型后重新安装',
+          '语音识别资源未就绪，请稍后重试或改用文字输入',
         HomeSpeechPrepareFailure.permissionDenied => '需要麦克风权限才能使用语音输入',
         HomeSpeechPrepareFailure.voiceWsDisconnected =>
           '语音转写服务未连接，请稍候再按或检查网络',

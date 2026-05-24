@@ -9,6 +9,7 @@ import '../api/api_exceptions.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
 import 'history_mapper.dart';
+import 'home_history_store.dart';
 import 'models.dart';
 import 'feed_repository.dart';
 
@@ -192,30 +193,55 @@ class RemoteFeedRepository implements FeedRepository {
 
   @override
   Future<List<HistoryRecord>> loadHistory() async {
+    final result = await tryLoadHistory();
+    if (result == null) return [];
+    return result;
+  }
+
+  @override
+  Future<List<HistoryRecord>?> tryLoadHistory() async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
+      HomeHistoryLog.d('api list skip: deviceNo empty');
       return [];
     }
+    HomeHistoryLog.d('api list start deviceNo=$dn page=1 pageSize=50');
+    final sw = Stopwatch()..start();
     try {
       final data = await _api.getEnvelope(
         '/device/history/api/list',
         query: {'deviceNo': dn, 'page': '1', 'pageSize': '50'},
       );
-      if (data == null) return [];
+      if (data == null) {
+        sw.stop();
+        HomeHistoryLog.d('api list response data=null elapsed=${sw.elapsedMilliseconds}ms');
+        return null;
+      }
       final list = data['list'] as List<dynamic>? ?? const [];
       final out = <HistoryRecord>[];
       for (final e in list) {
-        if (e is Map<String, dynamic>) {
-          out.add(historyRecordFromServerMap(e));
+        if (e is Map) {
+          out.add(historyRecordFromServerMap(Map<String, dynamic>.from(e)));
         }
       }
       _cache
         ..clear()
         ..addAll(out);
+      sw.stop();
+      HomeHistoryLog.d(
+        'api list ok count=${out.length} rawList=${list.length} elapsed=${sw.elapsedMilliseconds}ms',
+      );
       return List<HistoryRecord>.from(_cache);
     } on ApiBusinessException catch (e) {
-      _toast(e.message);
-      return [];
+      sw.stop();
+      HomeHistoryLog.d(
+        'api list ApiBusinessException code=${e.code} message=${e.message} elapsed=${sw.elapsedMilliseconds}ms',
+      );
+      return null;
+    } catch (e) {
+      sw.stop();
+      HomeHistoryLog.d('api list error: $e elapsed=${sw.elapsedMilliseconds}ms');
+      return null;
     }
   }
 
@@ -259,6 +285,27 @@ class RemoteFeedRepository implements FeedRepository {
     _ensureDeviceNoOnBody(body);
     try {
       await _api.postJsonEnvelope('/device/history/api/event/update', body);
+      return true;
+    } on ApiBusinessException catch (e) {
+      _toast(e.message);
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> addHistoryEvent(Map<String, dynamic> body) async {
+    final dn = _deviceNoGetter();
+    if (dn == null || dn.isEmpty) {
+      _toast('请先绑定宝宝信息');
+      return false;
+    }
+    if (!isHistoryWebSocketReady) {
+      return false;
+    }
+    final payload = Map<String, dynamic>.from(body);
+    _ensureDeviceNoOnBody(payload);
+    try {
+      await _api.postJsonEnvelope('/device/history/api/event/add', payload);
       return true;
     } on ApiBusinessException catch (e) {
       _toast(e.message);

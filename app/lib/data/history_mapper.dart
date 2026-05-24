@@ -1,4 +1,5 @@
 import '../api/gateway_json.dart';
+import 'event_definition.dart';
 import 'history_line_format.dart';
 import 'models.dart';
 
@@ -82,10 +83,29 @@ Map<String, dynamic> buildEventUpdateBody({
     'deviceNo': readGatewayStr(Map<String, dynamic>.from(p), 'deviceNo', 'device_no') ?? '',
     'eventId': asInt(p['eventId'], fallback: 0),
     'eventName': record.eventName,
-    'eventUnit': (p['eventUnit'] as String?) ?? '',
     'eventNumber': usageCount ?? asInt(p['eventNumber'], fallback: 0),
     'startTime': startOut,
     'endTime': endOut,
+    'remark': remark,
+  };
+}
+
+/// 构造 `POST /device/history/api/event/add` 请求体（无 `eventUnit`）。
+Map<String, dynamic> buildEventAddBody({
+  required String deviceNo,
+  required EventDefinition event,
+  required int eventNumber,
+  required DateTime startTime,
+  required DateTime endTime,
+  String remark = '',
+}) {
+  return {
+    'deviceNo': deviceNo,
+    'eventId': int.tryParse(event.id) ?? 0,
+    'eventName': event.name,
+    'eventNumber': eventNumber,
+    'startTime': historyDateTimeToUnixSeconds(startTime),
+    'endTime': historyDateTimeToUnixSeconds(endTime),
     'remark': remark,
   };
 }

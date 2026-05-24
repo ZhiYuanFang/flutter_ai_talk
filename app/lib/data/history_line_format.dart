@@ -9,6 +9,17 @@ int historyPayloadInt(Map<String, Object?> p, String key) {
   return int.tryParse(v?.toString() ?? '') ?? 0;
 }
 
+/// 比较历史 payload 中的 `eventId` 与目录 `id`（int/string 归一化）。
+bool historyEventIdsMatch(Object? payloadEventId, String catalogEventId) {
+  if (payloadEventId == null) return false;
+  final cat = catalogEventId.trim();
+  if (cat.isEmpty) return false;
+  final payloadInt = historyPayloadInt({'eventId': payloadEventId}, 'eventId');
+  final catalogInt = int.tryParse(cat);
+  if (catalogInt != null && payloadInt == catalogInt) return true;
+  return payloadEventId.toString().trim() == cat;
+}
+
 /// 网关缺失 / `0` / 空串 / Unix 起点视为「未设置」。
 bool historyInstantUnset(DateTime? t) {
   if (t == null) return true;
@@ -87,6 +98,29 @@ String formatHistoryInstant(DateTime t, DateTime nowLocal) {
   if (a == yest) return '昨天$hm';
   if (t.year == nowLocal.year) return '${t.month}月${t.day}日 $hm';
   return '${t.year}年${t.month}月${t.day}日 $hm';
+}
+
+/// `eventNumber == 0` 且 [endTime] 未设置。
+bool isActiveTimingRecord(HistoryRecord record) {
+  final p = record.rawPayload;
+  if (historyPayloadInt(p, 'eventNumber') != 0) return false;
+  return historyInstantUnset(parseHistoryInstant(p['endTime']));
+}
+
+/// 进行中计时的开始时刻。
+DateTime activeTimingStartAt(HistoryRecord record) {
+  final p = record.rawPayload;
+  return parseHistoryInstant(p['startTime']) ?? record.createdAt;
+}
+
+/// 进行中已计时长：不足 1 小时 `MM:SS`，满 1 小时及以上 `HH:MM:SS`。
+String formatActiveTimerElapsed(Duration elapsed) {
+  var d = elapsed;
+  if (d.isNegative) d = Duration.zero;
+  if (d.inHours < 1) {
+    return '${_two(d.inMinutes)}:${_two(d.inSeconds % 60)}';
+  }
+  return '${_two(d.inHours)}:${_two(d.inMinutes.remainder(60))}:${_two(d.inSeconds.remainder(60))}';
 }
 
 /// `eventNumber == 0` 且已结束时的用时文案；不满 1 分钟（含 0 分钟）为「不足 1 分钟」。
@@ -211,16 +245,18 @@ class HistoryHomeRowDisplay {
     required this.eventName,
     this.remark,
     required this.trailing,
+    this.isActiveTiming = false,
   });
 
   final String timeLabel;
   final String eventName;
   final String? remark;
   final String trailing;
+  /// 尾注由 [HomeHistoryTimelineTile] 动态渲染（时长 + 停止）。
+  final bool isActiveTiming;
 }
 
-HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record, [DateTime? now]) {
-  final nowLocal = (now ?? DateTime.now()).toLocal();
+HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record) {
   final p = record.rawPayload;
   final n = historyPayloadInt(p, 'eventNumber');
   final remark = (p['remark'] as String? ?? '').trim();
@@ -251,7 +287,8 @@ HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record, [DateTime? now
     return HistoryHomeRowDisplay(
       timeLabel: timeHm,
       eventName: name,
-      trailing: '开始计时',
+      trailing: '',
+      isActiveTiming: true,
     );
   }
   if (n == 0 && !endUnset && end != null) {

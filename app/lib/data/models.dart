@@ -71,6 +71,28 @@ class HistoryRecord {
   final Map<String, Object?> rawPayload;
 
   String get displayLine => formatHistoryLine(eventName, action);
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'createdAt': createdAt.toIso8601String(),
+        'eventName': eventName,
+        'action': action,
+        'rawPayload': rawPayload,
+      };
+
+  static HistoryRecord fromJson(Map<String, dynamic> j) {
+    final payloadRaw = j['rawPayload'];
+    final payload = payloadRaw is Map
+        ? payloadRaw.map((key, value) => MapEntry(key.toString(), value as Object?))
+        : <String, Object?>{};
+    return HistoryRecord(
+      id: j['id']?.toString() ?? '',
+      createdAt: DateTime.tryParse(j['createdAt'] as String? ?? '') ?? DateTime.now(),
+      eventName: j['eventName'] as String? ?? '',
+      action: j['action'] as String? ?? '',
+      rawPayload: Map<String, Object?>.from(payload),
+    );
+  }
 }
 
 String formatHistoryLine(String eventName, String action) {

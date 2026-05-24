@@ -193,6 +193,7 @@ class _BabyProfileReadonlyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final birthStr = baby.birthDate.toIso8601String().split('T').first;
     return Card(
+      color: themePrimaryBlend(context, alpha: 0.1),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => context.push('/settings/baby'),
@@ -243,6 +244,7 @@ class MaterialColorPicker extends StatelessWidget {
     Color(0xFFFFF8E1),
     Color(0xFFECEFF1),
     Color(0xFFE1BEE7),
+    Color(0xFF000000),
   ];
 
   @override
@@ -254,7 +256,16 @@ class MaterialColorPicker extends StatelessWidget {
         for (final c in _colors)
           InkWell(
             onTap: () => onPicked(c),
-            child: Container(width: 44, height: 44, decoration: BoxDecoration(color: c, border: Border.all())),
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: c,
+                border: Border.all(
+                  color: c.computeLuminance() < 0.15 ? Colors.white54 : Colors.black26,
+                ),
+              ),
+            ),
           ),
       ],
     );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -31,6 +33,9 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
 
   DateTime _startEdit = DateTime.now();
   DateTime? _endEdit;
+  Timer? _activeTimingTick;
+  DateTime _tickNow = DateTime.now();
+  var _stoppingActive = false;
 
   @override
   void initState() {
@@ -73,10 +78,52 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
         _applyRecordToForm(r);
       }
     });
+    _syncActiveTimingTick();
+  }
+
+  void _syncActiveTimingTick() {
+    final r = _record;
+    final active = r != null && isActiveTimingRecord(r);
+    if (active && _mode == _HistoryDetailMode.view) {
+      if (_activeTimingTick == null) {
+        _activeTimingTick = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (!mounted) return;
+          setState(() => _tickNow = DateTime.now());
+          final cur = _record;
+          if (cur == null || !isActiveTimingRecord(cur) || _mode != _HistoryDetailMode.view) {
+            _activeTimingTick?.cancel();
+            _activeTimingTick = null;
+          }
+        });
+      }
+    } else {
+      _activeTimingTick?.cancel();
+      _activeTimingTick = null;
+    }
+  }
+
+  Future<void> _stopActiveTiming() async {
+    final r = _record;
+    if (r == null || _stoppingActive || !isActiveTimingRecord(r)) return;
+    setState(() => _stoppingActive = true);
+    final p = r.rawPayload;
+    final remark = (p['remark'] as String?) ?? '';
+    final end = DateTime.now();
+    final ok = await ref.read(feedRepositoryProvider).updateHistoryRecord(
+          widget.recordId,
+          remark: remark,
+          startTime: activeTimingStartAt(r),
+          endTime: end,
+        );
+    if (!mounted) return;
+    setState(() => _stoppingActive = false);
+    if (!ok) return;
+    context.pop(true);
   }
 
   void _enterEdit() {
     setState(() => _mode = _HistoryDetailMode.edit);
+    _syncActiveTimingTick();
   }
 
   void _cancelEdit() {
@@ -85,6 +132,7 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
       _applyRecordToForm(r);
     }
     setState(() => _mode = _HistoryDetailMode.view);
+    _syncActiveTimingTick();
   }
 
   bool _isFormDirty() {
@@ -147,6 +195,7 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
 
   @override
   void dispose() {
+    _activeTimingTick?.cancel();
     _remarkCtrl.dispose();
     _usageCtrl.dispose();
     super.dispose();
@@ -285,8 +334,20 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
       final st = start ?? r.createdAt;
       children.add(_previewRow('开始时间', formatHistoryApiDateTime(st)));
       if (endUnset) {
-        children.add(_previewRow('结束时间', '未结束'));
-        children.add(_previewRow('状态', '计时中'));
+        final elapsed = formatActiveTimerElapsed(_tickNow.difference(st));
+        children.add(_previewRow('已计时长', elapsed));
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonal(
+                onPressed: _stoppingActive ? null : _stopActiveTiming,
+                child: Text(_stoppingActive ? '停止中…' : '停止'),
+              ),
+            ),
+          ),
+        );
       } else if (end != null) {
         children.add(_previewRow('结束时间', formatHistoryApiDateTime(end)));
         children.add(_previewRow('用时', formatDurationForEvent0(st, end)));

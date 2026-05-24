@@ -6,6 +6,7 @@ import '../scaffold_messenger_key.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../theme/app_theme_scope.dart';
+import '../theme/theme_bootstrap_cache.dart';
 
 /// 宝宝资料表单：加载 [initialBaby]，保存后刷新 [settingsBabyProvider] 与主题性别。
 /// [onSaved] 在保存成功且 SnackBar 展示前调用（例如返回上一级）。
@@ -86,6 +87,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
       await ref.read(settingsRepositoryProvider).saveBaby(profile);
       ref.invalidate(settingsBabyProvider);
       ref.read(babySexProvider.notifier).state = profile.sex;
+      await persistCachedBabySex(profile.sex);
       if (!mounted) return;
       (appScaffoldMessengerKey.currentState ?? ScaffoldMessenger.of(context)).showSnackBar(
         const SnackBar(content: Text('宝宝信息已保存')),

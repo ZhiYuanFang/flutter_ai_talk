@@ -12,6 +12,9 @@ class HomeHistoryTimelineTile extends StatelessWidget {
     required this.fromBottom,
     required this.onTap,
     this.event,
+    this.activeElapsedLabel,
+    this.onStop,
+    this.stopInProgress = false,
   });
 
   final HistoryHomeRowDisplay display;
@@ -19,6 +22,9 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   final int fromBottom;
   final VoidCallback onTap;
   final EventDefinition? event;
+  final String? activeElapsedLabel;
+  final VoidCallback? onStop;
+  final bool stopInProgress;
 
   static const double rowHeight = 34;
   static const double _timeWidth = 44;
@@ -46,7 +52,8 @@ class HomeHistoryTimelineTile extends StatelessWidget {
     final trailingStyle = TextStyle(
       fontSize: fontSize - 1,
       height: 1.15,
-      color: scheme.onSurfaceVariant.withValues(alpha: emphasis),
+      fontFeatures: const [FontFeature.tabularFigures()],
+      color: scheme.primary.withValues(alpha: emphasis),
     );
 
     final centerLabel = display.remark == null || display.remark!.isEmpty
@@ -55,61 +62,128 @@ class HomeHistoryTimelineTile extends StatelessWidget {
 
     return SizedBox(
       height: rowHeight,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 14,
-                  child: Center(
-                    child: Container(
-                      width: isNewest ? 7 : 5,
-                      height: isNewest ? 7 : 5,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isNewest ? accent : accent.withValues(alpha: 0.45),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        child: Center(
+                          child: Container(
+                            width: isNewest ? 7 : 5,
+                            height: isNewest ? 7 : 5,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isNewest ? accent : accent.withValues(alpha: 0.45),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      EventLogo(definition: event, size: _logoSize),
+                      const SizedBox(width: 4),
+                      SizedBox(
+                        width: _timeWidth,
+                        child: Text(
+                          display.timeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: timeStyle,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          centerLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: eventStyle,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                EventLogo(definition: event, size: _logoSize),
-                const SizedBox(width: 4),
-                SizedBox(
-                  width: _timeWidth,
-                  child: Text(
-                    display.timeLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: timeStyle,
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    centerLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: eventStyle,
-                  ),
-                ),
-                if (display.trailing.isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    display.trailing,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: trailingStyle,
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
-        ),
+          if (display.isActiveTiming &&
+              activeElapsedLabel != null &&
+              onStop != null)
+            _ActiveTimingTrailing(
+              elapsedLabel: activeElapsedLabel!,
+              trailingStyle: trailingStyle,
+              onStop: onStop!,
+              stopInProgress: stopInProgress,
+            )
+          else if (display.trailing.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: Text(
+                display.trailing,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: fontSize - 1,
+                  height: 1.15,
+                  color: scheme.onSurfaceVariant.withValues(alpha: emphasis),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ActiveTimingTrailing extends StatelessWidget {
+  const _ActiveTimingTrailing({
+    required this.elapsedLabel,
+    required this.trailingStyle,
+    required this.onStop,
+    required this.stopInProgress,
+  });
+
+  final String elapsedLabel;
+  final TextStyle trailingStyle;
+  final VoidCallback onStop;
+  final bool stopInProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            elapsedLabel,
+            maxLines: 1,
+            style: trailingStyle,
+          ),
+          const SizedBox(width: 2),
+          TextButton(
+            onPressed: stopInProgress ? null : onStop,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(40, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              foregroundColor: scheme.primary,
+            ),
+            child: Text(stopInProgress ? '…' : '停止', style: TextStyle(fontSize: trailingStyle.fontSize)),
+          ),
+        ],
       ),
     );
   }

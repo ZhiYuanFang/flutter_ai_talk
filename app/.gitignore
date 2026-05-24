@@ -11,7 +11,6 @@ build/
 *.iml
 .idea/
 
-# Vosk 模型 zip 体积大，本地放置即可（见 assets/models/README.md）
 # assets/models/*.zip
 
 # 密钥与本地配置（勿提交真实值）

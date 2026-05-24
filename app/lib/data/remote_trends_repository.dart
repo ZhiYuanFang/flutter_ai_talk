@@ -5,6 +5,7 @@ import '../api/api_exceptions.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/toast_bus.dart';
+import '../api/gateway_json.dart';
 import 'event_catalog_store.dart';
 import 'models.dart';
 import 'trend_point_mapper.dart';
@@ -39,8 +40,7 @@ class RemoteTrendsRepository implements TrendsRepository {
   Future<List<TrendCatalogItem>> loadCatalog() async {
     try {
       final data = await _api.getEnvelope('/device/history/api/event/options');
-      if (data == null) return const [];
-      final list = data['list'] as List<dynamic>? ?? const [];
+      final list = envelopeListOrEmpty(data);
       final defs = parseEventOptionsList(list);
       return defs
           .map((d) => TrendCatalogItem(eventKey: d.id, title: d.name))

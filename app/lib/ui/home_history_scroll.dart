@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -16,12 +18,16 @@ class HomeHistoryScroll extends StatefulWidget {
     required this.itemsAsc,
     required this.eventCatalog,
     required this.onRecordTap,
+    required this.onStopActiveTimer,
+    this.stoppingRecordIds = const {},
   });
 
   /// 时间升序（旧→新）。
   final List<HistoryRecord> itemsAsc;
   final List<EventDefinition> eventCatalog;
   final void Function(HistoryRecord record) onRecordTap;
+  final Future<void> Function(HistoryRecord record) onStopActiveTimer;
+  final Set<String> stoppingRecordIds;
 
   @override
   State<HomeHistoryScroll> createState() => _HomeHistoryScrollState();
@@ -29,22 +35,46 @@ class HomeHistoryScroll extends StatefulWidget {
 
 class _HomeHistoryScrollState extends State<HomeHistoryScroll> {
   final _controller = ScrollController();
+  Timer? _activeTimingTick;
+  DateTime _tickNow = DateTime.now();
 
   @override
   void initState() {
     super.initState();
+    _syncActiveTimingTick();
     SchedulerBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   @override
   void didUpdateWidget(HomeHistoryScroll oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _syncActiveTimingTick();
     final lenChanged = oldWidget.itemsAsc.length != widget.itemsAsc.length;
     final lastChanged = oldWidget.itemsAsc.isEmpty != widget.itemsAsc.isEmpty ||
         (widget.itemsAsc.isNotEmpty &&
             oldWidget.itemsAsc.last.id != widget.itemsAsc.last.id);
     if (lenChanged || lastChanged) {
       SchedulerBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+  }
+
+  void _syncActiveTimingTick() {
+    final hasActive = widget.itemsAsc.any(isActiveTimingRecord);
+    if (hasActive) {
+      if (_activeTimingTick == null) {
+        setState(() => _tickNow = DateTime.now());
+        _activeTimingTick = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (!mounted) return;
+          setState(() => _tickNow = DateTime.now());
+          if (!widget.itemsAsc.any(isActiveTimingRecord)) {
+            _activeTimingTick?.cancel();
+            _activeTimingTick = null;
+          }
+        });
+      }
+    } else {
+      _activeTimingTick?.cancel();
+      _activeTimingTick = null;
     }
   }
 
@@ -62,6 +92,7 @@ class _HomeHistoryScrollState extends State<HomeHistoryScroll> {
 
   @override
   void dispose() {
+    _activeTimingTick?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -98,11 +129,22 @@ class _HomeHistoryScrollState extends State<HomeHistoryScroll> {
                             final record = records[i];
                             final fromBottom = total - 1 - recordIndex;
                             recordIndex++;
+                            final display = historyHomeRowDisplay(record);
+                            final elapsed = display.isActiveTiming
+                                ? formatActiveTimerElapsed(
+                                    _tickNow.difference(activeTimingStartAt(record)),
+                                  )
+                                : null;
                             return HomeHistoryTimelineTile(
-                              display: historyHomeRowDisplay(record),
+                              display: display,
                               fromBottom: fromBottom,
                               event: lookupEventForRecord(widget.eventCatalog, record),
                               onTap: () => widget.onRecordTap(record),
+                              activeElapsedLabel: elapsed,
+                              onStop: display.isActiveTiming
+                                  ? () => widget.onStopActiveTimer(record)
+                                  : null,
+                              stopInProgress: widget.stoppingRecordIds.contains(record.id),
                             );
                           },
                           childCount: g.recordsOldestFirst.length,

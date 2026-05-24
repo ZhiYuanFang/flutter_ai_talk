@@ -3,8 +3,10 @@ package com.pangbao.pangbao_app
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -12,9 +14,25 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val installerChannel = "com.pangbao.pangbao_app/installer"
+    private val nativeSplashChannel = "com.pangbao.pangbao_app/native_splash"
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        val splash = installSplashScreen()
+        splash.setKeepOnScreenCondition { KeepNativeSplash.visible }
+        super.onCreate(savedInstanceState)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, nativeSplashChannel).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "hide" -> {
+                    KeepNativeSplash.visible = false
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, installerChannel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "canRequestPackageInstalls" -> {
@@ -66,4 +84,9 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
+}
+
+private object KeepNativeSplash {
+    @Volatile
+    var visible: Boolean = true
 }

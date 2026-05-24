@@ -19,20 +19,49 @@ Color _sexPrimary(BabySex sex) {
   }
 }
 
+/// 主题主色叠在 [ThemeData.scaffoldBackgroundColor] 上（随性别主题与自定义背景变化）。
+Color themePrimaryBlend(BuildContext context, {double alpha = 0.12}) {
+  final theme = Theme.of(context);
+  return Color.alphaBlend(
+    theme.colorScheme.primary.withValues(alpha: alpha),
+    theme.scaffoldBackgroundColor,
+  );
+}
+
+Color themePrimaryBlendFromTheme(ThemeData theme, ColorScheme scheme, {double alpha = 0.12}) {
+  return Color.alphaBlend(
+    scheme.primary.withValues(alpha: alpha),
+    theme.scaffoldBackgroundColor,
+  );
+}
+
 ThemeData buildAppTheme({
   required BabySex sex,
   Color? customBackground,
 }) {
   final primary = _sexPrimary(sex);
   final bg = customBackground ?? Color.alphaBlend(primary.withValues(alpha: 0.08), Colors.white);
-  return ThemeData(
-    colorScheme: ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.light),
+  final scheme = ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.light);
+  final shell = ThemeData(
+    colorScheme: scheme,
     scaffoldBackgroundColor: bg,
+    useMaterial3: true,
+  );
+  final appBarBg = themePrimaryBlendFromTheme(shell, scheme, alpha: 0.12);
+  final appBarFg = ThemeData.estimateBrightnessForColor(appBarBg) == Brightness.dark
+      ? Colors.white
+      : Colors.black87;
+  return shell.copyWith(
     appBarTheme: AppBarTheme(
-      backgroundColor: Color.alphaBlend(primary.withValues(alpha: 0.12), Colors.white),
-      foregroundColor: Colors.black87,
+      backgroundColor: appBarBg,
+      foregroundColor: appBarFg,
+      iconTheme: IconThemeData(color: appBarFg),
       elevation: 0,
     ),
-    useMaterial3: true,
+    cardTheme: CardThemeData(
+      color: themePrimaryBlendFromTheme(shell, scheme, alpha: 0.1),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
   );
 }

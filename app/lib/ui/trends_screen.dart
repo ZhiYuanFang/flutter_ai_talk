@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 
+import '../data/event_catalog_tree.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/models.dart';
@@ -13,6 +14,7 @@ import '../data/repositories.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../theme/app_theme_scope.dart';
 import 'event_logo.dart';
 
 class TrendsScreen extends ConsumerStatefulWidget {
@@ -41,10 +43,15 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
 
   void _syncSelection() {
     final catalog = ref.read(eventCatalogProvider);
-    if (_selectedKey == null && catalog.isNotEmpty) {
-      _selectedKey = catalog.first.id;
-    } else if (_selectedKey != null && !catalog.any((e) => e.id == _selectedKey)) {
-      _selectedKey = catalog.isEmpty ? null : catalog.first.id;
+    final leaves = leafEvents(catalog, requireValidEventType: true);
+    if (leaves.isEmpty) {
+      _selectedKey = null;
+      return;
+    }
+    final currentValid =
+        _selectedKey != null && leaves.any((e) => e.id == _selectedKey);
+    if (_selectedKey == null || !currentValid) {
+      _selectedKey = leaves.first.id;
     }
     if (_selectedKey != null) {
       unawaited(_loadSeriesForSelection());
@@ -71,6 +78,55 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final key = _selectedKey;
     if (key == null) return null;
     return lookupEventById(catalog, key);
+  }
+
+  Future<void> _openEventPicker(List<EventDefinition> catalog) async {
+    final pickerItems = leafEvents(catalog, requireValidEventType: true);
+    if (pickerItems.isEmpty) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: themePrimaryBlend(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final sheetH = MediaQuery.sizeOf(ctx).height * 2 / 3;
+        return SizedBox(
+          height: sheetH,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('选择事件', style: Theme.of(ctx).textTheme.titleMedium),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: pickerItems.length,
+                  itemBuilder: (context, index) {
+                    final e = pickerItems[index];
+                    final selected = e.id == _selectedKey;
+                    return ListTile(
+                      selected: selected,
+                      leading: EventLogo(definition: e, size: 28),
+                      title: Text(e.name),
+                      trailing: selected ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary) : null,
+                      onTap: () => Navigator.pop(ctx, e.id),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked == null || picked == _selectedKey) return;
+    setState(() => _selectedKey = picked);
+    await _loadSeriesForSelection();
   }
 
   @override
@@ -105,28 +161,31 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
                 else
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: _selectedKey,
-                      hint: const Text('选择事件'),
-                      items: [
-                        for (final e in catalog)
-                          DropdownMenuItem(
-                            value: e.id,
-                            child: Row(
-                              children: [
-                                EventLogo(definition: e, size: 20),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(e.name)),
+                    child: Material(
+                      color: themePrimaryBlend(context, alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => unawaited(_openEventPicker(catalog)),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Row(
+                            children: [
+                              if (selectedEvent != null) ...[
+                                EventLogo(definition: selectedEvent, size: 24),
+                                const SizedBox(width: 10),
                               ],
-                            ),
+                              Expanded(
+                                child: Text(
+                                  selectedEvent?.name ?? '选择事件',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                              ),
+                              Icon(Icons.expand_more, color: Theme.of(context).colorScheme.primary),
+                            ],
                           ),
-                      ],
-                      onChanged: (v) async {
-                        if (v == null) return;
-                        setState(() => _selectedKey = v);
-                        await _loadSeriesForSelection();
-                      },
+                        ),
+                      ),
                     ),
                   ),
                 const SizedBox(height: 8),

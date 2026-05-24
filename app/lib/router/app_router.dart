@@ -23,12 +23,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     refreshListenable: session,
     redirect: (context, state) {
-      final loggingIn = state.matchedLocation == '/login';
-      final splash = state.matchedLocation == '/splash';
-      if (splash) return null;
-      if (session.isLoggedIn && loggingIn) {
-        return '/home';
+      final loc = state.matchedLocation;
+      final splash = loc == '/splash';
+      final loggingIn = loc == '/login';
+      final public = splash ||
+          loggingIn ||
+          loc.startsWith('/auth/') ||
+          loc == '/policy';
+      if (public) {
+        if (session.isLoggedIn && loggingIn) return '/home';
+        return null;
       }
+      if (!session.isLoggedIn) return '/login';
       return null;
     },
     routes: [

@@ -23,3 +23,15 @@ String? readGatewayStr(Map<String, dynamic> map, String camelKey, String snakeKe
   }
   return null;
 }
+
+/// 从网关 `data` 对象提取列表（兼容 `list` / `records` / 原始数组）。
+List<dynamic> envelopeListOrEmpty(Map<String, dynamic>? data, {String key = 'list'}) {
+  if (data == null) return const [];
+  final direct = data[key];
+  if (direct is List) return direct;
+  final records = data['records'];
+  if (records is List) return records;
+  final primitive = data['_primitive'];
+  if (primitive is List) return primitive;
+  return const [];
+}

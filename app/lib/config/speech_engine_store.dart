@@ -14,17 +14,31 @@ class SpeechEngineStore {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kSpeechEngineKey);
     if (raw != null) {
+      if (raw == 'vosk') {
+        final migrated = _migrateFromVosk();
+        await save(migrated);
+        return migrated;
+      }
       return _parse(raw) ?? _platformDefault();
     }
     final legacy = prefs.getString(_kLegacyIosKey);
     if (legacy != null) {
+      if (legacy == 'vosk') {
+        final migrated = _migrateFromVosk();
+        await save(migrated);
+        return migrated;
+      }
       return switch (legacy) {
-        'vosk' => SpeechEngine.vosk,
         'systemStt' => SpeechEngine.systemStt,
         _ => _platformDefault(),
       };
     }
     return _platformDefault();
+  }
+
+  static SpeechEngine _migrateFromVosk() {
+    if (!kIsWeb && Platform.isAndroid) return SpeechEngine.cloudAsr;
+    return SpeechEngine.systemStt;
   }
 
   static SpeechEngine _platformDefault() {
@@ -35,7 +49,6 @@ class SpeechEngineStore {
   }
 
   static SpeechEngine? _parse(String raw) => switch (raw) {
-        'vosk' => SpeechEngine.vosk,
         'systemStt' => SpeechEngine.systemStt,
         'cloudAsr' => SpeechEngine.cloudAsr,
         _ => null,
@@ -44,7 +57,6 @@ class SpeechEngineStore {
   static Future<void> save(SpeechEngine engine) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = switch (engine) {
-      SpeechEngine.vosk => 'vosk',
       SpeechEngine.systemStt => 'systemStt',
       SpeechEngine.cloudAsr => 'cloudAsr',
     };

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 buildAppTheme 默认背景（unknown 性别 primary @ 8% on white）接近 -->
+    <color name="launch_brand">#ECEFF1</color>
+</resources>

@@ -45,8 +45,8 @@ class EventCatalogStore {
       if (decoded is! List) return const [];
       final out = <EventDefinition>[];
       for (final e in decoded) {
-        if (e is Map<String, dynamic>) {
-          out.add(EventDefinition.fromJson(e));
+        if (e is Map) {
+          out.add(EventDefinition.fromJson(Map<String, dynamic>.from(e)));
         }
       }
       return out;
@@ -140,7 +140,12 @@ bool catalogSnapshotsEqual(List<EventDefinition> a, List<EventDefinition> b) {
   for (final e in a) {
     final o = mapB[e.id];
     if (o == null) return false;
-    if (e.name != o.name || e.colorRaw != o.colorRaw || e.logoUrl != o.logoUrl) {
+    if (e.name != o.name ||
+        e.colorRaw != o.colorRaw ||
+        e.logoUrl != o.logoUrl ||
+        e.eventType != o.eventType ||
+        e.extraNames != o.extraNames ||
+        e.parentId != o.parentId) {
       return false;
     }
   }
@@ -150,8 +155,8 @@ bool catalogSnapshotsEqual(List<EventDefinition> a, List<EventDefinition> b) {
 List<EventDefinition> parseEventOptionsList(List<dynamic> list) {
   final out = <EventDefinition>[];
   for (final e in list) {
-    if (e is! Map<String, dynamic>) continue;
-    final def = EventDefinition.fromOptionsMap(e);
+    if (e is! Map) continue;
+    final def = EventDefinition.fromOptionsMap(Map<String, dynamic>.from(e));
     if (def.id.isEmpty) continue;
     final logo = def.logoUrl;
     out.add(EventDefinition(
@@ -159,6 +164,9 @@ List<EventDefinition> parseEventOptionsList(List<dynamic> list) {
       name: def.name,
       logoUrl: logo == null ? null : resolveEventLogoUrl(logo),
       colorRaw: def.colorRaw,
+      eventType: def.eventType,
+      extraNames: def.extraNames,
+      parentId: def.parentId,
     ));
   }
   return out;

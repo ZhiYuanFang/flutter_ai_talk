@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../api/gateway_json.dart';
 import 'event_catalog_store.dart';
 import 'event_definition.dart';
 
@@ -9,21 +12,56 @@ class EventCatalogSync {
 
   final ApiClient _api;
 
-  Future<List<EventDefinition>> fetchRemoteList() async {
-    final data = await _api.getEnvelope('/device/history/api/event/options');
-    if (data == null) return const [];
-    final list = data['list'] as List<dynamic>? ?? const [];
+  Future<List<EventDefinition>> fetchRemoteList({String? deviceNo}) async {
+    final withDevice = await _fetchOnce(deviceNo);
+    if (withDevice.isNotEmpty) return withDevice;
+    if (deviceNo != null && deviceNo.isNotEmpty) {
+      return _fetchOnce(null);
+    }
+    return withDevice;
+  }
+
+  Future<List<EventDefinition>> _fetchOnce(String? deviceNo) async {
+    final query = (deviceNo != null && deviceNo.isNotEmpty)
+        ? {'deviceNo': deviceNo}
+        : null;
+    final data = await _api.getEnvelope(
+      '/device/history/api/event/options',
+      query: query,
+    );
+    final list = envelopeListOrEmpty(data);
     return parseEventOptionsList(list);
   }
 
-  /// 拉取远端、对比本地；有变化则写盘并下载 logo。失败时返回 null（调用方保留旧状态）。
-  Future<List<EventDefinition>?> refreshAndPersist() async {
+  /// 拉取远端、对比本地；有变化则写盘并下载 logo。失败或远端空列表时保留本地缓存。
+  Future<List<EventDefinition>?> refreshAndPersist({String? deviceNo}) async {
     try {
-      final remote = await fetchRemoteList();
+      final remote = await fetchRemoteList(deviceNo: deviceNo);
       final local = await EventCatalogStore.loadFromDisk();
-      if (catalogSnapshotsEqual(remote, local)) {
+      if (remote.isEmpty && local.isNotEmpty) {
         return local;
       }
+      if (catalogSnapshotsEqual(remote, local)) {
+        return local.isNotEmpty ? local : remote;
+      }
+      if (remote.isEmpty) {
+        return local.isNotEmpty ? local : remote;
+      }
+      // 先写元数据并立即返回，logo 后台下载（避免冷启动阻塞或杀进程丢目录）。
+      await EventCatalogStore.saveToDisk(remote);
+      unawaited(_downloadLogosInBackground(remote));
+      return remote;
+    } on ApiBusinessException {
+      final disk = await EventCatalogStore.loadFromDisk();
+      return disk;
+    } catch (_) {
+      final disk = await EventCatalogStore.loadFromDisk();
+      return disk;
+    }
+  }
+
+  Future<void> _downloadLogosInBackground(List<EventDefinition> remote) async {
+    try {
       final withLogos = await EventCatalogStore.applyLogoDownloads(remote);
       await EventCatalogStore.saveToDisk(withLogos);
       final keepPaths = withLogos
@@ -31,11 +69,6 @@ class EventCatalogSync {
           .whereType<String>()
           .toSet();
       await EventCatalogStore.pruneLogoFiles(keepPaths);
-      return withLogos;
-    } on ApiBusinessException {
-      return null;
-    } catch (_) {
-      return null;
-    }
+    } catch (_) {}
   }
 }
