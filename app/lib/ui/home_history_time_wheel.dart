@@ -82,17 +82,17 @@ class HomeHistoryTimeField extends StatelessWidget {
                           height: 1.2,
                           fontWeight: FontWeight.w600,
                           color: isUnset
-                              ? textColor.withValues(alpha: 0.45)
+                              ? HistoryEditGlassPanel.glassLabelColor.withValues(alpha: 0.65)
                               : textColor,
                           fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),
                     if (enabled)
-                      Icon(
+                      const Icon(
                         Icons.edit_outlined,
                         size: 20,
-                        color: textColor.withValues(alpha: 0.75),
+                        color: HistoryEditGlassPanel.glassLabelColor,
                       ),
                   ],
                 ),

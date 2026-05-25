@@ -27,6 +27,7 @@ import '../data/models.dart';
 import 'event_catalog_picker_sheet.dart';
 import 'home_button_event_grid.dart' show HomeButtonEventGrid, kHomeButtonInputPanelHeight;
 import 'home_event_record_fly_overlay.dart';
+import 'home_active_timing_reminder_dialog.dart';
 import 'home_history_edit_sheet.dart';
 import 'home_history_scroll.dart';
 import 'home_number_event_sheet.dart';
@@ -63,6 +64,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 const _kVoiceInputPanelHeight = 148.0;
 const _kVoiceTextInputPanelHeight = 220.0;
 const _kVoiceOrbVisualSize = 132.0;
+const _kInputPanelAnimationDuration = Duration(milliseconds: 220);
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   HomeSpeechRecognizer? _recognizer;
@@ -113,6 +115,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _flySession = 0;
   final _recentlyReplacedIds = <String>{};
   final _pendingIdRandom = Random();
+  var _activeTimingReminderShowing = false;
+  String? _pendingReminderExcludeId;
   bool get _showRecordingStatsPanel =>
       _showRecordingDiagnostics &&
       _speechEngine == SpeechEngine.cloudAsr &&
@@ -180,6 +184,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return;
     }
     setState(() => _inputChannel = channel);
+    _scheduleHistoryReanchorAfterInputModeChange();
   }
 
   bool get _canSwitchInputMode =>
@@ -297,6 +302,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await _onVoiceCancel();
     }
     setState(() => _inputChannel = channel);
+    _scheduleHistoryReanchorAfterInputModeChange();
     if (persist) {
       unawaited(HomeInputChannelStore.save(_inputChannelStorageKey(channel)));
     }
@@ -309,6 +315,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await _prepareVoiceInput();
       if (mounted) setState(() {});
     }
+  }
+
+  void _scheduleHistoryReanchorAfterInputModeChange() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final animate = !MediaQuery.disableAnimationsOf(context);
+      void runReanchor() {
+        _historyScrollKey.currentState?.reanchorAfterViewportChange(animate: animate);
+      }
+
+      runReanchor();
+      if (animate) {
+        Future<void>.delayed(_kInputPanelAnimationDuration, () {
+          if (!mounted) return;
+          runReanchor();
+        });
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          runReanchor();
+        });
+      }
+    });
   }
 
   bool _hasActiveTimingForEvent(EventDefinition event) {
@@ -381,6 +410,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (serverId != null) {
       _markRecentlyReplaced(serverId);
       _history.replaceRecordId(pendingId, serverId);
+      _scheduleActiveTimingReminderAfterAdd(excludeRecordId: serverId);
     } else {
       _cancelFlyAndRemovePending(pendingId);
     }
@@ -467,6 +497,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _history.upsertRecord(r);
       if (isNew && !_shouldScheduleWsFly(r.id)) {
         _onWsNewHistoryRecord(r);
+        _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
       }
     });
   }
@@ -500,6 +531,62 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _flyTargetRecordId = null;
       _flyEvent = null;
     });
+    final pendingExclude = _pendingReminderExcludeId;
+    if (pendingExclude != null) {
+      _pendingReminderExcludeId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_presentActiveTimingReminder(excludeRecordId: pendingExclude));
+      });
+    }
+  }
+
+  List<HistoryRecord> _otherActiveTimingCandidates({required String excludeRecordId}) {
+    return ref
+        .read(homeHistoryProvider)
+        .items
+        .where(
+          (r) =>
+              r.id != excludeRecordId &&
+              !isPendingHistoryId(r.id) &&
+              isActiveTimingRecord(r),
+        )
+        .toList();
+  }
+
+  void _scheduleActiveTimingReminderAfterAdd({required String excludeRecordId}) {
+    if (_otherActiveTimingCandidates(excludeRecordId: excludeRecordId).isEmpty) return;
+    if (_activeTimingReminderShowing) return;
+
+    if (_flyTargetRecordId != null) {
+      _pendingReminderExcludeId = excludeRecordId;
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_presentActiveTimingReminder(excludeRecordId: excludeRecordId));
+    });
+  }
+
+  Future<void> _presentActiveTimingReminder({required String excludeRecordId}) async {
+    if (!mounted) return;
+    if (_activeTimingReminderShowing) return;
+    final candidates = _otherActiveTimingCandidates(excludeRecordId: excludeRecordId);
+    if (candidates.isEmpty) return;
+
+    _activeTimingReminderShowing = true;
+    try {
+      await showHomeActiveTimingReminderDialog(
+        context: context,
+        candidates: candidates,
+        eventCatalog: ref.read(eventCatalogProvider),
+        onStop: _stopActiveTimer,
+        onToast: (msg) => ref.showApiToast(msg),
+      );
+    } finally {
+      _activeTimingReminderShowing = false;
+    }
   }
 
   Future<void> _initMobileSpeech() async {
@@ -1135,7 +1222,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     _buildInputModuleTopShadow(context),
                     AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
+                      duration: _kInputPanelAnimationDuration,
                       curve: Curves.easeOutCubic,
                       height: _bottomInputPanelHeight,
                       child: _buildBottomInputPanel(context, eventCatalog),

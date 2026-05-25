@@ -20,6 +20,10 @@ class HistoryEditGlassPanel extends StatelessWidget {
   static const _radius = 22.0;
   static const _blurSigma = 20.0;
 
+  /// 玻璃面板固定浅色前景（底为事件色暗色渐变，不随 shell [AppVisualTokens.onShell] 变暗）。
+  static const Color glassTextColor = Color(0xFFF3F5F7);
+  static const Color glassLabelColor = Color(0xFFE0E6EB);
+
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
@@ -77,7 +81,7 @@ class HistoryEditGlassPanel extends StatelessWidget {
                       icon: Icon(
                         Icons.close,
                         size: 22,
-                        color: (tokens?.onShell ?? Colors.white).withValues(alpha: 0.92),
+                        color: HistoryEditGlassPanel.glassTextColor.withValues(alpha: 0.92),
                       ),
                       tooltip: '关闭',
                     ),
@@ -91,18 +95,13 @@ class HistoryEditGlassPanel extends StatelessWidget {
   }
 }
 
-/// 玻璃编辑区内标签文字色。
-Color historyEditGlassLabelColor(BuildContext context) {
-  final tokens = Theme.of(context).extension<AppVisualTokens>();
-  return (tokens?.onShell ?? Theme.of(context).colorScheme.onSurface)
-      .withValues(alpha: 0.78);
-}
+/// 玻璃编辑区内标签文字色（固定浅灰，非主题 onShell 降 alpha）。
+Color historyEditGlassLabelColor(BuildContext context) =>
+    HistoryEditGlassPanel.glassLabelColor;
 
-/// 玻璃编辑区内主文字色。
-Color historyEditGlassTextColor(BuildContext context) {
-  final tokens = Theme.of(context).extension<AppVisualTokens>();
-  return tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
-}
+/// 玻璃编辑区内主文字色（固定浅色，保证深色玻璃底上可读）。
+Color historyEditGlassTextColor(BuildContext context) =>
+    HistoryEditGlassPanel.glassTextColor;
 
 InputDecoration historyEditGlassInputDecoration(
   BuildContext context, {

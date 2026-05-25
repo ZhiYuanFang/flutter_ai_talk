@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -438,7 +439,7 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                   child: TextButton(
                     onPressed: () => setState(() => _endEdit = null),
                     style: TextButton.styleFrom(
-                      foregroundColor: glassText.withValues(alpha: 0.7),
+                      foregroundColor: glassLabel,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                     ),
                     child: const Text('清除结束时间'),
@@ -467,9 +468,12 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                   border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                   color: Colors.white.withValues(alpha: 0.06),
                 ),
-                child: HomeEventNumberPicker(
-                  controller: _usagePickerCtrl,
-                  enabled: !readOnly,
+                child: CupertinoTheme(
+                  data: const CupertinoThemeData(brightness: Brightness.dark),
+                  child: HomeEventNumberPicker(
+                    controller: _usagePickerCtrl,
+                    enabled: !readOnly,
+                  ),
                 ),
               ),
             ],
@@ -513,7 +517,7 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                   TextButton(
                     onPressed: _saving ? null : _requestClose,
                     style: TextButton.styleFrom(
-                      foregroundColor: glassText.withValues(alpha: 0.88),
+                      foregroundColor: glassText,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                     child: const Text('取消'),

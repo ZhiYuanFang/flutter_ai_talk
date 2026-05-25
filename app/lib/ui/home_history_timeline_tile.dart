@@ -37,7 +37,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
 
   static const double rowHeight = 37;
   static const double timelineTimeColumnWidth = 44;
-  static const double timelineTimeToDotGap = 4;
+  static const double timelineTimeToDotGap = 2;
   static const double timelineDotColumnWidth = 14;
   static const double timelineRowHorizontalPadding = 2;
   static const double timelineDotCenterX = timelineRowHorizontalPadding +
@@ -90,6 +90,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
     final timeStyle = TextStyle(
       fontSize: fontSize - 1,
       height: 1.15,
+      fontFeatures: const [FontFeature.tabularFigures()],
       color: _historyTextColor(context, emphasis: emphasis, muted: true),
     );
     final eventStyle = TextStyle(
@@ -116,11 +117,15 @@ class HomeHistoryTimelineTile extends StatelessWidget {
         children: [
           SizedBox(
             width: timelineTimeColumnWidth,
-            child: Text(
-              display.timeLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: timeStyle,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                display.timeLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: timeStyle,
+              ),
             ),
           ),
           const SizedBox(width: timelineTimeToDotGap),

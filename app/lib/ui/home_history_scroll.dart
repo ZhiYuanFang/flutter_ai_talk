@@ -144,6 +144,20 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     return pos.maxScrollExtent - pos.pixels <= 1;
   }
 
+  bool get _isNearBottom {
+    if (!_controller.hasClients) return _followLatest;
+    final pos = _controller.position;
+    if (!pos.maxScrollExtent.isFinite) return _followLatest;
+    return pos.maxScrollExtent - pos.pixels <= followBottomThreshold;
+  }
+
+  /// 底部输入区高度变化后（如切换输入模式），跟底或近底时重锚至最新记录。
+  void reanchorAfterViewportChange({bool animate = true}) {
+    if (widget.itemsAsc.isEmpty) return;
+    if (!_followLatest && !_isNearBottom) return;
+    scrollToBottom(force: true, animate: animate);
+  }
+
   static const double _loadMoreTopThreshold = 80;
 
   Future<void> _handleRefresh() async {
