@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/models.dart';
-import '../scaffold_messenger_key.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/theme_bootstrap_cache.dart';
+import 'widgets/app_toast.dart';
 
 /// 宝宝资料表单：加载 [initialBaby]，保存后刷新 [settingsBabyProvider] 与主题性别。
 /// [onSaved] 在保存成功且 SnackBar 展示前调用（例如返回上一级）。
@@ -89,13 +89,11 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
       ref.read(babySexProvider.notifier).state = profile.sex;
       await persistCachedBabySex(profile.sex);
       if (!mounted) return;
-      (appScaffoldMessengerKey.currentState ?? ScaffoldMessenger.of(context)).showSnackBar(
-        const SnackBar(content: Text('宝宝信息已保存')),
-      );
+      showAppToast('宝宝信息已保存', tone: AppToastTone.success);
       widget.onSaved?.call();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e')));
+      showAppToast('保存失败：$e', tone: AppToastTone.error);
     }
   }
 
@@ -104,7 +102,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
     _sex = widget.initialBaby.sex;
     _birth = _clampBirthToValidRange(widget.initialBaby.birthDate);
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已恢复为上次加载的数据')));
+    showAppToast('已恢复为上次加载的数据');
   }
 
   @override

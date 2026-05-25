@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/home_input_dock_store.dart';
 import '../data/home_input_dock_geometry.dart';
 import '../theme/app_theme_scope.dart';
+import '../theme/app_visual_tokens.dart';
 import 'home_input_channel.dart';
 
 /// 贴边半露、可拖动吸附的输入模式切换器。
@@ -245,17 +246,33 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> {
         )
         .toList();
 
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final panelColor = tokens?.surfaceColor ?? themePrimaryBlend(context, alpha: 0.22);
+    final menuBody = Padding(
+      padding: const EdgeInsets.all(4),
+      child: horizontal
+          ? Row(mainAxisSize: MainAxisSize.min, children: _intersperse(items, const SizedBox(width: 4)))
+          : Column(mainAxisSize: MainAxisSize.min, children: _intersperse(items, const SizedBox(height: 4))),
+    );
+    if (tokens != null) {
+      return Material(
+        type: MaterialType.transparency,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: panelColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: tokens.surfaceBorderColor),
+          ),
+          child: menuBody,
+        ),
+      );
+    }
     return Material(
       elevation: 4,
       shadowColor: scheme.primary.withValues(alpha: 0.18),
       borderRadius: BorderRadius.circular(16),
-      color: themePrimaryBlend(context, alpha: 0.22),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: horizontal
-            ? Row(mainAxisSize: MainAxisSize.min, children: _intersperse(items, const SizedBox(width: 4)))
-            : Column(mainAxisSize: MainAxisSize.min, children: _intersperse(items, const SizedBox(height: 4))),
-      ),
+      color: panelColor,
+      child: menuBody,
     );
   }
 
@@ -302,19 +319,59 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> {
 
   Widget _buildSemicircleHandle(BuildContext context, HomeInputChannel channel) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final handleColor = tokens?.surfaceColor ?? themePrimaryBlend(context, alpha: 0.24);
+    final handleShadow = tokens != null
+        ? [
+            BoxShadow(
+              color: tokens.shellColor.withValues(alpha: tokens.isDarkShell ? 0.55 : 0.18),
+              blurRadius: 14,
+              spreadRadius: 0,
+              offset: const Offset(0, 3),
+            ),
+            BoxShadow(
+              color: scheme.primary.withValues(alpha: tokens.isDarkShell ? 0.28 : 0.12),
+              blurRadius: 20,
+              spreadRadius: -2,
+              offset: const Offset(0, 6),
+            ),
+          ]
+        : null;
+
+    final icon = Icon(
+      _iconFor(channel),
+      size: 22,
+      color: scheme.primary,
+    );
+
+    if (tokens != null) {
+      return Material(
+        type: MaterialType.transparency,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: handleColor,
+            border: Border.all(color: tokens.surfaceBorderColor),
+            boxShadow: handleShadow,
+          ),
+          child: SizedBox(
+            width: kHomeInputDockDiameter,
+            height: kHomeInputDockDiameter,
+            child: icon,
+          ),
+        ),
+      );
+    }
+
     return Material(
-      elevation: 4,
-      shadowColor: scheme.primary.withValues(alpha: 0.2),
+      elevation: 6,
+      shadowColor: scheme.primary.withValues(alpha: 0.22),
       shape: const CircleBorder(),
-      color: themePrimaryBlend(context, alpha: 0.24),
+      color: handleColor,
       child: SizedBox(
         width: kHomeInputDockDiameter,
         height: kHomeInputDockDiameter,
-        child: Icon(
-          _iconFor(channel),
-          size: 22,
-          color: scheme.primary,
-        ),
+        child: icon,
       ),
     );
   }

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/session_provider.dart';
-import '../ui/history_detail_screen.dart';
 import '../ui/home_screen.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
 import '../ui/login_screen.dart';
@@ -69,13 +68,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/bind-baby',
         builder: (context, state) => const BabyBindScreen(),
-      ),
-      GoRoute(
-        path: '/history/:recordId',
-        builder: (context, state) {
-          final id = state.pathParameters['recordId']!;
-          return HistoryDetailScreen(recordId: id);
-        },
       ),
       GoRoute(
         path: '/policy',

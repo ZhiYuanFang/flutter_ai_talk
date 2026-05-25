@@ -22,7 +22,7 @@ class RemoteTrendsRepository implements TrendsRepository {
 
   String? get _deviceNo => _ref.read(deviceNoNotifierProvider).asData?.value;
 
-  void _toast(String m) => _ref.read(apiToastProvider.notifier).state = m;
+  void _toast(String m) => _ref.showApiToastError(m);
 
   (int startSec, int endSec) _rangeBounds(TrendRange range) {
     final now = DateTime.now();

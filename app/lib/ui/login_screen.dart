@@ -45,7 +45,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final had = hasPendingWeChatWebCode();
     clearPendingWeChatWebOAuthStorage();
     if (had) {
-      ref.read(apiToastProvider.notifier).state = '请使用胖宝号登录';
+      ref.showApiToast('请使用胖宝号登录');
     }
   }
 
@@ -67,16 +67,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       await _afterLoginSuccess();
     } on ApiBusinessException catch (e) {
-      ref.read(apiToastProvider.notifier).state = e.message;
+      ref.showApiToastError(e.message);
     } on ApiHttpException catch (e) {
-      ref.read(apiToastProvider.notifier).state = '网络错误(${e.statusCode})';
+      ref.showApiToastError('网络错误(${e.statusCode})');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   void _onWeChatLoginStub() {
-    ref.read(apiToastProvider.notifier).state = '当前功能未开放';
+    ref.showApiToast('当前功能未开放');
   }
 
   @override

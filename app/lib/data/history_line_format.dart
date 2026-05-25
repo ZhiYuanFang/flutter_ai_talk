@@ -67,6 +67,17 @@ String formatHistoryDaySectionLabel(DateTime t, DateTime nowLocal) {
 /// 主页历史记录行左列：仅 `HH:mm`。
 String formatHistoryTimeHm(DateTime t) => '${_two(t.hour)}:${_two(t.minute)}';
 
+/// 相对当前时刻的文案（列表内最新记录标签用）：刚刚 / {m}分前 / {h}时{m}分前。
+String formatHistoryRelativeAgo(DateTime instant, DateTime now) {
+  var d = now.difference(instant);
+  if (d.isNegative) d = Duration.zero;
+  if (d.inSeconds < 60) return '刚刚';
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  if (h == 0) return '$m分前';
+  return '$h时$m分前';
+}
+
 /// 主页时间轴行用于展示/分组的时刻（与 [historyHomeRowDisplay] 一致）。
 DateTime historyHomeDisplayInstant(HistoryRecord record) {
   final p = record.rawPayload;

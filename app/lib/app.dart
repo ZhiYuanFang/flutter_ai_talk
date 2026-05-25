@@ -14,6 +14,7 @@ import 'providers/session_provider.dart';
 import 'providers/sign_in_channel_provider.dart';
 import 'providers/toast_bus.dart';
 import 'scaffold_messenger_key.dart';
+import 'ui/widgets/app_toast.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme_scope.dart';
 import 'ui/widgets/keyboard_dismiss_scope.dart';
@@ -52,7 +53,10 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
       ref.read(babySexProvider.notifier).state = result.cachedSex!;
     }
     if (result.cachedBg != null) {
-      ref.read(customBackgroundProvider.notifier).state = result.cachedBg!;
+      ref.read(customBackgroundProvider.notifier).state = result.cachedBg;
+    }
+    if (result.cachedPreset != null) {
+      ref.read(themePresetProvider.notifier).state = result.cachedPreset;
     }
 
     if (ref.read(sessionProvider).isLoggedIn) {
@@ -79,11 +83,15 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<String?>(apiToastProvider, (previous, next) {
-      if (next != null && next.isNotEmpty) {
+    ref.listen<AppToastPayload?>(apiToastProvider, (previous, next) {
+      if (next != null && next.message.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          appScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text(next)));
+          showAppToast(
+            next.message,
+            tone: next.tone,
+            messenger: appScaffoldMessengerKey.currentState,
+          );
           ref.read(apiToastProvider.notifier).state = null;
         });
       }
@@ -91,7 +99,8 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
     final router = ref.watch(goRouterProvider);
     final sex = ref.watch(babySexProvider);
     final customBg = ref.watch(customBackgroundProvider);
-    final theme = buildAppTheme(sex: sex, customBackground: customBg);
+    final preset = ref.watch(themePresetProvider);
+    final theme = buildAppTheme(sex: sex, customBackground: customBg, preset: preset);
 
     return MaterialApp.router(
       title: '胖宝',

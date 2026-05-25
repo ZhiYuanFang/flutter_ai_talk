@@ -22,7 +22,7 @@ class _WeChatOAuthCallbackScreenState extends ConsumerState<WeChatOAuthCallbackS
       handleWeChatOAuthCallbackQuery(uri);
       final err = consumeWeChatOAuthCallbackError();
       if (err != null && err.isNotEmpty) {
-        ref.read(apiToastProvider.notifier).state = _messageForOAuthError(err);
+        ref.showApiToastError(_messageForOAuthError(err));
       }
       if (mounted) context.go('/login');
     });

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
 import '../config/web_home_input_mode.dart';
 import '../providers/voice_asr_ws_provider.dart';
+import '../data/event_branding.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
 import '../data/home_history_store.dart';
@@ -24,6 +26,8 @@ import '../data/history_record_metric.dart';
 import '../data/models.dart';
 import 'event_catalog_picker_sheet.dart';
 import 'home_button_event_grid.dart' show HomeButtonEventGrid, kHomeButtonInputPanelHeight;
+import 'home_event_record_fly_overlay.dart';
+import 'home_history_edit_sheet.dart';
 import 'home_history_scroll.dart';
 import 'home_number_event_sheet.dart';
 import 'home_history_timeline_tile.dart';
@@ -43,7 +47,9 @@ import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../providers/toast_bus.dart';
+import 'widgets/app_toast.dart';
 import '../theme/app_theme_scope.dart';
+import '../theme/app_visual_tokens.dart';
 import '../theme/theme_bootstrap_cache.dart';
 import 'version_prompt.dart';
 
@@ -54,7 +60,9 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
+const _kVoiceInputPanelHeight = 148.0;
 const _kVoiceTextInputPanelHeight = 220.0;
+const _kVoiceOrbVisualSize = 132.0;
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   HomeSpeechRecognizer? _recognizer;
@@ -82,7 +90,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   var _activeVoicePointer = false;
   var _slideToCancel = false;
   final _voiceOrbKey = GlobalKey();
-  static const _voiceOrbRadius = 66.0;
+  static const _voiceOrbRadius = _kVoiceOrbVisualSize / 2;
   static const _voiceOrbHitSlop = 8.0;
   SpeechEngine? _speechEngine;
 
@@ -99,6 +107,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   DateTime? _lastDiagnosticsEmit;
   var _eventCatalogRetryDone = false;
 
+  final _historyScrollKey = GlobalKey<HomeHistoryScrollState>();
+  String? _flyTargetRecordId;
+  EventDefinition? _flyEvent;
+  int _flySession = 0;
+  final _recentlyReplacedIds = <String>{};
+  final _pendingIdRandom = Random();
   bool get _showRecordingStatsPanel =>
       _showRecordingDiagnostics &&
       _speechEngine == SpeechEngine.cloudAsr &&
@@ -174,8 +188,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// 按钮模式仅在 Android/iOS 提供；Web 沿用 `WEB_HOME_INPUT` 语音/文字策略。
   bool get _showButtonsInputMode => !kIsWeb;
 
-  double get _bottomInputPanelHeight =>
-      _inputChannel == HomeInputChannel.buttons ? kHomeButtonInputPanelHeight : _kVoiceTextInputPanelHeight;
+  double get _bottomInputPanelHeight => switch (_inputChannel) {
+        HomeInputChannel.buttons => kHomeButtonInputPanelHeight,
+        HomeInputChannel.voice => _kVoiceInputPanelHeight,
+        HomeInputChannel.text => _kVoiceTextInputPanelHeight,
+      };
 
   Future<void> _bindVoiceAsrReadyListener() async {
     await _voiceAsrReadySub?.cancel();
@@ -226,9 +243,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<bool> _prepareVoiceInput() async {
     if (kIsWeb) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音识别不可用，请改用文字输入')),
-        );
+        showAppToast('语音识别不可用，请改用文字输入', tone: AppToastTone.error);
       }
       return false;
     }
@@ -249,9 +264,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (_speechEngine == SpeechEngine.cloudAsr && !_voiceAsrReady) {
         await _connectVoiceAsrWsIfNeeded();
         if (!_voiceAsrReady && !_voiceAsrConnecting && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('语音转写未连接，请检查网络')),
-          );
+          showAppToast('语音转写未连接，请检查网络', tone: AppToastTone.error);
         }
       }
 
@@ -264,21 +277,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _voiceReady = ok && (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady);
       if (!ok && mounted) {
         final failure = _recognizer!.lastPrepareFailure ?? HomeSpeechPrepareFailure.engineError;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(failure.message)),
-        );
+        showAppToast(failure.message, tone: AppToastTone.error);
       } else if (!_voiceReady && mounted && _speechEngine == SpeechEngine.cloudAsr) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音转写服务未连接，请稍后再试')),
-        );
+        showAppToast('语音转写服务未连接，请稍后再试', tone: AppToastTone.error);
       }
       return _voiceReady;
     } catch (e) {
       debugPrint('prepare voice input failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音识别初始化失败，请改用文字输入')),
-        );
+        showAppToast('语音识别初始化失败，请改用文字输入', tone: AppToastTone.error);
       }
       return false;
     }
@@ -315,6 +322,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return false;
   }
 
+  String _newPendingHistoryId() {
+    return 'pending:${DateTime.now().microsecondsSinceEpoch}_${_pendingIdRandom.nextInt(0x7fffffff)}';
+  }
+
+  bool _hasPendingOptimisticRows() {
+    return ref.read(homeHistoryProvider).items.any((e) => isPendingHistoryId(e.id));
+  }
+
+  void _markRecentlyReplaced(String serverId) {
+    _recentlyReplacedIds.add(serverId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recentlyReplacedIds.remove(serverId);
+    });
+  }
+
+  void _scheduleFlyForRecord(String recordId, EventDefinition? event) {
+    if (!mounted) return;
+    if (MediaQuery.disableAnimationsOf(context)) return;
+    setState(() {
+      _flySession++;
+      _flyTargetRecordId = recordId;
+      _flyEvent = event;
+    });
+    _history.setFlyAnimationFrozen(true);
+  }
+
   Future<void> _submitEventAdd({
     required EventDefinition event,
     required int eventNumber,
@@ -332,9 +365,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       endTime: endTime,
       remark: remark,
     );
-    final ok = await ref.read(feedRepositoryProvider).addHistoryEvent(body);
-    if (ok && mounted) {
-      ref.read(apiToastProvider.notifier).state = '已记录${event.name}';
+    final pendingId = _newPendingHistoryId();
+    final optimistic = historyRecordFromAddBody(body, id: pendingId);
+    final scroll = _historyScrollKey.currentState;
+    if (scroll != null) {
+      scroll.scrollToBottom(force: true);
+    }
+    _history.insertOptimistic(optimistic);
+    if (mounted) {
+      _scheduleFlyForRecord(pendingId, event);
+    }
+
+    final serverId = await ref.read(feedRepositoryProvider).addHistoryEvent(body);
+    if (!mounted) return;
+    if (serverId != null) {
+      _markRecentlyReplaced(serverId);
+      _history.replaceRecordId(pendingId, serverId);
+    } else {
+      _cancelFlyAndRemovePending(pendingId);
     }
   }
 
@@ -346,7 +394,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         context,
         catalog: catalog,
         root: event,
-        onToast: (msg) => ref.read(apiToastProvider.notifier).state = msg,
+        onToast: (msg) => ref.showApiToast(msg),
       );
       if (leaf == null || !mounted) return;
       await _onEventButtonTap(leaf);
@@ -364,7 +412,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     switch (type) {
       case EventCatalogEventType.time:
         if (_hasActiveTimingForEvent(event)) {
-          ref.read(apiToastProvider.notifier).state = '${event.name}已在计时中';
+          ref.showApiToast('${event.name}已在计时中');
           return;
         }
         final now = DateTime.now();
@@ -415,7 +463,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return;
       }
       final r = payload.record!;
+      final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
       _history.upsertRecord(r);
+      if (isNew && !_shouldScheduleWsFly(r.id)) {
+        _onWsNewHistoryRecord(r);
+      }
+    });
+  }
+
+  bool _shouldScheduleWsFly(String recordId) {
+    if (_recentlyReplacedIds.contains(recordId)) return true;
+    if (_hasPendingOptimisticRows()) return true;
+    return false;
+  }
+
+  void _onWsNewHistoryRecord(HistoryRecord record) {
+    final event = lookupEventForRecord(ref.read(eventCatalogProvider), record);
+    _scheduleFlyForRecord(record.id, event);
+  }
+
+  void _cancelFlyAndRemovePending(String pendingId) {
+    _history.setFlyAnimationFrozen(false);
+    _history.removeById(pendingId);
+    if (!mounted) return;
+    setState(() {
+      _flyTargetRecordId = null;
+      _flyEvent = null;
+    });
+  }
+
+  void _onFlyOverlayComplete(int session) {
+    if (!mounted) return;
+    if (session != _flySession) return;
+    _history.setFlyAnimationFrozen(false);
+    setState(() {
+      _flyTargetRecordId = null;
+      _flyEvent = null;
     });
   }
 
@@ -462,8 +545,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _stopActiveTimer(HistoryRecord record) async {
-    if (_stoppingRecordIds.contains(record.id)) return;
+  Future<bool> _stopActiveTimer(HistoryRecord record) async {
+    if (isPendingHistoryId(record.id)) return false;
+    if (_stoppingRecordIds.contains(record.id)) return false;
     setState(() => _stoppingRecordIds.add(record.id));
     final p = record.rawPayload;
     final remark = (p['remark'] as String?) ?? '';
@@ -473,14 +557,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           remark: remark,
           startTime: activeTimingStartAt(record),
           endTime: end,
+          fallbackRecord: record,
         );
-    if (!mounted) return;
+    if (!mounted) return false;
     setState(() {
       _stoppingRecordIds.remove(record.id);
       if (ok) {
         _history.replaceRecord(_recordWithEndTime(record, end));
       }
     });
+    return ok;
   }
 
   Future<void> _refreshEventCatalogIfReady() async {
@@ -563,7 +649,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _ensureHistoryWsForSend() {
     final ok = ref.read(feedRepositoryProvider).isHistoryWebSocketReady;
     if (!ok) {
-      ref.read(apiToastProvider.notifier).state = '历史实时连接未就绪，无法发送，请点击右上角「重连历史」后再试';
+      ref.showApiToastError('历史实时连接未就绪，无法发送，请点击右上角「重连历史」后再试');
     }
     return ok;
   }
@@ -845,10 +931,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _openHistory(HistoryRecord record) async {
     if (!await _ensureRemoteGate()) return;
     if (!mounted) return;
-    final changed = await context.push<bool>('/history/${record.id}');
-    if (changed == true && mounted) {
-      await _reloadHistoryIfLoggedIn();
-    }
+    await showHomeHistoryEditSheet(
+      context,
+      record: record,
+      eventCatalog: ref.read(eventCatalogProvider),
+      history: _history,
+      onStopActiveTimer: _stopActiveTimer,
+    );
   }
 
   @override
@@ -932,7 +1021,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       orElse: () => false,
     );
     final showBindBanner = needsDeviceBind;
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
+      backgroundColor: shellBg,
       appBar: AppBar(
         title: const Text('胖宝'),
         actions: [
@@ -1009,11 +1101,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                       ))
                                 : HomeHistoryTopFadeMask(
                                     child: HomeHistoryScroll(
+                                      key: _historyScrollKey,
                                       itemsAsc: historyItems,
                                       eventCatalog: eventCatalog,
+                                      flyingRecordId: _flyTargetRecordId,
+                                      flyAnimationInProgress: _flyTargetRecordId != null,
                                       onRecordTap: _openHistory,
                                       onStopActiveTimer: _stopActiveTimer,
                                       stoppingRecordIds: _stoppingRecordIds,
+                                      hasMore: homeHistory.hasMore,
+                                      loadingMore: homeHistory.loadingMore,
+                                      onRefresh: () => _history.refreshFromRemote(),
+                                      onLoadMore: () => _history.loadMoreHistory(),
                                     ),
                                   ),
                           ),
@@ -1034,7 +1133,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ],
                       ),
                     ),
-                    const Divider(height: 1),
+                    _buildInputModuleTopShadow(context),
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 220),
                       curve: Curves.easeOutCubic,
@@ -1052,6 +1151,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       showButtonsOption: _showButtonsInputMode,
                       restrictToHorizontalEdges: kIsWeb,
                       onChannelSelected: (channel) => unawaited(_selectInputChannel(channel)),
+                    ),
+                  ),
+                if (_flyTargetRecordId != null)
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: HomeEventRecordFlyOverlay(
+                      key: ValueKey<int>(_flySession),
+                      event: _flyEvent,
+                      recordId: _flyTargetRecordId!,
+                      historyScrollKey: _historyScrollKey,
+                      onComplete: () => _onFlyOverlayComplete(_flySession),
+                    ),
                     ),
                   ),
               ],
@@ -1097,20 +1208,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   builder: (context, _) => HomeVoiceRecordingStats(
                     stats: _recordingDiagnosticsNotifier.value,
                   ),
-                ),
-              ),
-            ),
-          ),
-        if (_inputChannel == HomeInputChannel.voice && _listening)
-          Positioned(
-            top: 4,
-            right: 16,
-            child: IgnorePointer(
-              child: ListenableBuilder(
-                listenable: _voiceLevelNotifier,
-                builder: (context, _) => HomeVoiceLevelBars(
-                  level: _voiceLevelNotifier.value,
-                  cancelled: _slideToCancel,
                 ),
               ),
             ),
@@ -1180,6 +1277,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildInputModuleTopShadow(BuildContext context) {
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final isDark = tokens?.isDarkShell ?? Theme.of(context).brightness == Brightness.dark;
+    return SizedBox(
+      height: 3,
+      width: double.infinity,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.black.withValues(alpha: 0),
+              Colors.black.withValues(alpha: isDark ? 0.38 : 0.14),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildVoiceOrb(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final cloudMode = _speechEngine == SpeechEngine.cloudAsr;
@@ -1211,87 +1329,108 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AnimatedScale(
-          scale: _listening ? 1.06 : 1,
-          duration: const Duration(milliseconds: 160),
-          child: Stack(
-            clipBehavior: Clip.none,
+    final orbCore = AnimatedScale(
+      scale: _listening ? 1.06 : 1,
+      duration: const Duration(milliseconds: 160),
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Container(
+            key: _voiceOrbKey,
+            width: _kVoiceOrbVisualSize,
+            height: _kVoiceOrbVisualSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: orbFill,
+              border: Border.all(
+                color: orbBorderColor ?? cloudStatusColor ?? color,
+                width: 3,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                  color: color.withValues(alpha: 0.25),
+                ),
+              ],
+            ),
             alignment: Alignment.center,
-            children: [
-              Container(
-                key: _voiceOrbKey,
-                width: 132,
-                height: 132,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (cloudMode) ...[
+                  Icon(cloudStatusIcon!, size: 20, color: cloudStatusColor),
+                  const SizedBox(height: 2),
+                  Text(
+                    cloudStatusLabel!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: cloudStatusColor,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                Text(
+                  _listening
+                      ? (_slideToCancel ? '松开取消' : '松开结束')
+                      : '按住说话',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _listening && _slideToCancel ? scheme.error : color,
+                    fontWeight: FontWeight.w600,
+                    fontSize: cloudMode ? 12 : 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (cloudMode)
+            Positioned(
+              right: 2,
+              top: 2,
+              child: Container(
+                width: 10,
+                height: 10,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: orbFill,
-                  border: Border.all(
-                    color: orbBorderColor ?? cloudStatusColor ?? color,
-                    width: 3,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      blurRadius: 18,
-                      spreadRadius: 1,
-                      color: color.withValues(alpha: 0.25),
-                    ),
-                  ],
+                  color: _voiceAsrConnecting
+                      ? scheme.primary
+                      : (_voiceAsrReady ? const Color(0xFF2E7D32) : scheme.error),
+                  border: Border.all(color: scheme.surface, width: 1.5),
                 ),
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (cloudMode) ...[
-                        Icon(cloudStatusIcon!, size: 20, color: cloudStatusColor),
-                        const SizedBox(height: 2),
-                        Text(
-                          cloudStatusLabel!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: cloudStatusColor,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                      ],
-                      Text(
-                        _listening
-                            ? (_slideToCancel ? '松开取消' : '松开结束')
-                            : '按住说话',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: _listening && _slideToCancel ? scheme.error : color,
-                          fontWeight: FontWeight.w600,
-                          fontSize: cloudMode ? 12 : 13,
-                        ),
-                      ),
-                    ],
-                  ),
               ),
-              if (cloudMode)
-                Positioned(
-                  right: 2,
-                  top: 2,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _voiceAsrConnecting
-                          ? scheme.primary
-                          : (_voiceAsrReady ? const Color(0xFF2E7D32) : scheme.error),
-                      border: Border.all(color: scheme.surface, width: 1.5),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
+            ),
+        ],
+      ),
+    );
+
+    if (!_listening) {
+      return orbCore;
+    }
+
+    return ListenableBuilder(
+      listenable: _voiceLevelNotifier,
+      builder: (context, _) {
+        final bars = HomeVoiceLevelBars(
+          level: _voiceLevelNotifier.value,
+          cancelled: _slideToCancel,
+          maxBarHeight: 52,
+        );
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            bars,
+            const SizedBox(width: 12),
+            orbCore,
+            const SizedBox(width: 12),
+            bars,
+          ],
+        );
+      },
     );
   }
 }

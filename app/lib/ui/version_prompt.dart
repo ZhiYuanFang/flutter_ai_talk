@@ -7,6 +7,7 @@ import '../config/env.dart';
 import '../data/repositories.dart';
 import '../update/apk_update.dart';
 import '../util/reload.dart';
+import 'widgets/app_toast.dart';
 
 Future<void> maybeShowVersionPrompt({
   required BuildContext context,
@@ -60,18 +61,14 @@ Future<void> maybeShowVersionPrompt({
                 final url = resolveGatewayAbsoluteUrl(info.androidApkUrl) ?? info.androidApkUrl.trim();
                 if (url.isEmpty) {
                   if (ctx.mounted) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                      const SnackBar(content: Text('暂无安装包下载地址')),
-                    );
+                    showAppToast('暂无安装包下载地址', tone: AppToastTone.error);
                   }
                   return;
                 }
                 final uri = Uri.tryParse(url);
                 if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
                   if (ctx.mounted) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                      const SnackBar(content: Text('下载地址无效')),
-                    );
+                    showAppToast('下载地址无效', tone: AppToastTone.error);
                   }
                   return;
                 }

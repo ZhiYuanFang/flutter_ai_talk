@@ -9,6 +9,7 @@ import '../api/api_exceptions.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
 import 'history_mapper.dart';
+import 'history_list_page.dart';
 import 'home_history_store.dart';
 import 'models.dart';
 import 'feed_repository.dart';
@@ -41,7 +42,7 @@ class RemoteFeedRepository implements FeedRepository {
   var _wsReady = false;
 
   void _toast(String m) {
-    _ref.read(apiToastProvider.notifier).state = m;
+    _ref.showApiToastError(m);
   }
 
   void _emitWsReady(bool v) {
@@ -200,17 +201,36 @@ class RemoteFeedRepository implements FeedRepository {
 
   @override
   Future<List<HistoryRecord>?> tryLoadHistory() async {
+    final page = await tryLoadHistoryPage(page: 1);
+    if (page == null) return null;
+    return page.listDesc;
+  }
+
+  @override
+  Future<HistoryListPage?> tryLoadHistoryPage({
+    required int page,
+    int pageSize = kHomeHistoryPageSize,
+  }) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
       HomeHistoryLog.d('api list skip: deviceNo empty');
-      return [];
+      return const HistoryListPage(
+        listDesc: [],
+        total: 0,
+        page: 1,
+        pageSize: kHomeHistoryPageSize,
+      );
     }
-    HomeHistoryLog.d('api list start deviceNo=$dn page=1 pageSize=50');
+    HomeHistoryLog.d('api list start deviceNo=$dn page=$page pageSize=$pageSize');
     final sw = Stopwatch()..start();
     try {
       final data = await _api.getEnvelope(
         '/device/history/api/list',
-        query: {'deviceNo': dn, 'page': '1', 'pageSize': '50'},
+        query: {
+          'deviceNo': dn,
+          'page': '$page',
+          'pageSize': '$pageSize',
+        },
       );
       if (data == null) {
         sw.stop();
@@ -224,14 +244,35 @@ class RemoteFeedRepository implements FeedRepository {
           out.add(historyRecordFromServerMap(Map<String, dynamic>.from(e)));
         }
       }
-      _cache
-        ..clear()
-        ..addAll(out);
+      if (page == 1) {
+        _cache
+          ..clear()
+          ..addAll(out);
+      } else {
+        for (final r in out) {
+          if (!_cache.any((e) => e.id == r.id)) {
+            _cache.add(r);
+          }
+        }
+      }
+      final totalRaw = data['total'];
+      final total = totalRaw is num ? totalRaw.toInt() : out.length;
+      final pageRaw = data['page'];
+      final pageNo = pageRaw is num ? pageRaw.toInt() : page;
+      final pageSizeRaw = data['pageSize'];
+      final resolvedPageSize =
+          pageSizeRaw is num ? pageSizeRaw.toInt() : pageSize;
       sw.stop();
       HomeHistoryLog.d(
-        'api list ok count=${out.length} rawList=${list.length} elapsed=${sw.elapsedMilliseconds}ms',
+        'api list ok page=$pageNo count=${out.length} total=$total '
+        'elapsed=${sw.elapsedMilliseconds}ms',
       );
-      return List<HistoryRecord>.from(_cache);
+      return HistoryListPage(
+        listDesc: out,
+        total: total,
+        page: pageNo,
+        pageSize: resolvedPageSize,
+      );
     } on ApiBusinessException catch (e) {
       sw.stop();
       HomeHistoryLog.d(
@@ -271,8 +312,9 @@ class RemoteFeedRepository implements FeedRepository {
     DateTime? endTime,
     int? usageCount,
     bool clearEndIfNull = false,
+    HistoryRecord? fallbackRecord,
   }) async {
-    final existing = await getRecord(id);
+    final existing = await getRecord(id) ?? fallbackRecord;
     if (existing == null) return false;
     final body = buildEventUpdateBody(
       record: existing,
@@ -293,23 +335,35 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
-  Future<bool> addHistoryEvent(Map<String, dynamic> body) async {
+  Future<String?> addHistoryEvent(Map<String, dynamic> body) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
       _toast('请先绑定宝宝信息');
-      return false;
+      return null;
     }
     if (!isHistoryWebSocketReady) {
-      return false;
+      return null;
     }
     final payload = Map<String, dynamic>.from(body);
     _ensureDeviceNoOnBody(payload);
     try {
-      await _api.postJsonEnvelope('/device/history/api/event/add', payload);
-      return true;
+      final data = await _api.postJsonEnvelope('/device/history/api/event/add', payload);
+      if (data == null) {
+        _toast('响应无数据');
+        return null;
+      }
+      final idRaw = data['id'];
+      if (idRaw == null) {
+        _toast('响应无记录 id');
+        return null;
+      }
+      return idRaw.toString();
     } on ApiBusinessException catch (e) {
       _toast(e.message);
-      return false;
+      return null;
+    } catch (_) {
+      _toast('网络异常');
+      return null;
     }
   }
 

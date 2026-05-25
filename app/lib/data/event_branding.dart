@@ -1,5 +1,4 @@
 import 'event_definition.dart';
-import 'history_line_format.dart';
 import 'models.dart';
 
 /// 历史记录上的 `eventId`（字符串）。
@@ -7,6 +6,13 @@ String historyRecordEventId(HistoryRecord record) {
   final raw = record.rawPayload['eventId'];
   if (raw == null) return '';
   return raw.toString().trim();
+}
+
+/// 主页历史分组键：非空 `eventId` 优先，否则 `eventName.trim()`。
+String historyRecordEventKey(HistoryRecord record) {
+  final id = historyRecordEventId(record);
+  if (id.isNotEmpty) return id;
+  return record.eventName.trim();
 }
 
 /// 在目录中查找与记录对应的事件定义。

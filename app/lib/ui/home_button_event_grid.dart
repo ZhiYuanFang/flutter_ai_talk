@@ -1,39 +1,34 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_visual_tokens.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
 import 'event_logo.dart';
 
-/// 将按钮模式根节点对半拆成两行（前半 → 上行，后半 → 下行）。
-(List<EventDefinition> row1, List<EventDefinition> row2) splitEventCatalogForButtonGrid(
-  List<EventDefinition> catalog,
-) {
+/// 按钮模式单行根事件列表。
+List<EventDefinition> buttonGridRowEvents(List<EventDefinition> catalog) {
   var valid = buttonGridRootEvents(catalog);
   // 目录有数据但层级过滤为空时仍展示（冷启动旧缓存兼容）。
   if (valid.isEmpty && catalog.isNotEmpty) {
     valid = catalog;
   }
-  if (valid.isEmpty) return (const [], const []);
-  final splitAt = (valid.length / 2).ceil();
-  return (valid.sublist(0, splitAt), valid.sublist(splitAt));
+  return valid;
 }
 
 /// 单行事件按钮高度（logo + 名称）。
 const kHomeEventButtonRowHeight = 68.0;
 
-const kHomeEventButtonRowGap = 4.0;
-
 const kHomeEventButtonColumnWidth = 72.0;
 
-const kHomeEventButtonColumnGap = 8.0;
+const kHomeEventButtonColumnGap = 4.0;
 
-/// 两行网格内容区高度（不含外层 padding）。
-const kHomeEventButtonGridHeight = kHomeEventButtonRowHeight * 2 + kHomeEventButtonRowGap;
+/// 单行网格内容区高度（不含外层 padding）。
+const kHomeEventButtonGridHeight = kHomeEventButtonRowHeight;
 
 /// 按钮模式底部输入区推荐高度（与语音球 220 解耦）。
-const kHomeButtonInputPanelHeight = kHomeEventButtonGridHeight + 16;
+const kHomeButtonInputPanelHeight = kHomeEventButtonGridHeight + 8;
 
-/// 按钮模式：两行作为一个整体横向滚动（每列上下各一个 cell）。
+/// 按钮模式：单行横向滚动，无面板/单元格底色。
 class HomeButtonEventGrid extends StatelessWidget {
   const HomeButtonEventGrid({
     super.key,
@@ -46,8 +41,8 @@ class HomeButtonEventGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (row1, row2) = splitEventCatalogForButtonGrid(catalog);
-    if (row1.isEmpty && row2.isEmpty) {
+    final events = buttonGridRowEvents(catalog);
+    if (events.isEmpty) {
       return SizedBox(
         height: kHomeEventButtonGridHeight,
         child: Center(
@@ -61,40 +56,21 @@ class HomeButtonEventGrid extends StatelessWidget {
       );
     }
 
-    final columnCount = row1.length > row2.length ? row1.length : row2.length;
-
     return SizedBox(
       height: kHomeEventButtonGridHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        itemCount: columnCount,
+        itemCount: events.length,
         separatorBuilder: (_, __) => const SizedBox(width: kHomeEventButtonColumnGap),
         itemBuilder: (context, index) {
+          final event = events[index];
           return SizedBox(
             width: kHomeEventButtonColumnWidth,
-            child: Column(
-              children: [
-                SizedBox(
-                  height: kHomeEventButtonRowHeight,
-                  child: index < row1.length
-                      ? _EventButtonCell(
-                          event: row1[index],
-                          onTap: () => onEventTap(row1[index]),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                const SizedBox(height: kHomeEventButtonRowGap),
-                SizedBox(
-                  height: kHomeEventButtonRowHeight,
-                  child: index < row2.length
-                      ? _EventButtonCell(
-                          event: row2[index],
-                          onTap: () => onEventTap(row2[index]),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
+            height: kHomeEventButtonRowHeight,
+            child: _EventButtonCell(
+              event: event,
+              onTap: () => onEventTap(event),
             ),
           );
         },
@@ -114,8 +90,8 @@ class _EventButtonCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final brand = resolveEventColor(context, event);
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final labelColor = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -136,7 +112,7 @@ class _EventButtonCell extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: brand.computeLuminance() > 0.55 ? scheme.onSurface : brand,
+                    color: labelColor,
                     fontWeight: FontWeight.w600,
                     height: 1.15,
                   ),

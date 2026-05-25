@@ -62,7 +62,7 @@ final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
     api,
     () => ref.read(deviceNoNotifierProvider).asData?.value,
     signInChannelGetter: () => ref.read(signInChannelProvider),
-    onToast: (m) => ref.read(apiToastProvider.notifier).state = m,
+    onToast: (m) => ref.showApiToastError(m),
   );
 });
 

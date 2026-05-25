@@ -90,6 +90,54 @@ Map<String, dynamic> buildEventUpdateBody({
   };
 }
 
+/// 由 add 请求体构建乐观 [HistoryRecord]（`id` 通常为 `pending:<uuid>`）。
+HistoryRecord historyRecordFromAddBody(Map<String, dynamic> body, {required String id}) {
+  final eventName = body['eventName'] as String? ?? '';
+  final remark = body['remark'] as String? ?? '';
+  final action = remark.trim().isEmpty ? '—' : remark.trim();
+
+  final payload = Map<String, Object?>.from(body);
+  final idParsed = int.tryParse(id);
+  payload['id'] = idParsed ?? id;
+
+  final createdAt =
+      parseHistoryInstant(body['startTime']) ?? parseHistoryInstant(body['endTime']) ?? DateTime.now();
+
+  return HistoryRecord(
+    id: id,
+    createdAt: createdAt,
+    eventName: eventName,
+    action: action,
+    rawPayload: payload,
+  );
+}
+
+/// 乐观 pending id（`pending:` 前缀）。
+bool isPendingHistoryId(String id) => id.startsWith('pending:');
+
+int _payloadEventId(Map<String, Object?> p) {
+  final v = p['eventId'];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? 0;
+}
+
+int _payloadStartUnix(Map<String, Object?> p) {
+  final v = p['startTime'];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? 0;
+}
+
+/// 判断 WS/服务端 record 是否对应当前 pending 乐观行（同 event + startTime）。
+bool historyRecordMatchesPendingAdd(HistoryRecord pending, HistoryRecord incoming) {
+  if (!isPendingHistoryId(pending.id)) return false;
+  final pa = pending.rawPayload;
+  final pb = incoming.rawPayload;
+  if (_payloadEventId(pa) != _payloadEventId(pb)) return false;
+  return _payloadStartUnix(pa) == _payloadStartUnix(pb);
+}
+
 /// 构造 `POST /device/history/api/event/add` 请求体（无 `eventUnit`）。
 Map<String, dynamic> buildEventAddBody({
   required String deviceNo,

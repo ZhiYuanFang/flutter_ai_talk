@@ -58,7 +58,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       ref.invalidate(settingsBabyProvider);
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
-      ref.read(apiToastProvider.notifier).state = e.message;
+      ref.showApiToastError(e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -84,14 +84,14 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       );
       final dn = readGatewayStr(data ?? const {}, 'deviceNo', 'device_no');
       if (dn == null || dn.isEmpty) {
-        ref.read(apiToastProvider.notifier).state = '创建成功但未返回 deviceNo';
+        ref.showApiToastError('创建成功但未返回 deviceNo');
         return;
       }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(dn);
       ref.invalidate(settingsBabyProvider);
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
-      ref.read(apiToastProvider.notifier).state = e.message;
+      ref.showApiToastError(e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme_scope.dart';
+import '../theme/app_visual_tokens.dart';
 
 /// 主页历史列表：按自然日的分块标题行（配合 Sliver 吸顶）。
 class HomeHistoryDateHeader extends StatelessWidget {
@@ -14,9 +14,11 @@ class HomeHistoryDateHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final bg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
+    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.primary;
     return ColoredBox(
-      color: themePrimaryBlend(context),
+      color: bg,
       child: SizedBox(
         width: double.infinity,
         height: height,
@@ -29,7 +31,7 @@ class HomeHistoryDateHeader extends StatelessWidget {
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
-                    color: scheme.primary,
+                    color: fg,
                   ),
             ),
           ),

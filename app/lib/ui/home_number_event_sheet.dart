@@ -1,8 +1,9 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../data/event_definition.dart';
 import '../data/history_mapper.dart';
+import 'home_event_number_picker.dart';
+import 'widgets/app_adaptive_bottom_sheet.dart';
 
 /// number 类型事件二级页确认结果。
 class HomeNumberEventResult {
@@ -17,20 +18,14 @@ class HomeNumberEventResult {
   final String remark;
 }
 
-final _numberPickerValues = [
-  for (var v = 5; v <= 500; v += 5) v,
-];
-
 /// number 事件：时刻 + Cupertino 滚轮用量 + 可选 remark。
 Future<HomeNumberEventResult?> showHomeNumberEventSheet(
   BuildContext context,
   EventDefinition event,
 ) {
-  return showModalBottomSheet<HomeNumberEventResult>(
+  return showAppAdaptiveBottomSheet<HomeNumberEventResult>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (ctx) => _HomeNumberEventSheet(event: event),
+    bodyBuilder: (ctx) => _HomeNumberEventSheet(event: event),
   );
 }
 
@@ -90,7 +85,7 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
 
   void _confirm() {
     final index = _pickerCtrl.hasClients ? _pickerCtrl.selectedItem : 0;
-    final usage = _numberPickerValues[index.clamp(0, _numberPickerValues.length - 1)];
+    final usage = HomeEventNumberPicker.valueAtIndex(index);
     Navigator.pop(
       context,
       HomeNumberEventResult(
@@ -103,9 +98,8 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.viewInsetsOf(context).bottom;
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, 16 + bottom),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -134,17 +128,7 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
             ],
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 160,
-            child: CupertinoPicker(
-              scrollController: _pickerCtrl,
-              itemExtent: 36,
-              onSelectedItemChanged: (_) {},
-              children: _numberPickerValues
-                  .map((v) => Center(child: Text('$v')))
-                  .toList(),
-            ),
-          ),
+          HomeEventNumberPicker(controller: _pickerCtrl),
           TextField(
             controller: _remarkCtrl,
             maxLines: 2,

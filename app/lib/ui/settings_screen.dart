@@ -14,6 +14,7 @@ import '../providers/device_no_notifier.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/custom_background_persist.dart';
+import '../theme/theme_preset.dart';
 import 'recording_diagnostics_tile.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -93,34 +94,7 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(height: 32),
           const Text('主题', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          ListTile(
-            leading: const Icon(Icons.palette),
-            title: const Text('自定义背景颜色'),
-            subtitle: const Text('保存后将覆盖性别默认背景'),
-            onTap: () async {
-              final picked = await showDialog<Color>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('选择背景色'),
-                  content: MaterialColorPicker(
-                    onPicked: (c) => Navigator.pop(ctx, c),
-                  ),
-                ),
-              );
-              if (picked != null) {
-                ref.read(customBackgroundProvider.notifier).state = picked;
-                await persistCustomBackground(picked);
-              }
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.restart_alt),
-            title: const Text('清除自定义背景'),
-            onTap: () async {
-              ref.read(customBackgroundProvider.notifier).state = null;
-              await persistCustomBackground(null);
-            },
-          ),
+          const _ThemePresetSection(),
         ],
       ),
     );
@@ -232,20 +206,168 @@ class _BabyProfileReadonlyCard extends StatelessWidget {
   }
 }
 
+class _ThemePresetSection extends ConsumerWidget {
+  const _ThemePresetSection();
+
+  static const _classicSwatch = Color(0xFFF5F5F5);
+
+  Future<void> _applyPreset(WidgetRef ref, ThemePreset preset, Color seed) async {
+    ref.read(themePresetProvider.notifier).state = preset;
+    ref.read(customBackgroundProvider.notifier).state = seed;
+    await persistThemePreferences(seed: seed, preset: preset);
+  }
+
+  Future<void> _clearToClassic(WidgetRef ref) async {
+    ref.read(themePresetProvider.notifier).state = null;
+    ref.read(customBackgroundProvider.notifier).state = null;
+    await clearThemePreferences();
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activePreset = ref.watch(themePresetProvider);
+    final customBg = ref.watch(customBackgroundProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _PresetSwatch(
+              label: '经典',
+              color: _classicSwatch,
+              selected: activePreset == ThemePreset.classicLight ||
+                  (activePreset == null && customBg == null),
+              onTap: () => _clearToClassic(ref),
+            ),
+            _PresetSwatch(
+              label: '夜空',
+              color: kNightSkyShell,
+              selected: activePreset == ThemePreset.nightSky,
+              onTap: () => _applyPreset(ref, ThemePreset.nightSky, kNightSkyShell),
+            ),
+            for (final preset in [
+              ThemePreset.softBlue,
+              ThemePreset.softPink,
+              ThemePreset.softGreen,
+              ThemePreset.softYellow,
+              ThemePreset.softGrey,
+              ThemePreset.softPurple,
+            ])
+              _PresetSwatch(
+                color: _swatchColorForPreset(preset),
+                selected: activePreset == preset,
+                onTap: () {
+                  final c = _swatchColorForPreset(preset);
+                  _applyPreset(ref, preset, c);
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.palette_outlined),
+          title: const Text('更多颜色'),
+          subtitle: const Text('自定义色将清除上方预设选中'),
+          onTap: () async {
+            final picked = await showDialog<Color>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('选择背景色'),
+                content: MaterialColorPicker(
+                  onPicked: (c) => Navigator.pop(ctx, c),
+                ),
+              ),
+            );
+            if (picked == null) return;
+            ref.read(themePresetProvider.notifier).state = null;
+            ref.read(customBackgroundProvider.notifier).state = picked;
+            await persistThemePreferences(seed: picked, preset: null);
+          },
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.restart_alt),
+          title: const Text('清除自定义背景'),
+          subtitle: const Text('恢复经典浅色默认'),
+          onTap: () => _clearToClassic(ref),
+        ),
+      ],
+    );
+  }
+
+  static Color _swatchColorForPreset(ThemePreset preset) {
+    return switch (preset) {
+      ThemePreset.softBlue => kThemeSoftSwatchColors[0],
+      ThemePreset.softPink => kThemeSoftSwatchColors[1],
+      ThemePreset.softGreen => kThemeSoftSwatchColors[2],
+      ThemePreset.softYellow => kThemeSoftSwatchColors[3],
+      ThemePreset.softGrey => kThemeSoftSwatchColors[4],
+      ThemePreset.softPurple => kThemeSoftSwatchColors[5],
+      _ => kThemeSoftSwatchColors[0],
+    };
+  }
+}
+
+class _PresetSwatch extends StatelessWidget {
+  const _PresetSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+    this.label,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = selected
+        ? Theme.of(context).colorScheme.primary
+        : (color.computeLuminance() < 0.15 ? Colors.white38 : Colors.black26);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: borderColor, width: selected ? 2.5 : 1),
+            ),
+            child: selected
+                ? Icon(
+                    Icons.check,
+                    color: color.computeLuminance() < 0.4 ? Colors.white : Colors.black87,
+                    size: 20,
+                  )
+                : null,
+          ),
+          if (label != null) ...[
+            const SizedBox(height: 4),
+            Text(label!, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class MaterialColorPicker extends StatelessWidget {
   const MaterialColorPicker({super.key, required this.onPicked});
 
   final ValueChanged<Color> onPicked;
 
-  static const _colors = <Color>[
-    Color(0xFFE3F2FD),
-    Color(0xFFFFEBEE),
-    Color(0xFFE8F5E9),
-    Color(0xFFFFF8E1),
-    Color(0xFFECEFF1),
-    Color(0xFFE1BEE7),
-    Color(0xFF000000),
-  ];
+  static final _colors = kThemeSoftSwatchColors;
 
   @override
   Widget build(BuildContext context) {

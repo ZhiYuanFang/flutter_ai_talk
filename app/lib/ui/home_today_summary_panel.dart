@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../theme/app_visual_tokens.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_record_metric.dart';
@@ -50,7 +51,7 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
     }
   }
 
-  Widget _buildChips(ColorScheme scheme, List<EventDefinition> catalog) {
+  Widget _buildChips(List<EventDefinition> catalog) {
     return Wrap(
       spacing: _chipSpacing,
       runSpacing: _chipRunSpacing,
@@ -59,7 +60,6 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
           _TodayChip(
             total: t,
             event: lookupEventById(catalog, t.eventId),
-            scheme: scheme,
           ),
       ],
     );
@@ -71,9 +71,9 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
       return const SizedBox.shrink();
     }
 
-    final scheme = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
     final catalog = ref.watch(eventCatalogProvider);
-    final chips = _buildChips(scheme, catalog);
+    final chips = _buildChips(catalog);
     final visibleChips = _expanded
         ? chips
         : ClipRect(
@@ -98,6 +98,7 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
+                      color: tokens?.onShell,
                     ),
               ),
               if (_needsFold) ...[
@@ -133,28 +134,30 @@ class _TodayChip extends StatelessWidget {
   const _TodayChip({
     required this.total,
     required this.event,
-    required this.scheme,
   });
 
   final TodayEventTotal total;
   final EventDefinition? event;
-  final ColorScheme scheme;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
     final accent = resolveEventColor(context, event);
     final labelStyle = TextStyle(
       fontSize: 12,
       height: 1.2,
-      color: scheme.onSurfaceVariant,
+      color: tokens?.onSurface ?? Theme.of(context).colorScheme.onSurfaceVariant,
       fontWeight: FontWeight.w500,
     );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.12),
-        border: Border.all(color: accent.withValues(alpha: 0.35)),
-        borderRadius: BorderRadius.circular(6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: ShapeDecoration(
+        color: Color.alphaBlend(accent.withValues(alpha: 0.14), tokens?.pillBackground ?? accent.withValues(alpha: 0.12)),
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: Color.alphaBlend(accent.withValues(alpha: 0.4), tokens?.pillBorder ?? accent.withValues(alpha: 0.35)),
+          ),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

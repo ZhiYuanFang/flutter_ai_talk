@@ -4,6 +4,7 @@ import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
 import '../theme/app_theme_scope.dart';
 import 'event_logo.dart';
+import 'widgets/app_adaptive_bottom_sheet.dart';
 
 /// 方案 B：单 Bottom Sheet，内部 path 栈无限层级；选中叶子后 pop。
 Future<EventDefinition?> showEventCatalogPickerSheet(
@@ -12,15 +13,13 @@ Future<EventDefinition?> showEventCatalogPickerSheet(
   required EventDefinition root,
   void Function(String message)? onToast,
 }) {
-  return showModalBottomSheet<EventDefinition>(
+  return showAppAdaptiveBottomSheet<EventDefinition>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
     backgroundColor: themePrimaryBlend(context),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (ctx) => _EventCatalogPickerSheet(
+    bodyBuilder: (ctx) => _EventCatalogPickerSheet(
       catalog: catalog,
       initialPath: [root],
       onToast: onToast,
@@ -78,63 +77,64 @@ class _EventCatalogPickerSheetState extends State<_EventCatalogPickerSheet> {
   Widget build(BuildContext context) {
     final current = _path.last;
     final items = childrenOf(widget.catalog, current.id);
-    final sheetH = MediaQuery.sizeOf(context).height * 2 / 3;
 
-    return SizedBox(
-      height: sheetH,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 16, 8),
-            child: Row(
-              children: [
-                if (_path.length > 1)
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back),
-                    tooltip: '返回上一级',
-                    onPressed: _onBack,
-                  )
-                else
-                  const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 16, 8),
+          child: Row(
+            children: [
+              if (_path.length > 1)
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: '返回上一级',
+                  onPressed: _onBack,
+                )
+              else
+                const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const Divider(height: 1),
-          Expanded(
-            child: items.isEmpty
-                ? Center(
-                    child: Text(
-                      '暂无子项',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+        ),
+        const Divider(height: 1),
+        if (items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text(
+                '暂无子项',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final e = items[index];
-                      final folder = hasChildren(widget.catalog, e.id);
-                      return ListTile(
-                        leading: EventLogo(definition: e, size: 28),
-                        title: Text(e.name),
-                        trailing: folder ? const Icon(Icons.chevron_right) : null,
-                        onTap: () => _onItemTap(e),
-                      );
-                    },
-                  ),
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              final e = items[index];
+              final folder = hasChildren(widget.catalog, e.id);
+              return ListTile(
+                leading: EventLogo(definition: e, size: 28),
+                title: Text(e.name),
+                trailing: folder ? const Icon(Icons.chevron_right) : null,
+                onTap: () => _onItemTap(e),
+              );
+            },
           ),
-        ],
-      ),
+      ],
     );
   }
 }

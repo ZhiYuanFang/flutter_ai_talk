@@ -17,7 +17,7 @@ final authorizedApiClientProvider = Provider<ApiClient>((ref) {
       await ref.read(sessionProvider).signOut();
       await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await ref.read(signInChannelProvider.notifier).clear();
-      ref.read(apiToastProvider.notifier).state = '登录已过期，请重新登录';
+      ref.showApiToastError('登录已过期，请重新登录');
     },
   );
 });
