@@ -34,14 +34,30 @@ class HomeButtonEventGrid extends StatelessWidget {
     super.key,
     required this.catalog,
     required this.onEventTap,
+    this.rootEvents,
   });
 
   final List<EventDefinition> catalog;
   final ValueChanged<EventDefinition> onEventTap;
 
+  /// initState 缓存的排序根列表；null 时暂用 API 序。
+  final List<EventDefinition>? rootEvents;
+
+  List<EventDefinition> _resolveEvents() {
+    final sorted = rootEvents;
+    if (sorted != null && sorted.isNotEmpty) {
+      final byId = {for (final e in catalog) e.id: e};
+      return [
+        for (final e in sorted)
+          if (byId.containsKey(e.id)) byId[e.id]!,
+      ];
+    }
+    return buttonGridRowEvents(catalog);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final events = buttonGridRowEvents(catalog);
+    final events = _resolveEvents();
     if (events.isEmpty) {
       return SizedBox(
         height: kHomeEventButtonGridHeight,

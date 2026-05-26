@@ -18,6 +18,7 @@ import 'event_logo.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'trend_glass_bar_chart.dart';
 import 'trends_date_range_glass_sheet.dart';
+import 'widgets/app_glass_overlay.dart';
 
 class TrendsScreen extends ConsumerStatefulWidget {
   const TrendsScreen({super.key});
@@ -137,44 +138,42 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
   Future<void> _openEventPicker(List<EventDefinition> catalog) async {
     final pickerItems = leafEvents(catalog, requireValidEventType: true);
     if (pickerItems.isEmpty) return;
-    final picked = await showModalBottomSheet<String>(
+    final accent = resolveEventColor(context, pickerItems.first);
+    final picked = await showGlassAdaptiveBottomSheet<String>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        final sheetH = MediaQuery.sizeOf(ctx).height * 2 / 3;
-        return SizedBox(
-          height: sheetH,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text('选择事件', style: Theme.of(ctx).textTheme.titleMedium),
+      eventAccent: accent,
+      scrollable: false,
+      bodyBuilder: (ctx) {
+        final glassText = historyEditGlassTextColor(ctx);
+        final scheme = Theme.of(ctx).colorScheme;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '选择事件',
+              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(color: glassText),
+            ),
+            const SizedBox(height: 8),
+            Divider(height: 1, color: Colors.white.withValues(alpha: 0.18)),
+            Expanded(
+              child: ListView.builder(
+                itemCount: pickerItems.length,
+                itemBuilder: (context, index) {
+                  final e = pickerItems[index];
+                  final selected = e.id == _selectedKey;
+                  return ListTile(
+                    selected: selected,
+                    leading: EventLogo(definition: e, size: 28),
+                    title: Text(e.name, style: TextStyle(color: glassText)),
+                    trailing: selected
+                        ? Icon(Icons.check, color: scheme.primary)
+                        : null,
+                    onTap: () => Navigator.pop(ctx, e.id),
+                  );
+                },
               ),
-              const Divider(height: 1),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: pickerItems.length,
-                  itemBuilder: (context, index) {
-                    final e = pickerItems[index];
-                    final selected = e.id == _selectedKey;
-                    return ListTile(
-                      selected: selected,
-                      leading: EventLogo(definition: e, size: 28),
-                      title: Text(e.name),
-                      trailing: selected ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary) : null,
-                      onTap: () => Navigator.pop(ctx, e.id),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );

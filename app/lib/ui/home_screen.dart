@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import '../audio/voice_level_smoother.dart';
 import '../asr/home_speech_factory.dart';
 import '../asr/home_speech_recognizer.dart';
+import '../config/event_button_usage_store.dart';
 import '../config/home_input_channel_store.dart';
 import '../config/recording_diagnostics_store.dart';
 import '../config/speech_engine.dart';
@@ -18,6 +19,7 @@ import '../config/web_home_input_mode.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../data/event_branding.dart';
 import '../data/event_catalog_tree.dart';
+import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
 import '../data/home_history_store.dart';
 import '../data/history_line_format.dart';
@@ -25,7 +27,8 @@ import '../data/history_mapper.dart';
 import '../data/history_record_metric.dart';
 import '../data/models.dart';
 import 'event_catalog_picker_sheet.dart';
-import 'home_button_event_grid.dart' show HomeButtonEventGrid, kHomeButtonInputPanelHeight;
+import 'home_button_event_grid.dart'
+    show HomeButtonEventGrid, buttonGridRowEvents, kHomeButtonInputPanelHeight;
 import 'home_event_record_fly_overlay.dart';
 import 'home_active_timing_reminder_dialog.dart';
 import 'home_history_edit_sheet.dart';
@@ -49,6 +52,7 @@ import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../providers/toast_bus.dart';
+import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
@@ -118,6 +122,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _pendingIdRandom = Random();
   var _activeTimingReminderShowing = false;
   String? _pendingReminderExcludeId;
+  Map<String, int>? _eventUsageCounts;
+  List<EventDefinition>? _buttonGridOrder;
   bool get _showRecordingStatsPanel =>
       _showRecordingDiagnostics &&
       _speechEngine == SpeechEngine.cloudAsr &&
@@ -140,6 +146,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       unawaited(ref.read(signInChannelProvider.notifier).restoreFromPrefs());
     }
     unawaited(_restoreSavedInputChannel());
+    unawaited(_loadEventUsageAndButtonOrder());
     HomeHistoryLog.d(
       'HomeScreen initState provider items=${ref.read(homeHistoryProvider).items.length} '
       'initialLoadDone=${ref.read(homeHistoryProvider).initialLoadDone}',
@@ -412,6 +419,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _markRecentlyReplaced(serverId);
       _history.replaceRecordId(pendingId, serverId);
       _scheduleActiveTimingReminderAfterAdd(excludeRecordId: serverId);
+      unawaited(EventButtonUsageStore.increment(event.id));
     } else {
       _cancelFlyAndRemovePending(pendingId);
     }
@@ -425,6 +433,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         context,
         catalog: catalog,
         root: event,
+        usageCounts: _eventUsageCounts,
         onToast: (msg) => ref.showApiToast(msg),
       );
       if (leaf == null || !mounted) return;
@@ -666,6 +675,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ok;
   }
 
+  Future<void> _loadEventUsageAndButtonOrder() async {
+    final counts = await EventButtonUsageStore.loadAll();
+    if (!mounted) return;
+
+    var catalog = ref.read(eventCatalogProvider);
+    if (catalog.isEmpty) {
+      await ref.read(eventCatalogProvider.notifier).loadFromDisk();
+      catalog = ref.read(eventCatalogProvider);
+    }
+
+    List<EventDefinition>? order;
+    if (catalog.isNotEmpty) {
+      final roots = buttonGridRowEvents(catalog);
+      order = sortEventsBySubtreeUsage(catalog, roots, counts);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _eventUsageCounts = counts;
+      _buttonGridOrder = order;
+    });
+  }
+
   Future<void> _refreshEventCatalogIfReady() async {
     if (!ref.read(sessionProvider).isLoggedIn) return;
     await ref.read(deviceNoNotifierProvider.notifier).refresh();
@@ -706,16 +738,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<bool> _ensureRemoteGate() async {
     final loggedIn = ref.read(sessionProvider).isLoggedIn;
     if (!loggedIn) {
-      final go = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('需要登录'),
-              content: const Text('请先登录后再操作。'),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去登录')),
-              ],
-            ),
+      final go = await showGlassConfirmDialog(
+            context,
+            title: '需要登录',
+            message: '请先登录后再操作。',
+            confirmLabel: '去登录',
           ) ??
           false;
       if (go && mounted) await context.push('/login');
@@ -725,16 +752,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (dnState.isLoading) return true;
     final dn = dnState.asData?.value;
     if (dn == null || dn.isEmpty) {
-      final go = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('绑定宝宝'),
-              content: const Text('请先绑定宝宝信息。'),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去绑定')),
-              ],
-            ),
+      final go = await showGlassConfirmDialog(
+            context,
+            title: '绑定宝宝',
+            message: '请先绑定宝宝信息。',
+            confirmLabel: '去绑定',
           ) ??
           false;
       if (go && mounted) await context.push('/settings/bind-baby');
@@ -1355,6 +1377,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       case HomeInputChannel.buttons:
         return HomeButtonEventGrid(
           catalog: eventCatalog,
+          rootEvents: _buttonGridOrder,
           onEventTap: (e) => unawaited(_onEventGridTap(e)),
         );
     }

@@ -9,6 +9,7 @@ import '../providers/repositories.dart';
 import 'event_logo.dart';
 import 'home_event_hourly_trend_chart.dart';
 import 'home_history_edit_glass_panel.dart';
+import 'widgets/app_glass_overlay.dart';
 
 /// 今日 chip 点击：玻璃态 Sheet，今/昨小时双折线（先本地后 API）。
 Future<void> showHomeEventHourlyTrendSheet(
@@ -18,27 +19,21 @@ Future<void> showHomeEventHourlyTrendSheet(
   required List<HistoryRecord> historyItems,
   required WidgetRef ref,
 }) {
-  return showModalBottomSheet<void>(
+  final size = MediaQuery.sizeOf(context);
+  final landscape = size.width > size.height;
+  final maxHeightFraction = landscape ? 0.92 : 0.58;
+  return showGlassAdaptiveBottomSheet<void>(
     context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) {
-      final size = MediaQuery.sizeOf(ctx);
-      final landscape = size.width > size.height;
-      final maxSheetH = size.height * (landscape ? 0.92 : 0.58);
-      return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxSheetH),
-          child: _HomeEventHourlyTrendSheetBody(
-            total: total,
-            event: event,
-            historyItems: historyItems,
-            ref: ref,
-          ),
-        ),
-      );
-    },
+    maxHeightFraction: maxHeightFraction,
+    horizontalPadding: 0,
+    wrapInGlassPanel: false,
+    scrollable: false,
+    bodyBuilder: (ctx) => _HomeEventHourlyTrendSheetBody(
+      total: total,
+      event: event,
+      historyItems: historyItems,
+      ref: ref,
+    ),
   );
 }
 

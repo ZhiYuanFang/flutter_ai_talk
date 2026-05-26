@@ -2,7 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'home_history_edit_glass_panel.dart';
-import 'widgets/app_adaptive_bottom_sheet.dart';
+import 'widgets/app_glass_overlay.dart';
 
 /// 历史编辑：先展示时分，点击后弹出滚轮选择（日历日由 [anchorDate] 锚定）。
 class HomeHistoryTimeField extends StatelessWidget {
@@ -158,8 +158,9 @@ Future<DateTime?> showHomeHistoryTimePickerSheet(
   required DateTime initialValue,
   String? title,
 }) {
-  return showAppAdaptiveBottomSheet<DateTime>(
+  return showGlassAdaptiveBottomSheet<DateTime>(
     context: context,
+    scrollable: false,
     bodyBuilder: (ctx) => _HomeHistoryTimePickerSheetBody(
       anchorDate: anchorDate,
       initialValue: initialValue,
@@ -220,9 +221,11 @@ class _HomeHistoryTimePickerSheetBodyState extends State<_HomeHistoryTimePickerS
     final scheme = Theme.of(context).colorScheme;
     final primary = scheme.primary;
     final onPrimary = scheme.onPrimary;
+    final glassText = historyEditGlassTextColor(context);
+    final glassLabel = historyEditGlassLabelColor(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -230,7 +233,7 @@ class _HomeHistoryTimePickerSheetBodyState extends State<_HomeHistoryTimePickerS
           if (widget.title != null && widget.title!.isNotEmpty) ...[
             Text(
               widget.title!,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(color: glassText),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
@@ -241,10 +244,10 @@ class _HomeHistoryTimePickerSheetBodyState extends State<_HomeHistoryTimePickerS
               brightness: Theme.of(context).brightness,
               textTheme: CupertinoTextThemeData(
                 dateTimePickerTextStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: scheme.onSurface,
+                      color: glassText,
                     ),
                 pickerTextStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: scheme.onSurface.withValues(alpha: 0.45),
+                      color: glassLabel,
                     ),
               ),
             ),
@@ -266,7 +269,7 @@ class _HomeHistoryTimePickerSheetBodyState extends State<_HomeHistoryTimePickerS
                           child: Text(
                             '${i.toString().padLeft(2, '0')} 时',
                             style: TextStyle(
-                              color: scheme.onSurface,
+                              color: glassText,
                               fontFeatures: const [FontFeature.tabularFigures()],
                             ),
                           ),
@@ -288,7 +291,7 @@ class _HomeHistoryTimePickerSheetBodyState extends State<_HomeHistoryTimePickerS
                           child: Text(
                             '${i.toString().padLeft(2, '0')} 分',
                             style: TextStyle(
-                              color: scheme.onSurface,
+                              color: glassText,
                               fontFeatures: const [FontFeature.tabularFigures()],
                             ),
                           ),

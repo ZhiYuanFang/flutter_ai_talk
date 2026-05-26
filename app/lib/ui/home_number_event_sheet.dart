@@ -10,6 +10,7 @@ import 'event_logo.dart';
 import 'home_event_number_picker.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
+import 'widgets/app_glass_overlay.dart';
 
 /// number 类型事件二级页确认结果。
 class HomeNumberEventResult {
@@ -32,31 +33,15 @@ Future<HomeNumberEventResult?> showHomeNumberEventSheet(
   EventDefinition event, {
   int? initialUsage,
 }) {
-  return showModalBottomSheet<HomeNumberEventResult>(
+  return showGlassAdaptiveBottomSheet<HomeNumberEventResult>(
     context: context,
-    isScrollControlled: true,
-    isDismissible: true,
+    maxHeightFraction: 4 / 5,
     enableDrag: false,
-    showDragHandle: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.55),
-    builder: (ctx) {
-      final media = MediaQuery.of(ctx);
-      final maxH = media.size.height * 4 / 5;
-      final bottomPad = media.viewInsets.bottom + media.viewPadding.bottom;
-      return Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad + 12),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxH),
-          child: SingleChildScrollView(
-            child: _HomeNumberEventSheet(
-              event: event,
-              initialUsage: initialUsage,
-            ),
-          ),
-        ),
-      );
-    },
+    wrapInGlassPanel: false,
+    bodyBuilder: (ctx) => _HomeNumberEventSheet(
+      event: event,
+      initialUsage: initialUsage,
+    ),
   );
 }
 

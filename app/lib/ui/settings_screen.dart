@@ -15,7 +15,9 @@ import '../providers/sign_in_channel_provider.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/custom_background_persist.dart';
 import '../theme/theme_preset.dart';
+import 'home_history_edit_glass_panel.dart';
 import 'recording_diagnostics_tile.dart';
+import 'widgets/app_glass_overlay.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -66,16 +68,10 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.swap_horiz),
             title: const Text('切换账号'),
             onTap: () async {
-              final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('切换账号'),
-                      content: const Text('将清除本地会话、设备缓存并返回登录页。'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
-                      ],
-                    ),
+              final ok = await showGlassConfirmDialog(
+                    context,
+                    title: '切换账号',
+                    message: '将清除本地会话、设备缓存并返回登录页。',
                   ) ??
                   false;
               if (!ok || !context.mounted) return;
@@ -101,29 +97,19 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmDeregister(BuildContext context, WidgetRef ref) async {
-    final step1 = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('注销账户'),
-            content: const Text('第一步：确认你了解此操作的风险。'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('继续')),
-            ],
-          ),
+    final step1 = await showGlassConfirmDialog(
+          context,
+          title: '注销账户',
+          message: '第一步：确认你了解此操作的风险。',
+          confirmLabel: '继续',
         ) ??
         false;
     if (!step1 || !context.mounted) return;
-    final step2 = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('再次确认'),
-            content: const Text('第二步：将向服务端申请注销并清除本地会话与设备缓存。'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认注销')),
-            ],
-          ),
+    final step2 = await showGlassConfirmDialog(
+          context,
+          title: '再次确认',
+          message: '第二步：将向服务端申请注销并清除本地会话与设备缓存。',
+          confirmLabel: '确认注销',
         ) ??
         false;
     if (!step2 || !context.mounted) return;
@@ -273,14 +259,31 @@ class _ThemePresetSection extends ConsumerWidget {
           title: const Text('更多颜色'),
           subtitle: const Text('自定义色将清除上方预设选中'),
           onTap: () async {
-            final picked = await showDialog<Color>(
+            final picked = await showGlassDialog<Color>(
               context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('选择背景色'),
-                content: MaterialColorPicker(
-                  onPicked: (c) => Navigator.pop(ctx, c),
-                ),
-              ),
+              maxWidth: 360,
+              contentBuilder: (ctx) {
+                final glassText = historyEditGlassTextColor(ctx);
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '选择背景色',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: glassText,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    MaterialColorPicker(
+                      onPicked: (c) => Navigator.pop(ctx, c),
+                    ),
+                  ],
+                );
+              },
             );
             if (picked == null) return;
             ref.read(themePresetProvider.notifier).state = null;

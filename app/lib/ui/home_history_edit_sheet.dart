@@ -13,6 +13,7 @@ import 'event_logo.dart';
 import 'home_event_number_picker.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
+import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 
 /// 主页历史行编辑：玻璃拟态底部 Sheet，返回 `true` 表示列表已变更。
@@ -23,33 +24,17 @@ Future<bool?> showHomeHistoryEditSheet(
   required HomeHistoryNotifier history,
   required Future<bool> Function(HistoryRecord) onStopActiveTimer,
 }) {
-  return showModalBottomSheet<bool>(
+  return showGlassAdaptiveBottomSheet<bool>(
     context: context,
-    isScrollControlled: true,
-    isDismissible: true,
+    maxHeightFraction: 4 / 5,
     enableDrag: false,
-    showDragHandle: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.55),
-    builder: (ctx) {
-      final media = MediaQuery.of(ctx);
-      final maxH = media.size.height * 4 / 5;
-      final bottomPad = media.viewInsets.bottom + media.viewPadding.bottom;
-      return Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad + 12),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxH),
-          child: SingleChildScrollView(
-            child: _HomeHistoryEditSheetBody(
-              recordId: record.id,
-              eventCatalog: eventCatalog,
-              history: history,
-              onStopActiveTimer: onStopActiveTimer,
-            ),
-          ),
-        ),
-      );
-    },
+    wrapInGlassPanel: false,
+    bodyBuilder: (ctx) => _HomeHistoryEditSheetBody(
+      recordId: record.id,
+      eventCatalog: eventCatalog,
+      history: history,
+      onStopActiveTimer: onStopActiveTimer,
+    ),
   );
 }
 
@@ -195,16 +180,12 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   }
 
   Future<bool> _confirmDiscardEdits() async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('放弃修改？'),
-            content: const Text('未保存的修改将丢失。'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('继续编辑')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('放弃')),
-            ],
-          ),
+    return await showGlassConfirmDialog(
+          context,
+          title: '放弃修改？',
+          message: '未保存的修改将丢失。',
+          cancelLabel: '继续编辑',
+          confirmLabel: '放弃',
         ) ??
         false;
   }
@@ -313,16 +294,11 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   Future<void> _confirmDelete() async {
     final r = _record;
     if (r == null || _pending || _deleting) return;
-    final go = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('删除事件'),
-            content: const Text('确定删除该条历史记录？此操作不可撤销。'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
-            ],
-          ),
+    final go = await showGlassConfirmDialog(
+          context,
+          title: '删除事件',
+          message: '确定删除该条历史记录？此操作不可撤销。',
+          confirmLabel: '删除',
         ) ??
         false;
     if (!go || !mounted) return;

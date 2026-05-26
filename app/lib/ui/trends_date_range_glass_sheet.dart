@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../config/trends_date_range_store.dart';
 import 'home_history_edit_glass_panel.dart';
+import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 
 /// 玻璃态底部 Sheet 选择趋势起止日期（本地自然日）。
@@ -13,32 +14,17 @@ Future<TrendsDateRange?> showTrendsDateRangeGlassSheet(
   required DateTime initialEnd,
   Color? eventAccent,
 }) {
-  return showModalBottomSheet<TrendsDateRange>(
+  return showGlassAdaptiveBottomSheet<TrendsDateRange>(
     context: context,
-    isScrollControlled: true,
-    isDismissible: true,
+    maxHeightFraction: 4 / 5,
     enableDrag: false,
-    showDragHandle: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.55),
-    builder: (ctx) {
-      final media = MediaQuery.of(ctx);
-      final maxH = media.size.height * 4 / 5;
-      final bottomPad = media.viewInsets.bottom + media.viewPadding.bottom;
-      return Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad + 12),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxH),
-          child: SingleChildScrollView(
-            child: _TrendsDateRangeGlassSheetBody(
-              initialStart: initialStart,
-              initialEnd: initialEnd,
-              eventAccent: eventAccent,
-            ),
-          ),
-        ),
-      );
-    },
+    eventAccent: eventAccent,
+    wrapInGlassPanel: false,
+    bodyBuilder: (ctx) => _TrendsDateRangeGlassSheetBody(
+      initialStart: initialStart,
+      initialEnd: initialEnd,
+      eventAccent: eventAccent,
+    ),
   );
 }
 

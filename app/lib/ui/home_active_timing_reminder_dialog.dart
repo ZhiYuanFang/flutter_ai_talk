@@ -8,6 +8,7 @@ import '../data/history_line_format.dart';
 import '../data/models.dart';
 import 'event_logo.dart';
 import 'home_history_edit_glass_panel.dart';
+import 'widgets/app_glass_overlay.dart';
 
 typedef ActiveTimingStopCallback = Future<bool> Function(HistoryRecord record);
 
@@ -23,12 +24,11 @@ Future<void> showHomeActiveTimingReminderDialog({
   ActiveTimingStillTimingCallback? isRecordActivelyTiming,
   void Function(String message)? onToast,
 }) {
-  return showDialog<void>(
+  return showGlassDialog<void>(
     context: context,
-    barrierDismissible: true,
-    barrierColor: Colors.black54,
-    useRootNavigator: true,
-    builder: (dialogContext) => _ActiveTimingReminderDialog(
+    maxHeightFraction: 0.55,
+    onClose: () => Navigator.of(context).pop(),
+    contentBuilder: (dialogContext) => _ActiveTimingReminderDialog(
       routeContext: dialogContext,
       candidates: candidates,
       eventCatalog: eventCatalog,
@@ -140,42 +140,32 @@ class _ActiveTimingReminderDialogState extends State<_ActiveTimingReminderDialog
     final scheme = Theme.of(context).colorScheme;
     final glassText = historyEditGlassTextColor(context);
     final glassLabel = historyEditGlassLabelColor(context);
-    final maxH = MediaQuery.sizeOf(context).height * 0.55;
     final canConfirm = !_stopping && (!_multiSelect || _selectedIds.isNotEmpty);
     final confirmLabel = _multiSelect ? '结束所选' : '结束计时';
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: 340, maxHeight: maxH),
-          child: Material(
-            type: MaterialType.transparency,
-            child: HistoryEditGlassPanel(
-              onClose: _dismiss,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    '还有计时未结束',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      height: 1.25,
-                      fontWeight: FontWeight.w600,
-                      color: glassText,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '您刚新增了记录。以下事件仍在计时，可选择结束以免遗忘。',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, height: 1.4, color: glassLabel),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: ListView.separated(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '还有计时未结束',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 20,
+            height: 1.25,
+            fontWeight: FontWeight.w600,
+            color: glassText,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '您刚新增了记录。以下事件仍在计时，可选择结束以免遗忘。',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, height: 1.4, color: glassLabel),
+        ),
+        const SizedBox(height: 16),
+        Flexible(
+          child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: _rows.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -271,38 +261,33 @@ class _ActiveTimingReminderDialogState extends State<_ActiveTimingReminderDialog
                           ),
                         );
                       },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      TextButton(
-                        onPressed: _stopping ? null : _dismiss,
-                        style: TextButton.styleFrom(
-                          foregroundColor: glassText.withValues(alpha: 0.88),
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                        child: const Text('暂不'),
-                      ),
-                      const Spacer(),
-                      FilledButton(
-                        onPressed: canConfirm ? _confirmStop : null,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: scheme.primary,
-                          foregroundColor: scheme.onPrimary,
-                          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-                          shape: const StadiumBorder(),
-                        ),
-                        child: Text(_stopping ? '结束中…' : confirmLabel),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
-      ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            TextButton(
+              onPressed: _stopping ? null : _dismiss,
+              style: TextButton.styleFrom(
+                foregroundColor: glassText.withValues(alpha: 0.88),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              child: const Text('暂不'),
+            ),
+            const Spacer(),
+            FilledButton(
+              onPressed: canConfirm ? _confirmStop : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                shape: const StadiumBorder(),
+              ),
+              child: Text(_stopping ? '结束中…' : confirmLabel),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
