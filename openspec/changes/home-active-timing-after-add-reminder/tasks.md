@@ -22,3 +22,9 @@
 
 - [x] 4.1 确认同 eventId time 按钮 Toast 路径不受影响、不弹本对话框
 - [x] 4.2 手工验证：按钮 one/time/number 新增后 0/1/N 条其它计时；语音/文字新增；部分勾选 stop；暂不 dismiss；深浅色 shell；fly 动画结束后再弹窗
+
+## 5. 结束成功后关闭对话框
+
+- [x] 5.1 所选全部停止成功时 `Navigator.pop`；`onStop` 与 `isRecordActivelyTiming` 对账（含 WS 已结束但 API 返回 false）
+- [x] 5.2 `_stopActiveTimer`：本地已非进行中时视为成功
+- [x] 5.3 停止成功后重置 `_stopping`，关闭按钮与自动关窗均可用（不再依赖 `canPop` / 拦截 `_dismiss`）

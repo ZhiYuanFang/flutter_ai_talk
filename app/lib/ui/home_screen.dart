@@ -36,6 +36,7 @@ import 'home_input_channel.dart';
 import 'home_input_caption.dart';
 import 'home_input_mode_dock.dart';
 import 'home_reply_bottom_sheet.dart';
+import 'home_event_hourly_trend_sheet.dart';
 import 'home_today_summary_panel.dart';
 import 'home_voice_level_bars.dart';
 import 'home_voice_message_strip.dart';
@@ -582,6 +583,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         candidates: candidates,
         eventCatalog: ref.read(eventCatalogProvider),
         onStop: _stopActiveTimer,
+        isRecordActivelyTiming: _isRecordActivelyTiming,
         onToast: (msg) => ref.showApiToast(msg),
       );
     } finally {
@@ -632,6 +634,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  bool _isRecordActivelyTiming(String recordId) {
+    for (final e in ref.read(homeHistoryProvider).items) {
+      if (e.id == recordId) return isActiveTimingRecord(e);
+    }
+    return false;
+  }
+
   Future<bool> _stopActiveTimer(HistoryRecord record) async {
     if (isPendingHistoryId(record.id)) return false;
     if (_stoppingRecordIds.contains(record.id)) return false;
@@ -639,7 +648,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final p = record.rawPayload;
     final remark = (p['remark'] as String?) ?? '';
     final end = DateTime.now();
-    final ok = await ref.read(feedRepositoryProvider).updateHistoryRecord(
+    var ok = await ref.read(feedRepositoryProvider).updateHistoryRecord(
           record.id,
           remark: remark,
           startTime: activeTimingStartAt(record),
@@ -647,12 +656,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           fallbackRecord: record,
         );
     if (!mounted) return false;
-    setState(() {
-      _stoppingRecordIds.remove(record.id);
-      if (ok) {
-        _history.replaceRecord(_recordWithEndTime(record, end));
-      }
-    });
+    if (ok) {
+      _history.replaceRecord(_recordWithEndTime(record, end));
+    } else if (!_isRecordActivelyTiming(record.id)) {
+      // 接口失败但 WS/本地已写入结束时间时，仍视为成功以便关闭提醒框。
+      ok = true;
+    }
+    setState(() => _stoppingRecordIds.remove(record.id));
     return ok;
   }
 
@@ -1170,7 +1180,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ),
                       ),
-                    HomeTodaySummaryPanel(totals: todayTotals),
+                    HomeTodaySummaryPanel(
+                      totals: todayTotals,
+                      onChipTap: (total, event) {
+                        unawaited(
+                          showHomeEventHourlyTrendSheet(
+                            context,
+                            total: total,
+                            event: event,
+                            historyItems: historyItems,
+                            ref: ref,
+                          ),
+                        );
+                      },
+                    ),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,

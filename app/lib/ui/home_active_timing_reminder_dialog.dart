@@ -11,22 +11,29 @@ import 'home_history_edit_glass_panel.dart';
 
 typedef ActiveTimingStopCallback = Future<bool> Function(HistoryRecord record);
 
+/// 查询记录是否仍在计时（用于 stop 回调与列表状态对账）。
+typedef ActiveTimingStillTimingCallback = bool Function(String recordId);
+
 /// 新增成功后提醒用户：其它事件仍在计时，可选部分结束。
 Future<void> showHomeActiveTimingReminderDialog({
   required BuildContext context,
   required List<HistoryRecord> candidates,
   required List<EventDefinition> eventCatalog,
   required ActiveTimingStopCallback onStop,
+  ActiveTimingStillTimingCallback? isRecordActivelyTiming,
   void Function(String message)? onToast,
 }) {
   return showDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierColor: Colors.black54,
-    builder: (ctx) => _ActiveTimingReminderDialog(
+    useRootNavigator: true,
+    builder: (dialogContext) => _ActiveTimingReminderDialog(
+      routeContext: dialogContext,
       candidates: candidates,
       eventCatalog: eventCatalog,
       onStop: onStop,
+      isRecordActivelyTiming: isRecordActivelyTiming,
       onToast: onToast,
     ),
   );
@@ -34,15 +41,19 @@ Future<void> showHomeActiveTimingReminderDialog({
 
 class _ActiveTimingReminderDialog extends StatefulWidget {
   const _ActiveTimingReminderDialog({
+    required this.routeContext,
     required this.candidates,
     required this.eventCatalog,
     required this.onStop,
+    this.isRecordActivelyTiming,
     this.onToast,
   });
 
+  final BuildContext routeContext;
   final List<HistoryRecord> candidates;
   final List<EventDefinition> eventCatalog;
   final ActiveTimingStopCallback onStop;
+  final ActiveTimingStillTimingCallback? isRecordActivelyTiming;
   final void Function(String message)? onToast;
 
   @override
@@ -76,8 +87,19 @@ class _ActiveTimingReminderDialogState extends State<_ActiveTimingReminderDialog
   }
 
   void _dismiss() {
-    if (_stopping) return;
+    _closeDialog();
+  }
+
+  void _closeDialog() {
+    if (!mounted) return;
     Navigator.of(context).pop();
+  }
+
+  bool _recordStoppedAfterAttempt(String recordId, bool stopReturnedOk) {
+    if (stopReturnedOk) return true;
+    final stillTiming = widget.isRecordActivelyTiming;
+    if (stillTiming == null) return false;
+    return !stillTiming(recordId);
   }
 
   Future<void> _confirmStop() async {
@@ -92,7 +114,7 @@ class _ActiveTimingReminderDialogState extends State<_ActiveTimingReminderDialog
     for (final record in targets) {
       final ok = await widget.onStop(record);
       if (!mounted) return;
-      if (ok) {
+      if (_recordStoppedAfterAttempt(record.id, ok)) {
         _rows.removeWhere((r) => r.id == record.id);
         _selectedIds.remove(record.id);
       } else {
@@ -101,17 +123,16 @@ class _ActiveTimingReminderDialogState extends State<_ActiveTimingReminderDialog
     }
 
     if (!mounted) return;
-    setState(() => _stopping = false);
 
     if (failCount > 0) {
       widget.onToast?.call('部分计时结束失败，请稍后重试');
+      setState(() => _stopping = false);
+      return;
     }
 
-    if (_rows.isEmpty) {
-      Navigator.of(context).pop();
-    } else {
-      setState(() {});
-    }
+    // 所选记录全部停止成功即关闭（未勾选的其它计时可仍在后台继续）。
+    _stopping = false;
+    _closeDialog();
   }
 
   @override

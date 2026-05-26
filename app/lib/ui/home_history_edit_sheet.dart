@@ -342,8 +342,11 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     setState(() => _stoppingActive = true);
     final ok = await widget.onStopActiveTimer(r);
     if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).pop(true);
+      return;
+    }
     setState(() => _stoppingActive = false);
-    if (ok) Navigator.pop(context, true);
   }
 
   @override
