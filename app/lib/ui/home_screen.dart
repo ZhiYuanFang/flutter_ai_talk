@@ -33,6 +33,7 @@ import 'home_event_record_fly_overlay.dart';
 import 'home_active_timing_reminder_dialog.dart';
 import 'home_history_edit_sheet.dart';
 import 'home_history_scroll.dart';
+import 'home_history_ws_status_banner.dart';
 import 'home_number_event_sheet.dart';
 import 'home_history_timeline_tile.dart';
 import 'home_input_channel.dart';
@@ -88,6 +89,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   StreamSubscription<bool>? _wsReadySub;
   StreamSubscription<bool>? _voiceAsrReadySub;
   var _wsReady = false;
+  var _historyWsReconnecting = false;
   var _voiceAsrReady = false;
   var _voiceAsrConnecting = false;
   /// 语音球按下期间为 true；松手递增 [_voiceHoldSeq] 以取消进行中的连接/开录。
@@ -768,13 +770,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _ensureHistoryWsForSend() {
     final ok = ref.read(feedRepositoryProvider).isHistoryWebSocketReady;
     if (!ok) {
-      ref.showApiToastError('历史实时连接未就绪，无法发送，请点击右上角「重连历史」后再试');
+      ref.showApiToastError('历史实时连接未就绪，无法发送，请点击下方横幅重连后再试');
     }
     return ok;
   }
 
   Future<void> _reconnectHistoryWs() async {
-    await ref.read(feedRepositoryProvider).reconnectHistoryWebSocket();
+    if (_historyWsReconnecting) return;
+    setState(() => _historyWsReconnecting = true);
+    try {
+      await ref.read(feedRepositoryProvider).reconnectHistoryWebSocket();
+    } finally {
+      if (mounted) setState(() => _historyWsReconnecting = false);
+    }
   }
 
   Future<void> _reloadHistoryIfLoggedIn() async {
@@ -1140,6 +1148,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       orElse: () => false,
     );
     final showBindBanner = needsDeviceBind;
+    final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    final showWsDisconnectBanner = loggedIn && !showBindBanner && !_wsReady;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
@@ -1147,12 +1157,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text('胖宝'),
         actions: [
-          IconButton(
-            tooltip: _wsReady ? '历史连接就绪' : '重连历史连接',
-            icon: Icon(_wsReady ? Icons.cloud_done_outlined : Icons.cloud_off_outlined),
-            color: _wsReady ? null : Theme.of(context).colorScheme.error,
-            onPressed: _reconnectHistoryWs,
-          ),
           IconButton(
             icon: const Icon(Icons.insights),
             tooltip: '趋势',
@@ -1264,6 +1268,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                         ],
                       ),
+                    ),
+                    HomeHistoryWsStatusBanner(
+                      visible: showWsDisconnectBanner,
+                      reconnecting: _historyWsReconnecting,
+                      onReconnect: () => unawaited(_reconnectHistoryWs()),
                     ),
                     _buildInputModuleTopShadow(context),
                     AnimatedContainer(
