@@ -41,7 +41,7 @@
     <application
         android:label="胖宝"
         android:name="${applicationName}"
-        android:icon="@drawable/ic_launcher">
+        android:icon="@mipmap/ic_launcher">
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.pangbao.pangbao_app.fileprovider"
