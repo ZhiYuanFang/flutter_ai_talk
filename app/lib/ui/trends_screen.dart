@@ -3,19 +3,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 
+import '../config/trends_date_range_store.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/models.dart';
-import '../data/repositories.dart';
+import '../data/trend_series_bucket.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
-import '../theme/app_theme_scope.dart';
 import 'event_logo.dart';
+import 'home_history_edit_glass_panel.dart';
+import 'trend_glass_bar_chart.dart';
+import 'trends_date_range_glass_sheet.dart';
 
 class TrendsScreen extends ConsumerStatefulWidget {
   const TrendsScreen({super.key});
@@ -25,15 +27,30 @@ class TrendsScreen extends ConsumerStatefulWidget {
 }
 
 class _TrendsScreenState extends ConsumerState<TrendsScreen> {
-  TrendRange _range = TrendRange.today;
+  static final _rangeFmt = DateFormat('MM-dd');
+
+  DateTime? _startDate;
+  DateTime? _endDate;
   String? _selectedKey;
   TrendSeries? _series;
   var _loadingSeries = false;
+  var _seriesLoadSeq = 0;
+
+  TrendBucketMode get _bucketMode {
+    final start = _startDate;
+    final end = _endDate;
+    if (start == null || end == null) return TrendBucketMode.daily;
+    return trendBucketModeForDates(start, end);
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final memory = await TrendsDateRangeStore.loadValid();
+      final range = memory ?? TrendsDateRangeLogic.defaultRange();
+      _startDate = range.start;
+      _endDate = range.end;
       await ref.read(eventCatalogProvider.notifier).loadFromDisk();
       _syncSelection();
       if (mounted) setState(() {});
@@ -41,6 +58,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     });
   }
 
+  /// 随目录更新选中项；仅当选中 [eventId] 变化时由调用方触发拉数。
   void _syncSelection() {
     final catalog = ref.read(eventCatalogProvider);
     final leaves = leafEvents(catalog, requireValidEventType: true);
@@ -53,21 +71,27 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     if (_selectedKey == null || !currentValid) {
       _selectedKey = leaves.first.id;
     }
-    if (_selectedKey != null) {
+  }
+
+  void _scheduleSeriesLoadIfReady() {
+    if (_selectedKey != null && _startDate != null && _endDate != null) {
       unawaited(_loadSeriesForSelection());
     }
   }
 
   Future<void> _loadSeriesForSelection() async {
     final key = _selectedKey;
-    if (key == null) {
+    final start = _startDate;
+    final end = _endDate;
+    if (key == null || start == null || end == null) {
       if (mounted) setState(() => _series = null);
       return;
     }
+    final seq = ++_seriesLoadSeq;
     setState(() => _loadingSeries = true);
     final repo = ref.read(trendsRepositoryProvider);
-    final s = await repo.loadSeries(key, _range);
-    if (!mounted) return;
+    final s = await repo.loadSeries(key, start, end);
+    if (!mounted || seq != _seriesLoadSeq) return;
     setState(() {
       _series = s;
       _loadingSeries = false;
@@ -80,6 +104,36 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     return lookupEventById(catalog, key);
   }
 
+  String _rangeLabel() {
+    final start = _startDate;
+    final end = _endDate;
+    if (start == null || end == null) return '选择日期';
+    return '${_rangeFmt.format(start)} — ${_rangeFmt.format(end)}';
+  }
+
+  Future<void> _openDateRangePicker() async {
+    final start = _startDate;
+    final end = _endDate;
+    if (start == null || end == null) return;
+    final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider));
+    final accent = resolveEventColor(context, selectedEvent);
+    final picked = await showTrendsDateRangeGlassSheet(
+      context,
+      initialStart: start,
+      initialEnd: end,
+      eventAccent: accent,
+    );
+    if (picked == null || !mounted) return;
+    final newStart = picked.start;
+    final newEnd = picked.end;
+    await TrendsDateRangeStore.save(picked);
+    setState(() {
+      _startDate = newStart;
+      _endDate = newEnd;
+    });
+    await _loadSeriesForSelection();
+  }
+
   Future<void> _openEventPicker(List<EventDefinition> catalog) async {
     final pickerItems = leafEvents(catalog, requireValidEventType: true);
     if (pickerItems.isEmpty) return;
@@ -87,7 +141,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      backgroundColor: themePrimaryBlend(context),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -129,16 +183,36 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     await _loadSeriesForSelection();
   }
 
+  Widget _capsuleLabel(BuildContext context, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 6),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: historyEditGlassShellLabelColor(context),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final needLoginMask = !ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final catalog = ref.watch(eventCatalogProvider);
     ref.listen<List<EventDefinition>>(eventCatalogProvider, (prev, next) {
       if (prev == next) return;
+      final before = _selectedKey;
       _syncSelection();
+      if (_selectedKey != before) {
+        _scheduleSeriesLoadIfReady();
+      }
     });
     final selectedEvent = _selectedEvent(catalog);
     final accent = resolveEventColor(context, selectedEvent);
+    final shellText = historyEditGlassShellTextColor(context);
+    final shellMuted = historyEditGlassShellLabelColor(context);
+    final rangeReady = _startDate != null && _endDate != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -150,275 +224,140 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (catalog.isEmpty)
-                  Text(
+            child: catalog.isEmpty
+                ? Text(
                     '暂无事件目录，请稍后再试或检查网络',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Material(
-                      color: themePrimaryBlend(context, alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () => unawaited(_openEventPicker(catalog)),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          child: Row(
-                            children: [
-                              if (selectedEvent != null) ...[
-                                EventLogo(definition: selectedEvent, size: 24),
-                                const SizedBox(width: 10),
-                              ],
-                              Expanded(
-                                child: Text(
-                                  selectedEvent?.name ?? '选择事件',
-                                  style: Theme.of(context).textTheme.titleSmall,
-                                ),
-                              ),
-                              Icon(Icons.expand_more, color: Theme.of(context).colorScheme.primary),
-                            ],
-                          ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
                         ),
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SegmentedButton<TrendRange>(
-                    segments: const [
-                      ButtonSegment(value: TrendRange.today, label: Text('今日')),
-                      ButtonSegment(value: TrendRange.week, label: Text('周')),
-                      ButtonSegment(value: TrendRange.month, label: Text('月')),
-                      ButtonSegment(value: TrendRange.quarter, label: Text('季')),
-                    ],
-                    selected: {_range},
-                    onSelectionChanged: (s) async {
-                      setState(() => _range = s.first);
-                      await _loadSeriesForSelection();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: _loadingSeries
-                  ? const Center(child: CircularProgressIndicator())
-                  : Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        _TrendLineAndBar(series: _series, range: _range, accentColor: accent),
-                        if (needLoginMask)
-                          ColoredBox(
-                            color: Colors.black45,
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _capsuleLabel(context, '选择事件'),
+                            HistoryEditGlassTapField(
+                              onShell: true,
+                              onTap: () => unawaited(_openEventPicker(catalog)),
+                              minHeight: 48,
+                              child: Row(
                                 children: [
-                                  const Text(
-                                    '请登录',
-                                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                                  if (selectedEvent != null) ...[
+                                    EventLogo(definition: selectedEvent, size: 24),
+                                    const SizedBox(width: 10),
+                                  ],
+                                  Expanded(
+                                    child: Text(
+                                      selectedEvent?.name ?? '选择事件',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: shellText,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  const SizedBox(height: 12),
-                                  FilledButton(
-                                    onPressed: () => context.push('/login'),
-                                    child: const Text('请登录'),
+                                  Icon(
+                                    Icons.expand_more,
+                                    color: shellMuted,
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                      ],
-                    ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _capsuleLabel(context, '日期范围'),
+                            HistoryEditGlassTapField(
+                              onShell: true,
+                              enabled: rangeReady,
+                              onTap: () => unawaited(_openDateRangePicker()),
+                              minHeight: 48,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _rangeLabel(),
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: shellText,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.calendar_today_outlined,
+                                    size: 18,
+                                    color: shellMuted,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+              child: !rangeReady
+                  ? const Center(child: CircularProgressIndicator())
+                  : _loadingSeries
+                      ? const Center(child: CircularProgressIndicator())
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            TrendGlassBarChart(
+                              series: _series,
+                              bucketMode: _bucketMode,
+                              accentColor: accent,
+                              chartTitle: TrendGlassBarChart.chartTitleForEvent(
+                                selectedEvent?.name,
+                              ),
+                            ),
+                            if (needLoginMask)
+                              ColoredBox(
+                                color: Colors.black45,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        '请登录',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      FilledButton(
+                                        onPressed: () => context.push('/login'),
+                                        child: const Text('请登录'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _TrendLineAndBar extends StatelessWidget {
-  const _TrendLineAndBar({
-    required this.series,
-    required this.range,
-    required this.accentColor,
-  });
-
-  final TrendSeries? series;
-  final TrendRange range;
-  final Color accentColor;
-
-  static final _dateFmt = DateFormat('MM-dd');
-  static final _timeFmt = DateFormat('HH:mm');
-
-  static String _fmtYAxis(double value) {
-    if (value == 0) return '0';
-    if (value.abs() < 1) return value.toStringAsFixed(2);
-    if (value == value.roundToDouble()) return value.round().toString();
-    return value.toStringAsFixed(1);
-  }
-
-  SideTitles _bottomSideTitles(List<TrendPoint> pts) {
-    return SideTitles(
-      showTitles: true,
-      reservedSize: 28,
-      interval: 1,
-      getTitlesWidget: (value, meta) {
-        final i = value.round();
-        if ((value - i).abs() > 1e-6) return const SizedBox.shrink();
-        if (i < 0 || i >= pts.length) return const SizedBox.shrink();
-        if (pts.length > 6) {
-          final mid = pts.length ~/ 2;
-          if (i != 0 && i != mid && i != pts.length - 1) {
-            return const SizedBox.shrink();
-          }
-        }
-        final d = pts[i].t.toLocal();
-        final label = range == TrendRange.today ? _timeFmt.format(d) : _dateFmt.format(d);
-        return SideTitleWidget(
-          axisSide: meta.axisSide,
-          space: 4,
-          child: Text(label, style: const TextStyle(fontSize: 10)),
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pts = series?.points ?? const <TrendPoint>[];
-    if (pts.isEmpty) {
-      final emptyHint = range == TrendRange.today ? '今日暂无数据' : '当前时间范围暂无数据';
-      return Center(child: Text(emptyHint, style: Theme.of(context).textTheme.bodyLarge));
-    }
-    final spots = List<FlSpot>.generate(pts.length, (i) => FlSpot(i.toDouble(), pts[i].value));
-    final barGroups = List<BarChartGroupData>.generate(
-      pts.length,
-      (i) => BarChartGroupData(
-        x: i,
-        barRods: [
-          BarChartRodData(
-            toY: pts[i].value,
-            width: 10,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-            color: accentColor.withValues(alpha: 0.85),
-          ),
-        ],
-      ),
-    );
-    final maxX = spots.isEmpty ? 1.0 : spots.last.x;
-    final minY = 0.0;
-    final maxVal = pts.map((e) => e.value).reduce((a, b) => a > b ? a : b);
-    final maxY = (maxVal * 1.15).clamp(1.0, double.infinity);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          '纵轴：计时类为小时(h)，计数类为次数',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 8),
-        Text('趋势', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 4),
-        Expanded(
-          flex: 5,
-          child: LineChart(
-            LineChartData(
-              minX: 0,
-              maxX: maxX,
-              minY: minY,
-              maxY: maxY,
-              titlesData: FlTitlesData(
-                show: true,
-                rightTitles: const AxisTitles(sideTitles: SideTitles(reservedSize: 0)),
-                topTitles: const AxisTitles(sideTitles: SideTitles(reservedSize: 0)),
-                bottomTitles: AxisTitles(sideTitles: _bottomSideTitles(pts)),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 44,
-                    getTitlesWidget: (value, meta) => SideTitleWidget(
-                      axisSide: meta.axisSide,
-                      space: 4,
-                      child: Text(
-                        _TrendLineAndBar._fmtYAxis(value),
-                        style: const TextStyle(fontSize: 9),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              borderData: FlBorderData(show: true, border: Border.all(color: Colors.black26)),
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: true,
-                getDrawingHorizontalLine: (v) => FlLine(color: Colors.black12, strokeWidth: 1),
-                getDrawingVerticalLine: (v) => FlLine(color: Colors.black12, strokeWidth: 1),
-              ),
-              lineBarsData: [
-                LineChartBarData(
-                  spots: spots,
-                  isCurved: true,
-                  dotData: const FlDotData(show: true),
-                  color: accentColor,
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text('量柱', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 4),
-        Expanded(
-          flex: 4,
-          child: BarChart(
-            BarChartData(
-              minY: minY,
-              maxY: maxY,
-              alignment: BarChartAlignment.spaceAround,
-              groupsSpace: 4,
-              barGroups: barGroups,
-              titlesData: FlTitlesData(
-                show: true,
-                rightTitles: const AxisTitles(sideTitles: SideTitles(reservedSize: 0)),
-                topTitles: const AxisTitles(sideTitles: SideTitles(reservedSize: 0)),
-                bottomTitles: AxisTitles(sideTitles: _bottomSideTitles(pts)),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 44,
-                    getTitlesWidget: (value, meta) => SideTitleWidget(
-                      axisSide: meta.axisSide,
-                      space: 4,
-                      child: Text(
-                        _TrendLineAndBar._fmtYAxis(value),
-                        style: const TextStyle(fontSize: 9),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              borderData: FlBorderData(show: true, border: Border.all(color: Colors.black26)),
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                getDrawingHorizontalLine: (v) => FlLine(color: Colors.black12, strokeWidth: 1),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

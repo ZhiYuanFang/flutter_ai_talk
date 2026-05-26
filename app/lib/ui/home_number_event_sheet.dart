@@ -1,9 +1,15 @@
+import 'dart:async';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../config/event_number_memory_store.dart';
 import '../data/event_definition.dart';
 import '../data/history_mapper.dart';
+import 'event_logo.dart';
 import 'home_event_number_picker.dart';
-import 'widgets/app_adaptive_bottom_sheet.dart';
+import 'home_history_edit_glass_panel.dart';
+import 'home_history_time_wheel.dart';
 
 /// number 类型事件二级页确认结果。
 class HomeNumberEventResult {
@@ -18,21 +24,50 @@ class HomeNumberEventResult {
   final String remark;
 }
 
-/// number 事件：时刻 + Cupertino 滚轮用量 + 可选 remark。
+/// number 事件：玻璃态 Sheet，时刻 + Cupertino 滚轮用量 + 可选 remark。
+///
+/// [initialUsage] 非空时滚轮从该用量起选（编辑场景传原奶量）；否则读取本地上次记忆。
 Future<HomeNumberEventResult?> showHomeNumberEventSheet(
   BuildContext context,
-  EventDefinition event,
-) {
-  return showAppAdaptiveBottomSheet<HomeNumberEventResult>(
+  EventDefinition event, {
+  int? initialUsage,
+}) {
+  return showModalBottomSheet<HomeNumberEventResult>(
     context: context,
-    bodyBuilder: (ctx) => _HomeNumberEventSheet(event: event),
+    isScrollControlled: true,
+    isDismissible: true,
+    enableDrag: false,
+    showDragHandle: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.55),
+    builder: (ctx) {
+      final media = MediaQuery.of(ctx);
+      final maxH = media.size.height * 4 / 5;
+      final bottomPad = media.viewInsets.bottom + media.viewPadding.bottom;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad + 12),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxH),
+          child: SingleChildScrollView(
+            child: _HomeNumberEventSheet(
+              event: event,
+              initialUsage: initialUsage,
+            ),
+          ),
+        ),
+      );
+    },
   );
 }
 
 class _HomeNumberEventSheet extends StatefulWidget {
-  const _HomeNumberEventSheet({required this.event});
+  const _HomeNumberEventSheet({
+    required this.event,
+    this.initialUsage,
+  });
 
   final EventDefinition event;
+  final int? initialUsage;
 
   @override
   State<_HomeNumberEventSheet> createState() => _HomeNumberEventSheetState();
@@ -40,107 +75,159 @@ class _HomeNumberEventSheet extends StatefulWidget {
 
 class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
   late DateTime _selectedTime;
-  late FixedExtentScrollController _pickerCtrl;
+  late FixedExtentScrollController _usagePickerCtrl;
   final _remarkCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _selectedTime = DateTime.now();
-    _pickerCtrl = FixedExtentScrollController();
+    _usagePickerCtrl = FixedExtentScrollController();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _applyInitialPickerIndex());
+  }
+
+  Future<void> _applyInitialPickerIndex() async {
+    final usage =
+        widget.initialUsage ?? await EventNumberMemoryStore.load(widget.event.id);
+    if (!mounted) return;
+    final idx = usage != null
+        ? HomeEventNumberPicker.indexForValue(usage)
+        : 0;
+    if (_usagePickerCtrl.hasClients) {
+      _usagePickerCtrl.jumpToItem(idx);
+    }
   }
 
   @override
   void dispose() {
-    _pickerCtrl.dispose();
+    _usagePickerCtrl.dispose();
     _remarkCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
-    final base = _selectedTime;
-    final d = await showDatePicker(
-      context: context,
-      initialDate: DateTime(base.year, base.month, base.day),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (d == null || !mounted) return;
-    setState(() {
-      _selectedTime = DateTime(d.year, d.month, d.day, base.hour, base.minute);
-    });
+  void _dismiss() {
+    Navigator.pop(context);
   }
 
-  Future<void> _pickTime() async {
-    final base = _selectedTime;
-    final t = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: base.hour, minute: base.minute),
-    );
-    if (t == null || !mounted) return;
-    setState(() {
-      _selectedTime = DateTime(base.year, base.month, base.day, t.hour, t.minute);
-    });
+  DateTime get _todayAnchor {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime _withTodayDate(DateTime t) {
+    final a = _todayAnchor;
+    return DateTime(a.year, a.month, a.day, t.hour, t.minute);
+  }
+
+  void _onTimeChanged(DateTime picked) {
+    setState(() => _selectedTime = _withTodayDate(picked));
   }
 
   void _confirm() {
-    final index = _pickerCtrl.hasClients ? _pickerCtrl.selectedItem : 0;
+    final index = _usagePickerCtrl.hasClients ? _usagePickerCtrl.selectedItem : 0;
     final usage = HomeEventNumberPicker.valueAtIndex(index);
+    if (widget.initialUsage == null) {
+      unawaited(EventNumberMemoryStore.save(widget.event.id, usage));
+    }
     Navigator.pop(
       context,
       HomeNumberEventResult(
-        startTime: _selectedTime,
+        startTime: _withTodayDate(_selectedTime),
         eventNumber: usage,
         remark: _remarkCtrl.text.trim(),
       ),
     );
   }
 
+  Widget _glassPickerFrame({required Widget child}) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: Colors.white.withValues(alpha: 0.06),
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+    final accent = resolveEventColor(context, widget.event);
+    final glassText = historyEditGlassTextColor(context);
+    final glassLabel = historyEditGlassLabelColor(context);
+    final dateLabel = formatHistoryApiDateTime(_todayAnchor).substring(0, 10);
+
+    return HistoryEditGlassPanel(
+      eventAccent: accent,
+      onClose: _dismiss,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Center(child: EventLogo(definition: widget.event, size: 44)),
+          const SizedBox(height: 10),
           Text(
             widget.event.name,
-            style: Theme.of(context).textTheme.titleMedium,
             textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _pickDate,
-                  child: Text(formatHistoryApiDateTime(_selectedTime).substring(0, 10)),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _pickTime,
-                  child: Text(formatHistoryApiDateTime(_selectedTime).substring(11, 16)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          HomeEventNumberPicker(controller: _pickerCtrl),
-          TextField(
-            controller: _remarkCtrl,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: '备注（可选）',
-              border: OutlineInputBorder(),
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.25,
+              fontWeight: FontWeight.w600,
+              color: glassText,
             ),
           ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _confirm,
-            child: const Text('确认记录'),
+          const SizedBox(height: 16),
+          Text(
+            dateLabel,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              height: 1.2,
+              fontWeight: FontWeight.w500,
+              color: glassLabel,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 16),
+          HomeHistoryTimeField(
+            anchorDate: _todayAnchor,
+            value: _selectedTime,
+            label: '时间',
+            glassStyle: true,
+            onChanged: _onTimeChanged,
+          ),
+          const SizedBox(height: 14),
+          Text('用量', style: TextStyle(fontSize: 13, color: glassLabel)),
+          const SizedBox(height: 6),
+          _glassPickerFrame(
+            child: CupertinoTheme(
+              data: const CupertinoThemeData(brightness: Brightness.dark),
+              child: HomeEventNumberPicker(controller: _usagePickerCtrl),
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _remarkCtrl,
+            style: TextStyle(color: glassText, fontSize: 15),
+            cursorColor: accent,
+            decoration: historyEditGlassInputDecoration(context, labelText: '备注（可选）'),
+            textInputAction: TextInputAction.done,
+            maxLines: 2,
+            onSubmitted: (_) => FocusScope.of(context).unfocus(),
+          ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: _confirm,
+              style: FilledButton.styleFrom(
+                backgroundColor: accent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                shape: const StadiumBorder(),
+              ),
+              child: const Text('确认记录'),
+            ),
           ),
         ],
       ),

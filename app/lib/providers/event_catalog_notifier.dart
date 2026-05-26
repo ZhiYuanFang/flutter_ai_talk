@@ -80,6 +80,25 @@ class EventCatalogNotifier extends StateNotifier<List<EventDefinition>> {
     final sync = EventCatalogSync(_ref.read(authorizedApiClientProvider));
     final updated = await sync.refreshAndPersist(deviceNo: dn);
     _applyRefreshResult(updated, dn);
+    if (updated != null && updated.isNotEmpty) {
+      unawaited(_downloadLogosInBackground(updated));
+    }
+  }
+
+  Future<void> _downloadLogosInBackground(List<EventDefinition> base) async {
+    try {
+      final withLogos = await EventCatalogStore.applyLogoDownloads(base);
+      await EventCatalogStore.saveToDisk(withLogos);
+      final keepPaths = withLogos
+          .map((e) => e.localLogoPath)
+          .whereType<String>()
+          .toSet();
+      await EventCatalogStore.pruneLogoFiles(keepPaths);
+      if (withLogos.isNotEmpty) {
+        state = withLogos;
+        _debugLog('logos persisted: ${withLogos.length} items');
+      }
+    } catch (_) {}
   }
 
   void _applyRefreshResult(List<EventDefinition>? updated, String? deviceNo) {

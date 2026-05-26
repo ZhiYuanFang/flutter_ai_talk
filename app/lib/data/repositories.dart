@@ -1,6 +1,7 @@
 import 'package:package_info_plus/package_info_plus.dart';
 
 export 'feed_repository.dart';
+import 'history_hourly_dual_day.dart';
 import 'models.dart';
 
 abstract class AuthRepository {
@@ -14,10 +15,17 @@ abstract class AuthRepository {
 
 abstract class TrendsRepository {
   Future<List<TrendCatalogItem>> loadCatalog();
-  Future<TrendSeries> loadSeries(String eventKey, TrendRange range);
-}
 
-enum TrendRange { today, week, month, quarter }
+  /// [startDate]、[endDate] 为本地自然日（含起止两日）。
+  Future<TrendSeries> loadSeries(
+    String eventKey,
+    DateTime startDate,
+    DateTime endDate,
+  );
+
+  /// 昨日 0:00 – 今日 23:59:59 单次 piece，今/昨各 24 整点桶。
+  Future<HourlyDualDaySeries> loadPieceHourlyDualDay(String eventKey);
+}
 
 abstract class SettingsRepository {
   Future<BabyProfile> loadBaby();

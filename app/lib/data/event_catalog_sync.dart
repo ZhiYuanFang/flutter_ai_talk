@@ -47,10 +47,9 @@ class EventCatalogSync {
       if (remote.isEmpty) {
         return local.isNotEmpty ? local : remote;
       }
-      // 先写元数据并立即返回，logo 后台下载（避免冷启动阻塞或杀进程丢目录）。
-      await EventCatalogStore.saveToDisk(remote);
-      unawaited(_downloadLogosInBackground(remote));
-      return remote;
+      final merged = await EventCatalogStore.mergeLocalLogoPaths(remote, local);
+      await EventCatalogStore.saveToDisk(merged);
+      return merged;
     } on ApiBusinessException {
       final disk = await EventCatalogStore.loadFromDisk();
       return disk;
@@ -60,15 +59,4 @@ class EventCatalogSync {
     }
   }
 
-  Future<void> _downloadLogosInBackground(List<EventDefinition> remote) async {
-    try {
-      final withLogos = await EventCatalogStore.applyLogoDownloads(remote);
-      await EventCatalogStore.saveToDisk(withLogos);
-      final keepPaths = withLogos
-          .map((e) => e.localLogoPath)
-          .whereType<String>()
-          .toSet();
-      await EventCatalogStore.pruneLogoFiles(keepPaths);
-    } catch (_) {}
-  }
 }

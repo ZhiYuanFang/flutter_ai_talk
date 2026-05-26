@@ -7,43 +7,41 @@ class StartupBrandingOverlay extends StatelessWidget {
   const StartupBrandingOverlay({super.key});
 
   static const _logoSize = 168.0;
-  static const _taglineFontSize = 21.0;
+  static const _logoTaglineGap = 28.0;
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
     return IgnorePointer(
-      child: ColoredBox(
-        color: kSplashBackgroundColor,
+      child: DecoratedBox(
+        decoration: startupPageDecoration(),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset(
-                kSplashLogoAsset,
+              SizedBox(
                 width: _logoSize,
                 height: _logoSize,
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.child_care_rounded,
-                  size: _logoSize * 0.5,
-                  color: primary,
+                child: ClipRect(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    heightFactor: 0.94,
+                    child: Image.asset(
+                      kSplashLogoAsset,
+                      width: _logoSize,
+                      height: _logoSize,
+                      fit: BoxFit.contain,
+                      gaplessPlayback: true,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.child_care_rounded,
+                        size: _logoSize * 0.5,
+                        color: kStartupTaglineColor,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 22),
-              Text(
-                kStartupTagline,
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                semanticsLabel: kStartupTagline,
-                style: TextStyle(
-                  fontSize: _taglineFontSize,
-                  fontWeight: FontWeight.w700,
-                  color: primary,
-                  height: 1.2,
-                ),
-              ),
+              const SizedBox(height: _logoTaglineGap),
+              const StartupTaglineText(),
             ],
           ),
         ),

@@ -10,9 +10,14 @@ import 'event_logo.dart';
 
 /// 主页历史区上方：今日各事件总额；超过两行可折叠，点击展开。
 class HomeTodaySummaryPanel extends ConsumerStatefulWidget {
-  const HomeTodaySummaryPanel({super.key, required this.totals});
+  const HomeTodaySummaryPanel({
+    super.key,
+    required this.totals,
+    this.onChipTap,
+  });
 
   final List<TodayEventTotal> totals;
+  final void Function(TodayEventTotal total, EventDefinition? event)? onChipTap;
 
   @override
   ConsumerState<HomeTodaySummaryPanel> createState() => _HomeTodaySummaryPanelState();
@@ -60,6 +65,9 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
           _TodayChip(
             total: t,
             event: lookupEventById(catalog, t.eventId),
+            onTap: widget.onChipTap == null
+                ? null
+                : () => widget.onChipTap!(t, lookupEventById(catalog, t.eventId)),
           ),
       ],
     );
@@ -134,10 +142,12 @@ class _TodayChip extends StatelessWidget {
   const _TodayChip({
     required this.total,
     required this.event,
+    this.onTap,
   });
 
   final TodayEventTotal total;
   final EventDefinition? event;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +159,7 @@ class _TodayChip extends StatelessWidget {
       color: tokens?.onSurface ?? Theme.of(context).colorScheme.onSurfaceVariant,
       fontWeight: FontWeight.w500,
     );
-    return Container(
+    final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: ShapeDecoration(
         color: Color.alphaBlend(accent.withValues(alpha: 0.14), tokens?.pillBackground ?? accent.withValues(alpha: 0.12)),
@@ -166,6 +176,15 @@ class _TodayChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(formatTodayTotalChipLabel(total), style: labelStyle),
         ],
+      ),
+    );
+    if (onTap == null) return chip;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const StadiumBorder(),
+        child: chip,
       ),
     );
   }

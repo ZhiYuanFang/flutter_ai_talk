@@ -11,11 +11,13 @@ class HistoryEditGlassPanel extends StatelessWidget {
     required this.child,
     this.onClose,
     this.eventAccent,
+    this.contentPadding,
   });
 
   final Widget child;
   final VoidCallback? onClose;
   final Color? eventAccent;
+  final EdgeInsets? contentPadding;
 
   static const _radius = 22.0;
   static const _blurSigma = 20.0;
@@ -69,7 +71,7 @@ class HistoryEditGlassPanel extends StatelessWidget {
               clipBehavior: Clip.none,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 28, 22, 20),
+                  padding: contentPadding ?? const EdgeInsets.fromLTRB(22, 28, 22, 20),
                   child: child,
                 ),
                 if (onClose != null)
@@ -102,6 +104,16 @@ Color historyEditGlassLabelColor(BuildContext context) =>
 /// 玻璃编辑区内主文字色（固定浅色，保证深色玻璃底上可读）。
 Color historyEditGlassTextColor(BuildContext context) =>
     HistoryEditGlassPanel.glassTextColor;
+
+/// Shell 上胶囊/顶栏主文字（随 [AppVisualTokens.onShell]，经典浅色为深色字）。
+Color historyEditGlassShellTextColor(BuildContext context) {
+  final tokens = visualTokensOf(context);
+  return tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+}
+
+/// Shell 上胶囊标签、辅助图标色。
+Color historyEditGlassShellLabelColor(BuildContext context) =>
+    historyEditGlassShellTextColor(context).withValues(alpha: 0.62);
 
 InputDecoration historyEditGlassInputDecoration(
   BuildContext context, {
@@ -138,20 +150,35 @@ class HistoryEditGlassTapField extends StatelessWidget {
     required this.child,
     this.enabled = true,
     this.minHeight = 52,
+    this.onShell = false,
   });
 
   final VoidCallback? onTap;
   final Widget child;
   final bool enabled;
   final double minHeight;
+  final bool onShell;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = visualTokensOf(context);
+    final scheme = Theme.of(context).colorScheme;
+    final fill = onShell && tokens != null
+        ? tokens.pillBackground
+        : onShell
+            ? scheme.surfaceContainerHighest.withValues(alpha: 0.85)
+            : Colors.white.withValues(alpha: 0.06);
+    final borderColor = onShell && tokens != null
+        ? tokens.pillBorder
+        : onShell
+            ? scheme.outlineVariant.withValues(alpha: 0.55)
+            : Colors.white.withValues(alpha: 0.18);
+
     return Material(
-      color: Colors.white.withValues(alpha: 0.06),
+      color: fill,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+        side: BorderSide(color: borderColor),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(

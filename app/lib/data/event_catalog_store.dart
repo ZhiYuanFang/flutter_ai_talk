@@ -109,6 +109,32 @@ class EventCatalogStore {
     }
   }
 
+  /// 将 [local] 中仍有效的 `localLogoPath` 合并进 [remote]（同 id 且 logoUrl 未变）。
+  static Future<List<EventDefinition>> mergeLocalLogoPaths(
+    List<EventDefinition> remote,
+    List<EventDefinition> local,
+  ) async {
+    if (!eventCatalogSupportsLocalFiles) return remote;
+    final prevById = {for (final e in local) e.id: e};
+    final out = <EventDefinition>[];
+    for (final e in remote) {
+      final url = e.logoUrl;
+      if (url == null || url.isEmpty) {
+        out.add(e.copyWith(clearLocalLogoPath: true));
+        continue;
+      }
+      final prev = prevById[e.id];
+      if (prev?.logoUrl == url &&
+          prev?.localLogoPath != null &&
+          await File(prev!.localLogoPath!).exists()) {
+        out.add(e.copyWith(localLogoPath: prev.localLogoPath));
+        continue;
+      }
+      out.add(e);
+    }
+    return out;
+  }
+
   static Future<List<EventDefinition>> applyLogoDownloads(List<EventDefinition> remote) async {
     if (!eventCatalogSupportsLocalFiles) return remote;
     final local = await loadFromDisk();

@@ -18,6 +18,7 @@ import 'ui/widgets/app_toast.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme_scope.dart';
 import 'ui/widgets/keyboard_dismiss_scope.dart';
+import 'ui/event_logo_startup_warmup.dart';
 import 'ui/widgets/splash_logo_pulse.dart';
 
 class PangbaoApp extends ConsumerStatefulWidget {
@@ -72,6 +73,13 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
       );
       await ref.read(eventCatalogProvider.notifier).bootstrap(maxAttempts: 3);
       HomeHistoryLog.d('coldStart catalog done');
+      final warmupCtx = appScaffoldMessengerKey.currentContext;
+      if (warmupCtx != null && warmupCtx.mounted) {
+        await EventLogoStartupWarmup.precacheCatalog(
+          warmupCtx,
+          ref.read(eventCatalogProvider),
+        );
+      }
     } else {
       await ref.read(signInChannelProvider.notifier).clear();
     }

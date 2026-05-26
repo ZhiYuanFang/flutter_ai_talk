@@ -1,5 +1,15 @@
+import '../config/trends_date_range_store.dart';
 import 'models.dart';
-import 'repositories.dart' show TrendRange;
+
+/// 趋势图分桶模式：同日按小时，跨日按自然日。
+enum TrendBucketMode { hourly, daily }
+
+TrendBucketMode trendBucketModeForDates(DateTime startDate, DateTime endDate) {
+  final start = TrendsDateRangeLogic.dateOnly(startDate);
+  final end = TrendsDateRangeLogic.dateOnly(endDate);
+  if (start == end) return TrendBucketMode.hourly;
+  return TrendBucketMode.daily;
+}
 
 DateTime _dateOnlyLocal(DateTime d) {
   final l = d.toLocal();
@@ -50,20 +60,45 @@ List<TrendPoint> fillTrendBucketsHourlyToday({
   return out;
 }
 
-/// 在 [raw] 非空时对齐时间桶并补零；[raw] 为空时返回空列表。
-List<TrendPoint> normalizeTrendSeriesForRange(
+/// 指定本地自然日：按整点小时分桶，固定 **24** 桶（0–23 时），缺失补 0。
+List<TrendPoint> fillTrendBucketsHourlyFullDay({
+  required List<TrendPoint> raw,
+  required DateTime dayLocal,
+}) {
+  final dayStart = _dateOnlyLocal(dayLocal);
+  final byHour = <DateTime, double>{};
+  final nextDay = dayStart.add(const Duration(days: 1));
+  for (final p in raw) {
+    final l = p.t.toLocal();
+    if (l.isBefore(dayStart) || !l.isBefore(nextDay)) continue;
+    final k = DateTime(l.year, l.month, l.day, l.hour);
+    byHour[k] = (byHour[k] ?? 0) + p.value;
+  }
+  final out = <TrendPoint>[];
+  for (var h = 0; h < 24; h++) {
+    final bucket = dayStart.add(Duration(hours: h));
+    out.add(TrendPoint(t: bucket, value: byHour[bucket] ?? 0));
+  }
+  return out;
+}
+
+/// 在 [raw] 非空时按起止日对齐时间桶并补零；[raw] 为空时返回空列表。
+List<TrendPoint> normalizeTrendSeriesForBounds(
   List<TrendPoint> raw,
-  TrendRange range,
+  DateTime startDate,
+  DateTime endDate,
   int startSec,
   int endSec,
 ) {
   if (raw.isEmpty) return const [];
-  switch (range) {
-    case TrendRange.today:
+  final start = TrendsDateRangeLogic.dateOnly(startDate);
+  final end = TrendsDateRangeLogic.dateOnly(endDate);
+  if (start == end) {
+    final today = TrendsDateRangeLogic.dateOnly(DateTime.now());
+    if (end == today) {
       return fillTrendBucketsHourlyToday(raw: raw);
-    case TrendRange.week:
-    case TrendRange.month:
-    case TrendRange.quarter:
-      return fillTrendBucketsDaily(raw: raw, startSec: startSec, endSec: endSec);
+    }
+    return fillTrendBucketsHourlyFullDay(raw: raw, dayLocal: start);
   }
+  return fillTrendBucketsDaily(raw: raw, startSec: startSec, endSec: endSec);
 }

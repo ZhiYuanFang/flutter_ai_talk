@@ -8,9 +8,11 @@ import '../providers/toast_bus.dart';
 import '../api/gateway_json.dart';
 import 'event_catalog_store.dart';
 import 'models.dart';
+import 'history_hourly_dual_day.dart';
 import 'trend_point_mapper.dart';
+import '../config/trends_date_range_store.dart';
 import 'trend_series_bucket.dart';
-import 'repositories.dart' show TrendRange, TrendsRepository;
+import 'repositories.dart' show TrendsRepository;
 
 /// 事件目录：`GET /device/history/api/event/options`；序列：`GET /device/history/api/piece`。
 class RemoteTrendsRepository implements TrendsRepository {
@@ -23,18 +25,6 @@ class RemoteTrendsRepository implements TrendsRepository {
   String? get _deviceNo => _ref.read(deviceNoNotifierProvider).asData?.value;
 
   void _toast(String m) => _ref.showApiToastError(m);
-
-  (int startSec, int endSec) _rangeBounds(TrendRange range) {
-    final now = DateTime.now();
-    final end = now.millisecondsSinceEpoch ~/ 1000;
-    final start = switch (range) {
-      TrendRange.today => DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/ 1000,
-      TrendRange.week => now.subtract(const Duration(days: 7)).millisecondsSinceEpoch ~/ 1000,
-      TrendRange.month => now.subtract(const Duration(days: 30)).millisecondsSinceEpoch ~/ 1000,
-      TrendRange.quarter => now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/ 1000,
-    };
-    return (start, end);
-  }
 
   @override
   Future<List<TrendCatalogItem>> loadCatalog() async {
@@ -52,7 +42,11 @@ class RemoteTrendsRepository implements TrendsRepository {
   }
 
   @override
-  Future<TrendSeries> loadSeries(String eventKey, TrendRange range) async {
+  Future<TrendSeries> loadSeries(
+    String eventKey,
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
     final dn = _deviceNo;
     if (dn == null || dn.isEmpty) {
       return TrendSeries(eventKey: eventKey, points: const []);
@@ -61,7 +55,9 @@ class RemoteTrendsRepository implements TrendsRepository {
     if (eventId <= 0) {
       return TrendSeries(eventKey: eventKey, points: const []);
     }
-    final bounds = _rangeBounds(range);
+    final start = TrendsDateRangeLogic.dateOnly(startDate);
+    final end = TrendsDateRangeLogic.dateOnly(endDate);
+    final bounds = TrendsDateRangeLogic.toUnixBounds(start, end);
     try {
       final data = await _api.getEnvelope(
         '/device/history/api/piece',
@@ -83,11 +79,53 @@ class RemoteTrendsRepository implements TrendsRepository {
         if (pt != null) pts.add(pt);
       }
       pts.sort((a, b) => a.t.compareTo(b.t));
-      final filled = normalizeTrendSeriesForRange(pts, range, bounds.$1, bounds.$2);
+      final filled = normalizeTrendSeriesForBounds(
+        pts,
+        start,
+        end,
+        bounds.$1,
+        bounds.$2,
+      );
       return TrendSeries(eventKey: eventKey, points: filled);
     } on ApiBusinessException catch (e) {
       _toast(e.message);
       return TrendSeries(eventKey: eventKey, points: const []);
+    }
+  }
+
+  @override
+  Future<HourlyDualDaySeries> loadPieceHourlyDualDay(String eventKey) async {
+    final dn = _deviceNo;
+    if (dn == null || dn.isEmpty) {
+      return HourlyDualDaySeries.empty();
+    }
+    final eventId = int.tryParse(eventKey) ?? 0;
+    if (eventId <= 0) {
+      return HourlyDualDaySeries.empty();
+    }
+    final bounds = hourlyDualDayPieceBounds();
+    try {
+      final data = await _api.getEnvelope(
+        '/device/history/api/piece',
+        query: {
+          'deviceNo': dn,
+          'eventId': '$eventId',
+          'startTime': '${bounds.$1}',
+          'endTime': '${bounds.$2}',
+        },
+      );
+      if (data == null) {
+        return HourlyDualDaySeries.empty();
+      }
+      final list = data['list'] as List<dynamic>? ?? const [];
+      final rows = <Map<String, dynamic>>[];
+      for (final e in list) {
+        if (e is Map<String, dynamic>) rows.add(e);
+      }
+      return hourlyDualDayFromPieceRecords(rows, eventKey);
+    } on ApiBusinessException catch (e) {
+      _toast(e.message);
+      return HourlyDualDaySeries.empty();
     }
   }
 }
