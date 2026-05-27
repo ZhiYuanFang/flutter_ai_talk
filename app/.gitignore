@@ -8,6 +8,7 @@ build/
 **/Pods/
 **/.symlinks/
 **/local.properties
+/android/.gradle/
 *.iml
 .idea/
 
