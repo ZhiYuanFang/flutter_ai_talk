@@ -7,9 +7,6 @@ import 'models.dart';
 abstract class AuthRepository {
   Future<void> signInWithWeChat();
 
-  /// 胖宝号（设备号）登录：`POST /device/app/api/device_login`，请求体字段 **`deviceNo`**（lowerCamelCase）。
-  Future<void> signInWithDeviceNo(String deviceNo);
-
   Future<void> signOut();
 }
 

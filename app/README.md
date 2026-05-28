@@ -283,11 +283,12 @@ flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
 
 也可修改源码中的默认：`lib/config/web_home_input_mode.dart` 内常量 `kDefaultWebHomeInputMode`（未传 `WEB_HOME_INPUT` 时生效）。
 
-### 登录（默认胖宝号）
+### 登录（仅微信）
 
-- **默认方式**：登录页主流程为 **胖宝号登录**（输入网关下发的设备号），请求 **`POST /device/app/api/device_login`**，JSON body 字段 **`deviceNo`**（lowerCamelCase）。成功后与会话、设备号缓存逻辑与历史微信登录一致。
-- **微信登录**：入口仍展示，点击仅提示 **「当前功能未开放」**，不拉起微信、不请求 `POST /device/app/api/login`。
-- **Web**：若浏览器中残留历史网页 OAuth 的 `sessionStorage` 授权码，进入登录页时会清除并提示使用胖宝号登录，**不会**自动走微信网关登录。
+- **当前方式**：登录页仅提供 **微信登录** 入口；客户端通过微信授权获取临时 code，再请求 **`POST /device/app/api/login`** 建立会话。
+- **Web**：若已配置 `WECHAT_WEB_APP_ID` / `WECHAT_OAUTH_REDIRECT_URI`，点击登录会跳转到微信网页授权；回调返回 `/auth/wechat/callback` 后会继续登录流程，不再提示改用胖宝号登录。
+- **开发联调**：`WX_LOGIN_CODE` 仍可作为开发兜底，供未接通真微信环境时验证登录链路；它不是用户可见主流程。
+- **BREAKING**：客户端已移除胖宝号（设备号）登录入口，不再通过页面交互触发 **`POST /device/app/api/device_login`**。
 
 ### 宝宝画像（读 / 写）
 
@@ -309,13 +310,13 @@ flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
 - 服务端可将 **`logo`**（事件目录）、**`downloadUrl`**（版本检查）等返回为**去掉域名的路径**，例如 `/ai_talk_images/event_1.png`、`/device/app/apk/foo.apk`。
 - 客户端通过 `lib/api/gateway_absolute_url.dart` 的 **`resolveGatewayAbsoluteUrl`**，与 HTTP 请求相同的基址 **`API_BASE_URL`**（`AppEnv.apiBaseUrl`）拼接为可下载/可展示的绝对 URL；若已是 `http://` 或 `https://` 则原样使用。
 
-### 微信登录（fluwx + 网页 OAuth，当前产品入口已关闭）
+### 微信登录（fluwx + 网页 OAuth）
 
 1. **勿提交 AppSecret**；客户端仅需 AppId、回调域名等公开配置。  
 2. **Android**：`fluwx` 已通过插件 `AndroidManifest` 合并 `WXEntryActivity` 与 `queries`（微信包名 `com.tencent.mm`）；请保证应用包名与签名与开放平台「移动应用」登记一致。  
 3. **iOS**：将 `pubspec.yaml` 中 `fluwx.app_id`、`fluwx.ios.universal_link` 替换为真实值，与 `WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK` 及 `apple-app-site-association` 一致。  
 4. **Web**：使用 `PathUrlStrategy`（见 `main.dart`）；在开放平台登记网站应用，**授权回调域**与 `WECHAT_OAUTH_REDIRECT_URI` 完全一致（路径为 `/auth/wechat/callback`）。本地示例：`http://localhost:xxxx/auth/wechat/callback`（端口与 `flutter run` 一致）。  
-5. **运行示例**（联调网关微信登录代码路径时仍可用 `RemoteAuthRepository.signInWithWeChat`，但 UI 已不调用）：
+5. **运行示例**（登录页会直接调用微信登录；`WX_LOGIN_CODE` 仅用于开发联调兜底）：
 
 ```bash
 cd app
@@ -333,7 +334,7 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 
 - 未登录也可进主页；历史为空会出现 **「请绑定宝宝信息」** 条，点击未登录去登录、已登录去 **`/settings/bind-baby`**。
 - 业务 `code != 0` 时通过 `apiToastProvider` 提示 `message`。
-- **微信**：网关仍以 **`jsCode`** 接收临时 code；当前产品登录页已关闭微信入口，联调可用 `WX_LOGIN_CODE` 或代码内直接调用仓库方法。
+- **微信**：网关仍以 **`jsCode`** 接收临时 code；当前产品登录页直接走微信登录，联调可额外使用 `WX_LOGIN_CODE` 兜底。
 - **主页聊天与历史 WebSocket**：
   - 进入首页仍会 **`GET /device/history/api/list`** 拉一次初始列表。
   - 须配置 **`WS_HISTORY_URL`**（或通过 `API_BASE_URL` 自动推导 ws 地址）。历史 WebSocket 建连并收到服务端 **`auth_ok`** 之前，客户端 **不会** 调用 `POST /device/history/api/chat`；未就绪时会有 Toast，可在首页 AppBar 使用 **云形图标「重连历史」** 手动重连。
@@ -341,7 +342,7 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 
 ### 真机 / 浏览器冒烟（需本地执行）
 
-- **登录**：使用胖宝号完成一次登录并进入主页；点击「微信登录」应仅出现「当前功能未开放」。
+- **登录**：在 Android / iOS / Web（若已配置网页授权）完成一次微信登录并进入主页；取消授权或缺少配置时应得到明确提示而非设备号引导。
 - **Android 更新**：在能访问版本接口与 APK 下载 URL 的环境下，从更新弹窗执行「下载并安装」；若系统拦截，按提示到 **设置 → 允许安装未知应用 / 来自此来源的应用**（华为、小米、OPPO、vivo 等路径略有差异）授权后重试。
 - **历史微信流程**（若重新开放 UI）：在 Android、iOS 真机与 HTTPS 测试域 Web 各完成一次：打开微信 → 授权 → 回到应用 → 进入主页；取消授权时应有 Toast 且应用不崩溃。详细任务见 `openspec/changes/app-wechat-sdk-login/tasks.md`。
 

@@ -9,8 +9,6 @@ import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
-import '../theme/app_theme_scope.dart';
-import '../theme/theme_bootstrap_cache.dart';
 import '../wechat/wechat_web_redirect.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -21,32 +19,21 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _deviceNoCtrl = TextEditingController();
   var _loading = false;
+  var _resumedPendingWebLogin = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _clearWebWeChatResidual();
+      _resumePendingWebWeChatLogin();
     });
   }
 
   @override
   void dispose() {
-    _deviceNoCtrl.dispose();
     super.dispose();
-  }
-
-  /// Web：不再自动走微信登录；若存在残留 OAuth code，清除并提示使用胖宝号。
-  void _clearWebWeChatResidual() {
-    if (!kIsWeb) return;
-    final had = hasPendingWeChatWebCode();
-    clearPendingWeChatWebOAuthStorage();
-    if (had) {
-      ref.showApiToast('请使用胖宝号登录');
-    }
   }
 
   Future<void> _afterLoginSuccess() async {
@@ -58,12 +45,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (mounted) context.go('/home');
   }
 
-  Future<void> _onDeviceLogin() async {
+  bool get _canRedirectWebWeChatAuthorize {
+    return kIsWeb && AppEnv.wechatOAuthRedirectUri.isNotEmpty && AppEnv.wechatWebAppIdEffective.isNotEmpty;
+  }
+
+  Future<void> _resumePendingWebWeChatLogin() async {
+    if (!kIsWeb || _resumedPendingWebLogin || !hasPendingWeChatWebCode()) return;
+    _resumedPendingWebLogin = true;
+    await _onWeChatLogin();
+  }
+
+  Future<void> _onWeChatLogin() async {
     if (_loading) return;
+    if (_canRedirectWebWeChatAuthorize && !hasPendingWeChatWebCode()) {
+      try {
+        redirectToWeChatWebAuthorize();
+      } on StateError catch (e) {
+        ref.showApiToastError(e.message ?? '微信网页授权未配置');
+      } catch (e) {
+        ref.showApiToastError('无法发起微信授权：$e');
+      }
+      return;
+    }
     setState(() => _loading = true);
     try {
       final auth = ref.read(authRepositoryProvider);
-      await auth.signInWithDeviceNo(_deviceNoCtrl.text);
+      await auth.signInWithWeChat();
       if (!mounted) return;
       await _afterLoginSuccess();
     } on ApiBusinessException catch (e) {
@@ -73,10 +80,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  void _onWeChatLoginStub() {
-    ref.showApiToast('当前功能未开放');
   }
 
   @override
@@ -90,37 +93,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           children: [
             const Spacer(),
             const Text(
-              '胖宝号登录',
+              '微信登录',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: _deviceNoCtrl,
-              autofocus: true,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _onDeviceLogin(),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: '胖宝号（deviceNo）',
-              ),
+            Text(
+              _footerHint(),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _loading ? null : _onDeviceLogin,
+            FilledButton.icon(
+              onPressed: _loading ? null : _onWeChatLogin,
+              icon: const Icon(Icons.chat_outlined),
               child: _loading
                   ? const SizedBox(
                       height: 22,
                       width: 22,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('登录'),
-            ),
-            const SizedBox(height: 24),
-            OutlinedButton.icon(
-              onPressed: _loading ? null : _onWeChatLoginStub,
-              icon: const Icon(Icons.chat_outlined),
-              label: const Text('微信登录'),
+                  : const Text('使用微信登录'),
             ),
             const SizedBox(height: 16),
             TextButton(
@@ -130,11 +123,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: const Text('请阅读并同意隐私政策'),
             ),
             const Spacer(),
-            Text(
-              _footerHint(),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
-              textAlign: TextAlign.center,
-            ),
+            if (AppEnv.wxLoginCode.isNotEmpty)
+              Text(
+                '开发提示：已检测到 WX_LOGIN_CODE，可用于微信登录联调。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                textAlign: TextAlign.center,
+              ),
           ],
         ),
       ),
@@ -142,15 +136,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String _footerHint() {
-    if (kIsWeb && AppEnv.wechatOAuthRedirectUri.isNotEmpty && AppEnv.wechatWebAppIdEffective.isNotEmpty) {
-      return '说明：默认使用胖宝号登录；微信登录暂未开放。';
+    if (_loading && kIsWeb && hasPendingWeChatWebCode()) {
+      return '正在继续微信授权登录，请稍候。';
+    }
+    if (_canRedirectWebWeChatAuthorize) {
+      return '说明：当前仅支持微信登录；网页端将跳转到微信授权页面。';
     }
     if (AppEnv.wechatAppId.isNotEmpty) {
-      return '说明：默认使用胖宝号登录；微信登录暂未开放。';
+      return '说明：当前仅支持微信登录；请在已安装微信的设备上完成授权。';
     }
     if (AppEnv.wxLoginCode.isNotEmpty) {
-      return '说明：默认使用胖宝号登录；微信联调入口已关闭。';
+      return '说明：当前仅支持微信登录；检测到联调凭证，可继续验证登录链路。';
     }
-    return '说明：请输入网关下发的胖宝号（deviceNo）完成登录。';
+    return '说明：当前仅支持微信登录；请先配置微信开放平台参数。';
   }
 }

@@ -71,21 +71,6 @@ class RemoteAuthRepository implements AuthRepository {
     await _ref.read(signInChannelProvider.notifier).setWechat();
   }
 
-  @override
-  Future<void> signInWithDeviceNo(String deviceNo) async {
-    final dnInput = deviceNo.trim();
-    if (dnInput.isEmpty) {
-      throw ApiBusinessException(-1, '请输入胖宝号');
-    }
-    final data = await _anon.postJsonEnvelope(
-      '/device/app/api/device_login',
-      {'deviceNo': dnInput},
-      withAuthorization: false,
-    );
-    await _persistLoginData(data);
-    await _ref.read(signInChannelProvider.notifier).setDevice();
-  }
-
   Future<void> _persistLoginData(Map<String, dynamic>? data) async {
     if (data == null) {
       throw ApiBusinessException(-1, '登录成功但 data 为空');
