@@ -1,4 +1,4 @@
-package com.pangbao.pangbao_app
+package com.fzy.pangbao
 
 import android.content.Intent
 import android.net.Uri
@@ -13,8 +13,8 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
-    private val installerChannel = "com.pangbao.pangbao_app/installer"
-    private val nativeSplashChannel = "com.pangbao.pangbao_app/native_splash"
+    private val installerChannel = "com.fzy.pangbao/installer"
+    private val nativeSplashChannel = "com.fzy.pangbao/native_splash"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()

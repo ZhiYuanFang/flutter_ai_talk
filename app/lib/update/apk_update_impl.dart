@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-const _channel = MethodChannel('com.pangbao.pangbao_app/installer');
+const _channel = MethodChannel('com.fzy.pangbao/installer');
 
 /// 下载 APK 到应用临时目录下的 `apk_updates/`，再经原生通道调起安装。
 Future<void> downloadAndInstallApkFromUrl(

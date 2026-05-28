@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.pangbao.pangbao_app"
+    namespace = "com.fzy.pangbao"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "29.0.14206865"
 
@@ -16,7 +16,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.pangbao.pangbao_app"
+        applicationId = "com.fzy.pangbao"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

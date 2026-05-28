@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-const _channel = MethodChannel('com.pangbao.pangbao_app/native_splash');
+const _channel = MethodChannel('com.fzy.pangbao/native_splash');
 
 Future<void> hideNativeSplash() async {
   try {

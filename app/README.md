@@ -74,6 +74,8 @@ flutter build ipa --release
 
 产物与上传 TestFlight / App Store Connect 的流程以 Apple 文档为准；需正确配置 **Bundle ID**、**签名与描述文件**、**Capabilities**（如 Universal Links 与微信相关能力）。
 
+- **无 Mac 方案**：仓库已提供 GitHub Actions 远程打包配置，可在 GitHub 的 macOS Runner 上生成 `.ipa`；说明见 `../docs/github-ios-ipa.md`。
+
 ### Web：本地构建
 
 本工程 Web 使用 **`PathUrlStrategy`**（路径形如 `/settings`，无 `#`），部署时服务端需把「未知路径」回退到 `index.html`，否则刷新子路由会 404。
