@@ -248,7 +248,7 @@ com.fzy.pangbao
 填：
 
 ```text
-A1B2C3D4E5
+395D9NUCNF
 ```
 
 #### 3. `IOS_CERTIFICATE_P12_BASE64`
@@ -259,10 +259,9 @@ A1B2C3D4E5
 
 #### 4. `IOS_CERTIFICATE_PASSWORD`
 
-填：
-
-```text
-你的p12导出密码
+填：p12导出base64
+```bash
+ [Convert]::ToBase64String([IO.File]::ReadAllBytes('d:\work\flutter_ai_talk\app\ios\证书.p12'))
 ```
 
 #### 5. `IOS_MOBILEPROVISION_BASE64`
@@ -270,6 +269,9 @@ A1B2C3D4E5
 填：
 
 - 你刚刚把 `.mobileprovision` 转出来的那一长串 Base64 文本
+```bash
+ [Convert]::ToBase64String([IO.File]::ReadAllBytes('d:\work\flutter_ai_talk\app\ios\pangbaoappstore.mobileprovision'))
+ ```
 
 ### 推荐填写
 
@@ -302,7 +304,7 @@ A1B2C3D4E5
 示例：
 
 ```text
-wx1234567890abcdef
+wxe713de83c921f341
 ```
 
 #### 10. `WECHAT_UNIVERSAL_LINK`
@@ -310,7 +312,7 @@ wx1234567890abcdef
 示例：
 
 ```text
-https://your-domain.com/pangbao-wechat-ul/
+https://www.pangbao.cuplay.top/wx/ulink/*
 ```
 
 ### 如果要自动上传 TestFlight，继续填
@@ -320,7 +322,7 @@ https://your-domain.com/pangbao-wechat-ul/
 示例：
 
 ```text
-12345678-1234-1234-1234-1234567890ab
+aef3e1e8-a07c-4577-9aba-d39f514e059a
 ```
 
 #### 12. `APP_STORE_CONNECT_KEY_ID`
@@ -328,7 +330,7 @@ https://your-domain.com/pangbao-wechat-ul/
 示例：
 
 ```text
-ABC123XYZ9
+DY56P86YR8
 ```
 
 #### 13. `APP_STORE_CONNECT_API_KEY_P8_BASE64`
@@ -336,6 +338,14 @@ ABC123XYZ9
 填：
 
 - 你把 `.p8` 文件转出来的那一长串 Base64 文本
+示例：
+
+```text
+MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQgIDfmIqb0Nbln+pRX
+EdlxkFqPOvpw5DBCSjjcpJSfuVKgCgYIKoZIzj0DAQehRANCAAScDD38RlgmjbDT
+M+QXZxe64oCA57aK6y9VXWmS3OMGiR+Ad0BnHtJjH0hRh/5+CU3o3YCDOZrA7QVJ
+FIIU9h8G
+```
 
 ---
 
