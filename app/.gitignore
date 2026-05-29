@@ -25,8 +25,3 @@ build/
 
 # assets/models/*.zip
 
-# 密钥与本地配置（勿提交真实值）
-.env
-**/key.properties
-**/*.jks
-**/*.keystore
