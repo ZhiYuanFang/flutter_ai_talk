@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       export_method:
-        description: iOS ������ʽ
+        description: iOS 导出方式
         required: true
         default: development
         type: choice
@@ -13,27 +13,27 @@ on:
           - ad-hoc
           - app-store
       upload_to_testflight:
-        description: �Ƿ��Զ��ϴ��� TestFlight���� app-store��
+        description: 是否自动上传到 TestFlight（需选择 app-store）
         required: true
         default: false
         type: boolean
       flutter_version:
-        description: Flutter �汾
+        description: Flutter 版本
         required: true
         default: 3.24.5
         type: string
       build_name:
-        description: ��ѡ������ pubspec.yaml �еİ汾��
+        description: 可选，覆盖 pubspec.yaml 中的版本号
         required: false
         default: ''
         type: string
       build_number:
-        description: ��ѡ������ pubspec.yaml �еĹ�����
+        description: 可选，覆盖 pubspec.yaml 中的构建号
         required: false
         default: ''
         type: string
       app_dir:
-        description: Flutter app Ŀ¼
+        description: Flutter app 目录
         required: true
         default: app
         type: string
@@ -82,7 +82,7 @@ jobs:
           set -euo pipefail
 
           if [[ ! -f "$APP_DIR/pubspec.yaml" ]]; then
-            echo "::error::δ�ҵ� $APP_DIR/pubspec.yaml"
+            echo "::error::未找到 $APP_DIR/pubspec.yaml"
             exit 1
           fi
 
@@ -95,18 +95,18 @@ jobs:
           )
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::ȱ�� GitHub Secret: $name"
+              echo "::error::缺少 GitHub Secret: $name"
               exit 1
             fi
           done
 
           if [[ "$IOS_BUNDLE_ID" == *"_"* ]]; then
-            echo "::error::IOS_BUNDLE_ID ���ܰ����»��� '_'����ʹ�úϷ� iOS Bundle ID"
+            echo "::error::IOS_BUNDLE_ID 不能包含下划线 '_'，请使用合法的 iOS Bundle ID"
             exit 1
           fi
 
           if [[ "$UPLOAD_TO_TESTFLIGHT" == "true" && "$EXPORT_METHOD" != "app-store" ]]; then
-            echo "::error::upload_to_testflight=true ʱ export_method ����Ϊ app-store"
+            echo "::error::upload_to_testflight=true 时 export_method 必须为 app-store"
             exit 1
           fi
 
@@ -118,7 +118,7 @@ jobs:
             )
             for name in "${upload_required[@]}"; do
               if [[ -z "${!name:-}" ]]; then
-                echo "::error::���� TestFlight �ϴ�ʱȱ�� GitHub Secret: $name"
+                echo "::error::启用 TestFlight 上传时缺少 GitHub Secret: $name"
                 exit 1
               fi
             done
@@ -131,7 +131,7 @@ jobs:
           if [[ ! -d ios/Runner.xcodeproj ]]; then
             org="${IOS_BUNDLE_ID%.*}"
             if [[ -z "$org" || "$org" == "$IOS_BUNDLE_ID" ]]; then
-              echo "::error::�޷��� IOS_BUNDLE_ID �Ƶ� flutter create ����֯��"
+              echo "::error::无法从 IOS_BUNDLE_ID 推导 flutter create 所需的组织名"
               exit 1
             fi
             flutter create . --platforms=ios --org "$org"
