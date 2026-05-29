@@ -14,7 +14,7 @@ abstract final class AppEnv {
   /// 微信开放平台移动应用 AppId（`fluwx.registerApi`）；勿提交 AppSecret。
   static const wechatAppId = String.fromEnvironment(
     'WECHAT_APP_ID',
-    defaultValue: '',
+    defaultValue: 'wxe713de83c921f341',
   );
 
   /// iOS Universal Links 前缀（须与开放平台及 `apple-app-site-association` 一致）。

@@ -4,7 +4,7 @@ publish_to: "none"
 version: 1.0.0+1
 
 fluwx:
-  app_id: 'wx0000000000000000'
+  app_id: 'wxe713de83c921f341'
   debug_logging: true
   ios:
     universal_link: https://example.com/pangbao-wechat-ul/
