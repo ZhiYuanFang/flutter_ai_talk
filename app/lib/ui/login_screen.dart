@@ -9,6 +9,8 @@ import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
+import '../theme/app_theme_scope.dart';
+import '../theme/theme_bootstrap_cache.dart';
 import '../wechat/wechat_web_redirect.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
