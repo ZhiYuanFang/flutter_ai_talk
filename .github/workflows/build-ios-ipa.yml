@@ -37,10 +37,25 @@ on:
         required: true
         default: app
         type: string
+      macos_runner:
+        description: macOS Runner 镜像（决定系统与可用 Xcode / iOS SDK）
+        required: true
+        default: macos-26
+        type: choice
+        options:
+          - macos-14
+          - macos-15
+          - macos-26
+          - macos-26-intel
+      xcode_version:
+        description: 指定 Xcode 版本（如 26.4、16.2；与所选 Runner 镜像需匹配）
+        required: true
+        default: '26.4'
+        type: string
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    runs-on: ${{ inputs.macos_runner }}
     permissions:
       contents: read
     defaults:
@@ -65,10 +80,27 @@ jobs:
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+      MACOS_RUNNER: ${{ inputs.macos_runner }}
+      XCODE_VERSION: ${{ inputs.xcode_version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ inputs.xcode_version }}
+
+      - name: Print runner environment
+        run: |
+          set -euo pipefail
+          echo "macOS runner: $MACOS_RUNNER"
+          sw_vers
+          xcodebuild -version
+          xcode-select -p
+          xcrun --show-sdk-version --sdk iphoneos
+          xcrun --show-sdk-path --sdk iphoneos
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2

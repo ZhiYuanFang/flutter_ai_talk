@@ -316,6 +316,8 @@ PowerShell：
    - `export_method=app-store`：用于 TestFlight / App Store
    - `upload_to_testflight=true`：让 GitHub 自动上传到 App Store Connect
    - `flutter_version`：默认 `3.24.5`，通常不用改
+   - `macos_runner`：macOS Runner 镜像，默认 `macos-26`（可选 `macos-14` / `macos-15` / `macos-26-intel`）
+   - `xcode_version`：指定 Xcode 版本，默认 `26.4`（需与所选 Runner 镜像匹配，如 `macos-15` 常用 `16.2`）
    - `build_name`：可选，例如 `1.0.0`
    - `build_number`：可选，例如 `12`
 
@@ -332,6 +334,7 @@ PowerShell：
 - 把 `WECHAT_APP_ID` / `WECHAT_UNIVERSAL_LINK` 注入到 `app/pubspec.yaml`
 - 为 `speech_to_text` / `record` 自动补齐 iOS 权限文案
 - 导入证书和描述文件
+- 切换至指定 Xcode 版本并打印 iOS SDK 信息
 - 修改 iOS 工程签名配置
 - 执行 `flutter build ipa`
 - 上传 `.ipa` artifact
