@@ -61,7 +61,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       try {
         redirectToWeChatWebAuthorize();
       } on StateError catch (e) {
-        ref.showApiToastError(e.message ?? '微信网页授权未配置');
+        ref.showApiToastError(e.message);
       } catch (e) {
         ref.showApiToastError('无法发起微信授权：$e');
       }
@@ -107,7 +107,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             FilledButton.icon(
               onPressed: _loading ? null : _onWeChatLogin,
               icon: const Icon(Icons.chat_outlined),
-              child: _loading
+              label: _loading
                   ? const SizedBox(
                       height: 22,
                       width: 22,
