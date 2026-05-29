@@ -77,3 +77,51 @@ if display_name:
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
 PY
+
+python3 <<'PY'
+from pathlib import Path
+import os
+import re
+
+target = os.getenv('IOS_DEPLOYMENT_TARGET', '13.0').strip() or '13.0'
+podfile = Path('ios/Podfile')
+if not podfile.exists():
+    raise SystemExit('缺少 ios/Podfile，请先生成 iOS 工程')
+
+text = podfile.read_text(encoding='utf-8')
+original = text
+
+platform_line = f"platform :ios, '{target}'"
+if re.search(r'^\s*#?\s*platform :ios,', text, flags=re.MULTILINE):
+    text = re.sub(
+        r'^\s*#?\s*platform :ios,\s*[\'"][^\'"]+[\'"]',
+        platform_line,
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+else:
+    insert_at = text.find("ENV['COCOAPODS_DISABLE_STATS']")
+    if insert_at == -1:
+        text = platform_line + '\n\n' + text
+    else:
+        line_end = text.find('\n', insert_at)
+        text = text[: line_end + 1] + '\n' + platform_line + '\n' + text[line_end + 1 :]
+
+deployment_snippet = f"""      target.build_configurations.each do |config|
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '{target}'
+      end"""
+
+if 'IPHONEOS_DEPLOYMENT_TARGET' not in text and 'post_install do |installer|' in text:
+    text = text.replace(
+        'flutter_additional_ios_build_settings(target)',
+        'flutter_additional_ios_build_settings(target)\n' + deployment_snippet,
+        1,
+    )
+
+if text != original:
+    podfile.write_text(text, encoding='utf-8')
+    print(f'Patched Podfile: iOS deployment target {target}')
+else:
+    print(f'Podfile already targets iOS {target}')
+PY

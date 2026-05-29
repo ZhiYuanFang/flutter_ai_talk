@@ -82,6 +82,7 @@ jobs:
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
       MACOS_RUNNER: ${{ inputs.macos_runner }}
       XCODE_VERSION: ${{ inputs.xcode_version }}
+      IOS_DEPLOYMENT_TARGET: '13.0'
 
     steps:
       - name: Checkout

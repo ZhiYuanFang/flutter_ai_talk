@@ -10,6 +10,7 @@ profile_uuid = ENV['PROFILE_UUID']
 export_method = ENV.fetch('EXPORT_METHOD')
 
 signing_identity = export_method == 'development' ? 'Apple Development' : 'Apple Distribution'
+deployment_target = ENV.fetch('IOS_DEPLOYMENT_TARGET', '13.0')
 project_path = File.join(Dir.pwd, 'ios', 'Runner.xcodeproj')
 project = Xcodeproj::Project.open(project_path)
 runner_target = project.targets.find { |target| target.name == 'Runner' }
@@ -17,6 +18,7 @@ abort('未找到 iOS Runner target') unless runner_target
 
 runner_target.build_configurations.each do |config|
   settings = config.build_settings
+  settings['IPHONEOS_DEPLOYMENT_TARGET'] = deployment_target
   settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
   settings['DEVELOPMENT_TEAM'] = team_id
   settings['CODE_SIGN_STYLE'] = 'Manual'
@@ -39,4 +41,4 @@ runner_attributes['ProvisioningStyle'] = 'Manual'
 end
 
 project.save
-puts "Configured iOS signing for #{bundle_id}"
+puts "Configured iOS signing for #{bundle_id} (iOS #{deployment_target}+)"

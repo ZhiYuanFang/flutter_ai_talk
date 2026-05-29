@@ -12,6 +12,17 @@ build/
 *.iml
 .idea/
 
+# iOS — Flutter 生成物（勿提交；由 flutter pub get / build 再生）
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+
 # assets/models/*.zip
 
 # 密钥与本地配置（勿提交真实值）
