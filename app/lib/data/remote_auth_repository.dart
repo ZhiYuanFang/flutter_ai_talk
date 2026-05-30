@@ -29,7 +29,7 @@ class RemoteAuthRepository implements AuthRepository {
     if (kIsWeb) return 'web';
     return switch (defaultTargetPlatform) {
       TargetPlatform.iOS => 'ios',
-      _ => 'andrid',
+      _ => 'android',
     };
   }
 

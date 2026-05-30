@@ -6,7 +6,7 @@ on:
       export_method:
         description: iOS 导出方式
         required: true
-        default: development
+        default: app-store
         type: choice
         options:
           - development
@@ -15,7 +15,7 @@ on:
       upload_to_testflight:
         description: 是否自动上传到 TestFlight（需选择 app-store）
         required: true
-        default: false
+        default: true
         type: boolean
       flutter_version:
         description: Flutter 版本

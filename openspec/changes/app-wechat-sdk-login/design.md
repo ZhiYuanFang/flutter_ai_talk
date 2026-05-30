@@ -34,7 +34,7 @@
    - **理由**：与微信网页规范一致；避免在 hash 路由中丢失 query（若使用 hash，需单独处理）。
 
 4. **平台字段 `platform`**  
-   - 与网关约定对齐：`web` / `ios` / `andrid`（若服务端后续改为 `android`，客户端一并调整）。  
+   - 与网关约定对齐：`web` / `ios` / `android`（若服务端后续改为 `android`，客户端一并调整）。  
    - **理由**：保持现有 `RemoteAuthRepository` 契约。
 
 5. **安全**  

@@ -66,6 +66,35 @@ MIIBCgKCAQEAkoTy2Y4gr/0hAQuOO1Bd/NMv8o9ZoPsstpQ6dNEGE8kLc+rd7LjCmD3EOVc9AhTh7OQu
 
 - 有效至：`2027-05-27 11:12:45`
 
+## iOS 分发签名信息
+
+### 签名文件
+
+- P12 路径：`app/ios/分发证书.p12`
+- P12 Password：`a521521521`
+
+### 证书主题
+
+- Subject：`C=US, O=ZhiYuan Fang, OU=395D9NUCNF, CN=iPhone Distribution: ZhiYuan Fang (395D9NUCNF), UID=395D9NUCNF`
+
+### 证书指纹
+
+- SHA-1（带冒号）：`FC:A4:EA:68:97:F1:88:F6:9F:00:7C:FC:68:95:82:87:D6:2E:AE:10`
+- SHA-1（不带冒号）：`FCA4EA6897F188F69F007CFC68958287D62EAE10`
+- SHA-256（带冒号）：`D3:67:42:7A:C0:D9:DC:9D:EF:72:87:22:54:E6:91:B4:33:D1:DD:08:23:08:24:EA:F8:31:AF:63:AA:57:E6:15`
+
+### 公钥
+
+- 公钥（Base64）：
+
+```text
+MIIBCgKCAQEAt7p+jS0AyhmklXADhalMZ29sHgbFXdOJw5COfC9Bxy+x6Avn4jb+nwC9PakTTYOCVQynU5/2CbKaJySFXTTtZtiVjm33BjYLHAJF6rpLD/7fMx0WlIu2ew+SnSqU4DTqQvKOOae1UgQurB/AiK+VeUEAXwpi0NuUOFi7qd+XIRUuOUEwLjRW8CbfcedUC6hp7DZHORtcjnDE/6LKBxHVmKH1DokbcGwo/XzhFt/qmjqI+KT0xh1cjDD5S3m6aCFp2puxu3Dup5tBVrvznfskjkwfIyYHGGCy3qdLFmT26KoTLFKPT69+VHqzHPUCBHYVoeWvHcUpNQJjeLFxwJLZxwIDAQAB
+```
+
+### 有效期
+
+- 有效至：`2027-05-29 10:31:57`
+
 ## 备注
 
 - Android 指纹来自 `gradlew signingReport` 的 `release` 配置。
