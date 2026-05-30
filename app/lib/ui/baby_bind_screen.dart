@@ -1,3 +1,6 @@
+import 'dart:ui';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +12,9 @@ import '../providers/authorized_api_client_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
+import '../theme/app_visual_tokens.dart';
+import 'home_history_edit_glass_panel.dart';
+import 'widgets/baby_birth_picker_sheet.dart';
 
 DateTime _bindDefaultBirth() {
   final now = DateTime.now();
@@ -26,6 +32,8 @@ DateTime _bindClampBirthForPicker(DateTime birth) {
   return d;
 }
 
+enum _BabyBindMode { bind, create }
+
 /// 绑定已有宝宝或创建新宝宝（远程模式）。
 class BabyBindScreen extends ConsumerStatefulWidget {
   const BabyBindScreen({super.key});
@@ -39,6 +47,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   final _birth = ValueNotifier<DateTime>(_bindDefaultBirth());
   BabySex _sex = BabySex.unknown;
   var _busy = false;
+  var _mode = _BabyBindMode.bind;
 
   @override
   void dispose() {
@@ -99,66 +108,363 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = visualTokensOf(context);
+    final isDark = tokens?.isDarkShell ?? (Theme.of(context).brightness == Brightness.dark);
+
+    // 背景渐变：随主色调变化
+    final bgStart = tokens?.shellColor ?? scheme.surface;
+    final bgEnd = Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('绑定宝宝'),
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop(false)),
+        title: const Text('宝宝信息绑定'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.pop(false),
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [bgStart, bgEnd],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 20),
+              _buildModeSwitcher(scheme, isDark),
+              const SizedBox(height: 32),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: _mode == _BabyBindMode.bind
+                      ? _buildBindCard(context, scheme, isDark)
+                      : _buildCreateCard(context, scheme, isDark),
+                ),
+              ),
+              _buildFooterButtons(scheme, isDark),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeSwitcher(ColorScheme scheme, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 40),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.1)),
+      ),
+      child: Row(
         children: [
-          const Text('绑定已有宝宝', style: TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _deviceCtrl,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: '宝宝 deviceNo',
+          Expanded(
+            child: _ModeTab(
+              label: '绑定宝宝ID',
+              selected: _mode == _BabyBindMode.bind,
+              onTap: () => setState(() => _mode = _BabyBindMode.bind),
             ),
           ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _busy ? null : _bind,
-            child: const Text('绑定'),
+          Expanded(
+            child: _ModeTab(
+              label: '创建新宝宝',
+              selected: _mode == _BabyBindMode.create,
+              onTap: () => setState(() => _mode = _BabyBindMode.create),
+            ),
           ),
-          const Divider(height: 40),
-          const Text('创建新宝宝', style: TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBindCard(BuildContext context, ColorScheme scheme, bool isDark) {
+    return _GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '输入宝宝ID',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _deviceCtrl,
+            decoration: InputDecoration(
+              hintText: '请输入设备ID',
+              filled: true,
+              fillColor: scheme.surface.withValues(alpha: 0.4),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCreateCard(BuildContext context, ColorScheme scheme, bool isDark) {
+    return _GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '宝宝基本信息',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _buildLabel('宝宝生日'),
           ValueListenableBuilder<DateTime>(
             valueListenable: _birth,
             builder: (context, d, _) {
-              return ListTile(
-                title: const Text('生日'),
-                subtitle: Text(d.toIso8601String().split('T').first),
-                trailing: const Icon(Icons.calendar_today),
+              return InkWell(
                 onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: _bindClampBirthForPicker(d),
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime.now(),
+                  final picked = await showBabyBirthPickerSheet(
+                    context,
+                    initialValue: _bindClampBirthForPicker(d),
+                    title: '选择宝宝生日',
                   );
                   if (picked != null) _birth.value = picked;
                 },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: scheme.surface.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        d.toIso8601String().split('T').first,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const Spacer(),
+                      Icon(Icons.calendar_today, size: 18, color: scheme.primary),
+                    ],
+                  ),
+                ),
               );
             },
           ),
-          SegmentedButton<BabySex>(
-            segments: const [
-              ButtonSegment(value: BabySex.male, label: Text('男')),
-              ButtonSegment(value: BabySex.female, label: Text('女')),
-              ButtonSegment(value: BabySex.unknown, label: Text('未填')),
+          const SizedBox(height: 20),
+          _buildLabel('宝宝性别'),
+          Row(
+            children: [
+              _SexChip(
+                label: '小王子',
+                selected: _sex == BabySex.male,
+                color: Colors.blue,
+                onTap: () => setState(() => _sex = BabySex.male),
+              ),
+              const SizedBox(width: 12),
+              _SexChip(
+                label: '小公主',
+                selected: _sex == BabySex.female,
+                color: Colors.pink,
+                onTap: () => setState(() => _sex = BabySex.female),
+              ),
+              const SizedBox(width: 12),
+              _SexChip(
+                label: '未设置',
+                selected: _sex == BabySex.unknown,
+                color: Colors.grey,
+                onTap: () => setState(() => _sex = BabySex.unknown),
+              ),
             ],
-            selected: {_sex},
-            onSelectionChanged: (s) => setState(() => _sex = s.first),
           ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _busy ? null : _create,
-            child: const Text('创建并绑定'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 14,
+          color: Colors.black54,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooterButtons(ColorScheme scheme, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextButton(
+              onPressed: () => context.pop(false),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.black54,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text('取消', style: TextStyle(fontSize: 16)),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 2,
+            child: FilledButton(
+              onPressed: _busy ? null : (_mode == _BabyBindMode.bind ? _bind : _create),
+              style: FilledButton.styleFrom(
+                backgroundColor: scheme.primary.withValues(alpha: 0.8),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+                elevation: 0,
+              ),
+              child: Text(
+                _busy ? '处理中...' : '确认',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+class _ModeTab extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModeTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(99),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  )
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? scheme.primary : scheme.primary.withValues(alpha: 0.7),
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              fontSize: 15,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassCard extends StatelessWidget {
+  final Widget child;
+
+  const _GlassCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _SexChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SexChip({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? color : Colors.white.withValues(alpha: 0.3),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? color : Colors.black54,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
