@@ -318,6 +318,8 @@ jobs:
           Path(os.environ['KEY_PATH']).write_bytes(base64.b64decode(os.environ['APP_STORE_CONNECT_API_KEY_P8_BASE64']))
           PY
 
+          chmod 600 "$KEY_PATH"
+
           IPA_PATH="$(find "$APP_DIR/build/ios/ipa" -maxdepth 1 -name '*.ipa' | head -n 1)"
           if [[ -z "$IPA_PATH" ]]; then
             echo "::error::未找到待上传的 IPA"
@@ -325,9 +327,14 @@ jobs:
             exit 1
           fi
 
-          xcrun altool \
-            --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+          echo "[TestFlight] IPA_PATH=$IPA_PATH"
+          file "$IPA_PATH"
+          unzip -t "$IPA_PATH" >/dev/null
+
+          echo "[TestFlight] uploading via iTMSTransporter"
+          xcrun iTMSTransporter \
+            -m upload \
+            -assetFile "$IPA_PATH" \
+            -apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            -apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
+            -v eXtreme
