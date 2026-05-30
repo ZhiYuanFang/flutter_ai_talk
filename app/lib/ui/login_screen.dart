@@ -87,50 +87,115 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('胖宝')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Column(
+              children: [
+                const Spacer(flex: 2),
+                // Logo section
+                Hero(
+                  tag: 'app_logo',
+                  child: Image.asset(
+                    'assets/images/splash_logo.png',
+                    width: 120,
+                    height: 120,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  '胖宝',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '记录宝宝成长的每一步',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.black54,
+                      ),
+                ),
+                const Spacer(flex: 3),
+                // Login Button
+                FilledButton.icon(
+                  onPressed: _loading ? null : _onWeChatLogin,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF07C160), // WeChat Green
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 54),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                  icon: _loading
+                      ? const SizedBox.shrink()
+                      : const Icon(Icons.chat_bubble, size: 24),
+                  label: _loading
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text(
+                          '微信安全登录',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                        ),
+                ),
+                const SizedBox(height: 20),
+                // Privacy info
+                _buildPrivacyAgreement(context),
+                const SizedBox(height: 16),
+                Text(
+                  _footerHint(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black38),
+                ),
+                const Spacer(),
+                if (AppEnv.wxLoginCode.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      '开发模式已开启',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrivacyAgreement(BuildContext context) {
+    return GestureDetector(
+      onTap: () => context.push(
+        Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
+      ),
+      child: RichText(
+        textAlign: TextAlign.center,
+        text: TextSpan(
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
           children: [
-            const Spacer(),
-            const Text(
-              '微信登录',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            const TextSpan(text: '登录即代表您已阅读并同意 '),
+            TextSpan(
+              text: '用户协议',
+              style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
-            Text(
-              _footerHint(),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
-              textAlign: TextAlign.center,
+            const TextSpan(text: ' 和 '),
+            TextSpan(
+              text: '隐私政策',
+              style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _loading ? null : _onWeChatLogin,
-              icon: const Icon(Icons.chat_outlined),
-              label: _loading
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('使用微信登录'),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => context.push(
-                Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
-              ),
-              child: const Text('请阅读并同意隐私政策'),
-            ),
-            const Spacer(),
-            if (AppEnv.wxLoginCode.isNotEmpty)
-              Text(
-                '开发提示：已检测到 WX_LOGIN_CODE，可用于微信登录联调。',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
-                textAlign: TextAlign.center,
-              ),
           ],
         ),
       ),
