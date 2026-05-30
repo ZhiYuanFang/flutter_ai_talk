@@ -20,7 +20,7 @@ on:
       flutter_version:
         description: Flutter 版本
         required: true
-        default: 3.24.5
+        default: 3.41.9
         type: string
       build_name:
         description: 可选，覆盖 pubspec.yaml 中的版本号
@@ -237,13 +237,18 @@ jobs:
             SIGNING_CERTIFICATE="Apple Development"
           fi
 
+          EXPORT_DESTINATION="export"
+          if [[ "$UPLOAD_TO_TESTFLIGHT" == "true" ]]; then
+            EXPORT_DESTINATION="upload"
+          fi
+
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>destination</key>
-            <string>export</string>
+            <string>$EXPORT_DESTINATION</string>
             <key>method</key>
             <string>$EXPORT_METHOD</string>
             <key>signingStyle</key>
@@ -265,6 +270,7 @@ jobs:
           </plist>
           EOF
 
+          echo "EXPORT_DESTINATION=$EXPORT_DESTINATION" >> "$GITHUB_ENV"
           echo "EXPORT_OPTIONS_PLIST=$RUNNER_TEMP/ExportOptions.plist" >> "$GITHUB_ENV"
 
       - name: Build signed IPA
@@ -284,7 +290,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ipa-${{ inputs.export_method }}
-          if-no-files-found: error
+          if-no-files-found: warn
           path: ${{ env.APP_DIR }}/build/ios/ipa/*.ipa
 
       - name: Upload xcarchive artifact
@@ -298,6 +304,12 @@ jobs:
         if: ${{ inputs.upload_to_testflight }}
         run: |
           set -euo pipefail
+
+          if [[ "${EXPORT_DESTINATION:-export}" == "upload" ]]; then
+            echo "ExportOptions destination=upload，已由导出流程处理上传，跳过 altool。"
+            exit 0
+          fi
+
           KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           mkdir -p "$HOME/.appstoreconnect/private_keys"
 

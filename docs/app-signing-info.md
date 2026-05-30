@@ -91,6 +91,12 @@ MIIBCgKCAQEAkoTy2Y4gr/0hAQuOO1Bd/NMv8o9ZoPsstpQ6dNEGE8kLc+rd7LjCmD3EOVc9AhTh7OQu
 MIIBCgKCAQEAt7p+jS0AyhmklXADhalMZ29sHgbFXdOJw5COfC9Bxy+x6Avn4jb+nwC9PakTTYOCVQynU5/2CbKaJySFXTTtZtiVjm33BjYLHAJF6rpLD/7fMx0WlIu2ew+SnSqU4DTqQvKOOae1UgQurB/AiK+VeUEAXwpi0NuUOFi7qd+XIRUuOUEwLjRW8CbfcedUC6hp7DZHORtcjnDE/6LKBxHVmKH1DokbcGwo/XzhFt/qmjqI+KT0xh1cjDD5S3m6aCFp2puxu3Dup5tBVrvznfskjkwfIyYHGGCy3qdLFmT26KoTLFKPT69+VHqzHPUCBHYVoeWvHcUpNQJjeLFxwJLZxwIDAQAB
 ```
 
+
+### base64
+``` bash
+ [Convert]::ToBase64String([IO.File]::ReadAllBytes("d:\work\flutter_ai_talk\app\ios\分发证书.p12"))
+```
+
 ### 有效期
 
 - 有效至：`2027-05-29 10:31:57`
