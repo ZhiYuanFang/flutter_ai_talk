@@ -1,15 +1,22 @@
 /// 通过 `--dart-define` 注入的运行时配置（勿在仓库中硬编码密钥）。
 abstract final class AppEnv {
-  static const privacyPolicyUrl = String.fromEnvironment(
-    'PRIVACY_POLICY_URL',
-    defaultValue: 'https://example.com/privacy',
-  );
-
   /// 联调默认基址；生产通过 `--dart-define=API_BASE_URL=...` 覆盖。
   static const apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://www.cuplay.top:9702',
+    defaultValue: 'https://pangbao.cuplay.top',
   );
+
+  static const userAgreementUrl = String.fromEnvironment(
+    'USER_AGREEMENT_URL',
+    defaultValue: '$apiBaseUrl/user-agreement.html',
+  );
+
+  static const privacyPolicyUrl = String.fromEnvironment(
+    'PRIVACY_POLICY_URL',
+    defaultValue: '$apiBaseUrl/privacy-policy.html',
+  );
+
+  /// 微信开放平台移动应用 AppId（`fluwx.registerApi`）；勿提交 AppSecret。
 
   /// 微信开放平台移动应用 AppId（`fluwx.registerApi`）；勿提交 AppSecret。
   static const wechatAppId = String.fromEnvironment(

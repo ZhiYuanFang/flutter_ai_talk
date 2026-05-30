@@ -230,7 +230,7 @@ docker run -d --name pangbao-web -p 8080:80 --restart unless-stopped pangbao-web
 
 ## Web 与跨域（CORS）
 
-`flutter run -d chrome` 时，页面源为 **`http://localhost:<随机端口>`**，而默认 `API_BASE_URL` 指向 **`http://www.cuplay.top:9702`**（或其它域名）。浏览器会按 **同源策略** 拦截跨域请求：能否发成功取决于 **服务端是否在响应里带上正确的 CORS 头**（例如 `Access-Control-Allow-Origin`，以及对 `OPTIONS` 预检的 `Access-Control-Allow-Methods` / `Allow-Headers` 等）。**Flutter / `http` 包无法在应用里“关掉”浏览器的 CORS**，这不是客户端 bug。
+`flutter run -d chrome` 时，页面源为 **`http://localhost:<随机端口>`**，而默认 `API_BASE_URL` 指向 **`https://pangbao.cuplay.top`**（或其它域名）。浏览器会按 **同源策略** 拦截跨域请求：能否发成功取决于 **服务端是否在响应里带上正确的 CORS 头**（例如 `Access-Control-Allow-Origin`，以及对 `OPTIONS` 预检的 `Access-Control-Allow-Methods` / `Allow-Headers` 等）。**Flutter / `http` 包无法在应用里“关掉”浏览器的 CORS**，这不是客户端 bug。
 
 **推荐（正确做法）**：在网关或反向代理（Nginx、Spring `WebMvcConfigurer` 等）为联调环境增加 CORS，至少允许：
 
@@ -256,7 +256,7 @@ flutter run -d chrome --dart-define=MOCK_NEWER_VERSION=true --web-browser-flag "
 | 变量 | 说明 |
 |------|------|
 | `PRIVACY_POLICY_URL` | 隐私政策页面 URL（默认 example.com） |
-| `API_BASE_URL` | 后端基址（默认 `http://www.cuplay.top:9702`） |
+| `API_BASE_URL` | 后端基址（默认 `https://pangbao.cuplay.top`） |
 | `WX_LOGIN_CODE` | 无移动 SDK / 无网页授权配置时的联调临时 code，作为登录请求体字段 **`jsCode`** 提交 |
 | `WECHAT_APP_ID` | 微信开放平台**移动应用** AppId（`fluwx.registerApi`）；与 `pubspec.yaml` 中 `fluwx.app_id` 保持一致 |
 | `WECHAT_UNIVERSAL_LINK` | iOS Universal Links 前缀（须与开放平台、`pubspec.yaml` → `fluwx.ios.universal_link` 一致） |
@@ -329,7 +329,7 @@ flutter run -d chrome --dart-define=WECHAT_APP_ID=wx你的AppId --dart-define=WE
 ```bash
 cd app
 flutter run -d chrome --dart-define=WX_LOGIN_CODE=你的微信code
-flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_URL=ws://www.cuplay.top:9702/device/app/ws/history
+flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_URL=wss://pangbao.cuplay.top/device/app/ws/history
 ```
 
 - 未登录也可进主页；历史为空会出现 **「请绑定宝宝信息」** 条，点击未登录去登录、已登录去 **`/settings/bind-baby`**。
