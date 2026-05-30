@@ -287,10 +287,11 @@ jobs:
           "${args[@]}"
 
       - name: Upload IPA artifact
+        if: ${{ !inputs.upload_to_testflight }}
         uses: actions/upload-artifact@v4
         with:
           name: ipa-${{ inputs.export_method }}
-          if-no-files-found: warn
+          if-no-files-found: error
           path: ${{ env.APP_DIR }}/build/ios/ipa/*.ipa
 
       - name: Upload xcarchive artifact
