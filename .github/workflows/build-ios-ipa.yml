@@ -305,9 +305,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "[TestFlight] using export IPA + altool upload path"
+          echo "[TestFlight] using export IPA + fastlane pilot upload path"
 
           KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          API_KEY_JSON_PATH="$RUNNER_TEMP/app_store_connect_api_key.json"
           mkdir -p "$HOME/.appstoreconnect/private_keys"
 
           KEY_PATH="$KEY_PATH" python3 <<'PY'
@@ -331,10 +332,28 @@ jobs:
           file "$IPA_PATH"
           unzip -t "$IPA_PATH" >/dev/null
 
-          echo "[TestFlight] uploading via iTMSTransporter"
-          xcrun iTMSTransporter \
-            -m upload \
-            -assetFile "$IPA_PATH" \
-            -apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            -apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
-            -v eXtreme
+          KEY_PATH="$KEY_PATH" API_KEY_JSON_PATH="$API_KEY_JSON_PATH" APP_STORE_CONNECT_KEY_ID="$APP_STORE_CONNECT_KEY_ID" APP_STORE_CONNECT_ISSUER_ID="$APP_STORE_CONNECT_ISSUER_ID" python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          key = Path(os.environ['KEY_PATH']).read_text(encoding='utf-8')
+          payload = {
+            'key_id': os.environ['APP_STORE_CONNECT_KEY_ID'],
+            'issuer_id': os.environ['APP_STORE_CONNECT_ISSUER_ID'],
+            'key': key,
+            'in_house': False,
+          }
+          Path(os.environ['API_KEY_JSON_PATH']).write_text(json.dumps(payload), encoding='utf-8')
+          PY
+
+          if ! command -v fastlane >/dev/null 2>&1; then
+            sudo gem install fastlane -N
+          fi
+
+          echo "[TestFlight] uploading via fastlane pilot"
+          fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --api_key_path "$API_KEY_JSON_PATH" \
+            --skip_waiting_for_build_processing true \
+            --verbose
