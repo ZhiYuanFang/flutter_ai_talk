@@ -2,7 +2,7 @@
 
 ### Requirement: 历史列表分页查询
 
-The client SHALL load history using **GET** `http://www.cuplay.top:9702/device/history/api/list` (path relative to configurable base) with query parameters **`deviceNo` (string, required for business calls)**, **`page`** starting at **1**, and **`pageSize`** chosen by the client. The server response `data` SHALL follow the agreed shape: `list`, `total`, `page`, `pageSize`; each list item MUST include at least `id`, `deviceNo`, `eventId`, `eventName`, `eventUnit`, `eventNumber`, `startTime`, `endTime`, `remark`, and `action` (array). 列表排序以服务端为准；产品要求为 **时间倒序**，若服务端保证倒序则客户端按返回顺序展示即可。
+The client SHALL load history using **GET** `https://pangbao.cuplay.top/device/history/api/list` (path relative to configurable base) with query parameters **`deviceNo` (string, required for business calls)**, **`page`** starting at **1**, and **`pageSize`** chosen by the client. The server response `data` SHALL follow the agreed shape: `list`, `total`, `page`, `pageSize`; each list item MUST include at least `id`, `deviceNo`, `eventId`, `eventName`, `eventUnit`, `eventNumber`, `startTime`, `endTime`, `remark`, and `action` (array). 列表排序以服务端为准；产品要求为 **时间倒序**，若服务端保证...
 
 #### Scenario: 分页请求
 

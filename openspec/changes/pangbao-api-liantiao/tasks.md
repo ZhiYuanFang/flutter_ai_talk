@@ -1,6 +1,6 @@
 ## 1. HTTP 与配置
 
-- [x] 1.1 引入可配置 `API_BASE_URL`（默认 `http://www.cuplay.top:9702`），与现有 `dart-define` 策略对齐
+- [x] 1.1 引入可配置 `API_BASE_URL`（默认 `https://pangbao.cuplay.top`），与现有 `dart-define` 策略对齐
 - [x] 1.2 实现响应壳解析：`code`/`message`/`data`；HTTP 200；`code != 0` 或 `data` 为 null 时 Toast `message`
 - [x] 1.3 封装 Dio/HTTP 拦截器：注入 `access_token`、处理静默 refresh、业务错误统一抛出类型（实现为 `http` + [ApiClient]；静默刷新见 `SessionController.trySilentRefresh` + `REFRESH_TOKEN_PATH`）
 

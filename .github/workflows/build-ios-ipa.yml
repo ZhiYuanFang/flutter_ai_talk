@@ -237,10 +237,9 @@ jobs:
             SIGNING_CERTIFICATE="Apple Development"
           fi
 
+          # 统一使用 export 产出 IPA，再由后续 altool 上传到 TestFlight。
+          # 实测 destination=upload 在当前流程下不会稳定触发上传结果回显。
           EXPORT_DESTINATION="export"
-          if [[ "$UPLOAD_TO_TESTFLIGHT" == "true" ]]; then
-            EXPORT_DESTINATION="upload"
-          fi
 
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -306,10 +305,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${EXPORT_DESTINATION:-export}" == "upload" ]]; then
-            echo "ExportOptions destination=upload，已由导出流程处理上传，跳过 altool。"
-            exit 0
-          fi
+          echo "[TestFlight] using export IPA + altool upload path"
 
           KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           mkdir -p "$HOME/.appstoreconnect/private_keys"
@@ -325,6 +321,7 @@ jobs:
           IPA_PATH="$(find "$APP_DIR/build/ios/ipa" -maxdepth 1 -name '*.ipa' | head -n 1)"
           if [[ -z "$IPA_PATH" ]]; then
             echo "::error::未找到待上传的 IPA"
+            ls -la "$APP_DIR/build/ios" || true
             exit 1
           fi
 

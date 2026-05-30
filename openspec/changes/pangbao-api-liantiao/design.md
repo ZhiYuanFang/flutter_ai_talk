@@ -1,6 +1,6 @@
 ## Context
 
-- 约定 **Base**：`http://www.cuplay.top:9702`（联调环境；生产是否全站 HTTPS 由部署决定，客户端通过 `API_BASE_URL` 等配置注入）。
+- 约定 **Base**：`https://pangbao.cuplay.top`（联调环境；生产是否全站 HTTPS 由部署决定，客户端通过 `API_BASE_URL` 等配置注入）。
 - 所有 REST 响应：**HTTP 状态码恒为 `200`**，业务成败看 **`code`**；**`code == 0`** 成功，**非 0** 失败；失败时 **`data` 可为 `null`**，**`message` 为人类可读失败原因**，客户端 **Toast**。
 - **OAuth / code 换 token**：由服务端封装，客户端只对接你们暴露的登录入口（具体 path 不写死在 spec，以服务端文档为准，本仓库 `design` 仅描述职责划分）。
 

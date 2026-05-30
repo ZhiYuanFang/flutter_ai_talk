@@ -1,6 +1,6 @@
 ## Context
 
-- HTTP 客户端基址：`AppEnv.apiBaseUrl`（默认 `http://www.cuplay.top:9702`，与 `authorizedApiClientProvider` 一致）。
+- HTTP 客户端基址：`AppEnv.apiBaseUrl`（默认 `https://pangbao.cuplay.top`，与 `authorizedApiClientProvider` 一致）。
 - 服务端返回示例：
   - 事件 `logo`: `"/ai_talk_images/event_1_xxx.png"`
   - 版本 `downloadUrl`: `"/device/app/apk/foo.apk"`

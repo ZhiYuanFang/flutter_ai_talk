@@ -1,6 +1,6 @@
 ## Why
 
-胖宝当前以 Mock 仓库与本地存储为主，与真实后端 `www.cuplay.top:9702` 的契约、鉴权、设备绑定及实时数据尚未固化。需要一份 **OpenSpec 级联调契约**，统一 **HTTP 响应壳、微信登录与 deviceNo、历史与 WebSocket、语音聊天、趋势与版本检查**，便于客户端与服务端并行实现与验收。
+胖宝当前以 Mock 仓库与本地存储为主，与真实后端 `pangbao.cuplay.top` 的契约、鉴权、设备绑定及实时数据尚未固化。需要一份 **OpenSpec 级联调契约**，统一 **HTTP 响应壳、微信登录与 deviceNo、历史与 WebSocket、语音聊天、趋势与版本检查**，便于客户端与服务端并行实现与验收。
 
 ## What Changes
 
