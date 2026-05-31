@@ -351,13 +351,18 @@ jobs:
         run: |
           set -euo pipefail
           echo "[Build] release_mode=$EFFECTIVE_RELEASE_MODE export_method=$EFFECTIVE_EXPORT_METHOD"
+
+          EFFECTIVE_BUILD_NUMBER="$BUILD_NUMBER"
+          if [[ -z "$EFFECTIVE_BUILD_NUMBER" ]]; then
+            EFFECTIVE_BUILD_NUMBER="$(date +"%Y%m%d%H%M")"
+            echo "::notice::未提供 build_number，自动使用时间构建号: $EFFECTIVE_BUILD_NUMBER"
+          fi
+
           args=(flutter build ipa --release --export-options-plist "$EXPORT_OPTIONS_PLIST")
           if [[ -n "$BUILD_NAME" ]]; then
             args+=(--build-name "$BUILD_NAME")
           fi
-          if [[ -n "$BUILD_NUMBER" ]]; then
-            args+=(--build-number "$BUILD_NUMBER")
-          fi
+          args+=(--build-number "$EFFECTIVE_BUILD_NUMBER")
           "${args[@]}"
 
       - name: Upload IPA artifact
