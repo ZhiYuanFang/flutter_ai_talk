@@ -11,7 +11,8 @@ import 'repositories.dart' show SettingsRepository;
 
 typedef _DeviceNoGetter = String? Function();
 
-/// 画像读取 `GET /device/app/api/user/get`；保存：胖宝号登录渠道走 `POST /device/app/api/user/save`，否则 `auto_save`。
+/// 画像读取 `GET /device/app/api/user/get`；保存：仅胖宝号登录渠道走 `POST /device/app/api/user/save`，
+/// 其余渠道（`wechat`、`username`、`unknown`）走 `auto_save`。
 /// 昵称在 `user/save` 请求体中上传；`user/get` 与本地 prefs 仍用于展示合并。
 class RemoteSettingsRepository implements SettingsRepository {
   RemoteSettingsRepository(

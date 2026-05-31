@@ -7,6 +7,21 @@ import 'models.dart';
 abstract class AuthRepository {
   Future<void> signInWithWeChat();
 
+  Future<void> signInWithUsernamePassword(String account, String password);
+
+  Future<void> registerUsername(String account, String password);
+
+  /// 仅业务登录校验：不建立会话、不写 token。
+  Future<Map<String, dynamic>?> loginUsernameBusiness(String account, String password);
+
+  Future<void> bindUsernameWx({required String jsCode, String? platform});
+
+  Future<void> bindUsernameDevice(String deviceNo);
+
+  Future<void> changeUsernamePassword({required String oldPassword, required String newPassword});
+
+  Future<void> createUsernameForWx(String account, String password);
+
   Future<void> signOut();
 
   Future<void> deactivateAccount();

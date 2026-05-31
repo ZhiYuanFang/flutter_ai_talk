@@ -41,6 +41,8 @@ class RemoteAuthRepository implements AuthRepository {
 
   ApiClient get _api => _ref.read(authorizedApiClientProvider);
 
+  static String _normalizeAccount(String account) => account.trim().toLowerCase();
+
   @override
   Future<void> signInWithWeChat() async {
     String? wxCode = _wxCodeOverride;
@@ -72,6 +74,93 @@ class RemoteAuthRepository implements AuthRepository {
     );
     await _persistLoginData(data);
     await _ref.read(signInChannelProvider.notifier).setWechat();
+  }
+
+  @override
+  Future<void> signInWithUsernamePassword(String account, String password) async {
+    final data = await _anon.postJsonEnvelope(
+      '/device/app/api/username_login',
+      {
+        'account': _normalizeAccount(account),
+        'password': password,
+      },
+      withAuthorization: false,
+    );
+    await _persistLoginData(data);
+    await _ref.read(signInChannelProvider.notifier).setUsername();
+  }
+
+  @override
+  Future<void> registerUsername(String account, String password) async {
+    await _anon.postJsonEnvelope(
+      '/device/app/api/user/username/register',
+      {
+        'account': _normalizeAccount(account),
+        'password': password,
+      },
+      withAuthorization: false,
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>?> loginUsernameBusiness(String account, String password) {
+    return _anon.postJsonEnvelope(
+      '/device/app/api/user/username/login',
+      {
+        'account': _normalizeAccount(account),
+        'password': password,
+      },
+      withAuthorization: false,
+    );
+  }
+
+  @override
+  Future<void> bindUsernameWx({required String jsCode, String? platform}) async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/username/bindwx',
+      {
+        'jsCode': jsCode,
+        'platform': (platform == null || platform.isEmpty) ? _platform : platform,
+      },
+      withAuthorization: true,
+    );
+  }
+
+  @override
+  Future<void> bindUsernameDevice(String deviceNo) async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/username/bind_device',
+      {'deviceNo': deviceNo},
+      withAuthorization: true,
+    );
+    final normalized = deviceNo.trim();
+    if (normalized.isNotEmpty) {
+      await _ref.read(deviceNoNotifierProvider.notifier).setLocal(normalized);
+    }
+  }
+
+  @override
+  Future<void> changeUsernamePassword({required String oldPassword, required String newPassword}) async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/username/change_password',
+      {
+        'oldPassword': oldPassword,
+        'newPassword': newPassword,
+      },
+      withAuthorization: true,
+    );
+  }
+
+  @override
+  Future<void> createUsernameForWx(String account, String password) async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/wx/create_username',
+      {
+        'account': _normalizeAccount(account),
+        'password': password,
+      },
+      withAuthorization: true,
+    );
   }
 
   Future<void> _persistLoginData(Map<String, dynamic>? data) async {

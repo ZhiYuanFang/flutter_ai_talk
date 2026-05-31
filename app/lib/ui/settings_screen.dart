@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../api/api_exceptions.dart';
 import '../config/env.dart';
 import '../data/models.dart';
 import '../providers/repositories.dart';
@@ -112,6 +113,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (loggedIn) ...[
+                _buildGlassTile(
+                  context,
+                  leading: Icons.manage_accounts,
+                  title: '账号管理',
+                  subtitle: '改密 / 绑定微信 / 绑定设备 / 微信补齐账号',
+                  onTap: () => _openAccountActions(context, ref),
+                ),
+                const SizedBox(height: 12),
+              ],
               _buildGlassTile(
                 context,
                 leading: Icons.swap_horiz,
@@ -186,6 +197,250 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         onTap: onTap,
       ),
     );
+  }
+
+  Future<void> _openAccountActions(BuildContext context, WidgetRef ref) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.password),
+                title: const Text('修改密码'),
+                onTap: () async {
+                  Navigator.of(sheetCtx).pop();
+                  final pair = await _promptTwoFields(
+                    context,
+                    title: '修改密码',
+                    firstLabel: '旧密码',
+                    secondLabel: '新密码',
+                    obscureFirst: true,
+                    obscureSecond: true,
+                  );
+                  if (pair == null) return;
+                  await _runAuthAction(
+                    context,
+                    ref,
+                    action: () => ref.read(authRepositoryProvider).changeUsernamePassword(
+                          oldPassword: pair[0],
+                          newPassword: pair[1],
+                        ),
+                    successMessage: '密码修改成功',
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.link),
+                title: const Text('绑定设备号'),
+                onTap: () async {
+                  Navigator.of(sheetCtx).pop();
+                  final deviceNo = await _promptSingleField(
+                    context,
+                    title: '绑定设备号',
+                    label: 'deviceNo',
+                  );
+                  if (deviceNo == null) return;
+                  await _runAuthAction(
+                    context,
+                    ref,
+                    action: () => ref.read(authRepositoryProvider).bindUsernameDevice(deviceNo.trim()),
+                    successMessage: '设备号绑定成功',
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.chat),
+                title: const Text('绑定微信'),
+                onTap: () async {
+                  Navigator.of(sheetCtx).pop();
+                  final jsCode = await _promptSingleField(
+                    context,
+                    title: '绑定微信',
+                    label: 'jsCode',
+                  );
+                  if (jsCode == null) return;
+                  await _runAuthAction(
+                    context,
+                    ref,
+                    action: () => ref.read(authRepositoryProvider).bindUsernameWx(jsCode: jsCode.trim()),
+                    successMessage: '微信绑定请求已提交',
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_add_alt_1),
+                title: const Text('微信账号补齐用户名密码'),
+                onTap: () async {
+                  Navigator.of(sheetCtx).pop();
+                  final pair = await _promptTwoFields(
+                    context,
+                    title: '补齐用户名密码',
+                    firstLabel: '账号',
+                    secondLabel: '密码',
+                    obscureFirst: false,
+                    obscureSecond: true,
+                  );
+                  if (pair == null) return;
+                  await _runAuthAction(
+                    context,
+                    ref,
+                    action: () => ref.read(authRepositoryProvider).createUsernameForWx(
+                          pair[0].trim().toLowerCase(),
+                          pair[1],
+                        ),
+                    successMessage: '账号密码创建成功',
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.science_outlined),
+                title: const Text('业务登录校验（联调）'),
+                subtitle: const Text('调用 /user/username/login，不写 token'),
+                onTap: () async {
+                  Navigator.of(sheetCtx).pop();
+                  final pair = await _promptTwoFields(
+                    context,
+                    title: '业务登录校验（联调）',
+                    firstLabel: '账号',
+                    secondLabel: '密码',
+                    obscureFirst: false,
+                    obscureSecond: true,
+                  );
+                  if (pair == null) return;
+                  await _runAuthAction(
+                    context,
+                    ref,
+                    action: () async {
+                      await ref.read(authRepositoryProvider).loginUsernameBusiness(
+                            pair[0].trim().toLowerCase(),
+                            pair[1],
+                          );
+                    },
+                    successMessage: '业务登录校验成功（未写入会话）',
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _runAuthAction(
+    BuildContext context,
+    WidgetRef ref, {
+    required Future<void> Function() action,
+    required String successMessage,
+  }) async {
+    try {
+      await action();
+      if (context.mounted) {
+        ref.showApiToastError(successMessage);
+      }
+    } on ApiBusinessException catch (e) {
+      if (context.mounted) {
+        ref.showApiToastError(e.message);
+      }
+    } on ApiHttpException catch (e) {
+      if (context.mounted) {
+        ref.showApiToastError('网络错误(${e.statusCode})');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ref.showApiToastError('操作失败：$e');
+      }
+    }
+  }
+
+  Future<String?> _promptSingleField(
+    BuildContext context, {
+    required String title,
+    required String label,
+  }) async {
+    final c = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dCtx) {
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: c,
+              decoration: InputDecoration(labelText: label),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dCtx).pop(),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dCtx).pop(c.text),
+                child: const Text('确定'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      c.dispose();
+    }
+  }
+
+  Future<List<String>?> _promptTwoFields(
+    BuildContext context, {
+    required String title,
+    required String firstLabel,
+    required String secondLabel,
+    required bool obscureFirst,
+    required bool obscureSecond,
+  }) async {
+    final c1 = TextEditingController();
+    final c2 = TextEditingController();
+    try {
+      return await showDialog<List<String>>(
+        context: context,
+        builder: (dCtx) {
+          return AlertDialog(
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: c1,
+                  obscureText: obscureFirst,
+                  decoration: InputDecoration(labelText: firstLabel),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: c2,
+                  obscureText: obscureSecond,
+                  decoration: InputDecoration(labelText: secondLabel),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dCtx).pop(),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dCtx).pop([c1.text, c2.text]),
+                child: const Text('确定'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      c1.dispose();
+      c2.dispose();
+    }
   }
 
   Future<void> _confirmDeregister(BuildContext context, WidgetRef ref) async {

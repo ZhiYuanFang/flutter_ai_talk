@@ -283,12 +283,14 @@ flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
 
 也可修改源码中的默认：`lib/config/web_home_input_mode.dart` 内常量 `kDefaultWebHomeInputMode`（未传 `WEB_HOME_INPUT` 时生效）。
 
-### 登录（仅微信）
+### 登录（微信 + 账号密码）
 
-- **当前方式**：登录页仅提供 **微信登录** 入口；客户端通过微信授权获取临时 code，再请求 **`POST /device/app/api/login`** 建立会话。
-- **Web**：若已配置 `WECHAT_WEB_APP_ID` / `WECHAT_OAUTH_REDIRECT_URI`，点击登录会跳转到微信网页授权；回调返回 `/auth/wechat/callback` 后会继续登录流程，不再提示改用胖宝号登录。
-- **开发联调**：`WX_LOGIN_CODE` 仍可作为开发兜底，供未接通真微信环境时验证登录链路；它不是用户可见主流程。
-- **BREAKING**：客户端已移除胖宝号（设备号）登录入口，不再通过页面交互触发 **`POST /device/app/api/device_login`**。
+- **当前方式**：登录页提供 **账号密码登录** 与 **微信登录** 双入口。
+- **账号密码主登录**：`POST /device/app/api/username_login`，请求体 `account`、`password`；成功返回并持久化 `accessToken` / `refreshToken`，再进入主页流程。
+- **账号规则**：客户端提交前会对 `account` 执行 `trim + lowercase`；规则为 `4-32` 位且仅允许 `a-z0-9_`；`password` 长度 `6-64`。
+- **微信登录**：客户端通过微信授权获取临时 code，再请求 **`POST /device/app/api/login`** 建立会话。
+- **Web**：若已配置 `WECHAT_WEB_APP_ID` / `WECHAT_OAUTH_REDIRECT_URI`，点击微信登录会跳转微信网页授权；回调返回 `/auth/wechat/callback` 后继续登录流程。
+- **开发联调**：`WX_LOGIN_CODE` 仍可作为微信链路开发兜底；账号密码链路不依赖该参数。
 
 ### 宝宝画像（读 / 写）
 
@@ -335,6 +337,10 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 - 未登录也可进主页；历史为空会出现 **「请绑定宝宝信息」** 条，点击未登录去登录、已登录去 **`/settings/bind-baby`**。
 - 业务 `code != 0` 时通过 `apiToastProvider` 提示 `message`。
 - **微信**：网关仍以 **`jsCode`** 接收临时 code；当前产品登录页直接走微信登录，联调可额外使用 `WX_LOGIN_CODE` 兜底。
+- **账号体系（新增）**：
+  - 匿名：`POST /device/app/api/username_login`、`POST /device/app/api/user/username/register`、`POST /device/app/api/user/username/login`（仅业务校验，不写 token）。
+  - Bearer：`POST /device/app/api/user/username/bindwx`、`POST /device/app/api/user/username/bind_device`、`POST /device/app/api/user/username/change_password`、`POST /device/app/api/user/wx/create_username`。
+  - 推荐回归：账号主登录 → token 刷新 → 查询画像；设置页账号管理中改密/绑定微信/绑定设备/微信补齐账号。
 - **主页聊天与历史 WebSocket**：
   - 进入首页仍会 **`GET /device/history/api/list`** 拉一次初始列表。
   - 须配置 **`WS_HISTORY_URL`**（或通过 `API_BASE_URL` 自动推导 ws 地址）。历史 WebSocket 建连并收到服务端 **`auth_ok`** 之前，客户端 **不会** 调用 `POST /device/history/api/chat`；未就绪时会有 Toast，可在首页 AppBar 使用 **云形图标「重连历史」** 手动重连。
@@ -342,7 +348,8 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 
 ### 真机 / 浏览器冒烟（需本地执行）
 
-- **登录**：在 Android / iOS / Web（若已配置网页授权）完成一次微信登录并进入主页；取消授权或缺少配置时应得到明确提示而非设备号引导。
+- **登录**：在 Android / iOS / Web 完成一次账号密码登录并进入主页；在可用环境完成一次微信登录并进入主页；失败时应展示服务端业务 message 或网络错误。
+- **账号联调**：验证注册、改密、绑定微信、绑定设备、微信补齐用户名密码、业务登录校验（不写 token）等流程。
 - **Android 更新**：在能访问版本接口与 APK 下载 URL 的环境下，从更新弹窗执行「下载并安装」；若系统拦截，按提示到 **设置 → 允许安装未知应用 / 来自此来源的应用**（华为、小米、OPPO、vivo 等路径略有差异）授权后重试。
 - **历史微信流程**（若重新开放 UI）：在 Android、iOS 真机与 HTTPS 测试域 Web 各完成一次：打开微信 → 授权 → 回到应用 → 进入主页；取消授权时应有 Toast 且应用不崩溃。详细任务见 `openspec/changes/app-wechat-sdk-login/tasks.md`。
 

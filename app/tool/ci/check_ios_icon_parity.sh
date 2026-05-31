@@ -12,12 +12,6 @@ if [[ ! -f "$PUBSPEC" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SOURCE_ICON" ]]; then
-  echo "::error::缺少图标源文件：$SOURCE_ICON" >&2
-  echo "::error::修复：请将 Android 主图标放在 $SOURCE_ICON（或同步更新 pubspec.yaml 的 image_path 与 adaptive_icon_foreground）。" >&2
-  exit 1
-fi
-
 ICON_BLOCK="$(awk '
   BEGIN { in_block=0 }
   /^flutter_launcher_icons:/ { in_block=1; next }
@@ -31,35 +25,59 @@ if [[ -z "$ICON_BLOCK" ]]; then
   exit 1
 fi
 
-if ! grep -Eq '^\s*android:\s*true\s*$' <<<"$ICON_BLOCK"; then
+if ! grep -Eiq '^\s*android:\s*true\s*$' <<<"$ICON_BLOCK"; then
   echo "::error::flutter_launcher_icons.android 必须为 true。" >&2
   exit 1
 fi
 
-if ! grep -Eq '^\s*ios:\s*true\s*$' <<<"$ICON_BLOCK"; then
+if ! grep -Eiq '^\s*ios:\s*true\s*$' <<<"$ICON_BLOCK"; then
   echo "::error::flutter_launcher_icons.ios 必须为 true。" >&2
   echo "::error::修复：将 pubspec.yaml 中 flutter_launcher_icons.ios 设为 true。" >&2
   exit 1
 fi
 
-IMAGE_PATH="$(sed -nE 's/^\s*image_path:\s*//p' <<<"$ICON_BLOCK" | head -n1 | tr -d '"' | tr -d "'")"
-ANDROID_FG_PATH="$(sed -nE 's/^\s*adaptive_icon_foreground:\s*//p' <<<"$ICON_BLOCK" | head -n1 | tr -d '"' | tr -d "'")"
+ICON_TOP_LEVEL="$(sed -nE 's/^[[:space:]]{2}([a-zA-Z0-9_]+):[[:space:]]*(.*)$/\1=\2/p' <<<"$ICON_BLOCK")"
 
-if [[ -z "$IMAGE_PATH" ]]; then
-  echo "::error::flutter_launcher_icons.image_path 不能为空。" >&2
+get_icon_config() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" <<<"$ICON_TOP_LEVEL" | head -n1 | cut -d'=' -f2- || true)"
+  value="${value%%#*}"
+  value="${value//$'\r'/}"
+  value="${value//\"/}"
+  value="${value//\'/}"
+  value="$(echo "$value" | xargs)"
+  echo "$value"
+}
+
+IMAGE_PATH="$(get_icon_config image_path)"
+IMAGE_PATH_IOS="$(get_icon_config image_path_ios)"
+IMAGE_PATH_ANDROID="$(get_icon_config image_path_android)"
+ANDROID_FG_PATH="$(get_icon_config adaptive_icon_foreground)"
+
+IOS_IMAGE_PATH="${IMAGE_PATH_IOS:-$IMAGE_PATH}"
+ANDROID_IMAGE_PATH="$ANDROID_FG_PATH"
+if [[ -z "$ANDROID_IMAGE_PATH" ]]; then
+  ANDROID_IMAGE_PATH="${IMAGE_PATH_ANDROID:-$IMAGE_PATH}"
+fi
+
+if [[ -z "$IOS_IMAGE_PATH" ]]; then
+  echo "::error::flutter_launcher_icons.image_path 或 image_path_ios 至少配置一个且不能为空。" >&2
   exit 1
 fi
 
-if [[ -z "$ANDROID_FG_PATH" ]]; then
-  echo "::error::flutter_launcher_icons.adaptive_icon_foreground 不能为空。" >&2
+if [[ -z "$ANDROID_IMAGE_PATH" ]]; then
+  echo "::error::flutter_launcher_icons.adaptive_icon_foreground、image_path_android 或 image_path 至少配置一个且不能为空。" >&2
   exit 1
 fi
 
-if [[ "$IMAGE_PATH" != "$ANDROID_FG_PATH" ]]; then
-  echo "::error::iOS 与 Android 未使用同源图标：image_path=$IMAGE_PATH, adaptive_icon_foreground=$ANDROID_FG_PATH" >&2
-  echo "::error::修复：将 image_path 与 adaptive_icon_foreground 统一为同一路径。" >&2
+if [[ "$IOS_IMAGE_PATH" != "$ANDROID_IMAGE_PATH" ]]; then
+  echo "::error::iOS 与 Android 未使用同源图标：ios=$IOS_IMAGE_PATH, android=$ANDROID_IMAGE_PATH" >&2
+  echo "::error::修复：将 image_path/image_path_ios 与 adaptive_icon_foreground/image_path_android 统一为同一路径。" >&2
   exit 1
 fi
+
+IMAGE_PATH="$IOS_IMAGE_PATH"
 
 if [[ "$IMAGE_PATH" != "$SOURCE_ICON" ]]; then
   echo "::warning::当前主图标源不是默认路径 $SOURCE_ICON，而是 $IMAGE_PATH。请确认 Android 与 iOS 仍为同源。"

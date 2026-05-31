@@ -6,6 +6,7 @@ const _kPrefsKey = 'pangbao_sign_in_channel_v1';
 enum SignInChannel {
   device,
   wechat,
+  username,
   unknown,
 }
 
@@ -16,6 +17,8 @@ extension SignInChannelWire on SignInChannel {
         return SignInChannel.device;
       case 'wechat':
         return SignInChannel.wechat;
+      case 'username':
+        return SignInChannel.username;
       default:
         return SignInChannel.unknown;
     }
@@ -24,6 +27,7 @@ extension SignInChannelWire on SignInChannel {
   String? get wireValue => switch (this) {
         SignInChannel.device => 'device',
         SignInChannel.wechat => 'wechat',
+        SignInChannel.username => 'username',
         SignInChannel.unknown => null,
       };
 }

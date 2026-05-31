@@ -21,8 +21,16 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  static final RegExp _accountPattern = RegExp(r'^[a-z0-9_]{4,32}$');
+
+  final _accountCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+
   var _loading = false;
   var _resumedPendingWebLogin = false;
+  var _obscurePassword = true;
+  String? _accountError;
+  String? _passwordError;
 
   @override
   void initState() {
@@ -35,7 +43,70 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
+    _accountCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  String _normalizeAccount(String raw) => raw.trim().toLowerCase();
+
+  bool _validateCredentialInputs() {
+    final account = _normalizeAccount(_accountCtrl.text);
+    final password = _passwordCtrl.text;
+    String? accountError;
+    String? passwordError;
+    if (!_accountPattern.hasMatch(account)) {
+      accountError = '账号需 4-32 位，仅支持 a-z、0-9、_';
+    }
+    if (password.length < 6 || password.length > 64) {
+      passwordError = '密码长度需为 6-64 位';
+    }
+    setState(() {
+      _accountError = accountError;
+      _passwordError = passwordError;
+    });
+    return accountError == null && passwordError == null;
+  }
+
+  Future<void> _onUsernameLogin() async {
+    if (_loading) return;
+    if (!_validateCredentialInputs()) return;
+    setState(() => _loading = true);
+    try {
+      final auth = ref.read(authRepositoryProvider);
+      await auth.signInWithUsernamePassword(
+        _normalizeAccount(_accountCtrl.text),
+        _passwordCtrl.text,
+      );
+      if (!mounted) return;
+      await _afterLoginSuccess();
+    } on ApiBusinessException catch (e) {
+      ref.showApiToastError(e.message);
+    } on ApiHttpException catch (e) {
+      ref.showApiToastError('网络错误(${e.statusCode})');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _onRegisterUsername() async {
+    if (_loading) return;
+    if (!_validateCredentialInputs()) return;
+    setState(() => _loading = true);
+    try {
+      final auth = ref.read(authRepositoryProvider);
+      await auth.registerUsername(
+        _normalizeAccount(_accountCtrl.text),
+        _passwordCtrl.text,
+      );
+      ref.showApiToastError('注册成功，请使用账号密码登录');
+    } on ApiBusinessException catch (e) {
+      ref.showApiToastError(e.message);
+    } on ApiHttpException catch (e) {
+      ref.showApiToastError('网络错误(${e.statusCode})');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _afterLoginSuccess() async {
@@ -86,6 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hintColor = const Color(0xFF8C7E74);
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -101,123 +173,139 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 40),
                   child: Column(
                     children: [
-                    const Spacer(flex: 3),
-                    // Clay Logo
-                    Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F1F9),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.12),
-                            offset: const Offset(8, 8),
-                            blurRadius: 16,
-                          ),
-                          BoxShadow(
-                            color: Colors.white.withOpacity(0.9),
-                            offset: const Offset(-8, -8),
-                            blurRadius: 16,
-                          ),
-                        ],
-                      ),
-                      child: ClipOval(
-                        child: Image.asset(
-                          'assets/images/app_icon.png',
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    Text(
-                      '胖宝',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF4A3428), // 棕褐色文字，更有设计感
-                            letterSpacing: 4,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '记录宝宝成长的每一步',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: const Color(0xFF8C7E74),
-                          ),
-                    ),
-                    const Spacer(flex: 4),
-                    // Clay Style WeChat Button
-                    GestureDetector(
-                      onTap: _loading ? null : _onWeChatLogin,
-                      child: Container(
-                        height: 56,
-                        width: double.infinity,
+                      const Spacer(flex: 2),
+                      Container(
+                        width: 110,
+                        height: 110,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          gradient: const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Color(0xFFA8D685),
-                              Color(0xFF8BBF68),
-                            ],
-                          ),
+                          color: const Color(0xFFE8F1F9),
+                          shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF07C160).withOpacity(0.3),
-                              offset: const Offset(0, 8),
-                              blurRadius: 15,
+                              color: Colors.black.withOpacity(0.12),
+                              offset: const Offset(8, 8),
+                              blurRadius: 16,
+                            ),
+                            BoxShadow(
+                              color: Colors.white.withOpacity(0.9),
+                              offset: const Offset(-8, -8),
+                              blurRadius: 16,
                             ),
                           ],
                         ),
-                        child: Center(
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/images/app_icon.png',
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        '胖宝',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF4A3428),
+                              letterSpacing: 4,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '记录宝宝成长的每一步',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: hintColor),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: _accountCtrl,
+                        enabled: !_loading,
+                        autocorrect: false,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: '账号',
+                          hintText: '4-32 位，仅 a-z0-9_',
+                          errorText: _accountError,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _passwordCtrl,
+                        enabled: !_loading,
+                        obscureText: _obscurePassword,
+                        onSubmitted: (_) => _onUsernameLogin(),
+                        decoration: InputDecoration(
+                          labelText: '密码',
+                          hintText: '6-64 位',
+                          errorText: _passwordError,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                          suffixIcon: IconButton(
+                            onPressed: _loading
+                                ? null
+                                : () => setState(() => _obscurePassword = !_obscurePassword),
+                            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _loading ? null : _onUsernameLogin,
+                          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
                           child: _loading
                               ? const SizedBox(
-                                  height: 24,
-                                  width: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                 )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.chat_bubble, color: Colors.white, size: 22),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      '微信安全登录',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              : const Text('账号密码登录'),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    // Privacy info
-                    _buildPrivacyAgreement(context),
-                    const SizedBox(height: 16),
-                    Text(
-                      _footerHint(),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFFB0A499),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _loading ? null : _onRegisterUsername,
+                          child: const Text('注册账号'),
+                        ),
                       ),
-                    ),
-                    const Spacer(),
-                    if (AppEnv.wxLoginCode.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Text(
-                          '开发模式已开启',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            const Expanded(child: Divider()),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text('或', style: Theme.of(context).textTheme.bodySmall),
+                            ),
+                            const Expanded(child: Divider()),
+                          ],
                         ),
                       ),
+                      OutlinedButton.icon(
+                        onPressed: _loading ? null : _onWeChatLogin,
+                        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: const Text('微信登录'),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildPrivacyAgreement(context),
+                      const SizedBox(height: 12),
+                      Text(
+                        _footerHint(),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFFB0A499),
+                        ),
+                      ),
+                      const Spacer(),
+                      if (AppEnv.wxLoginCode.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Text(
+                            '开发模式已开启',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -279,14 +367,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return '正在继续微信授权登录，请稍候。';
     }
     if (_canRedirectWebWeChatAuthorize) {
-      return '说明：当前仅支持微信登录；网页端将跳转到微信授权页面。';
+      return '说明：支持账号密码与微信登录；网页端微信会跳转授权页面。';
     }
     if (AppEnv.wechatAppId.isNotEmpty) {
-      return '说明：当前仅支持微信登录；请在已安装微信的手机上完成授权。';
+      return '说明：支持账号密码登录；也可在已安装微信的手机上授权登录。';
     }
     if (AppEnv.wxLoginCode.isNotEmpty) {
-      return '说明：当前仅支持微信登录；检测到联调凭证，可继续验证登录链路。';
+      return '说明：支持账号密码登录；检测到微信联调凭证，可验证微信链路。';
     }
-    return '说明：当前仅支持微信登录；请先配置微信开放平台参数。';
+    return '说明：支持账号密码登录；微信登录需先配置微信开放平台参数。';
   }
 }
