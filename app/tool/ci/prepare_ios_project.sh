@@ -86,11 +86,28 @@ display_name = os.getenv('IOS_APP_DISPLAY_NAME', '').strip()
 if display_name:
     info['CFBundleDisplayName'] = display_name
 
-# 仅支持 iPhone（不支持 iPad）
-info['UIDeviceFamily'] = [1]
-
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
+PY
+
+python3 <<'PY'
+from pathlib import Path
+
+xcconfigs = [
+    Path('ios/Flutter/Debug.xcconfig'),
+    Path('ios/Flutter/Profile.xcconfig'),
+    Path('ios/Flutter/Release.xcconfig'),
+]
+
+for path in xcconfigs:
+    if not path.exists():
+        continue
+    text = path.read_text(encoding='utf-8')
+    lines = [line for line in text.splitlines() if not line.strip().startswith('TARGETED_DEVICE_FAMILY')]
+    lines.append('TARGETED_DEVICE_FAMILY=1')
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+print('Patched xcconfig: TARGETED_DEVICE_FAMILY=1 (iPhone only)')
 PY
 
 python3 <<'PY'
