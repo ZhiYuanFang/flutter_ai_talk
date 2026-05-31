@@ -286,6 +286,14 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
 
+      - name: Generate launcher icons
+        working-directory: ${{ env.APP_DIR }}
+        run: dart run flutter_launcher_icons
+
+      - name: Validate iOS icon parity
+        working-directory: ${{ env.APP_DIR }}
+        run: bash tool/ci/check_ios_icon_parity.sh
+
       - name: Install CocoaPods dependencies
         working-directory: ${{ env.APP_DIR }}/ios
         run: pod install --repo-update

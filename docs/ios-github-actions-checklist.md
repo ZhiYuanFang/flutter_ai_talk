@@ -405,6 +405,14 @@ FIIU9h8G
 - `build_number`：留空即可自动使用时间格式（如 `202605312016`）
 - `app_dir`：`app`
 
+图标一致性前置约束（新增）：
+
+- `app/pubspec.yaml` 中 `flutter_launcher_icons` 必须满足：
+   - `android: true`
+   - `ios: true`
+   - `image_path` 与 `adaptive_icon_foreground` 指向同一源文件（建议 `assets/images/app_icon.png`）
+- 图标源建议至少 `1024x1024` 的 PNG 正方形（低于 `1024` 会告警，过小会失败）
+
 ### 如果你只是先验证签名是否成功
 
 - `release_mode`：`ipa_only`
@@ -434,6 +442,8 @@ FIIU9h8G
 - 如果项目没有 `app/ios/`，自动执行 `flutter create . --platforms=ios`
 - 自动补 iOS 权限文案
 - 自动写入 `ITSAppUsesNonExemptEncryption`（默认 `false`，可通过参数覆盖）
+- 自动执行 `dart run flutter_launcher_icons` 生成 Android/iOS 图标
+- 自动执行 iOS 图标一致性检查（主图存在、同源配置、`AppIcon.appiconset` 完整）
 - 导入证书和描述文件
 - 配置 Xcode 签名
 - 构建 `.ipa`
@@ -579,9 +589,21 @@ com.fzy.pangbao
 - `ipa_only + ad-hoc`：配置 `IOS_MOBILEPROVISION_ADHOC_BASE64`
 - `ipa_only + development`：配置 `IOS_MOBILEPROVISION_DEVELOPMENT_BASE64`
 - 若暂时只维护一套，可先填 `IOS_MOBILEPROVISION_BASE64` 走兼容回退
-- `Key ID`
-- `.p8` 是否正确
-- App Store Connect 里是否已经创建过这个 App
+
+### 错误：图标一致性检查失败
+
+原因通常是以下之一：
+
+- `flutter_launcher_icons.ios` 不是 `true`
+- `image_path` 与 `adaptive_icon_foreground` 不是同一路径
+- 图标源文件缺失或不是 PNG 正方形
+- `ios/Runner/Assets.xcassets/AppIcon.appiconset` 缺少关键文件
+
+处理：
+
+1. 检查 `app/pubspec.yaml` 的 `flutter_launcher_icons` 配置是否同源
+2. 在 `app/` 下执行 `flutter pub get` 和 `dart run flutter_launcher_icons`
+3. 重新触发工作流并查看日志中的 `[Icon Parity]` 输出
 
 ---
 
