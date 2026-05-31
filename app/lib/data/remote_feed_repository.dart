@@ -193,6 +193,12 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
+  Future<void> clearCache() async {
+    _cache.clear();
+    await HomeHistoryStore.clearAll();
+  }
+
+  @override
   Future<List<HistoryRecord>> loadHistory() async {
     final result = await tryLoadHistory();
     if (result == null) return [];

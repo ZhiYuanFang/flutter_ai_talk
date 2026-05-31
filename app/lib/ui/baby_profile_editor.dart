@@ -145,7 +145,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
                   color: BabyProfileClayTheme.textPrimary,
                 ),
                 decoration: const InputDecoration(
-                  hintText: '请输入昵称',
+                  hintText: '待设置',
                   hintStyle: TextStyle(
                     color: BabyProfileClayTheme.textSecondary,
                     fontWeight: FontWeight.w400,
@@ -159,7 +159,6 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
                   isDense: true,
                 ),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return '昵称不能为空';
                   return null;
                 },
               ),

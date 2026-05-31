@@ -153,6 +153,20 @@ class HomeHistoryStore {
     return out;
   }
 
+  /// 清除主页历史本地存储的所有文件。
+  static Future<void> clearAll() async {
+    if (!homeHistorySupportsLocalFiles) return;
+    try {
+      final root = await _rootDir();
+      if (root != null && await root.exists()) {
+        await root.delete(recursive: true);
+        HomeHistoryLog.d('cache clearAll: root deleted');
+      }
+    } catch (e) {
+      HomeHistoryLog.d('cache clearAll error: $e');
+    }
+  }
+
   static Future<void> saveSnapshot(String deviceNo, HomeHistoryCacheSnapshot snapshot) async {
     final file = await _historyFile(deviceNo);
     if (file == null) {

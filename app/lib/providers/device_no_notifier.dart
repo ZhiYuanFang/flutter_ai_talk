@@ -29,9 +29,9 @@ class DeviceNoNotifier extends StateNotifier<AsyncValue<String?>> {
   }
 
   Future<void> setLocal(String deviceNo) async {
-    state = AsyncValue.data(deviceNo);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kDeviceNoCache, deviceNo);
+    state = AsyncValue.data(deviceNo);
   }
 
   Future<void> clearLocal() async {

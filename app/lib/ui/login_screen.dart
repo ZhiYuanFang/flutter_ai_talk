@@ -282,7 +282,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return '说明：当前仅支持微信登录；网页端将跳转到微信授权页面。';
     }
     if (AppEnv.wechatAppId.isNotEmpty) {
-      return '说明：当前仅支持微信登录；请在已安装微信的设备上完成授权。';
+      return '说明：当前仅支持微信登录；请在已安装微信的手机上完成授权。';
     }
     if (AppEnv.wxLoginCode.isNotEmpty) {
       return '说明：当前仅支持微信登录；检测到联调凭证，可继续验证登录链路。';

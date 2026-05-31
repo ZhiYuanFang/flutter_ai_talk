@@ -85,7 +85,7 @@ class _BabyBirthPickerSheetBodyState extends State<_BabyBirthPickerSheetBody> {
                 mode: CupertinoDatePickerMode.date,
                 initialDateTime: _selectedDate,
                 minimumDate: DateTime(2000),
-                maximumDate: DateTime.now(),
+                maximumDate: DateTime.now().subtract(const Duration(minutes: 1)), // 限制只能选今天以前（包括今天，规避毫秒误差）
                 onDateTimeChanged: (date) {
                   setState(() => _selectedDate = date);
                 },

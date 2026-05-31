@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'dart:ui';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,10 +10,11 @@ import '../api/gateway_json.dart';
 import '../data/models.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
 import '../theme/app_visual_tokens.dart';
-import 'home_history_edit_glass_panel.dart';
+import 'widgets/app_glass_overlay.dart';
 import 'widgets/baby_birth_picker_sheet.dart';
 
 DateTime _bindDefaultBirth() {
@@ -44,14 +45,16 @@ class BabyBindScreen extends ConsumerStatefulWidget {
 
 class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   final _deviceCtrl = TextEditingController();
+  final _nicknameCtrl = TextEditingController();
   final _birth = ValueNotifier<DateTime>(_bindDefaultBirth());
-  BabySex _sex = BabySex.unknown;
+  BabySex _sex = BabySex.male;
   var _busy = false;
-  var _mode = _BabyBindMode.bind;
+  var _mode = _BabyBindMode.create;
 
   @override
   void dispose() {
     _deviceCtrl.dispose();
+    _nicknameCtrl.dispose();
     _birth.dispose();
     super.dispose();
   }
@@ -65,6 +68,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       await api.postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(no);
       ref.invalidate(settingsBabyProvider);
+      // 触发首页 WS 在新绑定的 deviceNo 下进行重连
+      unawaited(ref.read(feedRepositoryProvider).reconnectHistoryWebSocket());
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
@@ -74,6 +79,21 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   }
 
   Future<void> _create() async {
+    final go = await showGlassConfirmDialog(
+          context,
+          title: '创建新宝宝提醒',
+          message: '若家人已创建宝宝，请使用绑定宝宝功能，不要创建新宝宝。',
+          cancelLabel: '去绑定宝宝',
+          confirmLabel: '继续创建',
+        ) ??
+        false;
+    if (!go) {
+      if (mounted) {
+        setState(() => _mode = _BabyBindMode.bind);
+      }
+      return;
+    }
+
     setState(() => _busy = true);
     try {
       final api = ref.read(authorizedApiClientProvider);
@@ -89,15 +109,18 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         {
           'birthday': midnight.millisecondsSinceEpoch ~/ 1000,
           'sex': sexCode,
+          'babyName': _nicknameCtrl.text.trim(),
         },
       );
       final dn = readGatewayStr(data ?? const {}, 'deviceNo', 'device_no');
       if (dn == null || dn.isEmpty) {
-        ref.showApiToastError('创建成功但未返回 deviceNo');
+        ref.showApiToastError('创建成功但未返回宝宝ID');
         return;
       }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(dn);
       ref.invalidate(settingsBabyProvider);
+      // 触发首页 WS 在新绑定的 deviceNo 下进行重连
+      unawaited(ref.read(feedRepositoryProvider).reconnectHistoryWebSocket());
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
@@ -171,7 +194,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         children: [
           Expanded(
             child: _ModeTab(
-              label: '绑定宝宝ID',
+              label: '绑定宝宝',
               selected: _mode == _BabyBindMode.bind,
               onTap: () => setState(() => _mode = _BabyBindMode.bind),
             ),
@@ -205,7 +228,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           TextField(
             controller: _deviceCtrl,
             decoration: InputDecoration(
-              hintText: '请输入设备ID',
+              hintText: '请输入宝宝ID',
               filled: true,
               fillColor: scheme.surface.withValues(alpha: 0.4),
               border: OutlineInputBorder(
@@ -213,6 +236,15 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                 borderSide: BorderSide.none,
               ),
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '从你的家人那查看宝宝信息，复制宝宝id输入',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: scheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -231,6 +263,21 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
               fontSize: 18,
               fontWeight: FontWeight.bold,
               color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _buildLabel('宝宝昵称'),
+          TextField(
+            controller: _nicknameCtrl,
+            decoration: InputDecoration(
+              hintText: '请输入宝宝昵称',
+              filled: true,
+              fillColor: scheme.surface.withValues(alpha: 0.4),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
           ),
           const SizedBox(height: 20),
@@ -283,13 +330,6 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                 selected: _sex == BabySex.female,
                 color: Colors.pink,
                 onTap: () => setState(() => _sex = BabySex.female),
-              ),
-              const SizedBox(width: 12),
-              _SexChip(
-                label: '未设置',
-                selected: _sex == BabySex.unknown,
-                color: Colors.grey,
-                onTap: () => setState(() => _sex = BabySex.unknown),
               ),
             ],
           ),

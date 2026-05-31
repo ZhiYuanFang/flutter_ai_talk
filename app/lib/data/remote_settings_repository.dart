@@ -49,7 +49,7 @@ class RemoteSettingsRepository implements SettingsRepository {
 
   BabyProfile _defaultsForDevice(String deviceNo) => BabyProfile(
         id: deviceNo,
-        nickname: '宝宝',
+        nickname: '',
         sex: BabySex.unknown,
         birthDate: _placeholderBirthSameYear(),
       );
@@ -74,9 +74,9 @@ class RemoteSettingsRepository implements SettingsRepository {
     } else {
       birthDate = _placeholderBirthSameYear();
     }
-    final nick = nicknameFromLocal;
+    final nick = readGatewayStr(data, 'babyName', 'nickname') ?? nicknameFromLocal;
     final nickname =
-        (nick != null && nick.trim().isNotEmpty) ? nick.trim() : '宝宝';
+        (nick != null && nick.trim().isNotEmpty) ? nick.trim() : '';
     return BabyProfile(id: id, nickname: nickname, sex: sex, birthDate: birthDate);
   }
 
@@ -93,7 +93,7 @@ class RemoteSettingsRepository implements SettingsRepository {
     if (dn == null || dn.isEmpty) {
       return BabyProfile(
         id: '',
-        nickname: '未绑定设备',
+        nickname: '未绑定宝宝ID',
         sex: BabySex.unknown,
         birthDate: DateTime(DateTime.now().year, 1, 1),
       );
@@ -139,7 +139,7 @@ class RemoteSettingsRepository implements SettingsRepository {
   Future<void> saveBaby(BabyProfile profile) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
-      throw StateError('未绑定 deviceNo，无法保存画像');
+      throw StateError('未绑定宝宝ID，无法保存画像');
     }
     final midnight = DateTime(profile.birthDate.year, profile.birthDate.month, profile.birthDate.day);
     try {
@@ -150,7 +150,7 @@ class RemoteSettingsRepository implements SettingsRepository {
                 'deviceNo': dn,
                 'birthday': midnight.millisecondsSinceEpoch ~/ 1000,
                 'sex': _sexToApi(profile.sex),
-                'nickname': profile.nickname.trim(),
+                'babyName': profile.nickname.trim(),
               },
             )
           : await _api.postJsonEnvelope(
@@ -158,6 +158,7 @@ class RemoteSettingsRepository implements SettingsRepository {
               {
                 'birthday': midnight.millisecondsSinceEpoch ~/ 1000,
                 'sex': _sexToApi(profile.sex),
+                'babyName': profile.nickname.trim(),
               },
             );
       final returned = readGatewayStr(data ?? const {}, 'deviceNo', 'device_no') ?? dn;

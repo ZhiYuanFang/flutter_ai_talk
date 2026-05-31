@@ -5,7 +5,7 @@
 - 项目目录：`app/`
 - 当前仓库没有 `app/ios/`
 - 使用 GitHub Actions 在 macOS Runner 上远程构建 `.ipa`
-- 推荐发布路径：`app-store + TestFlight`
+- 推荐发布路径：`release_mode=testflight_internal_only`
 
 详细原理和完整说明见：
 
@@ -97,6 +97,12 @@
 | `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION` | 语音识别权限提示语 |
 | `WECHAT_APP_ID` | 微信移动应用 AppId |
 | `WECHAT_UNIVERSAL_LINK` | 微信 iOS Universal Link |
+
+### Internal Only 模式额外必填（工作流输入）
+
+| 名称 | 用途 | 填写位置 |
+|------|------|------|
+| `internal_testflight_groups` | 上传后自动分配的内部测试组（可逗号分隔） | Run workflow 输入参数 |
 
 ---
 
@@ -359,12 +365,14 @@ FIIU9h8G
 
 你需要填的运行参数如下。
 
-### 最推荐的参数（你当前最适合）
+### 最推荐的参数（仅内部测试）
 
 | 参数 | 建议值 |
 |------|------|
-| `export_method` | `app-store` |
-| `upload_to_testflight` | `true` |
+| `release_mode` | `testflight_internal_only` |
+| `internal_testflight_groups` | 例如 `Internal QA` |
+| `export_method` | 可保留默认（会被模式自动约束） |
+| `upload_to_testflight` | 可保留默认（在非 legacy 模式会被忽略） |
 | `flutter_version` | `3.24.5` |
 | `build_name` | 留空或填 `1.0.0` |
 | `build_number` | 留空或填递增数字，例如 `1` |
@@ -374,9 +382,19 @@ FIIU9h8G
 
 | 参数 | 建议值 |
 |------|------|
+| `release_mode` | `ipa_only` |
 | `export_method` | `ad-hoc` 或 `development` |
-| `upload_to_testflight` | `false` |
+| `upload_to_testflight` | 保持任意值（`ipa_only` 下会被强制关闭） |
 | `app_dir` | `app` |
+
+### 模式对照（新增）
+
+| `release_mode` | 目标 | TestFlight 上传 | 备注 |
+|------|------|------|------|
+| `ipa_only` | 只产出包 | 否 | 导出方式跟随 `export_method` |
+| `testflight_internal_only` | 仅内部测试 | 是 | 需填写 `internal_testflight_groups` |
+| `testflight_and_appstore` | 外测/上架准备 | 是 | 上传后在后台继续配置 |
+| `legacy` | 老参数兼容 | 跟随旧参数 | 建议迁移 |
 
 ---
 
@@ -390,7 +408,9 @@ FIIU9h8G
 - 导入证书和描述文件
 - 配置 Xcode 签名
 - 构建 `.ipa`
-- 如果你开启了 `upload_to_testflight=true`，自动上传到 App Store Connect
+- `ipa_only` 模式：上传 IPA artifact，不上传 TestFlight
+- TestFlight 相关模式：自动上传到 App Store Connect
+- `testflight_internal_only`：额外尝试自动分配到 `internal_testflight_groups`
 
 所以你现在**不用先自己创建 `app/ios/`**。
 
@@ -402,8 +422,8 @@ FIIU9h8G
 
 去 GitHub Actions 任务页，下载 artifact：
 
-- `ipa-<export_method>`
-- `xcarchive-<export_method>`
+- `ipa-<release_mode>`
+- `xcarchive-<release_mode>`
 
 ### 情况 B：你开启了上传 TestFlight
 
@@ -459,8 +479,8 @@ GitHub Actions 只能帮你：
 5. 准备 `Issuer ID`、`Key ID`、`.p8`
 6. 全部填到 GitHub Secrets
 7. 运行：
-   - `export_method=app-store`
-   - `upload_to_testflight=true`
+   - `release_mode=testflight_internal_only`
+   - `internal_testflight_groups=Internal QA`
 8. 等 GitHub 构建并上传
 9. 去 TestFlight 看 build
 
@@ -498,6 +518,22 @@ com.fzy.pangbao
 优先检查：
 
 - `Issuer ID`
+
+### 错误：Internal Only 模式提示缺少组配置
+
+原因：`release_mode=testflight_internal_only` 但未填写 `internal_testflight_groups`。
+
+处理：在 `Run workflow` 时补充组名（可逗号分隔多个组），例如 `Internal QA,Core Team`。
+
+### 错误：上传成功但内部分配失败
+
+原因可能是组名不匹配、API 权限不足，或 Apple 处理构建尚未完成。
+
+处理：
+
+1. 先去 App Store Connect -> TestFlight 检查 build 是否已处理完成
+2. 手工分配到目标 Internal Testing 组
+3. 核对 `internal_testflight_groups` 与后台组名是否一致
 - `Key ID`
 - `.p8` 是否正确
 - App Store Connect 里是否已经创建过这个 App

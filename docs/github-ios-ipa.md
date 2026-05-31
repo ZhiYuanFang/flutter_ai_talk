@@ -4,14 +4,21 @@
 
 如果你想看一份更适合直接照做的清单版文档，可先看：[docs/ios-github-actions-checklist.md](docs/ios-github-actions-checklist.md)。
 
-如果你手上没有 Mac，**最推荐的发布路径是：`app-store` + `upload_to_testflight=true`**。这样 GitHub 会帮你完成构建和上传，后续你只需要在网页上进入 App Store Connect 完成测试分发或提审。
+如果你手上没有 Mac，**最推荐的发布路径是：`release_mode=testflight_internal_only`**。这样 GitHub 会帮你完成构建、上传，并尽量自动分配到你指定的内部测试组。
+
+## 发布模式对照（推荐只看这个）
+
+- `ipa_only`：只要产物文件；导出方式跟随 `export_method`；不上传 TestFlight。
+- `testflight_internal_only`：仅内部测试（推荐）；强制 `app-store` 并上传；需要填写 `internal_testflight_groups`。
+- `testflight_and_appstore`：为外测/上架做准备；强制 `app-store` 并上传；后续在 App Store Connect 继续分发/提审。
+- `legacy`：兼容旧参数语义；建议迁移到新模式。
 
 ## 先看结论：你应该怎么选
 
 ### 方案 A：发给自己或测试同事安装（最推荐）
 
-- 选择 `export_method=app-store`
-- 选择 `upload_to_testflight=true`
+- 选择 `release_mode=testflight_internal_only`
+- 填写 `internal_testflight_groups`（可逗号分隔多个组名）
 - GitHub Actions 会把构建结果上传到 App Store Connect
 - 你在 iPhone 上安装 `TestFlight`，就能从 TestFlight 安装应用
 
@@ -19,8 +26,8 @@
 
 ### 方案 B：直接生成可安装 IPA 给少量设备
 
-- 选择 `export_method=ad-hoc`
-- 不开启 `upload_to_testflight`
+- 选择 `release_mode=ipa_only`
+- 选择 `export_method=ad-hoc`（或 `development`）
 - 你的描述文件必须包含目标 iPhone 的 UDID
 
 **优点**：适合有限设备侧载。
@@ -29,6 +36,7 @@
 
 ### 方案 C：开发调试机安装
 
+- 选择 `release_mode=ipa_only`
 - 选择 `export_method=development`
 
 **适合**：内部调试、少量开发测试。
@@ -312,19 +320,22 @@ PowerShell：
 2. 打开仓库的 `Actions`
 3. 选择 `Build iOS IPA`
 4. 点击 `Run workflow`
+
 5. 选择参数：
-   - `export_method=app-store`：用于 TestFlight / App Store
-   - `upload_to_testflight=true`：让 GitHub 自动上传到 App Store Connect
-   - `flutter_version`：默认 `3.24.5`，通常不用改
-   - `macos_runner`：macOS Runner 镜像，默认 `macos-26`（可选 `macos-14` / `macos-15` / `macos-26-intel`）
-   - `xcode_version`：指定 Xcode 版本，默认 `26.4`（需与所选 Runner 镜像匹配，如 `macos-15` 常用 `16.2`）
-   - `build_name`：可选，例如 `1.0.0`
-   - `build_number`：可选，例如 `12`
+
+- `release_mode=testflight_internal_only`：仅内部测试（推荐）
+- `internal_testflight_groups=Internal QA`：内部测试组（支持逗号分隔）
+- `export_method` 与 `upload_to_testflight`：在新模式下会被自动约束或忽略，仅 `legacy` 按旧语义生效
+- `flutter_version`：默认 `3.24.5`，通常不用改
+- `macos_runner`：macOS Runner 镜像，默认 `macos-26`（可选 `macos-14` / `macos-15` / `macos-26-intel`）
+- `xcode_version`：默认 `26.4`（需与 Runner 匹配，如 `macos-15` 常用 `16.2`）
+- `build_name`：可选，例如 `1.0.0`
+- `build_number`：可选，例如 `12`
 
 如果你只是想先验证签名能不能过，也可以：
 
+- `release_mode=ipa_only`
 - `export_method=ad-hoc`
-- `upload_to_testflight=false`
 
 ## 第 9 步：构建时 GitHub 会自动做什么
 
@@ -337,8 +348,9 @@ PowerShell：
 - 切换至指定 Xcode 版本并打印 iOS SDK 信息
 - 修改 iOS 工程签名配置
 - 执行 `flutter build ipa`
-- 上传 `.ipa` artifact
-- 在你开启 `upload_to_testflight=true` 时，自动上传到 App Store Connect
+- 在 `release_mode=ipa_only` 时上传 `.ipa` artifact
+- 在 TestFlight 相关模式下，自动上传到 App Store Connect
+- 在 `testflight_internal_only` 下，尝试自动分配到 `internal_testflight_groups` 指定的内部测试组
 
 ## 第 10 步：构建成功后去哪里看结果
 
@@ -346,8 +358,8 @@ PowerShell：
 
 构建完成后，在 GitHub Actions 任务页面下载 artifact：
 
-- `ipa-<export_method>`：打好的 `.ipa`
-- `xcarchive-<export_method>`：归档包
+- `ipa-<release_mode>`：打好的 `.ipa`
+- `xcarchive-<release_mode>`：归档包
 
 ### 如果你开启了自动上传
 
@@ -367,8 +379,8 @@ PowerShell：
 
 做法：
 
-- `export_method=app-store`
-- `upload_to_testflight=true`
+- `release_mode=testflight_internal_only`
+- `internal_testflight_groups=<你的内部测试组名>`
 
 这样 GitHub 会在构建后执行上传。
 
@@ -387,11 +399,14 @@ PowerShell：
 
 ### 内部测试
 
+如果你使用了 `release_mode=testflight_internal_only` 且组名正确，工作流会尝试自动分配。若日志提示“上传成功但分配失败”，可按下面手工补救：
+
 1. 打开 `TestFlight`
-2. 选择 `Internal Testing`
-3. 添加内部测试人员
-4. 选择刚上传的 build
-5. 测试人员在 iPhone 安装 `TestFlight` 后即可安装
+2. 进入对应 Build
+3. 选择 `Internal Testing`
+4. 手工勾选组并保存
+
+分配完成后，测试人员在 iPhone 安装 `TestFlight` 即可安装对应 build。
 
 ### 外部测试
 

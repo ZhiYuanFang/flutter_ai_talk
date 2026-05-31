@@ -165,3 +165,156 @@ Future<bool?> showGlassConfirmDialog(
     },
   );
 }
+
+/// 玻璃文本验证对话框（标题 + 正文 + 验证输入 + 取消/确认）。
+Future<bool?> showGlassTextConfirmDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String expectedText,
+  String hintText = '请输入以确认',
+  String cancelLabel = '取消',
+  String confirmLabel = '确定',
+}) {
+  return showGlassDialog<bool>(
+    context: context,
+    contentBuilder: (ctx) {
+      return _GlassTextConfirmDialogBody(
+        title: title,
+        message: message,
+        expectedText: expectedText,
+        hintText: hintText,
+        cancelLabel: cancelLabel,
+        confirmLabel: confirmLabel,
+      );
+    },
+  );
+}
+
+class _GlassTextConfirmDialogBody extends StatefulWidget {
+  const _GlassTextConfirmDialogBody({
+    required this.title,
+    required this.message,
+    required this.expectedText,
+    required this.hintText,
+    required this.cancelLabel,
+    required this.confirmLabel,
+  });
+
+  final String title;
+  final String message;
+  final String expectedText;
+  final String hintText;
+  final String cancelLabel;
+  final String confirmLabel;
+
+  @override
+  State<_GlassTextConfirmDialogBody> createState() => _GlassTextConfirmDialogBodyState();
+}
+
+class _GlassTextConfirmDialogBodyState extends State<_GlassTextConfirmDialogBody> {
+  late final TextEditingController _controller;
+  bool _canConfirm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    _controller.addListener(_updateCanConfirm);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _updateCanConfirm() {
+    final cur = _controller.text == widget.expectedText;
+    if (cur != _canConfirm) {
+      setState(() => _canConfirm = cur);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final glassText = historyEditGlassTextColor(context);
+    final glassLabel = historyEditGlassLabelColor(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          widget.title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 20,
+            height: 1.25,
+            fontWeight: FontWeight.w600,
+            color: glassText,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          widget.message,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, height: 1.4, color: glassLabel),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          style: TextStyle(color: glassText, fontSize: 16),
+          textAlign: TextAlign.center,
+          decoration: InputDecoration(
+            hintText: widget.hintText,
+            hintStyle: TextStyle(color: glassLabel.withValues(alpha: 0.5)),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.05),
+            contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: glassLabel.withValues(alpha: 0.2)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: glassLabel.withValues(alpha: 0.2)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: scheme.primary.withValues(alpha: 0.5)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              style: TextButton.styleFrom(
+                foregroundColor: glassLabel,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              child: Text(widget.cancelLabel),
+            ),
+            const Spacer(),
+            FilledButton(
+              onPressed: _canConfirm ? () => Navigator.pop(context, true) : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                shape: const StadiumBorder(),
+                disabledBackgroundColor: scheme.primary.withValues(alpha: 0.3),
+                disabledForegroundColor: scheme.onPrimary.withValues(alpha: 0.5),
+              ),
+              child: Text(widget.confirmLabel),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}

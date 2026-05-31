@@ -8,6 +8,8 @@ abstract class AuthRepository {
   Future<void> signInWithWeChat();
 
   Future<void> signOut();
+
+  Future<void> deactivateAccount();
 }
 
 abstract class TrendsRepository {

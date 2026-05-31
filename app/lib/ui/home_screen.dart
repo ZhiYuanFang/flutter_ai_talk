@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 import '../audio/voice_level_smoother.dart';
 import '../asr/home_speech_factory.dart';
@@ -51,6 +52,7 @@ import '../providers/event_catalog_notifier.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../providers/settings_baby.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../providers/toast_bus.dart';
 import 'widgets/app_glass_overlay.dart';
@@ -1088,7 +1090,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     await context.push('/settings/bind-baby');
     if (mounted) {
-      await ref.read(deviceNoNotifierProvider.notifier).refresh();
       await _refreshEventCatalogIfReady();
       await _reloadHistoryIfLoggedIn();
       _scheduleVoiceAsrConnectIfNeeded();
@@ -1101,12 +1102,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (!loggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(ref.read(deviceNoNotifierProvider.notifier).refresh().then((_) {
-          if (!mounted) return;
-          unawaited(_refreshEventCatalogIfReady());
-          _reloadHistoryIfLoggedIn();
-          _scheduleVoiceAsrConnectIfNeeded();
-        }));
+        unawaited(_refreshEventCatalogIfReady());
+        _reloadHistoryIfLoggedIn();
+        _scheduleVoiceAsrConnectIfNeeded();
       });
     });
     ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
@@ -1147,9 +1145,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       data: (dn) => dn == null || dn.isEmpty,
       orElse: () => false,
     );
-    final showBindBanner = needsDeviceBind;
+    // 只有当不需要全屏 3D 动画（即不是无历史记录时）才显示 Banner。
+    // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
+    final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
-    final showWsDisconnectBanner = loggedIn && !showBindBanner && !_wsReady;
+    final showWsDisconnectBanner = loggedIn && !needsDeviceBind && !_wsReady;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
@@ -1225,9 +1225,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Expanded(
-                            child: historyItems.isEmpty && !showBindBanner
+                            child: historyItems.isEmpty
                                 ? (historyInitialLoadDone
-                                    ? const Center(child: Text('暂无历史记录'))
+                                    ? (needsDeviceBind
+                                        ? _HomeEmptyStateGallery(
+                                            animationPath: 'assets/images/ani_baby_welcome.json',
+                                            title: '嗨，我是胖宝！',
+                                            subtitle: '我想更好地陪伴宝宝成长',
+                                            actionLabel: '立即绑定宝宝',
+                                            onAction: _onBindBannerTap,
+                                          )
+                                        : Consumer(
+                                            builder: (context, ref, _) {
+                                              final baby = ref.watch(settingsBabyProvider).asData?.value;
+                                              final name = baby?.nickname ?? '宝宝';
+                                              return _HomeEmptyStateGallery(
+                                                animationPath: 'assets/images/ani_baby_feeding_guide.json',
+                                                title: '还没有为 $name 记录哦',
+                                                subtitle: '试试点击下方按钮，开始记录第一笔吧',
+                                              );
+                                            },
+                                          ))
                                     : const Center(
                                         child: SizedBox(
                                           width: 24,
@@ -1573,6 +1591,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+class _HomeEmptyStateGallery extends StatelessWidget {
+  const _HomeEmptyStateGallery({
+    required this.animationPath,
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String animationPath;
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Lottie.asset(
+            animationPath,
+            width: 240,
+            height: 240,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => Icon(
+              Icons.child_care,
+              size: 80,
+              color: theme.colorScheme.primary.withValues(alpha: 0.2),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 32),
+            FilledButton.tonal(
+              onPressed: onAction,
+              child: Text(actionLabel!),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

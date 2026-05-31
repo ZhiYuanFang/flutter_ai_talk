@@ -10,6 +10,7 @@ import '../providers/session_provider.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../wechat/wechat_auth_client.dart';
 import '../wechat/wechat_auth_exception.dart';
+import '../providers/authorized_api_client_provider.dart';
 import 'repositories.dart' show AuthRepository;
 
 /// 网关 `POST /device/app/api/login`；请求体字段 `jsCode`（微信临时 code）来自 [weChatAuthGetter]、`WX_LOGIN_CODE` 或 [wxCodeOverride]。
@@ -37,6 +38,8 @@ class RemoteAuthRepository implements AuthRepository {
         baseUrl: AppEnv.apiBaseUrl,
         accessTokenProvider: () => null,
       );
+
+  ApiClient get _api => _ref.read(authorizedApiClientProvider);
 
   @override
   Future<void> signInWithWeChat() async {
@@ -95,4 +98,13 @@ class RemoteAuthRepository implements AuthRepository {
 
   @override
   Future<void> signOut() async {}
+
+  @override
+  Future<void> deactivateAccount() async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/deactivate',
+      {},
+      withAuthorization: true,
+    );
+  }
 }

@@ -39,4 +39,7 @@ abstract class FeedRepository {
 
   /// 断开并重新建立历史 WebSocket。
   Future<void> reconnectHistoryWebSocket();
+
+  /// 清除本地历史缓存（内存与持久化）。
+  Future<void> clearCache();
 }
