@@ -70,6 +70,12 @@ info['NSSpeechRecognitionUsageDescription'] = os.getenv(
     '需要语音识别权限以将语音转换为文字',
 )
 
+# 出口合规声明：
+# false 表示仅使用苹果系统提供或豁免范围内加密，可在多数场景下跳过 App Store Connect 手工出口合规问答。
+# true 表示使用非豁免加密，仍需在 App Store Connect 完成相应合规信息。
+uses_non_exempt = os.getenv('IOS_USES_NON_EXEMPT_ENCRYPTION', 'false').strip().lower()
+info['ITSAppUsesNonExemptEncryption'] = uses_non_exempt in {'1', 'true', 'yes', 'y', 'on'}
+
 display_name = os.getenv('IOS_APP_DISPLAY_NAME', '').strip()
 if display_name:
     info['CFBundleDisplayName'] = display_name

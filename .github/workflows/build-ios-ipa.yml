@@ -47,6 +47,11 @@ on:
         required: false
         default: ''
         type: string
+      uses_non_exempt_encryption:
+        description: 是否使用“非豁免加密”（true 会要求在 App Store Connect 完成出口合规）
+        required: true
+        default: false
+        type: boolean
       app_dir:
         description: Flutter app 目录
         required: true
@@ -84,6 +89,7 @@ jobs:
       INTERNAL_TESTFLIGHT_GROUPS: ${{ inputs.internal_testflight_groups }}
       BUILD_NAME: ${{ inputs.build_name }}
       BUILD_NUMBER: ${{ inputs.build_number }}
+      IOS_USES_NON_EXEMPT_ENCRYPTION: ${{ inputs.uses_non_exempt_encryption }}
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
       IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
