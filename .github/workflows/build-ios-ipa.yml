@@ -94,6 +94,9 @@ jobs:
       IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
       IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_MOBILEPROVISION_APPSTORE_BASE64: ${{ secrets.IOS_MOBILEPROVISION_APPSTORE_BASE64 }}
+      IOS_MOBILEPROVISION_ADHOC_BASE64: ${{ secrets.IOS_MOBILEPROVISION_ADHOC_BASE64 }}
+      IOS_MOBILEPROVISION_DEVELOPMENT_BASE64: ${{ secrets.IOS_MOBILEPROVISION_DEVELOPMENT_BASE64 }}
       IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
       IOS_APP_DISPLAY_NAME: ${{ secrets.IOS_APP_DISPLAY_NAME }}
       IOS_MICROPHONE_USAGE_DESCRIPTION: ${{ secrets.IOS_MICROPHONE_USAGE_DESCRIPTION }}
@@ -152,7 +155,6 @@ jobs:
             IOS_TEAM_ID
             IOS_CERTIFICATE_P12_BASE64
             IOS_CERTIFICATE_PASSWORD
-            IOS_MOBILEPROVISION_BASE64
           )
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
@@ -228,6 +230,32 @@ jobs:
             done
           fi
 
+          selected_profile_secret_name=""
+          selected_profile_secret_value=""
+          case "$EFFECTIVE_EXPORT_METHOD" in
+            app-store)
+              selected_profile_secret_name="IOS_MOBILEPROVISION_APPSTORE_BASE64"
+              selected_profile_secret_value="${IOS_MOBILEPROVISION_APPSTORE_BASE64:-}"
+              ;;
+            ad-hoc)
+              selected_profile_secret_name="IOS_MOBILEPROVISION_ADHOC_BASE64"
+              selected_profile_secret_value="${IOS_MOBILEPROVISION_ADHOC_BASE64:-}"
+              ;;
+            development)
+              selected_profile_secret_name="IOS_MOBILEPROVISION_DEVELOPMENT_BASE64"
+              selected_profile_secret_value="${IOS_MOBILEPROVISION_DEVELOPMENT_BASE64:-}"
+              ;;
+          esac
+
+          if [[ -z "$selected_profile_secret_value" ]]; then
+            if [[ -n "${IOS_MOBILEPROVISION_BASE64:-}" ]]; then
+              echo "::warning::未配置 $selected_profile_secret_name，已回退到 IOS_MOBILEPROVISION_BASE64（兼容旧配置）。"
+            else
+              echo "::error::缺少描述文件 Secret：$selected_profile_secret_name（或兼容回退 IOS_MOBILEPROVISION_BASE64）"
+              exit 1
+            fi
+          fi
+
           echo "EFFECTIVE_RELEASE_MODE=$EFFECTIVE_RELEASE_MODE" >> "$GITHUB_ENV"
           echo "EFFECTIVE_EXPORT_METHOD=$EFFECTIVE_EXPORT_METHOD" >> "$GITHUB_ENV"
           echo "EFFECTIVE_UPLOAD_TO_TESTFLIGHT=$EFFECTIVE_UPLOAD_TO_TESTFLIGHT" >> "$GITHUB_ENV"
@@ -266,19 +294,41 @@ jobs:
         run: |
           set -euo pipefail
 
+          SELECTED_MOBILEPROVISION_BASE64=""
+          case "$EFFECTIVE_EXPORT_METHOD" in
+            app-store)
+              SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_APPSTORE_BASE64:-}"
+              ;;
+            ad-hoc)
+              SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_ADHOC_BASE64:-}"
+              ;;
+            development)
+              SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_DEVELOPMENT_BASE64:-}"
+              ;;
+          esac
+
+          if [[ -z "$SELECTED_MOBILEPROVISION_BASE64" ]]; then
+            SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_BASE64:-}"
+          fi
+
+          if [[ -z "$SELECTED_MOBILEPROVISION_BASE64" ]]; then
+            echo "::error::未找到可用的描述文件 Secret，请配置与导出方式匹配的三套 Secret。"
+            exit 1
+          fi
+
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
           CERT_PATH="$RUNNER_TEMP/signing_certificate.p12"
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
           PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
 
-          CERT_PATH="$CERT_PATH" PROFILE_PATH="$PROFILE_PATH" python3 <<'PY'
+          CERT_PATH="$CERT_PATH" PROFILE_PATH="$PROFILE_PATH" SELECTED_MOBILEPROVISION_BASE64="$SELECTED_MOBILEPROVISION_BASE64" python3 <<'PY'
           import base64
           import os
           from pathlib import Path
 
           Path(os.environ['CERT_PATH']).write_bytes(base64.b64decode(os.environ['IOS_CERTIFICATE_P12_BASE64']))
-          Path(os.environ['PROFILE_PATH']).write_bytes(base64.b64decode(os.environ['IOS_MOBILEPROVISION_BASE64']))
+          Path(os.environ['PROFILE_PATH']).write_bytes(base64.b64decode(os.environ['SELECTED_MOBILEPROVISION_BASE64']))
           PY
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -294,12 +344,55 @@ jobs:
 
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
+
+          PROFILE_HAS_DEVICES="false"
+          if /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices:0' "$PROFILE_PLIST" >/dev/null 2>&1; then
+            PROFILE_HAS_DEVICES="true"
+          fi
+
+          PROFILE_GET_TASK_ALLOW="false"
+          if /usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$PROFILE_PLIST" >/dev/null 2>&1; then
+            PROFILE_GET_TASK_ALLOW="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$PROFILE_PLIST")"
+          fi
+
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_HAS_DEVICES=$PROFILE_HAS_DEVICES" >> "$GITHUB_ENV"
+          echo "PROFILE_GET_TASK_ALLOW=$PROFILE_GET_TASK_ALLOW" >> "$GITHUB_ENV"
+
+      - name: Validate provisioning profile compatibility
+        run: |
+          set -euo pipefail
+
+          echo "[Profile] name=$PROFILE_NAME has_devices=$PROFILE_HAS_DEVICES get-task-allow=$PROFILE_GET_TASK_ALLOW"
+          case "$EFFECTIVE_EXPORT_METHOD" in
+            app-store)
+              if [[ "$PROFILE_HAS_DEVICES" == "true" ]]; then
+                echo "::error::当前为 app-store 导出，但描述文件包含 ProvisionedDevices，疑似 development/ad-hoc 描述文件。"
+                exit 1
+              fi
+              ;;
+            ad-hoc)
+              if [[ "$PROFILE_HAS_DEVICES" != "true" ]]; then
+                echo "::error::当前为 ad-hoc 导出，但描述文件不包含 ProvisionedDevices，疑似 app-store 描述文件。"
+                exit 1
+              fi
+              if [[ "$PROFILE_GET_TASK_ALLOW" == "true" ]]; then
+                echo "::error::当前为 ad-hoc 导出，但描述文件为 development（get-task-allow=true）。请改用 Ad Hoc 描述文件。"
+                exit 1
+              fi
+              ;;
+            development)
+              if [[ "$PROFILE_HAS_DEVICES" != "true" || "$PROFILE_GET_TASK_ALLOW" != "true" ]]; then
+                echo "::error::当前为 development 导出，但描述文件不是 iOS App Development。"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Configure Xcode signing
         working-directory: ${{ env.APP_DIR }}
@@ -320,6 +413,10 @@ jobs:
           # 统一使用 export 产出 IPA，再由后续 altool 上传到 TestFlight。
           # 实测 destination=upload 在当前流程下不会稳定触发上传结果回显。
           EXPORT_DESTINATION="export"
+          EXPORT_METHOD_PLIST="$EFFECTIVE_EXPORT_METHOD"
+          if [[ "$EFFECTIVE_EXPORT_METHOD" == "ad-hoc" ]]; then
+            EXPORT_METHOD_PLIST="release-testing"
+          fi
 
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -329,7 +426,7 @@ jobs:
             <key>destination</key>
             <string>$EXPORT_DESTINATION</string>
             <key>method</key>
-            <string>$EFFECTIVE_EXPORT_METHOD</string>
+            <string>$EXPORT_METHOD_PLIST</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>signingCertificate</key>

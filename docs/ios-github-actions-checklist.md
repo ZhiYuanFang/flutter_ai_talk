@@ -241,7 +241,7 @@ PowerShell：
 
 ### 必填
 
-#### 1. `IOS_BUNDLE_ID`
+#### 必填 1. `IOS_BUNDLE_ID`
 
 填：
 
@@ -249,7 +249,7 @@ PowerShell：
 com.fzy.pangbao
 ```
 
-#### 2. `IOS_TEAM_ID`
+#### 必填 2. `IOS_TEAM_ID`
 
 填：
 
@@ -266,22 +266,50 @@ com.fzy.pangbao
 #### 4. `IOS_CERTIFICATE_PASSWORD`
 
 填：p12导出base64
+
 ```bash
  [Convert]::ToBase64String([IO.File]::ReadAllBytes('d:\work\flutter_ai_talk\app\ios\证书.p12'))
 ```
 
-#### 5. `IOS_MOBILEPROVISION_BASE64`
+#### 5. `IOS_MOBILEPROVISION_APPSTORE_BASE64`
 
 填：
 
-- 你刚刚把 `.mobileprovision` 转出来的那一长串 Base64 文本
-```bash
- [Convert]::ToBase64String([IO.File]::ReadAllBytes('d:\work\flutter_ai_talk\app\ios\pangbaoappstore.mobileprovision'))
- ```
+- App Store 类型 `.mobileprovision` 的 Base64（用于 `app-store` / TestFlight 路径）
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\certs\profile_appstore.mobileprovision'))
+```
+
+#### 6. `IOS_MOBILEPROVISION_ADHOC_BASE64`
+
+填：
+
+- Ad Hoc 类型 `.mobileprovision` 的 Base64（用于 `ipa_only + ad-hoc`）
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\certs\profile_adhoc.mobileprovision'))
+```
+
+#### 7. `IOS_MOBILEPROVISION_DEVELOPMENT_BASE64`
+
+填：
+
+- iOS App Development 类型 `.mobileprovision` 的 Base64（用于 `ipa_only + development`）
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\certs\profile_development.mobileprovision'))
+```
+
+#### 8. （兼容回退）`IOS_MOBILEPROVISION_BASE64`
+
+可选：
+
+- 旧版单一描述文件 Secret。若三套 Secret 缺失，工作流会回退使用该值。
 
 ### 推荐填写
 
-#### 6. `IOS_APP_DISPLAY_NAME`
+#### 9. `IOS_APP_DISPLAY_NAME`
 
 示例：
 
@@ -289,7 +317,7 @@ com.fzy.pangbao
 胖宝
 ```
 
-#### 7. `IOS_MICROPHONE_USAGE_DESCRIPTION`
+#### 10. `IOS_MICROPHONE_USAGE_DESCRIPTION`
 
 示例：
 
@@ -297,7 +325,7 @@ com.fzy.pangbao
 需要麦克风权限以支持语音输入与录音
 ```
 
-#### 8. `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION`
+#### 11. `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION`
 
 示例：
 
@@ -305,7 +333,7 @@ com.fzy.pangbao
 需要语音识别权限以将语音转换为文字
 ```
 
-#### 9. `WECHAT_APP_ID`
+#### 12. `WECHAT_APP_ID`
 
 示例：
 
@@ -313,7 +341,7 @@ com.fzy.pangbao
 wxe713de83c921f341
 ```
 
-#### 10. `WECHAT_UNIVERSAL_LINK`
+#### 13. `WECHAT_UNIVERSAL_LINK`
 
 示例：
 
@@ -323,7 +351,7 @@ https://www.pangbao.cuplay.top/wx/ulink/*
 
 ### 如果要自动上传 TestFlight，继续填
 
-#### 11. `APP_STORE_CONNECT_ISSUER_ID`
+#### 14. `APP_STORE_CONNECT_ISSUER_ID`
 
 示例：
 
@@ -331,7 +359,7 @@ https://www.pangbao.cuplay.top/wx/ulink/*
 aef3e1e8-a07c-4577-9aba-d39f514e059a
 ```
 
-#### 12. `APP_STORE_CONNECT_KEY_ID`
+#### 15. `APP_STORE_CONNECT_KEY_ID`
 
 示例：
 
@@ -339,7 +367,7 @@ aef3e1e8-a07c-4577-9aba-d39f514e059a
 DY56P86YR8
 ```
 
-#### 13. `APP_STORE_CONNECT_API_KEY_P8_BASE64`
+#### 16. `APP_STORE_CONNECT_API_KEY_P8_BASE64`
 
 填：
 
@@ -367,34 +395,33 @@ FIIU9h8G
 
 ### 最推荐的参数（仅内部测试）
 
-| 参数 | 建议值 |
-|------|------|
-| `release_mode` | `testflight_internal_only` |
-| `internal_testflight_groups` | 例如 `Internal QA` |
-| `export_method` | 可保留默认（会被模式自动约束） |
-| `upload_to_testflight` | 可保留默认（在非 legacy 模式会被忽略） |
-| `flutter_version` | `3.24.5` |
-| `build_name` | 留空或填 `1.0.0` |
-| `build_number` | 留空或填递增数字，例如 `1` |
-| `app_dir` | `app` |
+- `release_mode`：`testflight_internal_only`
+- `internal_testflight_groups`：例如 `Internal QA`
+- `uses_non_exempt_encryption`：`false`（常见应用可跳过手工出口合规问答）
+- `export_method`：可保留默认（会被模式自动约束）
+- `upload_to_testflight`：可保留默认（在非 legacy 模式会被忽略）
+- `flutter_version`：`3.41.9`
+- `build_name`：留空或填 `1.0.0`
+- `build_number`：留空即可自动使用时间格式（如 `202605312016`）
+- `app_dir`：`app`
 
 ### 如果你只是先验证签名是否成功
 
-| 参数 | 建议值 |
-|------|------|
-| `release_mode` | `ipa_only` |
-| `export_method` | `ad-hoc` 或 `development` |
-| `upload_to_testflight` | 保持任意值（`ipa_only` 下会被强制关闭） |
-| `app_dir` | `app` |
+- `release_mode`：`ipa_only`
+- `uses_non_exempt_encryption`：`false`
+- `export_method`：`ad-hoc` 或 `development`
+- `upload_to_testflight`：保持任意值（`ipa_only` 下会被强制关闭）
+- `app_dir`：`app`
+
+> 注意：`ipa_only + ad-hoc` 必须配置 `IOS_MOBILEPROVISION_ADHOC_BASE64`；
+> `ipa_only + development` 必须配置 `IOS_MOBILEPROVISION_DEVELOPMENT_BASE64`。
 
 ### 模式对照（新增）
 
-| `release_mode` | 目标 | TestFlight 上传 | 备注 |
-|------|------|------|------|
-| `ipa_only` | 只产出包 | 否 | 导出方式跟随 `export_method` |
-| `testflight_internal_only` | 仅内部测试 | 是 | 需填写 `internal_testflight_groups` |
-| `testflight_and_appstore` | 外测/上架准备 | 是 | 上传后在后台继续配置 |
-| `legacy` | 老参数兼容 | 跟随旧参数 | 建议迁移 |
+- `ipa_only`：只产出包；不上传 TestFlight；导出方式跟随 `export_method`。
+- `testflight_internal_only`：仅内部测试；会上传 TestFlight；需填写 `internal_testflight_groups`。
+- `testflight_and_appstore`：外测/上架准备；会上传 TestFlight；后续在后台继续配置。
+- `legacy`：老参数兼容；建议迁移到新模式。
 
 ---
 
@@ -403,8 +430,10 @@ FIIU9h8G
 当前仓库已经配置好，GitHub Actions 会自动：
 
 - 检查你是否填了必须的 Secrets
+- 按导出方式自动选择对应描述文件 Secret（App Store / Ad Hoc / Development）
 - 如果项目没有 `app/ios/`，自动执行 `flutter create . --platforms=ios`
 - 自动补 iOS 权限文案
+- 自动写入 `ITSAppUsesNonExemptEncryption`（默认 `false`，可通过参数覆盖）
 - 导入证书和描述文件
 - 配置 Xcode 签名
 - 构建 `.ipa`
@@ -513,6 +542,11 @@ com.fzy.pangbao
 - Bundle ID
 - Team ID
 
+补充：当前工作流会在打包前校验“导出方式与描述文件类型是否匹配”，例如：
+
+- `ad-hoc` 不能使用 app-store 描述文件
+- `development` 不能使用 ad-hoc / app-store 描述文件
+
 ### 错误：上传 TestFlight 失败
 
 优先检查：
@@ -534,6 +568,17 @@ com.fzy.pangbao
 1. 先去 App Store Connect -> TestFlight 检查 build 是否已处理完成
 2. 手工分配到目标 Internal Testing 组
 3. 核对 `internal_testflight_groups` 与后台组名是否一致
+
+### 错误：提示缺少某个 mobileprovision Secret
+
+原因：你当前导出方式对应的三套描述文件 Secret 未配置。
+
+处理：
+
+- `app-store` / TestFlight：配置 `IOS_MOBILEPROVISION_APPSTORE_BASE64`
+- `ipa_only + ad-hoc`：配置 `IOS_MOBILEPROVISION_ADHOC_BASE64`
+- `ipa_only + development`：配置 `IOS_MOBILEPROVISION_DEVELOPMENT_BASE64`
+- 若暂时只维护一套，可先填 `IOS_MOBILEPROVISION_BASE64` 走兼容回退
 - `Key ID`
 - `.p8` 是否正确
 - App Store Connect 里是否已经创建过这个 App
