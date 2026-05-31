@@ -11,6 +11,7 @@ import '../api/api_exceptions.dart';
 import '../config/env.dart';
 import '../data/models.dart';
 import '../providers/repositories.dart';
+import '../providers/home_history_notifier.dart';
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
 import '../providers/device_no_notifier.dart';
@@ -131,7 +132,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   final ok = await showGlassConfirmDialog(
                         context,
                         title: '切换账号',
-                    message: '将清除本地会话、宝宝ID缓存并返回登录页。',
+                    message: '将清除本地会话、宝宝ID与历史记录缓存并返回登录页。',
                       ) ??
                       false;
                   if (!ok || !context.mounted) return;
@@ -140,6 +141,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
                   await ref.read(signInChannelProvider.notifier).clear();
                   await ref.read(feedRepositoryProvider).clearCache();
+                  await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
                   if (context.mounted) context.go('/home');
                 },
               ),
@@ -472,6 +474,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await ref.read(signInChannelProvider.notifier).clear();
       await ref.read(feedRepositoryProvider).clearCache();
+      await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
 
       if (context.mounted) {
         context.go('/home');

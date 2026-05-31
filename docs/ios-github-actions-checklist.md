@@ -97,11 +97,12 @@
 | `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION` | 语音识别权限提示语 |
 | `WECHAT_APP_ID` | 微信移动应用 AppId |
 | `WECHAT_UNIVERSAL_LINK` | 微信 iOS Universal Link |
+| `IOS_ASSOCIATED_DOMAIN` | iOS Associated Domains，格式 `applinks:<domain>` |
 
 ### Internal Only 模式额外必填（工作流输入）
 
-| 名称 | 用途 | 填写位置 |
-|------|------|------|
+| 名称                         | 用途                                      | 填写位置              |
+| ---------------------------- | ----------------------------------------- | --------------------- |
 | `internal_testflight_groups` | 上传后自动分配的内部测试组（可逗号分隔） | Run workflow 输入参数 |
 
 ---
@@ -346,12 +347,24 @@ wxe713de83c921f341
 示例：
 
 ```text
-https://www.pangbao.cuplay.top/wx/ulink/*
+https://www.pangbao.cuplay.top/wx/ulink/
 ```
+
+> 要求：必须是完整 `https://` 前缀路径，不得包含 `*`。
+
+#### 14. `IOS_ASSOCIATED_DOMAIN`
+
+示例：
+
+```text
+applinks:www.pangbao.cuplay.top
+```
+
+> 要求：`IOS_ASSOCIATED_DOMAIN` 的域名必须与 `WECHAT_UNIVERSAL_LINK` 域名一致。
 
 ### 如果要自动上传 TestFlight，继续填
 
-#### 14. `APP_STORE_CONNECT_ISSUER_ID`
+#### 15. `APP_STORE_CONNECT_ISSUER_ID`
 
 示例：
 
@@ -359,7 +372,7 @@ https://www.pangbao.cuplay.top/wx/ulink/*
 aef3e1e8-a07c-4577-9aba-d39f514e059a
 ```
 
-#### 15. `APP_STORE_CONNECT_KEY_ID`
+#### 16. `APP_STORE_CONNECT_KEY_ID`
 
 示例：
 
@@ -367,7 +380,7 @@ aef3e1e8-a07c-4577-9aba-d39f514e059a
 DY56P86YR8
 ```
 
-#### 16. `APP_STORE_CONNECT_API_KEY_P8_BASE64`
+#### 17. `APP_STORE_CONNECT_API_KEY_P8_BASE64`
 
 填：
 
@@ -589,6 +602,22 @@ com.fzy.pangbao
 - `ipa_only + ad-hoc`：配置 `IOS_MOBILEPROVISION_ADHOC_BASE64`
 - `ipa_only + development`：配置 `IOS_MOBILEPROVISION_DEVELOPMENT_BASE64`
 - 若暂时只维护一套，可先填 `IOS_MOBILEPROVISION_BASE64` 走兼容回退
+
+### 错误：微信配置校验失败（Universal Link / Associated Domains）
+
+常见提示：
+
+- 缺少 `WECHAT_APP_ID` / `WECHAT_UNIVERSAL_LINK` / `IOS_ASSOCIATED_DOMAIN`
+- `WECHAT_UNIVERSAL_LINK` 不是 `https://` 或包含 `*`
+- `IOS_ASSOCIATED_DOMAIN` 不是 `applinks:<domain>`
+- `IOS_ASSOCIATED_DOMAIN` 与 `WECHAT_UNIVERSAL_LINK` 域名不一致
+
+处理顺序：
+
+1. 先修正上述 Secrets 的值格式
+2. 确认 Apple Associated Domains capability 配置了相同域名
+3. 确认该域名可访问 `apple-app-site-association` 且包含当前 App 标识
+4. 确认微信开放平台登记的 Universal Link 与上面完全一致
 
 ### 错误：图标一致性检查失败
 

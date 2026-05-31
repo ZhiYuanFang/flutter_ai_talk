@@ -6,6 +6,7 @@ import '../providers/session_provider.dart';
 import '../ui/home_screen.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
 import '../ui/login_screen.dart';
+import '../ui/register_screen.dart';
 import '../ui/policy_screen.dart';
 import '../ui/baby_bind_screen.dart';
 import '../ui/baby_profile_edit_screen.dart';
@@ -25,12 +26,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final loc = state.matchedLocation;
       final splash = loc == '/splash';
       final loggingIn = loc == '/login';
+      final registering = loc == '/register';
       final public = splash ||
           loggingIn ||
+          registering ||
           loc.startsWith('/auth/') ||
           loc == '/policy';
       if (public) {
-        if (session.isLoggedIn && loggingIn) return '/home';
+        if (session.isLoggedIn && (loggingIn || registering)) return '/home';
         return null;
       }
       if (!session.isLoggedIn) return '/login';
@@ -48,6 +51,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const RegisterScreen(),
       ),
       GoRoute(
         path: '/home',

@@ -286,6 +286,8 @@ flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
 ### 登录（微信 + 账号密码）
 
 - **当前方式**：登录页提供 **账号密码登录** 与 **微信登录** 双入口。
+- **注册入口**：登录页点击“注册账号”会进入独立注册页（风格与登录页一致），不再在登录页内直接提交注册。
+- **注册校验**：注册页新增“确认密码”，客户端提交前必须校验与“密码”一致，不一致时阻止请求并提示。
 - **账号密码主登录**：`POST /device/app/api/username_login`，请求体 `account`、`password`；成功返回并持久化 `accessToken` / `refreshToken`，再进入主页流程。
 - **账号规则**：客户端提交前会对 `account` 执行 `trim + lowercase`；规则为 `4-32` 位且仅允许 `a-z0-9_`；`password` 长度 `6-64`。
 - **微信登录**：客户端通过微信授权获取临时 code，再请求 **`POST /device/app/api/login`** 建立会话。
@@ -316,15 +318,24 @@ flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
 
 1. **勿提交 AppSecret**；客户端仅需 AppId、回调域名等公开配置。  
 2. **Android**：`fluwx` 已通过插件 `AndroidManifest` 合并 `WXEntryActivity` 与 `queries`（微信包名 `com.tencent.mm`）；请保证应用包名与签名与开放平台「移动应用」登记一致。  
-3. **iOS**：将 `pubspec.yaml` 中 `fluwx.app_id`、`fluwx.ios.universal_link` 替换为真实值，与 `WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK` 及 `apple-app-site-association` 一致。  
+3. **iOS**：将 `pubspec.yaml` 中 `fluwx.app_id`、`fluwx.ios.universal_link` 替换为真实值，与 `WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK`、`IOS_ASSOCIATED_DOMAIN` 及 `apple-app-site-association` 一致。`WECHAT_UNIVERSAL_LINK` 必须是完整 `https://` 前缀路径，**不得包含 `*`**。  
 4. **Web**：使用 `PathUrlStrategy`（见 `main.dart`）；在开放平台登记网站应用，**授权回调域**与 `WECHAT_OAUTH_REDIRECT_URI` 完全一致（路径为 `/auth/wechat/callback`）。本地示例：`http://localhost:xxxx/auth/wechat/callback`（端口与 `flutter run` 一致）。  
-5. **运行示例**（登录页会直接调用微信登录；`WX_LOGIN_CODE` 仅用于开发联调兜底）：
+5. **iOS CI 发布门禁**：`Build iOS IPA` 在非 `legacy` 模式会 fail-fast 校验 `WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK`、`IOS_ASSOCIATED_DOMAIN`，并校验 `IOS_ASSOCIATED_DOMAIN` 与 `WECHAT_UNIVERSAL_LINK` 域名一致。缺失或不一致会直接阻断产包。  
+6. **运行示例**（登录页会直接调用微信登录；`WX_LOGIN_CODE` 仅用于开发联调兜底）：
 
 ```bash
 cd app
 flutter run -d android --dart-define=WECHAT_APP_ID=wx你的移动应用AppId
 flutter run -d chrome --dart-define=WECHAT_APP_ID=wx你的AppId --dart-define=WECHAT_OAUTH_REDIRECT_URI=http://localhost:8080/auth/wechat/callback
 ```
+
+#### iOS 微信登录最小排障顺序（出现“点击无反应”时）
+
+1. 先确认构建日志中存在 `--dart-define=WECHAT_APP_ID=...` 与 `--dart-define=WECHAT_UNIVERSAL_LINK=...`。
+2. 确认 `WECHAT_UNIVERSAL_LINK` 为完整 `https://域名/路径前缀/`，不含 `*`。
+3. 确认 `IOS_ASSOCIATED_DOMAIN=applinks:<同域名>`，且与 `WECHAT_UNIVERSAL_LINK` 的域名一致。
+4. 确认域名可访问 `apple-app-site-association`，内容包含当前 App 的 TeamID.BundleID。
+5. 若仍失败，在 iOS 真机复现以下三类场景：成功授权、取消授权、未安装微信/配置错误，确保均有明确提示。
 
 ### 接口联调（网关）
 

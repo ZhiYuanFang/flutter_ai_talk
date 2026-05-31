@@ -55,6 +55,11 @@ class RemoteAuthRepository implements AuthRepository {
           throw ApiBusinessException(-1, e.message);
         } on WeChatAuthException catch (e) {
           throw ApiBusinessException(-1, e.message);
+        } catch (_) {
+          throw ApiBusinessException(
+            -1,
+            '微信授权失败，请检查 WECHAT_APP_ID、WECHAT_UNIVERSAL_LINK 与 iOS Associated Domains 配置',
+          );
         }
       }
     }

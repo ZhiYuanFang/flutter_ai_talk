@@ -103,6 +103,7 @@ jobs:
       IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION: ${{ secrets.IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION }}
       WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
       WECHAT_UNIVERSAL_LINK: ${{ secrets.WECHAT_UNIVERSAL_LINK }}
+      IOS_ASSOCIATED_DOMAIN: ${{ secrets.IOS_ASSOCIATED_DOMAIN }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
@@ -166,6 +167,66 @@ jobs:
           if [[ "$IOS_BUNDLE_ID" == *"_"* ]]; then
             echo "::error::IOS_BUNDLE_ID 不能包含下划线 '_'，请使用合法的 iOS Bundle ID"
             exit 1
+          fi
+
+          release_requires_wechat="false"
+          if [[ "$RELEASE_MODE" != "legacy" ]]; then
+            release_requires_wechat="true"
+          fi
+
+          if [[ "$release_requires_wechat" == "true" ]]; then
+            if [[ -z "${WECHAT_APP_ID:-}" ]]; then
+              echo "::error::发布模式缺少 WECHAT_APP_ID，无法保证 iOS 微信登录可用。"
+              exit 1
+            fi
+            if [[ -z "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
+              echo "::error::发布模式缺少 WECHAT_UNIVERSAL_LINK，无法保证 iOS 微信登录可用。"
+              exit 1
+            fi
+            if [[ -z "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
+              echo "::error::发布模式缺少 IOS_ASSOCIATED_DOMAIN（格式示例：applinks:example.com）。"
+              exit 1
+            fi
+          fi
+
+          if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
+            if [[ "$WECHAT_UNIVERSAL_LINK" != https://* ]]; then
+              echo "::error::WECHAT_UNIVERSAL_LINK 必须是 https URL（示例：https://www.example.com/wx/ulink/）"
+              exit 1
+            fi
+            if [[ "$WECHAT_UNIVERSAL_LINK" == *"*"* ]]; then
+              echo "::error::WECHAT_UNIVERSAL_LINK 不应包含 '*'，请填写微信开放平台登记的完整前缀路径。"
+              exit 1
+            fi
+          fi
+
+          if [[ -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
+            if [[ "$IOS_ASSOCIATED_DOMAIN" != applinks:* ]]; then
+              echo "::error::IOS_ASSOCIATED_DOMAIN 格式错误，应为 applinks:<domain>，例如 applinks:www.pangbao.cuplay.top"
+              exit 1
+            fi
+          fi
+
+          if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" && -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
+            WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" IOS_ASSOCIATED_DOMAIN="$IOS_ASSOCIATED_DOMAIN" python3 <<'PY'
+import os
+import sys
+from urllib.parse import urlparse
+
+ul = os.environ['WECHAT_UNIVERSAL_LINK'].strip()
+associated = os.environ['IOS_ASSOCIATED_DOMAIN'].strip()
+domain = associated[len('applinks:'):].strip()
+
+parsed = urlparse(ul)
+if not parsed.scheme or parsed.scheme != 'https' or not parsed.netloc:
+    sys.exit('::error::WECHAT_UNIVERSAL_LINK 不是有效 https URL')
+
+if parsed.netloc != domain:
+    sys.exit(f"::error::IOS_ASSOCIATED_DOMAIN({domain}) 与 WECHAT_UNIVERSAL_LINK 域名({parsed.netloc}) 不一致")
+
+if not parsed.path or parsed.path == '/':
+    sys.exit('::error::WECHAT_UNIVERSAL_LINK 必须包含微信登记的路径前缀，不能只填域名根路径')
+PY
           fi
 
           case "$RELEASE_MODE" in
@@ -470,6 +531,8 @@ jobs:
           fi
 
           args=(flutter build ipa --release --export-options-plist "$EXPORT_OPTIONS_PLIST")
+          args+=("--dart-define=WECHAT_APP_ID=$WECHAT_APP_ID")
+          args+=("--dart-define=WECHAT_UNIVERSAL_LINK=$WECHAT_UNIVERSAL_LINK")
           if [[ -n "$BUILD_NAME" ]]; then
             args+=(--build-name "$BUILD_NAME")
           fi

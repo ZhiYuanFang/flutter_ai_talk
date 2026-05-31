@@ -39,6 +39,7 @@ class RemoteFeedRepository implements FeedRepository {
 
   WebSocketChannel? _ws;
   StreamSubscription<dynamic>? _wsSub;
+  Timer? _authFallbackTimer;
   var _wsReady = false;
 
   void _toast(String m) {
@@ -82,6 +83,8 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   void _tearDownWs() {
+    _authFallbackTimer?.cancel();
+    _authFallbackTimer = null;
     _wsSub?.cancel();
     _wsSub = null;
     try {
@@ -126,14 +129,16 @@ class RemoteFeedRepository implements FeedRepository {
       _wsSub = _ws!.stream.listen(
         (raw) {
           try {
-            final decoded = jsonDecode(raw as String);
+            final decoded = _decodeWsMap(raw);
             if (decoded is! Map<String, dynamic>) return;
             final type = decoded['type'] as String?;
             if (type == 'error') {
               _toast(decoded['message'] as String? ?? '连接异常');
               return;
             }
-            if (type == 'auth_ok') {
+            if (type == 'auth_ok' || type == 'authOk') {
+              _authFallbackTimer?.cancel();
+              _authFallbackTimer = null;
               _emitWsReady(true);
               return;
             }
@@ -179,11 +184,40 @@ class RemoteFeedRepository implements FeedRepository {
         'deviceNo': dn,
       });
       _ws!.sink.add(first);
+      _scheduleAuthFallback(token: token, deviceNo: dn);
     } catch (_) {
       _ws = null;
       _emitWsReady(false);
       _toast('历史 WebSocket 连接失败，请点击重连');
     }
+  }
+
+  Map<String, dynamic>? _decodeWsMap(dynamic raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    Object? decoded;
+    if (raw is String) {
+      decoded = jsonDecode(raw);
+    } else if (raw is List<int>) {
+      decoded = jsonDecode(utf8.decode(raw));
+    }
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return null;
+  }
+
+  void _scheduleAuthFallback({required String token, required String deviceNo}) {
+    _authFallbackTimer?.cancel();
+    _authFallbackTimer = Timer(const Duration(seconds: 2), () {
+      if (_ws == null || _wsReady) return;
+      final fallback = jsonEncode({
+        'type': 'auth',
+        'access_token': token,
+        'device_no': deviceNo,
+      });
+      try {
+        _ws!.sink.add(fallback);
+      } catch (_) {}
+    });
   }
 
   @override

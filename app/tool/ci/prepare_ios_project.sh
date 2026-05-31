@@ -20,6 +20,12 @@ def yaml_single_quoted(value: str) -> str:
 wechat_app_id = os.getenv('WECHAT_APP_ID', '').strip()
 wechat_universal_link = os.getenv('WECHAT_UNIVERSAL_LINK', '').strip()
 
+if wechat_universal_link:
+    if '*' in wechat_universal_link:
+        sys.exit('WECHAT_UNIVERSAL_LINK 不能包含 *，请填写微信开放平台登记的完整 https 前缀路径')
+    if not wechat_universal_link.startswith('https://'):
+        sys.exit('WECHAT_UNIVERSAL_LINK 必须为 https URL')
+
 if wechat_app_id:
     text, count = re.subn(
         r'(^\s*app_id:\s*).*$' ,

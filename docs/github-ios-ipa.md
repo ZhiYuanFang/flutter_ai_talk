@@ -273,7 +273,7 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 ### 必填 Secrets
 
 | Secret | 你要填什么 | 从哪里来 |
-|------|------|------|
+| ------ | ------ | ------ |
 | `IOS_BUNDLE_ID` | iOS Bundle ID，例如 `com.fzy.pangbao` | Apple Developer -> Identifiers |
 | `IOS_TEAM_ID` | Apple Team ID | Apple Developer 账号信息 |
 | `IOS_CERTIFICATE_P12_BASE64` | `.p12` 文件的 Base64 | 你导出的 `ios_distribution.p12` 或 `ios_development.p12` |
@@ -283,17 +283,18 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 ### 推荐 Secrets
 
 | Secret | 用途 |
-|------|------|
+| ------ | ------ |
 | `IOS_APP_DISPLAY_NAME` | iPhone 桌面显示名称 |
 | `IOS_MICROPHONE_USAGE_DESCRIPTION` | 麦克风权限文案 |
 | `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION` | 语音识别权限文案 |
 | `WECHAT_APP_ID` | 微信移动应用 AppId |
 | `WECHAT_UNIVERSAL_LINK` | 微信 iOS Universal Link |
+| `IOS_ASSOCIATED_DOMAIN` | iOS Associated Domains，格式 `applinks:<domain>` |
 
 ### 自动上传 TestFlight 时必填
 
 | Secret | 你要填什么 | 从哪里来 |
-|------|------|------|
+| ------ | ------ | ------ |
 | `APP_STORE_CONNECT_ISSUER_ID` | Issuer ID | App Store Connect API Key 页面 |
 | `APP_STORE_CONNECT_KEY_ID` | Key ID | App Store Connect API Key 页面 |
 | `APP_STORE_CONNECT_API_KEY_P8_BASE64` | `.p8` 文件 Base64 | 下载的 API Key 文件 |
@@ -343,6 +344,9 @@ PowerShell：
 
 - 如果仓库里暂时没有 `app/ios/`，执行 `flutter create . --platforms=ios`
 - 把 `WECHAT_APP_ID` / `WECHAT_UNIVERSAL_LINK` 注入到 `app/pubspec.yaml`
+- 在 `flutter build ipa` 时显式注入 `--dart-define=WECHAT_APP_ID=...` 与 `--dart-define=WECHAT_UNIVERSAL_LINK=...`
+- 非 `legacy` 模式 fail-fast 校验：`WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK`、`IOS_ASSOCIATED_DOMAIN` 不得为空
+- 校验 `WECHAT_UNIVERSAL_LINK` 为 `https://` 且不含 `*`，并校验其域名与 `IOS_ASSOCIATED_DOMAIN` 一致
 - 为 `speech_to_text` / `record` 自动补齐 iOS 权限文案
 - 导入证书和描述文件
 - 切换至指定 Xcode 版本并打印 iOS SDK 信息
@@ -490,4 +494,6 @@ PowerShell：
 - 证书类型、描述文件类型、Bundle ID、Team ID 必须完全匹配
 - 当前仓库原本没有提交 `app/ios/`；工作流会在 CI 中临时生成，因此如果你后续要长期维护 iOS 原生配置，建议未来把 `app/ios/` 正式纳入仓库
 - 微信登录在 iOS 上要真正可用，除了工作流 secrets 外，还需要 Apple Associated Domains、你的域名 `apple-app-site-association`、微信开放平台配置三者一致
+- `WECHAT_UNIVERSAL_LINK` 必须填写完整 `https://域名/路径前缀/`，不要填写 `*` 通配符
+- 建议把 `IOS_ASSOCIATED_DOMAIN` 填成 `applinks:<WECHAT_UNIVERSAL_LINK 对应域名>`，便于 CI 自动校验
 - 上传成功后，App Store Connect 处理 build 可能要等待几分钟到几十分钟

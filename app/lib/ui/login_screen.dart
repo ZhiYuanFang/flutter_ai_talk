@@ -9,8 +9,10 @@ import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
+import '../session/account_history_store.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/theme_bootstrap_cache.dart';
+import 'auth/auth_ui.dart';
 import '../wechat/wechat_web_redirect.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -29,6 +31,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   var _loading = false;
   var _resumedPendingWebLogin = false;
   var _obscurePassword = true;
+  List<String> _recentAccounts = const [];
   String? _accountError;
   String? _passwordError;
 
@@ -37,6 +40,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _loadRecentAccounts();
+      _showPendingWebWeChatError();
       _resumePendingWebWeChatLogin();
     });
   }
@@ -49,6 +54,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String _normalizeAccount(String raw) => raw.trim().toLowerCase();
+
+  Future<void> _loadRecentAccounts() async {
+    final recent = await loadRecentAccounts();
+    if (!mounted) return;
+    setState(() {
+      _recentAccounts = recent;
+    });
+  }
+
+  Future<void> _rememberAccount(String account) async {
+    final next = await pushRecentAccount(account);
+    if (!mounted) return;
+    setState(() {
+      _recentAccounts = next;
+    });
+  }
 
   bool _validateCredentialInputs() {
     final account = _normalizeAccount(_accountCtrl.text);
@@ -74,32 +95,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _loading = true);
     try {
       final auth = ref.read(authRepositoryProvider);
+      final normalized = _normalizeAccount(_accountCtrl.text);
       await auth.signInWithUsernamePassword(
-        _normalizeAccount(_accountCtrl.text),
+        normalized,
         _passwordCtrl.text,
       );
+      await _rememberAccount(normalized);
       if (!mounted) return;
       await _afterLoginSuccess();
-    } on ApiBusinessException catch (e) {
-      ref.showApiToastError(e.message);
-    } on ApiHttpException catch (e) {
-      ref.showApiToastError('网络错误(${e.statusCode})');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _onRegisterUsername() async {
-    if (_loading) return;
-    if (!_validateCredentialInputs()) return;
-    setState(() => _loading = true);
-    try {
-      final auth = ref.read(authRepositoryProvider);
-      await auth.registerUsername(
-        _normalizeAccount(_accountCtrl.text),
-        _passwordCtrl.text,
-      );
-      ref.showApiToastError('注册成功，请使用账号密码登录');
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
     } on ApiHttpException catch (e) {
@@ -128,6 +131,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     await _onWeChatLogin();
   }
 
+  void _showPendingWebWeChatError() {
+    if (!kIsWeb) return;
+    final err = consumeWeChatOAuthCallbackError();
+    if (err == null || err.isEmpty) return;
+    final message = switch (err) {
+      'access_denied' => '已取消微信授权',
+      'state_mismatch' => '授权状态校验失败，请重试',
+      'missing_code' => '未收到微信授权码',
+      _ => '微信授权失败：$err',
+    };
+    ref.showApiToastError(message);
+  }
+
   Future<void> _onWeChatLogin() async {
     if (_loading) return;
     if (_canRedirectWebWeChatAuthorize && !hasPendingWeChatWebCode()) {
@@ -150,14 +166,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ref.showApiToastError(e.message);
     } on ApiHttpException catch (e) {
       ref.showApiToastError('网络错误(${e.statusCode})');
+    } catch (_) {
+      ref.showApiToastError('微信登录暂不可用，请检查 WECHAT_APP_ID、WECHAT_UNIVERSAL_LINK 与 iOS Associated Domains 配置');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  Future<void> _openRegisterScreen() async {
+    if (_loading) return;
+    final result = await context.push<Map<String, String>>('/register');
+    if (!mounted || result == null) return;
+
+    final account = result['account']?.trim() ?? '';
+    final password = result['password'] ?? '';
+    if (account.isEmpty || password.isEmpty) return;
+
+    setState(() {
+      _accountCtrl.text = account;
+      _passwordCtrl.text = password;
+      _accountError = null;
+      _passwordError = null;
+    });
+    await _rememberAccount(account);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hintColor = const Color(0xFF8C7E74);
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -174,70 +209,60 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: Column(
                     children: [
                       const Spacer(flex: 2),
-                      Container(
-                        width: 110,
-                        height: 110,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F1F9),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.12),
-                              offset: const Offset(8, 8),
-                              blurRadius: 16,
-                            ),
-                            BoxShadow(
-                              color: Colors.white.withOpacity(0.9),
-                              offset: const Offset(-8, -8),
-                              blurRadius: 16,
-                            ),
-                          ],
-                        ),
-                        child: ClipOval(
-                          child: Image.asset(
-                            'assets/images/app_icon.png',
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        '胖宝',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFF4A3428),
-                              letterSpacing: 4,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '记录宝宝成长的每一步',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: hintColor),
-                      ),
+                      buildAuthBrandHeader(context),
                       const SizedBox(height: 20),
                       TextField(
                         controller: _accountCtrl,
                         enabled: !_loading,
                         autocorrect: false,
                         textInputAction: TextInputAction.next,
-                        decoration: InputDecoration(
+                        decoration: buildAuthInputDecoration(
                           labelText: '账号',
                           hintText: '4-32 位，仅 a-z0-9_',
                           errorText: _accountError,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                         ),
                       ),
+                      if (_recentAccounts.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '最近账号',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: _recentAccounts
+                                .map(
+                                  (e) => ActionChip(
+                                    label: Text(e),
+                                    onPressed: _loading
+                                        ? null
+                                        : () => setState(() {
+                                              _accountCtrl.text = e;
+                                              _accountError = null;
+                                            }),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       TextField(
                         controller: _passwordCtrl,
                         enabled: !_loading,
                         obscureText: _obscurePassword,
                         onSubmitted: (_) => _onUsernameLogin(),
-                        decoration: InputDecoration(
+                        decoration: buildAuthInputDecoration(
                           labelText: '密码',
                           hintText: '6-64 位',
                           errorText: _passwordError,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                           suffixIcon: IconButton(
                             onPressed: _loading
                                 ? null
@@ -264,7 +289,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: _loading ? null : _onRegisterUsername,
+                          onPressed: _loading ? null : _openRegisterScreen,
                           child: const Text('注册账号'),
                         ),
                       ),
@@ -288,13 +313,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         label: const Text('微信登录'),
                       ),
                       const SizedBox(height: 12),
-                      _buildPrivacyAgreement(context),
-                      const SizedBox(height: 12),
-                      Text(
-                        _footerHint(),
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFFB0A499),
+                      buildAuthPrivacyAgreement(
+                        context,
+                        leadText: '登录即代表您已阅读并同意',
+                        onTapUserAgreement: () => context.push(
+                          Uri(path: '/policy', queryParameters: {'url': AppEnv.userAgreementUrl}).toString(),
+                        ),
+                        onTapPrivacyPolicy: () => context.push(
+                          Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
                         ),
                       ),
                       const Spacer(),
@@ -317,64 +343,4 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Widget _buildPrivacyAgreement(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: () => context.push(
-            Uri(path: '/policy', queryParameters: {'url': AppEnv.userAgreementUrl}).toString(),
-          ),
-          child: RichText(
-            textAlign: TextAlign.center,
-            text: TextSpan(
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
-              children: [
-                const TextSpan(text: '登录即代表您已阅读并同意 '),
-                TextSpan(
-                  text: '用户协议',
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        GestureDetector(
-          onTap: () => context.push(
-            Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
-          ),
-          child: RichText(
-            textAlign: TextAlign.center,
-            text: TextSpan(
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
-              children: [
-                const TextSpan(text: '和 '),
-                TextSpan(
-                  text: '隐私政策',
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _footerHint() {
-    if (_loading && kIsWeb && hasPendingWeChatWebCode()) {
-      return '正在继续微信授权登录，请稍候。';
-    }
-    if (_canRedirectWebWeChatAuthorize) {
-      return '说明：支持账号密码与微信登录；网页端微信会跳转授权页面。';
-    }
-    if (AppEnv.wechatAppId.isNotEmpty) {
-      return '说明：支持账号密码登录；也可在已安装微信的手机上授权登录。';
-    }
-    if (AppEnv.wxLoginCode.isNotEmpty) {
-      return '说明：支持账号密码登录；检测到微信联调凭证，可验证微信链路。';
-    }
-    return '说明：支持账号密码登录；微信登录需先配置微信开放平台参数。';
-  }
 }
