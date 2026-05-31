@@ -86,6 +86,9 @@ display_name = os.getenv('IOS_APP_DISPLAY_NAME', '').strip()
 if display_name:
     info['CFBundleDisplayName'] = display_name
 
+# 仅支持 iPhone（不支持 iPad）
+info['UIDeviceFamily'] = [1]
+
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
 PY
