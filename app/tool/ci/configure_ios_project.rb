@@ -19,6 +19,7 @@ abort('未找到 iOS Runner target') unless runner_target
 runner_target.build_configurations.each do |config|
   settings = config.build_settings
   settings['IPHONEOS_DEPLOYMENT_TARGET'] = deployment_target
+  settings['TARGETED_DEVICE_FAMILY'] = '1'
   settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
   settings['DEVELOPMENT_TEAM'] = team_id
   settings['CODE_SIGN_STYLE'] = 'Manual'
