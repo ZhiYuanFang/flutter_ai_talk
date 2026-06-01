@@ -1,7 +1,7 @@
 name: pangbao_app
-description: 胖宝 — 语音/文本驱动的母婴记录客户端（胖宝号登录 + 网关联调）
+description: 胖宝 — 语音/文本驱动的母婴记录客户端
 publish_to: "none"
-version: 1.0.0+1
+version: 1.0.1+2
 
 fluwx:
   app_id: 'wxe713de83c921f341'
