@@ -457,6 +457,7 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
+          export EXPORT_METHOD="$EFFECTIVE_EXPORT_METHOD"
           sudo gem install xcodeproj -N
           ruby tool/ci/configure_ios_project.rb
 
