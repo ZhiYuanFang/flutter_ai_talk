@@ -22,7 +22,11 @@ wechat_universal_link = os.getenv('WECHAT_UNIVERSAL_LINK', '').strip()
 
 if wechat_universal_link:
     if '*' in wechat_universal_link:
-        sys.exit('WECHAT_UNIVERSAL_LINK 不能包含 *，请填写微信开放平台登记的完整 https 前缀路径')
+        if wechat_universal_link.endswith('*') and wechat_universal_link.count('*') == 1:
+            wechat_universal_link = wechat_universal_link[:-1]
+            print('warning: WECHAT_UNIVERSAL_LINK 含末尾 *，已自动归一化', file=sys.stderr)
+        else:
+            sys.exit('WECHAT_UNIVERSAL_LINK 不能包含 *，请填写微信开放平台登记的完整 https 前缀路径')
     if not wechat_universal_link.startswith('https://'):
         sys.exit('WECHAT_UNIVERSAL_LINK 必须为 https URL')
 
