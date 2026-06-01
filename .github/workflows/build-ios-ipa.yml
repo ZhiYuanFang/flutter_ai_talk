@@ -184,10 +184,6 @@ jobs:
               echo "::error::发布模式缺少 WECHAT_UNIVERSAL_LINK，无法保证 iOS 微信登录可用。"
               exit 1
             fi
-            if [[ -z "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
-              echo "::error::发布模式缺少 IOS_ASSOCIATED_DOMAIN（格式示例：applinks:example.com）。"
-              exit 1
-            fi
           fi
 
           if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
@@ -201,11 +197,28 @@ jobs:
             fi
           fi
 
+          if [[ -z "${IOS_ASSOCIATED_DOMAIN:-}" && -n "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
+            IOS_ASSOCIATED_DOMAIN="$(WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" python3 <<'PY'
+from urllib.parse import urlparse
+import os
+import sys
+
+ul = os.environ['WECHAT_UNIVERSAL_LINK'].strip()
+parsed = urlparse(ul)
+if not parsed.scheme or parsed.scheme != 'https' or not parsed.netloc:
+    sys.exit('::error::WECHAT_UNIVERSAL_LINK 不是有效 https URL，无法自动推导 IOS_ASSOCIATED_DOMAIN')
+print(f"applinks:{parsed.netloc}")
+PY
+            )"
+            echo "::notice::未提供 IOS_ASSOCIATED_DOMAIN，已自动推导为 $IOS_ASSOCIATED_DOMAIN"
+          fi
+
           if [[ -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
             if [[ "$IOS_ASSOCIATED_DOMAIN" != applinks:* ]]; then
               echo "::error::IOS_ASSOCIATED_DOMAIN 格式错误，应为 applinks:<domain>，例如 applinks:www.pangbao.cuplay.top"
               exit 1
             fi
+            echo "IOS_ASSOCIATED_DOMAIN=$IOS_ASSOCIATED_DOMAIN" >> "$GITHUB_ENV"
           fi
 
           if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" && -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
