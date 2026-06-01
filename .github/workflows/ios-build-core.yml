@@ -1,78 +1,94 @@
-# NOTE: retired workflow - kept only as a hard-fail compatibility guard
-name: DEPRECATED Build iOS IPA (retired)
+name: iOS Build Core
 
 on:
   workflow_call:
     inputs:
-      release_mode:
-        description: 发布模式（推荐使用）
+      target_channel:
+        description: 分发目标（adhoc/testflight/appstore）
         required: true
-        default: testflight_internal_only
-        type: choice
-        options:
-          - ipa_only
-          - testflight_internal_only
-          - testflight_and_appstore
-          - legacy
-      export_method:
-        description: iOS 导出方式（legacy 模式或 ipa_only 下生效）
+        type: string
+      app_dir:
+        description: Flutter app 目录
         required: true
-        default: app-store
-        type: choice
-        options:
-          - development
-          - ad-hoc
-          - app-store
-      upload_to_testflight:
-        description: 是否自动上传到 TestFlight（仅 legacy 模式生效，需 app-store）
-        required: true
-        default: true
-        type: boolean
-      internal_testflight_groups:
-        description: Internal Only 分发组（逗号分隔，如 Internal QA,Core Team）
-        required: false
-        default: ''
         type: string
       flutter_version:
         description: Flutter 版本
         required: true
-        default: 3.41.9
         type: string
       build_name:
-        description: 可选，覆盖 pubspec.yaml 中的版本号
+        description: 可选，覆盖 pubspec.yaml 中版本号
         required: false
         default: ''
         type: string
       build_number:
-        description: 可选，覆盖 pubspec.yaml 中的构建号
+        description: 可选，覆盖 pubspec.yaml 中构建号
         required: false
         default: ''
         type: string
       uses_non_exempt_encryption:
-        description: 是否使用“非豁免加密”（true 会要求在 App Store Connect 完成出口合规）
+        description: 是否使用非豁免加密
         required: true
-        default: false
         type: boolean
-      app_dir:
-        description: Flutter app 目录
-        required: true
-        default: app
-        type: string
       macos_runner:
-        description: macOS Runner 镜像（决定系统与可用 Xcode / iOS SDK）
+        description: macOS Runner 镜像
         required: true
-        default: macos-26
-        type: choice
-        options:
-          - macos-14
-          - macos-15
-          - macos-26
-          - macos-26-intel
-      xcode_version:
-        description: 指定 Xcode 版本（如 26.4、16.2；与所选 Runner 镜像需匹配）
-        required: true
-        default: '26.4'
         type: string
+      xcode_version:
+        description: Xcode 版本
+        required: true
+        type: string
+      internal_testflight_groups:
+        description: TestFlight 内部组（可选，逗号分隔）
+        required: false
+        default: ''
+        type: string
+      pgyer_update_description:
+        description: 蒲公英更新说明（可选）
+        required: false
+        default: ''
+        type: string
+      pgyer_install_password:
+        description: 蒲公英安装密码（可选）
+        required: false
+        default: ''
+        type: string
+    secrets:
+      IOS_BUNDLE_ID:
+        required: true
+      IOS_TEAM_ID:
+        required: true
+      IOS_CERTIFICATE_P12_BASE64:
+        required: true
+      IOS_CERTIFICATE_PASSWORD:
+        required: true
+      IOS_MOBILEPROVISION_APPSTORE_BASE64:
+        required: false
+      IOS_MOBILEPROVISION_ADHOC_BASE64:
+        required: false
+      IOS_MOBILEPROVISION_DEVELOPMENT_BASE64:
+        required: false
+      IOS_MOBILEPROVISION_BASE64:
+        required: false
+      IOS_APP_DISPLAY_NAME:
+        required: false
+      IOS_MICROPHONE_USAGE_DESCRIPTION:
+        required: false
+      IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION:
+        required: false
+      WECHAT_APP_ID:
+        required: true
+      WECHAT_UNIVERSAL_LINK:
+        required: true
+      IOS_ASSOCIATED_DOMAIN:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_API_KEY_P8_BASE64:
+        required: false
+      PGYER_API_KEY:
+        required: false
 
 jobs:
   build-ios:
@@ -83,14 +99,15 @@ jobs:
       run:
         shell: bash
     env:
+      TARGET_CHANNEL: ${{ inputs.target_channel }}
       APP_DIR: ${{ inputs.app_dir }}
-      RELEASE_MODE: ${{ inputs.release_mode }}
-      EXPORT_METHOD: ${{ inputs.export_method }}
-      UPLOAD_TO_TESTFLIGHT: ${{ inputs.upload_to_testflight }}
-      INTERNAL_TESTFLIGHT_GROUPS: ${{ inputs.internal_testflight_groups }}
+      FLUTTER_VERSION: ${{ inputs.flutter_version }}
       BUILD_NAME: ${{ inputs.build_name }}
       BUILD_NUMBER: ${{ inputs.build_number }}
       IOS_USES_NON_EXEMPT_ENCRYPTION: ${{ inputs.uses_non_exempt_encryption }}
+      INTERNAL_TESTFLIGHT_GROUPS: ${{ inputs.internal_testflight_groups }}
+      PGYER_UPDATE_DESCRIPTION: ${{ inputs.pgyer_update_description }}
+      PGYER_INSTALL_PASSWORD: ${{ inputs.pgyer_install_password }}
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
       IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
@@ -108,16 +125,12 @@ jobs:
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+      PGYER_API_KEY: ${{ secrets.PGYER_API_KEY }}
       MACOS_RUNNER: ${{ inputs.macos_runner }}
       XCODE_VERSION: ${{ inputs.xcode_version }}
       IOS_DEPLOYMENT_TARGET: '13.0'
 
     steps:
-      - name: Workflow retired
-        run: |
-          echo "::error::该工作流已退场，请改用: Build iOS ad-hoc / Build iOS TestFlight / Build iOS AppStore Upload"
-          exit 1
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -129,6 +142,7 @@ jobs:
       - name: Print runner environment
         run: |
           set -euo pipefail
+          echo "channel: $TARGET_CHANNEL"
           echo "macOS runner: $MACOS_RUNNER"
           sw_vers
           xcodebuild -version
@@ -147,10 +161,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          EFFECTIVE_RELEASE_MODE="$RELEASE_MODE"
-          EFFECTIVE_EXPORT_METHOD="$EXPORT_METHOD"
-          EFFECTIVE_UPLOAD_TO_TESTFLIGHT="$UPLOAD_TO_TESTFLIGHT"
-          EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS="$INTERNAL_TESTFLIGHT_GROUPS"
+          EFFECTIVE_EXPORT_METHOD=""
+          case "$TARGET_CHANNEL" in
+            adhoc)
+              EFFECTIVE_EXPORT_METHOD="ad-hoc"
+              ;;
+            testflight|appstore)
+              EFFECTIVE_EXPORT_METHOD="app-store"
+              ;;
+            *)
+              echo "::error::未知 target_channel: $TARGET_CHANNEL"
+              exit 1
+              ;;
+          esac
 
           if [[ ! -f "$APP_DIR/pubspec.yaml" ]]; then
             echo "::error::未找到 $APP_DIR/pubspec.yaml"
@@ -162,6 +185,8 @@ jobs:
             IOS_TEAM_ID
             IOS_CERTIFICATE_P12_BASE64
             IOS_CERTIFICATE_PASSWORD
+            WECHAT_APP_ID
+            WECHAT_UNIVERSAL_LINK
           )
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
@@ -175,42 +200,24 @@ jobs:
             exit 1
           fi
 
-          release_requires_wechat="false"
-          if [[ "$RELEASE_MODE" != "legacy" ]]; then
-            release_requires_wechat="true"
-          fi
-
-          if [[ "$release_requires_wechat" == "true" ]]; then
-            if [[ -z "${WECHAT_APP_ID:-}" ]]; then
-              echo "::error::发布模式缺少 WECHAT_APP_ID，无法保证 iOS 微信登录可用。"
-              exit 1
-            fi
-            if [[ -z "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
-              echo "::error::发布模式缺少 WECHAT_UNIVERSAL_LINK，无法保证 iOS 微信登录可用。"
+          if [[ "$WECHAT_UNIVERSAL_LINK" == *"*"* ]]; then
+            normalized_ul="${WECHAT_UNIVERSAL_LINK%\*}"
+            if [[ "$normalized_ul" != "$WECHAT_UNIVERSAL_LINK" && "$normalized_ul" != *"*"* ]]; then
+              echo "::warning::检测到 WECHAT_UNIVERSAL_LINK 含末尾 '*'，已自动归一化为: $normalized_ul"
+              WECHAT_UNIVERSAL_LINK="$normalized_ul"
+            else
+              echo "::error::WECHAT_UNIVERSAL_LINK 仅允许末尾可清理的 '*'，请填写微信开放平台登记的完整前缀路径。"
               exit 1
             fi
           fi
 
-          if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
-            if [[ "$WECHAT_UNIVERSAL_LINK" == *"*"* ]]; then
-              normalized_ul="${WECHAT_UNIVERSAL_LINK%\*}"
-              if [[ "$normalized_ul" != "$WECHAT_UNIVERSAL_LINK" && "$normalized_ul" != *"*"* ]]; then
-                echo "::warning::检测到 WECHAT_UNIVERSAL_LINK 含末尾 '*'，已自动归一化为: $normalized_ul"
-                WECHAT_UNIVERSAL_LINK="$normalized_ul"
-              else
-                echo "::error::WECHAT_UNIVERSAL_LINK 仅允许末尾可清理的 '*'，请填写微信开放平台登记的完整前缀路径。"
-                exit 1
-              fi
-            fi
-
-            if [[ "$WECHAT_UNIVERSAL_LINK" != https://* ]]; then
-              echo "::error::WECHAT_UNIVERSAL_LINK 必须是 https URL（示例：https://www.example.com/wx/ulink/）"
-              exit 1
-            fi
-            echo "WECHAT_UNIVERSAL_LINK=$WECHAT_UNIVERSAL_LINK" >> "$GITHUB_ENV"
+          if [[ "$WECHAT_UNIVERSAL_LINK" != https://* ]]; then
+            echo "::error::WECHAT_UNIVERSAL_LINK 必须是 https URL（示例：https://www.example.com/wx/ulink/）"
+            exit 1
           fi
+          echo "WECHAT_UNIVERSAL_LINK=$WECHAT_UNIVERSAL_LINK" >> "$GITHUB_ENV"
 
-          if [[ -z "${IOS_ASSOCIATED_DOMAIN:-}" && -n "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
+          if [[ -z "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
             IOS_ASSOCIATED_DOMAIN="$(WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" python3 <<'PY'
           from urllib.parse import urlparse
           import os
@@ -226,16 +233,13 @@ jobs:
             echo "::notice::未提供 IOS_ASSOCIATED_DOMAIN，已自动推导为 $IOS_ASSOCIATED_DOMAIN"
           fi
 
-          if [[ -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
-            if [[ "$IOS_ASSOCIATED_DOMAIN" != applinks:* ]]; then
-              echo "::error::IOS_ASSOCIATED_DOMAIN 格式错误，应为 applinks:<domain>，例如 applinks:www.pangbao.cuplay.top"
-              exit 1
-            fi
-            echo "IOS_ASSOCIATED_DOMAIN=$IOS_ASSOCIATED_DOMAIN" >> "$GITHUB_ENV"
+          if [[ "$IOS_ASSOCIATED_DOMAIN" != applinks:* ]]; then
+            echo "::error::IOS_ASSOCIATED_DOMAIN 格式错误，应为 applinks:<domain>，例如 applinks:www.pangbao.cuplay.top"
+            exit 1
           fi
+          echo "IOS_ASSOCIATED_DOMAIN=$IOS_ASSOCIATED_DOMAIN" >> "$GITHUB_ENV"
 
-          if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" && -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
-            WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" IOS_ASSOCIATED_DOMAIN="$IOS_ASSOCIATED_DOMAIN" python3 <<'PY'
+          WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" IOS_ASSOCIATED_DOMAIN="$IOS_ASSOCIATED_DOMAIN" python3 <<'PY'
           import os
           import sys
           from urllib.parse import urlparse
@@ -254,69 +258,6 @@ jobs:
           if not parsed.path or parsed.path == '/':
             sys.exit('::error::WECHAT_UNIVERSAL_LINK 必须包含微信登记的路径前缀，不能只填域名根路径')
           PY
-          fi
-
-          case "$RELEASE_MODE" in
-            ipa_only)
-              EFFECTIVE_EXPORT_METHOD="$EXPORT_METHOD"
-              EFFECTIVE_UPLOAD_TO_TESTFLIGHT="false"
-              if [[ "$UPLOAD_TO_TESTFLIGHT" == "true" ]]; then
-                echo "::warning::release_mode=ipa_only 已强制禁用 TestFlight 上传，upload_to_testflight 将被忽略。"
-              fi
-              ;;
-            testflight_internal_only)
-              EFFECTIVE_EXPORT_METHOD="app-store"
-              EFFECTIVE_UPLOAD_TO_TESTFLIGHT="true"
-              if [[ -z "$INTERNAL_TESTFLIGHT_GROUPS" ]]; then
-                echo "::error::release_mode=testflight_internal_only 时，必须填写 internal_testflight_groups（可逗号分隔多个组名）。"
-                exit 1
-              fi
-              if [[ "$EXPORT_METHOD" != "app-store" ]]; then
-                echo "::warning::release_mode=testflight_internal_only 已强制使用 app-store 导出，当前 export_method=$EXPORT_METHOD 将被忽略。"
-              fi
-              if [[ "$UPLOAD_TO_TESTFLIGHT" != "true" ]]; then
-                echo "::warning::release_mode=testflight_internal_only 已强制上传 TestFlight，当前 upload_to_testflight=$UPLOAD_TO_TESTFLIGHT 将被忽略。"
-              fi
-              ;;
-            testflight_and_appstore)
-              EFFECTIVE_EXPORT_METHOD="app-store"
-              EFFECTIVE_UPLOAD_TO_TESTFLIGHT="true"
-              if [[ "$EXPORT_METHOD" != "app-store" ]]; then
-                echo "::warning::release_mode=testflight_and_appstore 已强制使用 app-store 导出，当前 export_method=$EXPORT_METHOD 将被忽略。"
-              fi
-              if [[ "$UPLOAD_TO_TESTFLIGHT" != "true" ]]; then
-                echo "::warning::release_mode=testflight_and_appstore 已强制上传 TestFlight，当前 upload_to_testflight=$UPLOAD_TO_TESTFLIGHT 将被忽略。"
-              fi
-              ;;
-            legacy)
-              echo "::warning::当前使用 legacy 模式。建议改用 release_mode=ipa_only|testflight_internal_only|testflight_and_appstore。"
-              EFFECTIVE_EXPORT_METHOD="$EXPORT_METHOD"
-              EFFECTIVE_UPLOAD_TO_TESTFLIGHT="$UPLOAD_TO_TESTFLIGHT"
-              ;;
-            *)
-              echo "::error::未知 release_mode: $RELEASE_MODE"
-              exit 1
-              ;;
-          esac
-
-          if [[ "$EFFECTIVE_UPLOAD_TO_TESTFLIGHT" == "true" && "$EFFECTIVE_EXPORT_METHOD" != "app-store" ]]; then
-            echo "::error::启用 TestFlight 上传时，导出方式必须为 app-store（当前：$EFFECTIVE_EXPORT_METHOD）"
-            exit 1
-          fi
-
-          if [[ "$EFFECTIVE_UPLOAD_TO_TESTFLIGHT" == "true" ]]; then
-            upload_required=(
-              APP_STORE_CONNECT_ISSUER_ID
-              APP_STORE_CONNECT_KEY_ID
-              APP_STORE_CONNECT_API_KEY_P8_BASE64
-            )
-            for name in "${upload_required[@]}"; do
-              if [[ -z "${!name:-}" ]]; then
-                echo "::error::启用 TestFlight 上传时缺少 GitHub Secret: $name"
-                exit 1
-              fi
-            done
-          fi
 
           selected_profile_secret_name=""
           selected_profile_secret_value=""
@@ -344,13 +285,35 @@ jobs:
             fi
           fi
 
-          echo "EFFECTIVE_RELEASE_MODE=$EFFECTIVE_RELEASE_MODE" >> "$GITHUB_ENV"
+          if [[ "$TARGET_CHANNEL" == "adhoc" ]]; then
+            if [[ -z "${PGYER_API_KEY:-}" ]]; then
+              echo "::error::ad-hoc 分发缺少 Secret: PGYER_API_KEY"
+              exit 1
+            fi
+          fi
+
+          if [[ "$TARGET_CHANNEL" == "testflight" || "$TARGET_CHANNEL" == "appstore" ]]; then
+            upload_required=(
+              APP_STORE_CONNECT_ISSUER_ID
+              APP_STORE_CONNECT_KEY_ID
+              APP_STORE_CONNECT_API_KEY_P8_BASE64
+            )
+            for name in "${upload_required[@]}"; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "::error::${TARGET_CHANNEL} 上传缺少 GitHub Secret: $name"
+                exit 1
+              fi
+            done
+          fi
+
+          if [[ -n "${PGYER_INSTALL_PASSWORD:-}" && "$TARGET_CHANNEL" != "adhoc" ]]; then
+            echo "::warning::仅 ad-hoc 使用 pgyer_install_password，当前 channel=$TARGET_CHANNEL 将忽略该参数。"
+          fi
+
           echo "EFFECTIVE_EXPORT_METHOD=$EFFECTIVE_EXPORT_METHOD" >> "$GITHUB_ENV"
-          echo "EFFECTIVE_UPLOAD_TO_TESTFLIGHT=$EFFECTIVE_UPLOAD_TO_TESTFLIGHT" >> "$GITHUB_ENV"
-          echo "EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS=$EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS" >> "$GITHUB_ENV"
-          echo "[Mode] release_mode=$EFFECTIVE_RELEASE_MODE export_method=$EFFECTIVE_EXPORT_METHOD upload_to_testflight=$EFFECTIVE_UPLOAD_TO_TESTFLIGHT"
-          if [[ -n "$EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS" ]]; then
-            echo "[Mode] internal_testflight_groups=$EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS"
+          echo "[Mode] target_channel=$TARGET_CHANNEL export_method=$EFFECTIVE_EXPORT_METHOD"
+          if [[ -n "$INTERNAL_TESTFLIGHT_GROUPS" ]]; then
+            echo "[Mode] internal_testflight_groups=$INTERNAL_TESTFLIGHT_GROUPS"
           fi
 
       - name: Generate iOS project if missing
@@ -506,8 +469,6 @@ jobs:
             SIGNING_CERTIFICATE="Apple Development"
           fi
 
-          # 统一使用 export 产出 IPA，再由后续 altool 上传到 TestFlight。
-          # 实测 destination=upload 在当前流程下不会稳定触发上传结果回显。
           EXPORT_DESTINATION="export"
           EXPORT_METHOD_PLIST="$EFFECTIVE_EXPORT_METHOD"
           if [[ "$EFFECTIVE_EXPORT_METHOD" == "ad-hoc" ]]; then
@@ -549,7 +510,7 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          echo "[Build] release_mode=$EFFECTIVE_RELEASE_MODE export_method=$EFFECTIVE_EXPORT_METHOD"
+          echo "[Build] target_channel=$TARGET_CHANNEL export_method=$EFFECTIVE_EXPORT_METHOD"
 
           EFFECTIVE_BUILD_NUMBER="$BUILD_NUMBER"
           if [[ -z "$EFFECTIVE_BUILD_NUMBER" ]]; then
@@ -596,27 +557,88 @@ jobs:
           echo "[IPA] resolved path: $IPA_PATH"
 
       - name: Upload IPA artifact
-        if: ${{ inputs.release_mode == 'ipa_only' || (inputs.release_mode == 'legacy' && !inputs.upload_to_testflight) }}
         uses: actions/upload-artifact@v4
         with:
-          name: ipa-${{ inputs.release_mode }}
+          name: ipa-${{ inputs.target_channel }}
           if-no-files-found: error
           path: ${{ env.IPA_PATH }}
 
       - name: Upload xcarchive artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xcarchive-${{ inputs.release_mode }}
+          name: xcarchive-${{ inputs.target_channel }}
           if-no-files-found: error
           path: ${{ env.APP_DIR }}/build/ios/archive/*.xcarchive
 
-      - name: Upload to TestFlight
-        if: ${{ inputs.release_mode != 'ipa_only' && (inputs.release_mode != 'legacy' || inputs.upload_to_testflight) }}
+      - name: Upload to Pgyer
+        if: ${{ inputs.target_channel == 'adhoc' }}
         run: |
           set -euo pipefail
 
-          echo "[TestFlight] release_mode=$EFFECTIVE_RELEASE_MODE"
-          echo "[TestFlight] using export IPA + fastlane pilot upload path"
+          IPA_PATH="${IPA_PATH:-}"
+          if [[ -z "$IPA_PATH" ]]; then
+            echo "::error::未找到待上传的 IPA"
+            exit 1
+          fi
+
+          install_type="1"
+          password_args=()
+          if [[ -n "${PGYER_INSTALL_PASSWORD:-}" ]]; then
+            install_type="2"
+            password_args=(-F "buildPassword=$PGYER_INSTALL_PASSWORD")
+          fi
+
+          update_desc="${PGYER_UPDATE_DESCRIPTION:-}"
+          if [[ -z "$update_desc" ]]; then
+            update_desc="GitHub Actions ad-hoc 自动上传"
+          fi
+
+          response_path="$RUNNER_TEMP/pgyer_upload_response.json"
+          http_code="$(curl -sS -o "$response_path" -w "%{http_code}" \
+            -F "_api_key=$PGYER_API_KEY" \
+            -F "file=@$IPA_PATH" \
+            -F "buildInstallType=$install_type" \
+            -F "buildUpdateDescription=$update_desc" \
+            "${password_args[@]}" \
+            https://www.pgyer.com/apiv2/app/upload)"
+
+          if [[ "$http_code" != "200" ]]; then
+            echo "::error::蒲公英上传 HTTP 异常，status=$http_code"
+            cat "$response_path" || true
+            exit 1
+          fi
+
+          RESPONSE_PATH="$response_path" python3 <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          path = Path(os.environ['RESPONSE_PATH'])
+          text = path.read_text(encoding='utf-8', errors='replace')
+          try:
+              payload = json.loads(text)
+          except Exception:
+              sys.exit(f"::error::蒲公英返回非 JSON 响应: {text[:500]}")
+
+          code = payload.get('code')
+          message = payload.get('message') or payload.get('msg') or 'unknown'
+          data = payload.get('data') or {}
+
+          if code not in (0, '0'):
+              detail = data.get('error') or data.get('message') or ''
+              sys.exit(f"::error::蒲公英上传失败 code={code} message={message} detail={detail}")
+
+          build_key = data.get('buildKey', '')
+          build_version = data.get('buildVersion', '')
+          build_version_no = data.get('buildVersionNo', '')
+          print(f"::notice::蒲公英上传成功 buildKey={build_key} buildVersion={build_version} buildVersionNo={build_version_no}")
+          PY
+
+      - name: Prepare App Store Connect API key
+        if: ${{ inputs.target_channel == 'testflight' || inputs.target_channel == 'appstore' }}
+        run: |
+          set -euo pipefail
 
           KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           API_KEY_JSON_PATH="$RUNNER_TEMP/app_store_connect_api_key.json"
@@ -631,17 +653,6 @@ jobs:
           PY
 
           chmod 600 "$KEY_PATH"
-
-          IPA_PATH="${IPA_PATH:-}"
-          if [[ -z "$IPA_PATH" ]]; then
-            echo "::error::未找到待上传的 IPA"
-            ls -la "$APP_DIR/build/ios" || true
-            exit 1
-          fi
-
-          echo "[TestFlight] IPA_PATH=$IPA_PATH"
-          file "$IPA_PATH"
-          unzip -t "$IPA_PATH" >/dev/null
 
           KEY_PATH="$KEY_PATH" API_KEY_JSON_PATH="$API_KEY_JSON_PATH" APP_STORE_CONNECT_KEY_ID="$APP_STORE_CONNECT_KEY_ID" APP_STORE_CONNECT_ISSUER_ID="$APP_STORE_CONNECT_ISSUER_ID" python3 <<'PY'
           import json
@@ -658,19 +669,32 @@ jobs:
           Path(os.environ['API_KEY_JSON_PATH']).write_text(json.dumps(payload), encoding='utf-8')
           PY
 
+          echo "APP_STORE_CONNECT_API_KEY_JSON=$API_KEY_JSON_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload to TestFlight
+        if: ${{ inputs.target_channel == 'testflight' }}
+        run: |
+          set -euo pipefail
+
           if ! command -v fastlane >/dev/null 2>&1; then
             sudo gem install fastlane -N
+          fi
+
+          IPA_PATH="${IPA_PATH:-}"
+          if [[ -z "$IPA_PATH" ]]; then
+            echo "::error::未找到待上传的 IPA"
+            exit 1
           fi
 
           upload_cmd=(
             fastlane pilot upload
             --ipa "$IPA_PATH"
-            --api_key_path "$API_KEY_JSON_PATH"
+            --api_key_path "$APP_STORE_CONNECT_API_KEY_JSON"
             --verbose
           )
 
-          if [[ "$EFFECTIVE_RELEASE_MODE" == "testflight_internal_only" ]]; then
-            echo "[TestFlight] target_groups=$EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS"
+          if [[ -n "$INTERNAL_TESTFLIGHT_GROUPS" ]]; then
+            echo "[TestFlight] target_groups=$INTERNAL_TESTFLIGHT_GROUPS"
 
             max_retries=3
             retry_delay_seconds=120
@@ -679,7 +703,7 @@ jobs:
 
             while [[ "$attempt" -le "$max_retries" ]]; do
               echo "[TestFlight] internal distribution attempt ${attempt}/${max_retries}"
-              if "${upload_cmd[@]}" --groups "$EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS" --skip_submission true; then
+              if "${upload_cmd[@]}" --groups "$INTERNAL_TESTFLIGHT_GROUPS" --skip_submission true; then
                 distributed=true
                 echo "[TestFlight] upload+internal distribution success"
                 break
@@ -694,10 +718,32 @@ jobs:
 
             if [[ "$distributed" != "true" ]]; then
               echo "::warning::已完成 IPA 上传，但自动分配内部测试组失败。"
-              echo "::warning::请在 App Store Connect -> TestFlight 中手工将该构建分配到组：$EFFECTIVE_INTERNAL_TESTFLIGHT_GROUPS"
-              echo "::warning::建议检查：1) 组名是否正确 2) API Key 权限 3) 构建处理状态"
+              echo "::warning::请在 App Store Connect -> TestFlight 中手工将该构建分配到组：$INTERNAL_TESTFLIGHT_GROUPS"
             fi
           else
-            echo "[TestFlight] uploading via fastlane pilot (skip waiting for processing)"
+            echo "::notice::未配置 internal_testflight_groups，本次仅上传 TestFlight，不自动分配测试组。"
             "${upload_cmd[@]}" --skip_waiting_for_build_processing true
           fi
+
+      - name: Upload to App Store Connect (upload only)
+        if: ${{ inputs.target_channel == 'appstore' }}
+        run: |
+          set -euo pipefail
+
+          if ! command -v fastlane >/dev/null 2>&1; then
+            sudo gem install fastlane -N
+          fi
+
+          IPA_PATH="${IPA_PATH:-}"
+          if [[ -z "$IPA_PATH" ]]; then
+            echo "::error::未找到待上传的 IPA"
+            exit 1
+          fi
+
+          echo "[ASC] upload-only path (no submit, no release)"
+          fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --api_key_path "$APP_STORE_CONNECT_API_KEY_JSON" \
+            --skip_waiting_for_build_processing true \
+            --skip_submission true \
+            --verbose

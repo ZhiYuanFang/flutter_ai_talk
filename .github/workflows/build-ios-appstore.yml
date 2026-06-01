@@ -1,0 +1,74 @@
+name: Build iOS AppStore Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: Flutter 版本
+        required: true
+        default: 3.41.9
+        type: string
+      build_name:
+        description: 可选，覆盖 pubspec.yaml 中版本号
+        required: false
+        default: ''
+        type: string
+      build_number:
+        description: 可选，覆盖 pubspec.yaml 中构建号
+        required: false
+        default: ''
+        type: string
+      uses_non_exempt_encryption:
+        description: 是否使用“非豁免加密”
+        required: true
+        default: false
+        type: boolean
+      app_dir:
+        description: Flutter app 目录
+        required: true
+        default: app
+        type: string
+      macos_runner:
+        description: macOS Runner 镜像
+        required: true
+        default: macos-26
+        type: choice
+        options:
+          - macos-14
+          - macos-15
+          - macos-26
+          - macos-26-intel
+      xcode_version:
+        description: Xcode 版本（需与 runner 匹配）
+        required: true
+        default: '26.4'
+        type: string
+
+jobs:
+  build:
+    uses: ./.github/workflows/ios-build-core.yml
+    with:
+      target_channel: appstore
+      app_dir: ${{ inputs.app_dir }}
+      flutter_version: ${{ inputs.flutter_version }}
+      build_name: ${{ inputs.build_name }}
+      build_number: ${{ inputs.build_number }}
+      uses_non_exempt_encryption: ${{ inputs.uses_non_exempt_encryption }}
+      macos_runner: ${{ inputs.macos_runner }}
+      xcode_version: ${{ inputs.xcode_version }}
+    secrets:
+      IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
+      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+      IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_MOBILEPROVISION_APPSTORE_BASE64: ${{ secrets.IOS_MOBILEPROVISION_APPSTORE_BASE64 }}
+      IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
+      IOS_APP_DISPLAY_NAME: ${{ secrets.IOS_APP_DISPLAY_NAME }}
+      IOS_MICROPHONE_USAGE_DESCRIPTION: ${{ secrets.IOS_MICROPHONE_USAGE_DESCRIPTION }}
+      IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION: ${{ secrets.IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION }}
+      WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+      WECHAT_UNIVERSAL_LINK: ${{ secrets.WECHAT_UNIVERSAL_LINK }}
+      IOS_ASSOCIATED_DOMAIN: ${{ secrets.IOS_ASSOCIATED_DOMAIN }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}

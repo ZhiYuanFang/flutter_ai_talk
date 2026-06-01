@@ -1,47 +1,45 @@
 # GitHub 打包 iOS IPA（无 Mac 方案）
 
-本仓库已提供 GitHub Actions 工作流 [.github/workflows/build-ios-ipa.yml](../.github/workflows/build-ios-ipa.yml)，可在 GitHub 的 macOS Runner 上构建 iPhone 可安装的 iOS 包，并可直接上传到 App Store Connect / TestFlight。
+本仓库已改为 **三入口工作流**，通过 GitHub macOS Runner 构建 iOS IPA 并按目标分发：
+
+- ad-hoc：上传到蒲公英
+- testflight：上传到 TestFlight（测试组可选）
+- appstore：仅上传到 App Store Connect（ASC）
+
+工作流入口：
+
+- [.github/workflows/build-ios-adhoc.yml](../.github/workflows/build-ios-adhoc.yml)
+- [.github/workflows/build-ios-testflight.yml](../.github/workflows/build-ios-testflight.yml)
+- [.github/workflows/build-ios-appstore.yml](../.github/workflows/build-ios-appstore.yml)
+
+> 旧入口 [.github/workflows/build-ios-ipa.yml](../.github/workflows/build-ios-ipa.yml) 已退场，不再作为手工触发入口。
 
 如果你想看一份更适合直接照做的清单版文档，可先看：[docs/ios-github-actions-checklist.md](docs/ios-github-actions-checklist.md)。
 
-如果你手上没有 Mac，**最推荐的发布路径是：`release_mode=testflight_internal_only`**。这样 GitHub 会帮你完成构建、上传，并尽量自动分配到你指定的内部测试组。
+## 发布入口对照（推荐只看这个）
 
-## 发布模式对照（推荐只看这个）
-
-- `ipa_only`：只要产物文件；导出方式跟随 `export_method`；不上传 TestFlight。
-- `testflight_internal_only`：仅内部测试（推荐）；强制 `app-store` 并上传；需要填写 `internal_testflight_groups`。
-- `testflight_and_appstore`：为外测/上架做准备；强制 `app-store` 并上传；后续在 App Store Connect 继续分发/提审。
-- `legacy`：兼容旧参数语义；建议迁移到新模式。
+- `Build iOS ad-hoc`：固定 `ad-hoc` 导出，自动上传蒲公英；蒲公英上传失败会直接导致 workflow 失败。
+- `Build iOS TestFlight`：固定 `app-store` 导出并上传 TestFlight；`internal_testflight_groups` 为可选，留空则仅上传不自动分组。
+- `Build iOS AppStore Upload`：固定 `app-store` 导出并上传 ASC；仅上传，不自动提审、不自动发布。
 
 ## 先看结论：你应该怎么选
 
-### 方案 A：发给自己或测试同事安装（最推荐）
+### 方案 A：发给测试同事快速安装（推荐）
 
-- 选择 `release_mode=testflight_internal_only`
-- 填写 `internal_testflight_groups`（可逗号分隔多个组名）
-- GitHub Actions 会把构建结果上传到 App Store Connect
-- 你在 iPhone 上安装 `TestFlight`，就能从 TestFlight 安装应用
+- 选择 `Build iOS TestFlight`
+- 可选填写 `internal_testflight_groups`（支持逗号分隔）
+- 不填也可上传成功，后续在 ASC 手工分配组
 
-**优点**：不需要本地 Mac，也不需要手工上传 `.ipa`。
+### 方案 B：需要 ad-hoc 外部分发链接
 
-### 方案 B：直接生成可安装 IPA 给少量设备
+- 选择 `Build iOS ad-hoc`
+- 配置 `PGYER_API_KEY`（Repository Secrets）
+- 可选配置安装密码和更新说明
 
-- 选择 `release_mode=ipa_only`
-- 选择 `export_method=ad-hoc`（或 `development`）
-- 你的描述文件必须包含目标 iPhone 的 UDID
+### 方案 C：准备上架资产但不自动提审
 
-**优点**：适合有限设备侧载。
-
-**缺点**：设备管理更麻烦，且没有 TestFlight 方便。
-
-### 方案 C：开发调试机安装
-
-- 选择 `release_mode=ipa_only`
-- 选择 `export_method=development`
-
-**适合**：内部调试、少量开发测试。
-
-**不推荐作为正式分发方案**。
+- 选择 `Build iOS AppStore Upload`
+- 构建仅上传到 ASC，后续由你在网页里手工提审/发布
 
 ## 整体流程总览
 
@@ -270,7 +268,7 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 - `Actions`
 - `New repository secret`
 
-### 必填 Secrets
+### 通用必填 Secrets（所有入口）
 
 | Secret | 你要填什么 | 从哪里来 |
 | ------ | ------ | ------ |
@@ -278,9 +276,20 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 | `IOS_TEAM_ID` | Apple Team ID | Apple Developer 账号信息 |
 | `IOS_CERTIFICATE_P12_BASE64` | `.p12` 文件的 Base64 | 你导出的 `ios_distribution.p12` 或 `ios_development.p12` |
 | `IOS_CERTIFICATE_PASSWORD` | `.p12` 导出密码 | 导出 `.p12` 时设置 |
-| `IOS_MOBILEPROVISION_BASE64` | `.mobileprovision` 的 Base64 | Apple Developer -> Profiles 下载 |
+| `WECHAT_APP_ID` | 微信移动应用 AppId | 微信开放平台 |
+| `WECHAT_UNIVERSAL_LINK` | 微信 iOS Universal Link | 微信开放平台 |
 
-### 推荐 Secrets
+### 描述文件 Secrets（按入口）
+
+优先使用分入口描述文件；兼容兜底 `IOS_MOBILEPROVISION_BASE64`。
+
+| 入口 | 首选 Secret |
+| ------ | ------ |
+| ad-hoc | `IOS_MOBILEPROVISION_ADHOC_BASE64` |
+| testflight | `IOS_MOBILEPROVISION_APPSTORE_BASE64` |
+| appstore | `IOS_MOBILEPROVISION_APPSTORE_BASE64` |
+
+### 推荐 Secrets（通用）
 
 | Secret | 用途 |
 | ------ | ------ |
@@ -291,7 +300,15 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 | `WECHAT_UNIVERSAL_LINK` | 微信 iOS Universal Link |
 | `IOS_ASSOCIATED_DOMAIN` | iOS Associated Domains，格式 `applinks:<domain>` |
 
-### 自动上传 TestFlight 时必填
+### ad-hoc（蒲公英）额外必填
+
+| Secret | 用途 |
+| ------ | ------ |
+| `PGYER_API_KEY` | 蒲公英上传 API Key |
+
+> 配置路径：Repository -> Settings -> Secrets and variables -> Actions -> New repository secret
+
+### TestFlight / AppStore Upload 额外必填
 
 | Secret | 你要填什么 | 从哪里来 |
 | ------ | ------ | ------ |
@@ -319,24 +336,30 @@ PowerShell：
 
 1. 把代码推送到 GitHub
 2. 打开仓库的 `Actions`
-3. 选择 `Build iOS IPA`
+3. 选择对应入口：
+   - `Build iOS ad-hoc`
+   - `Build iOS TestFlight`
+   - `Build iOS AppStore Upload`
 4. 点击 `Run workflow`
 
-5. 选择参数：
+### Build iOS ad-hoc
 
-- `release_mode=testflight_internal_only`：仅内部测试（推荐）
-- `internal_testflight_groups=Internal QA`：内部测试组（支持逗号分隔）
-- `export_method` 与 `upload_to_testflight`：在新模式下会被自动约束或忽略，仅 `legacy` 按旧语义生效
-- `flutter_version`：默认 `3.24.5`，通常不用改
-- `macos_runner`：macOS Runner 镜像，默认 `macos-26`（可选 `macos-14` / `macos-15` / `macos-26-intel`）
-- `xcode_version`：默认 `26.4`（需与 Runner 匹配，如 `macos-15` 常用 `16.2`）
-- `build_name`：可选，例如 `1.0.0`
-- `build_number`：可选，例如 `12`
+- 固定 ad-hoc 导出并上传蒲公英
+- 必须配置 `PGYER_API_KEY`
+- 可选填写：`pgyer_update_description`、`pgyer_install_password`
+- 蒲公英上传失败将直接失败（硬失败）
 
-如果你只是想先验证签名能不能过，也可以：
+### Build iOS TestFlight
 
-- `release_mode=ipa_only`
-- `export_method=ad-hoc`
+- 固定 app-store 导出并上传 TestFlight
+- `internal_testflight_groups` 可选：
+  - 不为空：尝试自动分组
+  - 为空：仅上传，不自动分组（日志会提示）
+
+### Build iOS AppStore Upload
+
+- 固定 app-store 导出并上传 ASC
+- 仅上传，不自动提审、不自动发布
 
 ## 第 9 步：构建时 GitHub 会自动做什么
 
@@ -345,35 +368,30 @@ PowerShell：
 - 如果仓库里暂时没有 `app/ios/`，执行 `flutter create . --platforms=ios`
 - 把 `WECHAT_APP_ID` / `WECHAT_UNIVERSAL_LINK` 注入到 `app/pubspec.yaml`
 - 在 `flutter build ipa` 时显式注入 `--dart-define=WECHAT_APP_ID=...` 与 `--dart-define=WECHAT_UNIVERSAL_LINK=...`
-- 非 `legacy` 模式 fail-fast 校验：`WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK`、`IOS_ASSOCIATED_DOMAIN` 不得为空
+- fail-fast 校验：`WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK` 不得为空
 - 校验 `WECHAT_UNIVERSAL_LINK` 为 `https://` 且不含 `*`，并校验其域名与 `IOS_ASSOCIATED_DOMAIN` 一致
 - 为 `speech_to_text` / `record` 自动补齐 iOS 权限文案
 - 导入证书和描述文件
 - 切换至指定 Xcode 版本并打印 iOS SDK 信息
 - 修改 iOS 工程签名配置
 - 执行 `flutter build ipa`
-- 在 `release_mode=ipa_only` 时上传 `.ipa` artifact
-- 在 TestFlight 相关模式下，自动上传到 App Store Connect
-- 在 `testflight_internal_only` 下，尝试自动分配到 `internal_testflight_groups` 指定的内部测试组
+- 上传 `.ipa` 与 `xcarchive` artifact
+- ad-hoc 入口：自动上传蒲公英（失败即 workflow 失败）
+- testflight 入口：上传 TestFlight；若配置组则自动分组
+- appstore 入口：仅上传到 ASC
 
 ## 第 10 步：构建成功后去哪里看结果
 
-### 如果你没开启自动上传
+构建完成后，在 GitHub Actions 任务页面都可以下载 artifact：
 
-构建完成后，在 GitHub Actions 任务页面下载 artifact：
+- `ipa-adhoc` / `ipa-testflight` / `ipa-appstore`
+- `xcarchive-adhoc` / `xcarchive-testflight` / `xcarchive-appstore`
 
-- `ipa-<release_mode>`：打好的 `.ipa`
-- `xcarchive-<release_mode>`：归档包
+按入口看分发结果：
 
-### 如果你开启了自动上传
-
-去 App Store Connect：
-
-- `My Apps`
-- 打开你的 App
-- `TestFlight`
-
-一般上传成功后，Apple 需要一段时间处理构建，处理完成后你会在 TestFlight 页面看到新 build。
+- ad-hoc：在日志看到蒲公英上传成功（不强制输出安装短链）
+- testflight：在 App Store Connect -> TestFlight 查看 build；可自动分组或手工分组
+- appstore：在 ASC 中可见上传的 build（仅上传）
 
 ## 第 11 步：如何把 IPA 上传到 App Store / TestFlight
 
@@ -383,10 +401,12 @@ PowerShell：
 
 做法：
 
-- `release_mode=testflight_internal_only`
-- `internal_testflight_groups=<你的内部测试组名>`
+- 选择 `Build iOS TestFlight`
+- 可选填写 `internal_testflight_groups=<你的内部测试组名>`（可留空）
 
 这样 GitHub 会在构建后执行上传。
+
+如果你的目标是 ad-hoc 分发到外部设备，使用 `Build iOS ad-hoc`，并确保已配置 `PGYER_API_KEY`。
 
 ### 如果你只下载了 IPA，能不能在 Windows 手工上传？
 
@@ -403,7 +423,7 @@ PowerShell：
 
 ### 内部测试
 
-如果你使用了 `release_mode=testflight_internal_only` 且组名正确，工作流会尝试自动分配。若日志提示“上传成功但分配失败”，可按下面手工补救：
+如果你在 `Build iOS TestFlight` 中填写了 `internal_testflight_groups` 且组名正确，工作流会尝试自动分配。若日志提示“上传成功但分配失败”，可按下面手工补救：
 
 1. 打开 `TestFlight`
 2. 进入对应 Build
@@ -468,6 +488,10 @@ PowerShell：
 - `Key ID`
 - `Issuer ID`
 
+如果要走 ad-hoc 自动上传蒲公英，再加：
+
+- `PGYER_API_KEY`
+
 ### 3. 没有 Mac，能不能上 App Store？
 
 可以，但前提是：
@@ -483,6 +507,10 @@ PowerShell：
 - 不用折腾本地上传工具
 - 不用手工签名安装
 - 安装体验更接近正式上架前流程
+
+### 6. 蒲公英为什么上传失败会让工作流失败？
+
+因为 ad-hoc 入口的目标就是“构建并完成蒲公英分发”。若上传失败，结果不可用，所以 workflow 采用硬失败策略，避免出现“构建成功但分发失败”的灰色状态。
 
 ### 5. `pod install` 报 speech_to_text 需要更高 deployment target？
 
