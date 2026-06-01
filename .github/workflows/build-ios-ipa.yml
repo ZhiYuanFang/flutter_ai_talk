@@ -199,16 +199,16 @@ jobs:
 
           if [[ -z "${IOS_ASSOCIATED_DOMAIN:-}" && -n "${WECHAT_UNIVERSAL_LINK:-}" ]]; then
             IOS_ASSOCIATED_DOMAIN="$(WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" python3 <<'PY'
-from urllib.parse import urlparse
-import os
-import sys
+          from urllib.parse import urlparse
+          import os
+          import sys
 
-ul = os.environ['WECHAT_UNIVERSAL_LINK'].strip()
-parsed = urlparse(ul)
-if not parsed.scheme or parsed.scheme != 'https' or not parsed.netloc:
-    sys.exit('::error::WECHAT_UNIVERSAL_LINK 不是有效 https URL，无法自动推导 IOS_ASSOCIATED_DOMAIN')
-print(f"applinks:{parsed.netloc}")
-PY
+          ul = os.environ['WECHAT_UNIVERSAL_LINK'].strip()
+          parsed = urlparse(ul)
+          if not parsed.scheme or parsed.scheme != 'https' or not parsed.netloc:
+            sys.exit('::error::WECHAT_UNIVERSAL_LINK 不是有效 https URL，无法自动推导 IOS_ASSOCIATED_DOMAIN')
+          print(f"applinks:{parsed.netloc}")
+          PY
             )"
             echo "::notice::未提供 IOS_ASSOCIATED_DOMAIN，已自动推导为 $IOS_ASSOCIATED_DOMAIN"
           fi
