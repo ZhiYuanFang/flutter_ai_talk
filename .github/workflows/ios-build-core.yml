@@ -583,10 +583,8 @@ jobs:
           fi
 
           install_type="1"
-          password_args=()
           if [[ -n "${PGYER_INSTALL_PASSWORD:-}" ]]; then
             install_type="2"
-            password_args=(-F "buildPassword=$PGYER_INSTALL_PASSWORD")
           fi
 
           update_desc="${PGYER_UPDATE_DESCRIPTION:-}"
@@ -595,13 +593,22 @@ jobs:
           fi
 
           response_path="$RUNNER_TEMP/pgyer_upload_response.json"
-          http_code="$(curl -sS -o "$response_path" -w "%{http_code}" \
-            -F "_api_key=$PGYER_API_KEY" \
-            -F "file=@$IPA_PATH" \
-            -F "buildInstallType=$install_type" \
-            -F "buildUpdateDescription=$update_desc" \
-            "${password_args[@]}" \
-            https://www.pgyer.com/apiv2/app/upload)"
+          if [[ -n "${PGYER_INSTALL_PASSWORD:-}" ]]; then
+            http_code="$(curl -sS -o "$response_path" -w "%{http_code}" \
+              -F "_api_key=$PGYER_API_KEY" \
+              -F "file=@$IPA_PATH" \
+              -F "buildInstallType=$install_type" \
+              -F "buildUpdateDescription=$update_desc" \
+              -F "buildPassword=$PGYER_INSTALL_PASSWORD" \
+              https://www.pgyer.com/apiv2/app/upload)"
+          else
+            http_code="$(curl -sS -o "$response_path" -w "%{http_code}" \
+              -F "_api_key=$PGYER_API_KEY" \
+              -F "file=@$IPA_PATH" \
+              -F "buildInstallType=$install_type" \
+              -F "buildUpdateDescription=$update_desc" \
+              https://www.pgyer.com/apiv2/app/upload)"
+          fi
 
           if [[ "$http_code" != "200" ]]; then
             echo "::error::蒲公英上传 HTTP 异常，status=$http_code"
