@@ -210,24 +210,24 @@ jobs:
 
           if [[ -n "${WECHAT_UNIVERSAL_LINK:-}" && -n "${IOS_ASSOCIATED_DOMAIN:-}" ]]; then
             WECHAT_UNIVERSAL_LINK="$WECHAT_UNIVERSAL_LINK" IOS_ASSOCIATED_DOMAIN="$IOS_ASSOCIATED_DOMAIN" python3 <<'PY'
-import os
-import sys
-from urllib.parse import urlparse
+          import os
+          import sys
+          from urllib.parse import urlparse
 
-ul = os.environ['WECHAT_UNIVERSAL_LINK'].strip()
-associated = os.environ['IOS_ASSOCIATED_DOMAIN'].strip()
-domain = associated[len('applinks:'):].strip()
+          ul = os.environ['WECHAT_UNIVERSAL_LINK'].strip()
+          associated = os.environ['IOS_ASSOCIATED_DOMAIN'].strip()
+          domain = associated[len('applinks:'):].strip()
 
-parsed = urlparse(ul)
-if not parsed.scheme or parsed.scheme != 'https' or not parsed.netloc:
-    sys.exit('::error::WECHAT_UNIVERSAL_LINK 不是有效 https URL')
+          parsed = urlparse(ul)
+          if not parsed.scheme or parsed.scheme != 'https' or not parsed.netloc:
+            sys.exit('::error::WECHAT_UNIVERSAL_LINK 不是有效 https URL')
 
-if parsed.netloc != domain:
-    sys.exit(f"::error::IOS_ASSOCIATED_DOMAIN({domain}) 与 WECHAT_UNIVERSAL_LINK 域名({parsed.netloc}) 不一致")
+          if parsed.netloc != domain:
+            sys.exit(f"::error::IOS_ASSOCIATED_DOMAIN({domain}) 与 WECHAT_UNIVERSAL_LINK 域名({parsed.netloc}) 不一致")
 
-if not parsed.path or parsed.path == '/':
-    sys.exit('::error::WECHAT_UNIVERSAL_LINK 必须包含微信登记的路径前缀，不能只填域名根路径')
-PY
+          if not parsed.path or parsed.path == '/':
+            sys.exit('::error::WECHAT_UNIVERSAL_LINK 必须包含微信登记的路径前缀，不能只填域名根路径')
+          PY
           fi
 
           case "$RELEASE_MODE" in
