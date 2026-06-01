@@ -15,6 +15,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/keyboard_input_bridge.dart';
 
 /// 主页历史行编辑：玻璃拟态底部 Sheet，返回 `true` 表示列表已变更。
 Future<bool?> showHomeHistoryEditSheet(
@@ -57,6 +58,7 @@ class _HomeHistoryEditSheetBody extends ConsumerStatefulWidget {
 
 class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheetBody> {
   final _remarkCtrl = TextEditingController();
+  final _remarkFocusNode = FocusNode();
   late FixedExtentScrollController _usagePickerCtrl;
 
   HistoryRecord? _record;
@@ -70,7 +72,30 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   void initState() {
     super.initState();
     _usagePickerCtrl = FixedExtentScrollController();
+    _remarkFocusNode.addListener(_onRemarkFocusChange);
     WidgetsBinding.instance.addPostFrameCallback((_) => _resolveRecord());
+  }
+
+  @override
+  void dispose() {
+    _remarkFocusNode.removeListener(_onRemarkFocusChange);
+    _remarkFocusNode.dispose();
+    _remarkCtrl.dispose();
+    _usagePickerCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onRemarkFocusChange() {
+    if (_remarkFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _remarkCtrl,
+        focusNode: _remarkFocusNode,
+        onConfirm: () => _remarkFocusNode.unfocus(),
+        scene: 'home.history-edit.remark',
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _remarkCtrl);
   }
 
   void _resolveRecord() {
@@ -326,13 +351,6 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   }
 
   @override
-  void dispose() {
-    _remarkCtrl.dispose();
-    _usagePickerCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final r = _record;
     if (r == null) {
@@ -459,11 +477,14 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
             const SizedBox(height: 14),
             TextField(
               controller: _remarkCtrl,
+              focusNode: _remarkFocusNode,
               readOnly: readOnly,
               style: TextStyle(color: glassText, fontSize: 15),
               cursorColor: scheme.primary,
               decoration: historyEditGlassInputDecoration(context, labelText: '备注'),
               textInputAction: TextInputAction.done,
+              onTap: _onRemarkFocusChange,
+              onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
               onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
               maxLines: 1,
             ),

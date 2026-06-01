@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/session_provider.dart';
+import 'focus_cleanup_observer.dart';
 import '../ui/home_screen.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
 import '../ui/login_screen.dart';
@@ -19,9 +20,11 @@ import '../ui/trends_screen.dart';
 /// “widget has been unmounted” 错误。
 final goRouterProvider = Provider<GoRouter>((ref) {
   final session = ref.read(sessionProvider);
+  final focusObserver = FocusCleanupNavigatorObserver();
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: session,
+    observers: [focusObserver],
     redirect: (context, state) {
       final loc = state.matchedLocation;
       final splash = loc == '/splash';

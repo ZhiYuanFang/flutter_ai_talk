@@ -9,6 +9,7 @@ class AppAdaptiveBottomSheet extends StatelessWidget {
     this.maxHeightFraction = 2 / 3,
     this.scrollable = true,
     this.bottomExtraPadding = 0,
+    this.respectKeyboardInset = false,
   });
 
   final Widget child;
@@ -16,13 +17,14 @@ class AppAdaptiveBottomSheet extends StatelessWidget {
   final double maxHeightFraction;
   final bool scrollable;
   final double bottomExtraPadding;
+  final bool respectKeyboardInset;
 
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final maxH = media.size.height * maxHeightFraction;
-    final bottomPad =
-        media.viewInsets.bottom + media.viewPadding.bottom + bottomExtraPadding;
+    final keyboardInset = respectKeyboardInset ? media.viewInsets.bottom : 0.0;
+    final bottomPad = keyboardInset + media.viewPadding.bottom + bottomExtraPadding;
 
     final body = scrollable ? SingleChildScrollView(child: child) : child;
 

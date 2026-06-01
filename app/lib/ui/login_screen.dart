@@ -13,6 +13,7 @@ import '../session/account_history_store.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/theme_bootstrap_cache.dart';
 import 'auth/auth_ui.dart';
+import 'widgets/keyboard_input_bridge.dart';
 import '../wechat/wechat_web_redirect.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -27,6 +28,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   final _accountCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _accountFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
 
   var _loading = false;
   var _resumedPendingWebLogin = false;
@@ -38,6 +41,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _accountFocusNode.addListener(_onAccountFocusChange);
+    _passwordFocusNode.addListener(_onPasswordFocusChange);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _loadRecentAccounts();
@@ -48,9 +53,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
+    _accountFocusNode.removeListener(_onAccountFocusChange);
+    _passwordFocusNode.removeListener(_onPasswordFocusChange);
+    _accountFocusNode.dispose();
+    _passwordFocusNode.dispose();
     _accountCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  void _onAccountFocusChange() {
+    if (_accountFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _accountCtrl,
+        focusNode: _accountFocusNode,
+        onConfirm: () => _passwordFocusNode.requestFocus(),
+        scene: 'login.account',
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _accountCtrl);
+  }
+
+  void _onPasswordFocusChange() {
+    if (_passwordFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _passwordCtrl,
+        focusNode: _passwordFocusNode,
+        onConfirm: _onUsernameLogin,
+        scene: 'login.password',
+        obscureText: true,
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _passwordCtrl);
   }
 
   String _normalizeAccount(String raw) => raw.trim().toLowerCase();
@@ -194,6 +230,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: Container(
         width: double.infinity,
         decoration: const BoxDecoration(
@@ -213,9 +250,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 20),
                       TextField(
                         controller: _accountCtrl,
+                        focusNode: _accountFocusNode,
                         enabled: !_loading,
                         autocorrect: false,
                         textInputAction: TextInputAction.next,
+                        onTap: _onAccountFocusChange,
+                        onChanged: keyboardInputBridgeController.updateDraft,
                         decoration: buildAuthInputDecoration(
                           labelText: '账号',
                           hintText: '4-32 位，仅 a-z0-9_',
@@ -256,8 +296,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 12),
                       TextField(
                         controller: _passwordCtrl,
+                        focusNode: _passwordFocusNode,
                         enabled: !_loading,
                         obscureText: _obscurePassword,
+                        onTap: _onPasswordFocusChange,
+                        onChanged: keyboardInputBridgeController.updateDraft,
                         onSubmitted: (_) => _onUsernameLogin(),
                         decoration: buildAuthInputDecoration(
                           labelText: '密码',

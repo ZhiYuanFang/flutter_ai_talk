@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 const kAuthHintColor = Color(0xFF8C7E74);
 
-Widget buildAuthBrandHeader(BuildContext context, {Color hintColor = kAuthHintColor}) {
+Widget buildAuthBrandHeader(BuildContext context,
+    {Color hintColor = kAuthHintColor}) {
   return Column(
     children: [
       Container(
@@ -26,7 +27,7 @@ Widget buildAuthBrandHeader(BuildContext context, {Color hintColor = kAuthHintCo
         ),
         child: ClipOval(
           child: Image.asset(
-            'assets/images/app_icon.png',
+            'assets/images/app_icon_round.png',
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => const SizedBox.expand(),
           ),
@@ -44,7 +45,8 @@ Widget buildAuthBrandHeader(BuildContext context, {Color hintColor = kAuthHintCo
       const SizedBox(height: 8),
       Text(
         '记录宝宝成长的每一步',
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: hintColor),
+        style:
+            Theme.of(context).textTheme.bodyLarge?.copyWith(color: hintColor),
       ),
     ],
   );
@@ -79,12 +81,17 @@ Widget buildAuthPrivacyAgreement(
         child: RichText(
           textAlign: TextAlign.center,
           text: TextSpan(
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.black54),
             children: [
               TextSpan(text: '$leadText '),
               TextSpan(
                 text: '用户协议',
-                style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -96,12 +103,17 @@ Widget buildAuthPrivacyAgreement(
         child: RichText(
           textAlign: TextAlign.center,
           text: TextSpan(
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.black54),
             children: [
               const TextSpan(text: '和 '),
               TextSpan(
                 text: '隐私政策',
-                style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.bold),
               ),
             ],
           ),

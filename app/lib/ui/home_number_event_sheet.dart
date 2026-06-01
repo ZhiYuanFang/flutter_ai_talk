@@ -11,6 +11,7 @@ import 'home_event_number_picker.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/keyboard_input_bridge.dart';
 
 /// number 类型事件二级页确认结果。
 class HomeNumberEventResult {
@@ -62,12 +63,14 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
   late DateTime _selectedTime;
   late FixedExtentScrollController _usagePickerCtrl;
   final _remarkCtrl = TextEditingController();
+  final _remarkFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
     _selectedTime = DateTime.now();
     _usagePickerCtrl = FixedExtentScrollController();
+    _remarkFocusNode.addListener(_onRemarkFocusChange);
     WidgetsBinding.instance.addPostFrameCallback((_) => _applyInitialPickerIndex());
   }
 
@@ -86,8 +89,23 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
   @override
   void dispose() {
     _usagePickerCtrl.dispose();
+    _remarkFocusNode.removeListener(_onRemarkFocusChange);
+    _remarkFocusNode.dispose();
     _remarkCtrl.dispose();
     super.dispose();
+  }
+
+  void _onRemarkFocusChange() {
+    if (_remarkFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _remarkCtrl,
+        focusNode: _remarkFocusNode,
+        onConfirm: () => _remarkFocusNode.unfocus(),
+        scene: 'home.number.remark',
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _remarkCtrl);
   }
 
   void _dismiss() {
@@ -193,11 +211,14 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
           const SizedBox(height: 14),
           TextField(
             controller: _remarkCtrl,
+            focusNode: _remarkFocusNode,
             style: TextStyle(color: glassText, fontSize: 15),
             cursorColor: accent,
             decoration: historyEditGlassInputDecoration(context, labelText: '备注（可选）'),
             textInputAction: TextInputAction.done,
             maxLines: 2,
+            onTap: _onRemarkFocusChange,
+            onChanged: keyboardInputBridgeController.updateDraft,
             onSubmitted: (_) => FocusScope.of(context).unfocus(),
           ),
           const SizedBox(height: 16),

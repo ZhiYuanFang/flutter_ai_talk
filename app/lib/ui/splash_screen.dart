@@ -6,13 +6,26 @@ import 'startup_branding.dart';
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
+  static const _iconTaglineGap = 28.0;
+
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: startupPageDecoration(),
       child: const Scaffold(
         backgroundColor: Colors.transparent,
-        body: SizedBox.expand(),
+        body: SizedBox.expand(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                StartupBrandingIcon(),
+                SizedBox(height: _iconTaglineGap),
+                StartupTaglineText(),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

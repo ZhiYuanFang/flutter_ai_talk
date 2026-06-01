@@ -24,6 +24,7 @@ import '../theme/theme_preset.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'recording_diagnostics_tile.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/keyboard_input_bridge.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -366,6 +367,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required String label,
   }) async {
     final c = TextEditingController();
+    final focusNode = FocusNode();
     try {
       return await showDialog<String>(
         context: context,
@@ -374,15 +376,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: Text(title),
             content: TextField(
               controller: c,
+              focusNode: focusNode,
+              onTap: () => keyboardInputBridgeController.attach(
+                controller: c,
+                focusNode: focusNode,
+                onConfirm: () => Navigator.of(dCtx).pop(c.text),
+                scene: 'settings.single-field',
+              ),
+              onChanged: keyboardInputBridgeController.updateDraft,
+              onTapOutside: (_) => keyboardInputBridgeController.detach(controller: c),
               decoration: InputDecoration(labelText: label),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dCtx).pop(),
+                onPressed: () {
+                  keyboardInputBridgeController.detach(controller: c);
+                  Navigator.of(dCtx).pop();
+                },
                 child: const Text('取消'),
               ),
               TextButton(
-                onPressed: () => Navigator.of(dCtx).pop(c.text),
+                onPressed: () {
+                  keyboardInputBridgeController.detach(controller: c);
+                  Navigator.of(dCtx).pop(c.text);
+                },
                 child: const Text('确定'),
               ),
             ],
@@ -390,6 +407,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         },
       );
     } finally {
+      focusNode.dispose();
       c.dispose();
     }
   }
@@ -404,6 +422,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }) async {
     final c1 = TextEditingController();
     final c2 = TextEditingController();
+    final f1 = FocusNode();
+    final f2 = FocusNode();
     try {
       return await showDialog<List<String>>(
         context: context,
@@ -415,24 +435,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 TextField(
                   controller: c1,
+                  focusNode: f1,
                   obscureText: obscureFirst,
+                  onTap: () => keyboardInputBridgeController.attach(
+                    controller: c1,
+                    focusNode: f1,
+                    onConfirm: () => f2.requestFocus(),
+                    scene: 'settings.two-field.first',
+                    obscureText: obscureFirst,
+                  ),
+                  onChanged: keyboardInputBridgeController.updateDraft,
+                  onTapOutside: (_) => keyboardInputBridgeController.detach(controller: c1),
                   decoration: InputDecoration(labelText: firstLabel),
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: c2,
+                  focusNode: f2,
                   obscureText: obscureSecond,
+                  onTap: () => keyboardInputBridgeController.attach(
+                    controller: c2,
+                    focusNode: f2,
+                    onConfirm: () => Navigator.of(dCtx).pop([c1.text, c2.text]),
+                    scene: 'settings.two-field.second',
+                    obscureText: obscureSecond,
+                  ),
+                  onChanged: keyboardInputBridgeController.updateDraft,
+                  onTapOutside: (_) => keyboardInputBridgeController.detach(controller: c2),
                   decoration: InputDecoration(labelText: secondLabel),
                 ),
               ],
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dCtx).pop(),
+                onPressed: () {
+                  keyboardInputBridgeController.detach(controller: c1);
+                  keyboardInputBridgeController.detach(controller: c2);
+                  Navigator.of(dCtx).pop();
+                },
                 child: const Text('取消'),
               ),
               TextButton(
-                onPressed: () => Navigator.of(dCtx).pop([c1.text, c2.text]),
+                onPressed: () {
+                  keyboardInputBridgeController.detach(controller: c1);
+                  keyboardInputBridgeController.detach(controller: c2);
+                  Navigator.of(dCtx).pop([c1.text, c2.text]);
+                },
                 child: const Text('确定'),
               ),
             ],
@@ -440,6 +488,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         },
       );
     } finally {
+      f1.dispose();
+      f2.dispose();
       c1.dispose();
       c2.dispose();
     }

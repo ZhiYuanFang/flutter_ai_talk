@@ -265,7 +265,6 @@ class _GlassTextConfirmDialogBodyState extends State<_GlassTextConfirmDialogBody
         const SizedBox(height: 16),
         TextField(
           controller: _controller,
-          autofocus: true,
           style: TextStyle(color: glassText, fontSize: 16),
           textAlign: TextAlign.center,
           decoration: InputDecoration(

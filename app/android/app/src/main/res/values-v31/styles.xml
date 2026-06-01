@@ -3,8 +3,8 @@
   <!-- Android 12+：原生 Splash 保持到 Flutter 主页首帧 -->
   <style name="LaunchTheme" parent="Theme.SplashScreen">
     <item name="windowSplashScreenBackground">@drawable/launch_gradient</item>
-    <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
-    <item name="windowSplashScreenIconBackgroundColor">@color/launch_brand</item>
+    <item name="windowSplashScreenAnimatedIcon">@drawable/app_icon_round</item>
+    <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     <item name="postSplashScreenTheme">@style/NormalTheme</item>
   </style>
 </resources>

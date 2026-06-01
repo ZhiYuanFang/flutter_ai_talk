@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@drawable/launch_gradient" />
-    <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@drawable/splash_logo" />
-    </item>
+
+    <!-- 原生启动图标：直接使用桌面图标（mipmap ic_launcher）避免前景层留白 -->
+    <item
+        android:width="176dp"
+        android:height="176dp"
+        android:gravity="center"
+        android:drawable="@drawable/app_icon_round" />
 </layer-list>

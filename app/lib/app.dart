@@ -15,6 +15,7 @@ import 'providers/sign_in_channel_provider.dart';
 import 'providers/toast_bus.dart';
 import 'scaffold_messenger_key.dart';
 import 'ui/widgets/app_toast.dart';
+import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme_scope.dart';
 import 'ui/widgets/keyboard_dismiss_scope.dart';
@@ -121,6 +122,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
             fit: StackFit.expand,
             children: [
               if (child != null) child,
+              const KeyboardInputConfirmBarOverlay(),
               if (_showStartupOverlay) const StartupBrandingOverlay(),
             ],
           ),

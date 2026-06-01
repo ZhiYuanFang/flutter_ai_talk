@@ -12,12 +12,14 @@ class HistoryEditGlassPanel extends StatelessWidget {
     this.onClose,
     this.eventAccent,
     this.contentPadding,
+    this.borderRadius,
   });
 
   final Widget child;
   final VoidCallback? onClose;
   final Color? eventAccent;
   final EdgeInsets? contentPadding;
+  final double? borderRadius;
 
   static const _radius = 22.0;
   static const _blurSigma = 20.0;
@@ -42,15 +44,16 @@ class HistoryEditGlassPanel extends StatelessWidget {
           0.55,
         ) ??
         fillTop;
+    final radius = borderRadius ?? _radius;
 
     return RepaintBoundary(
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(_radius),
+        borderRadius: BorderRadius.circular(radius),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: _blurSigma, sigmaY: _blurSigma),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(_radius),
+              borderRadius: BorderRadius.circular(radius),
               border: Border.all(
                 color: Colors.white.withValues(alpha: isDark ? 0.16 : 0.22),
               ),

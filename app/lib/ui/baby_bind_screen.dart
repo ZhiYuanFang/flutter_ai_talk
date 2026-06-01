@@ -16,6 +16,7 @@ import '../providers/toast_bus.dart';
 import '../theme/app_visual_tokens.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/baby_birth_picker_sheet.dart';
+import 'widgets/keyboard_input_bridge.dart';
 
 DateTime _bindDefaultBirth() {
   final now = DateTime.now();
@@ -46,17 +47,56 @@ class BabyBindScreen extends ConsumerStatefulWidget {
 class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   final _deviceCtrl = TextEditingController();
   final _nicknameCtrl = TextEditingController();
+  final _deviceFocusNode = FocusNode();
+  final _nicknameFocusNode = FocusNode();
   final _birth = ValueNotifier<DateTime>(_bindDefaultBirth());
   BabySex _sex = BabySex.male;
   var _busy = false;
   var _mode = _BabyBindMode.create;
 
   @override
+  void initState() {
+    super.initState();
+    _deviceFocusNode.addListener(_onDeviceFocusChange);
+    _nicknameFocusNode.addListener(_onNicknameFocusChange);
+  }
+
+  @override
   void dispose() {
+    _deviceFocusNode.removeListener(_onDeviceFocusChange);
+    _nicknameFocusNode.removeListener(_onNicknameFocusChange);
+    _deviceFocusNode.dispose();
+    _nicknameFocusNode.dispose();
     _deviceCtrl.dispose();
     _nicknameCtrl.dispose();
     _birth.dispose();
     super.dispose();
+  }
+
+  void _onDeviceFocusChange() {
+    if (_deviceFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _deviceCtrl,
+        focusNode: _deviceFocusNode,
+        onConfirm: () => _deviceFocusNode.unfocus(),
+        scene: 'baby-bind.device-id',
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _deviceCtrl);
+  }
+
+  void _onNicknameFocusChange() {
+    if (_nicknameFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _nicknameCtrl,
+        focusNode: _nicknameFocusNode,
+        onConfirm: () => _nicknameFocusNode.unfocus(),
+        scene: 'baby-bind.nickname',
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _nicknameCtrl);
   }
 
   Future<void> _bind() async {
@@ -140,6 +180,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     final bgEnd = Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('宝宝信息绑定'),
@@ -227,6 +268,9 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _deviceCtrl,
+            focusNode: _deviceFocusNode,
+            onTap: _onDeviceFocusChange,
+            onChanged: keyboardInputBridgeController.updateDraft,
             decoration: InputDecoration(
               hintText: '请输入宝宝ID',
               filled: true,
@@ -269,6 +313,9 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           _buildLabel('宝宝昵称'),
           TextField(
             controller: _nicknameCtrl,
+            focusNode: _nicknameFocusNode,
+            onTap: _onNicknameFocusChange,
+            onChanged: keyboardInputBridgeController.updateDraft,
             decoration: InputDecoration(
               hintText: '请输入宝宝昵称',
               filled: true,

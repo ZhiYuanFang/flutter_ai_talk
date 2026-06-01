@@ -15,6 +15,14 @@ class TrendGlassBarChart extends StatelessWidget {
     required this.bucketMode,
     required this.accentColor,
     required this.chartTitle,
+    required this.dateRangeLabel,
+    this.barAnimationToken = 0,
+    this.holdAtZeroBeforeAnimation = false,
+    this.suppressEmptyState = false,
+    this.headerTopOffset = 0,
+    this.headerLogo,
+    this.onTitleTap,
+    this.onDateRangeTap,
   });
 
   final TrendSeries? series;
@@ -23,6 +31,14 @@ class TrendGlassBarChart extends StatelessWidget {
 
   /// 玻璃区内标题，如「拉屎趋势图」。
   final String chartTitle;
+  final String dateRangeLabel;
+  final int barAnimationToken;
+  final bool holdAtZeroBeforeAnimation;
+  final bool suppressEmptyState;
+  final double headerTopOffset;
+  final Widget? headerLogo;
+  final VoidCallback? onTitleTap;
+  final VoidCallback? onDateRangeTap;
 
   static String chartTitleForEvent(String? eventName) {
     final name = eventName?.trim();
@@ -38,49 +54,92 @@ class TrendGlassBarChart extends StatelessWidget {
     final dense = landscape;
     final pts = series?.points ?? const <TrendPoint>[];
     final hourly = bucketMode == TrendBucketMode.hourly;
-    final gridColor = Colors.white.withValues(alpha: 0.12);
     final borderColor = Colors.white.withValues(alpha: 0.18);
     final glassLabel = HistoryEditGlassPanel.glassLabelColor;
 
     return HistoryEditGlassPanel(
       eventAccent: accentColor,
-      contentPadding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+      borderRadius: 0,
+      contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            chartTitle,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: HistoryEditGlassPanel.glassTextColor,
+          if (headerTopOffset > 0) SizedBox(height: headerTopOffset),
+          if (headerLogo != null) ...[
+            Align(
+              alignment: Alignment.center,
+              child: headerLogo!,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '纵轴：计时类为小时(h)，计数类为次数',
-            style: TextStyle(fontSize: 11, color: glassLabel),
+            const SizedBox(height: 8),
+          ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onTitleTap,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          chartTitle,
+                          textAlign: TextAlign.left,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: HistoryEditGlassPanel.glassTextColor,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.expand_more,
+                        color: Colors.white.withValues(alpha: 0.82),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onDateRangeTap,
+                child: Text(
+                  dateRangeLabel,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: glassLabel,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Expanded(
             child: pts.isEmpty
-                ? Center(
-                    child: Text(
-                      hourly ? '所选日期暂无数据' : '当前时间范围暂无数据',
-                      style: TextStyle(color: glassLabel, fontSize: 15),
-                    ),
-                  )
+                ? suppressEmptyState
+                    ? const SizedBox.expand()
+                    : Center(
+                        child: Text(
+                          hourly ? '所选日期暂无数据' : '当前时间范围暂无数据',
+                          style: TextStyle(color: glassLabel, fontSize: 15),
+                        ),
+                      )
                 : _BarChartBody(
                     pts: pts,
                     hourly: hourly,
                     landscape: landscape,
                     dense: dense,
                     accentColor: accentColor,
-                    gridColor: gridColor,
                     borderColor: borderColor,
+                    barAnimationToken: barAnimationToken,
+                    holdAtZeroBeforeAnimation: holdAtZeroBeforeAnimation,
                   ),
           ),
         ],
@@ -96,8 +155,9 @@ class _BarChartBody extends StatelessWidget {
     required this.landscape,
     required this.dense,
     required this.accentColor,
-    required this.gridColor,
     required this.borderColor,
+    required this.barAnimationToken,
+    required this.holdAtZeroBeforeAnimation,
   });
 
   final List<TrendPoint> pts;
@@ -105,8 +165,9 @@ class _BarChartBody extends StatelessWidget {
   final bool landscape;
   final bool dense;
   final Color accentColor;
-  final Color gridColor;
   final Color borderColor;
+  final int barAnimationToken;
+  final bool holdAtZeroBeforeAnimation;
 
   String _bottomLabel(int index) {
     if (index < 0 || index >= pts.length) return '';
@@ -118,8 +179,29 @@ class _BarChartBody extends StatelessWidget {
     return TrendGlassBarChart._dateFmt.format(d);
   }
 
+  String _tooltipValue(double value) {
+    final fixed = value.toStringAsFixed(1);
+    return fixed.endsWith('.0') ? fixed.substring(0, fixed.length - 2) : fixed;
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (holdAtZeroBeforeAnimation && barAnimationToken <= 0) {
+      return _buildBarChart(0.0);
+    }
+    if (barAnimationToken <= 0) {
+      return _buildBarChart(1.0);
+    }
+    return TweenAnimationBuilder<double>(
+      key: ValueKey<int>(barAnimationToken),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 760),
+      curve: Curves.easeOutCubic,
+      builder: (context, factor, _) => _buildBarChart(factor),
+    );
+  }
+
+  Widget _buildBarChart(double growFactor) {
     final xIndices = ChartAxisGranularity.xLabelIndices(
       pointCount: pts.length,
       landscape: landscape,
@@ -138,7 +220,7 @@ class _BarChartBody extends StatelessWidget {
         x: i,
         barRods: [
           BarChartRodData(
-            toY: pts[i].value,
+            toY: pts[i].value * growFactor,
             width: barWidth,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
             gradient: LinearGradient(
@@ -149,11 +231,6 @@ class _BarChartBody extends StatelessWidget {
                 accentColor.withValues(alpha: 0.88),
                 topHighlight.withValues(alpha: 0.95),
               ],
-            ),
-            backDrawRodData: BackgroundBarChartRodData(
-              show: true,
-              toY: maxY,
-              color: Colors.white.withValues(alpha: 0.06),
             ),
           ),
         ],
@@ -179,23 +256,34 @@ class _BarChartBody extends StatelessWidget {
               labelForIndex: _bottomLabel,
             ),
           ),
-          leftTitles: AxisTitles(
-            sideTitles: ChartAxisGranularity.glassLeftTitles(
-              maxY: maxY,
-              landscape: landscape,
-              dense: dense,
-            ),
-          ),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(
           show: true,
-          border: Border.all(color: borderColor),
+          border: Border(
+            bottom: BorderSide(color: borderColor),
+          ),
         ),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: true,
-          getDrawingHorizontalLine: (_) => FlLine(color: gridColor, strokeWidth: 1),
-          getDrawingVerticalLine: (_) => FlLine(color: gridColor, strokeWidth: 1),
+        gridData: const FlGridData(show: false),
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (_) => Colors.black.withValues(alpha: 0.76),
+            tooltipRoundedRadius: 10,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final rawValue = (group.x >= 0 && group.x < pts.length)
+                  ? pts[group.x].value
+                  : rod.toY;
+              return BarTooltipItem(
+                _tooltipValue(rawValue),
+                const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              );
+            },
+          ),
         ),
       ),
     );

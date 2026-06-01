@@ -7,6 +7,7 @@ import '../config/env.dart';
 import '../providers/repositories.dart';
 import '../providers/toast_bus.dart';
 import 'auth/auth_ui.dart';
+import 'widgets/keyboard_input_bridge.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -21,6 +22,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _accountCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
+  final _accountFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
+  final _confirmPasswordFocusNode = FocusNode();
 
   var _loading = false;
   var _obscurePassword = true;
@@ -30,11 +34,66 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   String? _confirmPasswordError;
 
   @override
+  void initState() {
+    super.initState();
+    _accountFocusNode.addListener(_onAccountFocusChange);
+    _passwordFocusNode.addListener(_onPasswordFocusChange);
+    _confirmPasswordFocusNode.addListener(_onConfirmPasswordFocusChange);
+  }
+
+  @override
   void dispose() {
+    _accountFocusNode.removeListener(_onAccountFocusChange);
+    _passwordFocusNode.removeListener(_onPasswordFocusChange);
+    _confirmPasswordFocusNode.removeListener(_onConfirmPasswordFocusChange);
+    _accountFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _confirmPasswordFocusNode.dispose();
     _accountCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
     super.dispose();
+  }
+
+  void _onAccountFocusChange() {
+    if (_accountFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _accountCtrl,
+        focusNode: _accountFocusNode,
+        onConfirm: () => _passwordFocusNode.requestFocus(),
+        scene: 'register.account',
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _accountCtrl);
+  }
+
+  void _onPasswordFocusChange() {
+    if (_passwordFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _passwordCtrl,
+        focusNode: _passwordFocusNode,
+        onConfirm: () => _confirmPasswordFocusNode.requestFocus(),
+        scene: 'register.password',
+        obscureText: true,
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _passwordCtrl);
+  }
+
+  void _onConfirmPasswordFocusChange() {
+    if (_confirmPasswordFocusNode.hasFocus) {
+      keyboardInputBridgeController.attach(
+        controller: _confirmPasswordCtrl,
+        focusNode: _confirmPasswordFocusNode,
+        onConfirm: _onRegisterUsername,
+        scene: 'register.confirm-password',
+        obscureText: true,
+      );
+      return;
+    }
+    keyboardInputBridgeController.detach(controller: _confirmPasswordCtrl);
   }
 
   String _normalizeAccount(String raw) => raw.trim().toLowerCase();
@@ -98,6 +157,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: Container(
         width: double.infinity,
         decoration: const BoxDecoration(
@@ -129,9 +189,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             const SizedBox(height: 20),
                             TextField(
                               controller: _accountCtrl,
+                              focusNode: _accountFocusNode,
                               enabled: !_loading,
                               autocorrect: false,
                               textInputAction: TextInputAction.next,
+                              onTap: _onAccountFocusChange,
+                              onChanged: keyboardInputBridgeController.updateDraft,
                               decoration: buildAuthInputDecoration(
                                 labelText: '账号',
                                 hintText: '4-32 位，仅 a-z0-9_',
@@ -141,9 +204,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             const SizedBox(height: 12),
                             TextField(
                               controller: _passwordCtrl,
+                              focusNode: _passwordFocusNode,
                               enabled: !_loading,
                               obscureText: _obscurePassword,
                               textInputAction: TextInputAction.next,
+                              onTap: _onPasswordFocusChange,
+                              onChanged: keyboardInputBridgeController.updateDraft,
                               decoration: buildAuthInputDecoration(
                                 labelText: '密码',
                                 hintText: '6-64 位',
@@ -158,8 +224,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             const SizedBox(height: 12),
                             TextField(
                               controller: _confirmPasswordCtrl,
+                              focusNode: _confirmPasswordFocusNode,
                               enabled: !_loading,
                               obscureText: _obscureConfirmPassword,
+                              onTap: _onConfirmPasswordFocusChange,
+                              onChanged: keyboardInputBridgeController.updateDraft,
                               onSubmitted: (_) => _onRegisterUsername(),
                               decoration: buildAuthInputDecoration(
                                 labelText: '确认密码',
