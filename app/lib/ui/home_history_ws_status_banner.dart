@@ -3,19 +3,25 @@ import 'package:flutter/material.dart';
 const _kBannerHeight = 44.0;
 
 const kHomeHistoryWsDisconnectMessage = '连接中断，请点击重连';
+const kHomeHistoryWsAutoReconnectMessage = '正在重连…';
+const kHomeHistoryWsGaveUpMessage = '连接失败，请检查网络后点击重连';
 
 /// 历史 WebSocket 断开时，展示于历史列表与输入区之间的内联重连横幅。
 class HomeHistoryWsStatusBanner extends StatelessWidget {
   const HomeHistoryWsStatusBanner({
     super.key,
     required this.visible,
+    required this.message,
     required this.onReconnect,
     this.reconnecting = false,
+    this.tapEnabled = true,
   });
 
   final bool visible;
+  final String message;
   final VoidCallback onReconnect;
   final bool reconnecting;
+  final bool tapEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +36,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
           ? Material(
               color: scheme.errorContainer,
               child: InkWell(
-                onTap: reconnecting ? null : onReconnect,
+                onTap: tapEnabled && !reconnecting ? onReconnect : null,
                 child: SizedBox(
                   height: _kBannerHeight,
                   child: Padding(
@@ -51,7 +57,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            kHomeHistoryWsDisconnectMessage,
+                            message,
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 14,
@@ -59,7 +65,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (!reconnecting)
+                        if (tapEnabled && !reconnecting)
                           Icon(Icons.refresh, size: 20, color: onContainer),
                       ],
                     ),

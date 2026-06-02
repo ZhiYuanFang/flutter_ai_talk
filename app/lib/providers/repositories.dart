@@ -33,19 +33,25 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
   );
   ref.onDispose(remote.dispose);
 
-  void tryReconnectHistoryWs() {
+  void tryReconnectHistoryWs({bool resetStrike = false}) {
     if (AppEnv.wsHistoryUrlEffective.isEmpty) return;
     // reconnect 先断开旧连接，再在 token / deviceNo 就绪时建链；登出或解绑时也会关掉 WS。
-    unawaited(remote.reconnectHistoryWebSocket());
+    unawaited(remote.reconnectHistoryWebSocket(resetStrike: resetStrike));
   }
 
   ref.listen<bool>(
     sessionProvider.select((s) => s.isLoggedIn),
-    (_, loggedIn) => tryReconnectHistoryWs(),
+    (prev, loggedIn) {
+      if (loggedIn) {
+        tryReconnectHistoryWs(resetStrike: true);
+      } else {
+        tryReconnectHistoryWs();
+      }
+    },
   );
   ref.listen<AsyncValue<String?>>(
     deviceNoNotifierProvider,
-    (_, __) => tryReconnectHistoryWs(),
+    (_, __) => tryReconnectHistoryWs(resetStrike: true),
   );
 
   tryReconnectHistoryWs();

@@ -22,6 +22,7 @@ import '../data/event_branding.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
+import '../data/feed_repository.dart';
 import '../data/home_history_store.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
@@ -77,7 +78,7 @@ const _kVoiceOrbVisualSize = 132.0;
 const _kInputPanelAnimationDuration = Duration(milliseconds: 220);
 const _kImmersiveHeaderContentSpacing = 10.0;
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   HomeSpeechRecognizer? _recognizer;
   var _voiceReady = false;
   var _listening = false;
@@ -92,9 +93,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final Set<String> _stoppingRecordIds = {};
   StreamSubscription<SseHistoryPayload>? _sseSub;
   StreamSubscription<bool>? _wsReadySub;
+  StreamSubscription<HistoryWsPhase>? _wsPhaseSub;
   StreamSubscription<bool>? _voiceAsrReadySub;
   var _wsReady = false;
-  var _historyWsReconnecting = false;
+  HistoryWsPhase _historyWsPhase = HistoryWsPhase.disconnected;
+  var _historyWsManualReconnecting = false;
+  var _gaveUpSnackbarShown = false;
   var _voiceAsrReady = false;
   var _voiceAsrConnecting = false;
   /// 语音球按下期间为 true；松手递增 [_voiceHoldSeq] 以取消进行中的连接/开录。
@@ -141,6 +145,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _voiceLevelNotifier = ValueNotifier(0);
     _voiceLevelSmoother = VoiceLevelSmoother(_voiceLevelNotifier);
     _recordingDiagnosticsNotifier =
@@ -502,8 +507,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     unawaited(_bootstrapHomeData());
     final feed = ref.read(feedRepositoryProvider);
     _wsReady = feed.isHistoryWebSocketReady;
+    _historyWsPhase = feed.historyWsPhase;
     _wsReadySub = feed.historyWsReadyStream.listen((v) {
-      if (mounted) setState(() => _wsReady = v);
+      if (!mounted) return;
+      setState(() {
+        _wsReady = v;
+        if (v) _gaveUpSnackbarShown = false;
+      });
+    });
+    _wsPhaseSub = feed.historyWsPhaseStream.listen((phase) {
+      if (!mounted) return;
+      setState(() {
+        _historyWsPhase = phase;
+        if (phase != HistoryWsPhase.gaveUp) {
+          _gaveUpSnackbarShown = false;
+        }
+      });
+      if (phase == HistoryWsPhase.gaveUp) {
+        _maybeShowGaveUpSnackbar();
+      }
     });
     _sseSub = feed.watchLatest().listen((payload) {
       final removed = payload.removedRecordId;
@@ -782,13 +804,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ok;
   }
 
+  void _maybeShowGaveUpSnackbar() {
+    if (_gaveUpSnackbarShown) return;
+    _gaveUpSnackbarShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_historyWsPhase != HistoryWsPhase.gaveUp) return;
+      ref.showApiToastError(kHomeHistoryWsGaveUpMessage);
+    });
+  }
+
+  String _historyWsBannerMessage() {
+    return switch (_historyWsPhase) {
+      HistoryWsPhase.autoReconnecting => kHomeHistoryWsAutoReconnectMessage,
+      HistoryWsPhase.gaveUp => kHomeHistoryWsGaveUpMessage,
+      HistoryWsPhase.ready => kHomeHistoryWsDisconnectMessage,
+      HistoryWsPhase.disconnected => kHomeHistoryWsDisconnectMessage,
+    };
+  }
+
   Future<void> _reconnectHistoryWs() async {
-    if (_historyWsReconnecting) return;
-    setState(() => _historyWsReconnecting = true);
+    if (_historyWsManualReconnecting) return;
+    setState(() => _historyWsManualReconnecting = true);
     try {
-      await ref.read(feedRepositoryProvider).reconnectHistoryWebSocket();
+      await ref
+          .read(feedRepositoryProvider)
+          .reconnectHistoryWebSocket(resetStrike: true);
     } finally {
-      if (mounted) setState(() => _historyWsReconnecting = false);
+      if (mounted) setState(() => _historyWsManualReconnecting = false);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(feedRepositoryProvider).onAppLifecycleResumed();
     }
   }
 
@@ -1089,8 +1139,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sseSub?.cancel();
     _wsReadySub?.cancel();
+    _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();
     _webFocusNode.removeListener(_onWebFocusChange);
     _webFocusNode.dispose();
@@ -1170,6 +1222,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final showWsDisconnectBanner = loggedIn && !needsDeviceBind && !_wsReady;
+    final wsBannerReconnecting =
+        _historyWsPhase == HistoryWsPhase.autoReconnecting || _historyWsManualReconnecting;
+    final wsBannerTapEnabled = _historyWsPhase != HistoryWsPhase.autoReconnecting;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
@@ -1302,7 +1357,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     HomeHistoryWsStatusBanner(
                       visible: showWsDisconnectBanner,
-                      reconnecting: _historyWsReconnecting,
+                      message: _historyWsBannerMessage(),
+                      reconnecting: wsBannerReconnecting,
+                      tapEnabled: wsBannerTapEnabled,
                       onReconnect: () => unawaited(_reconnectHistoryWs()),
                     ),
                     _buildInputModuleTopShadow(context),
