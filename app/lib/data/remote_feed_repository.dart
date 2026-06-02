@@ -7,7 +7,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../providers/device_no_notifier.dart';
 import '../providers/session_provider.dart';
+import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
 import 'history_mapper.dart';
 import 'history_list_page.dart';
@@ -165,6 +167,23 @@ class RemoteFeedRepository implements FeedRepository {
     HomeHistoryLog.d('ws $message');
   }
 
+  /// 建连前若 access 将过期/已过期则静默 refresh；失败则登出并清理本地会话相关状态。
+  Future<String?> _prepareAccessTokenForConnect() async {
+    final session = _ref.read(sessionProvider);
+    if (!session.isLoggedIn) {
+      return null;
+    }
+    final ok = await session.ensureFreshSession();
+    if (!ok) {
+      _logWs('session refresh failed, signed out');
+      await _ref.read(deviceNoNotifierProvider.notifier).clearLocal();
+      await _ref.read(signInChannelProvider.notifier).clear();
+      _ref.showApiToastError('登录已过期，请重新登录');
+      return null;
+    }
+    return _ref.read(sessionProvider).accessToken;
+  }
+
   void _tearDownWs({bool scheduleReconnect = false}) {
     _invalidateInFlightAttempt();
     _authOkReceived = false;
@@ -227,9 +246,9 @@ class RemoteFeedRepository implements FeedRepository {
       _logWs('skip connect: deviceNo empty');
       return;
     }
-    final token = _ref.read(sessionProvider).accessToken;
+    final token = await _prepareAccessTokenForConnect();
     if (token == null || token.isEmpty) {
-      _logWs('skip connect: accessToken empty');
+      _logWs('skip connect: accessToken unavailable');
       return;
     }
 

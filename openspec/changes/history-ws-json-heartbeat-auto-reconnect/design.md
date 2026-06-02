@@ -75,6 +75,12 @@
 - **路径**：`d:\work\go_ai_talk\internal\controller\gateway_app_history_ws.go`
 - **说明**：go_ai_talk 需独立 PR/OpenSpec；flutter 变更 tasks 含联调项，design 记录契约供后端对齐。
 
+### 8. 重连前 token 刷新
+
+- **决策**：每次 `_beginAttemptOnce` 在 connect/auth 前调用 `SessionController.ensureFreshSession()`；成功后再读 `accessToken` 发 auth；失败则 `signOut` + 清理 deviceNo/signInChannel + Toast，**不计 strike**。
+- **理由**：与 HTTP `authorizedApiClient` 401 refresh 语义对齐；避免 access 过期导致 WS auth 连续失败快速 gave-up。
+- **备选**：仅在 WS 收到 auth error 后 refresh——滞后，仍消耗 strike。
+
 ## Risks / Trade-offs
 
 - **[Risk] 旧网关未发 pong** → 客户端永远无法 ready、快速耗尽 3 strike → gaveUp。**Mitigation**：后端同步上线 ping 响应；tasks 中先联调 staging。

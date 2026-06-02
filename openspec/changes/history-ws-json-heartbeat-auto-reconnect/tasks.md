@@ -38,3 +38,8 @@
 - [x] 6.2 手测 gave-up 后 resume 不自动重连；点击横幅 reset 后可再连
 - [x] 6.3 手测重连成功 Network 无 `history/api/list`；断线漏事件无自动 list 补偿
 - [x] 6.4 运行 `openspec validate history-ws-json-heartbeat-auto-reconnect --strict`
+
+## 7. 重连前 token 刷新
+
+- [x] 7.1 `_beginAttemptOnce` 建连 auth 前调用 `ensureFreshSession()`；成功后再读 accessToken 发 auth
+- [x] 7.2 refresh 失败：`signOut`（由 ensureFreshSession 触发）+ 清理 deviceNo/signInChannel + Toast「登录已过期，请重新登录」；**不计** strike

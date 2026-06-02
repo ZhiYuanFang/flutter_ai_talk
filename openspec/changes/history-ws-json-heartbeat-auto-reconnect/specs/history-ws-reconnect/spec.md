@@ -131,3 +131,20 @@ The client MUST expose a stream of history WebSocket phases including at least `
 - **WHEN** 首次 pong 完成且心跳运行中
 - **THEN** phase 必须为 **`ready`**
 - **AND** `isHistoryWebSocketReady` 必须为 `true`
+
+### Requirement: 重连前刷新 access token
+
+The client MUST call `ensureFreshSession()` (or equivalent silent refresh when access is expired or within the refresh buffer) immediately before each history WebSocket connect attempt and before sending the auth frame; on refresh failure it MUST sign out and MUST NOT count the attempt toward 3-strike. 每次历史 WebSocket **connect attempt** 在发送 auth 帧之前，若 access token 已过期或即将过期，客户端**必须**先尝试静默 refresh；refresh **成功**后再用新 token 发 auth；refresh **失败**则**必须**登出并提示用户，且**不得**将该次计入 3-strike。
+
+#### Scenario: 即将过期时 refresh 后 auth
+
+- **WHEN** 客户端发起 handshake 且 access token 距过期不足 refresh buffer
+- **THEN** 客户端必须先 refresh 成功
+- **AND** 必须使用 refresh 后的 accessToken 发送 auth 帧
+
+#### Scenario: refresh 失败登出
+
+- **WHEN** handshake 前 refresh 失败
+- **THEN** 客户端必须 signOut（或等价登出）
+- **AND** 必须向用户提示登录已过期
+- **AND** 不得 schedule 自动重连或累加 strike
