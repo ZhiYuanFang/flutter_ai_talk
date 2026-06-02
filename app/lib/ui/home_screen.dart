@@ -35,6 +35,7 @@ import 'home_active_timing_reminder_dialog.dart';
 import 'home_history_edit_sheet.dart';
 import 'home_history_scroll.dart';
 import 'home_history_ws_status_banner.dart';
+import 'home_immersive_header.dart';
 import 'home_number_event_sheet.dart';
 import 'home_history_timeline_tile.dart';
 import 'home_input_channel.dart';
@@ -74,6 +75,7 @@ const _kVoiceInputPanelHeight = 148.0;
 const _kVoiceTextInputPanelHeight = 220.0;
 const _kVoiceOrbVisualSize = 132.0;
 const _kInputPanelAnimationDuration = Duration(milliseconds: 220);
+const _kImmersiveHeaderContentSpacing = 10.0;
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   HomeSpeechRecognizer? _recognizer;
@@ -1173,23 +1175,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: shellBg,
-      appBar: AppBar(
-        title: const Text('胖宝'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.insights),
-            tooltip: '趋势',
-            onPressed: () => context.push('/trends'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () async {
-              await context.push('/settings');
-              if (mounted) await _refreshRecordingDiagnosticsPref();
-            },
-          ),
-        ],
-      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -1199,6 +1184,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               children: [
                 Column(
                   children: [
+                    HomeImmersiveHeader(
+                      title: '胖宝',
+                      onTrendsTap: () => context.push('/trends'),
+                      onSettingsTap: () async {
+                        await context.push('/settings');
+                        if (mounted) await _refreshRecordingDiagnosticsPref();
+                      },
+                    ),
+                    const SizedBox(height: _kImmersiveHeaderContentSpacing),
                     if (showBindBanner)
                       Material(
                         color: themePrimaryBlend(context, alpha: 0.14),
