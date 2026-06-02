@@ -36,21 +36,23 @@ class HomeInputModeDock extends StatefulWidget {
 
 class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProviderStateMixin {
   static const _tapSlop = 12.0;
-  static const _peakScale = 1.28;
-  static const _popGrowFraction = 0.45;
+  static const _peakScale = 1.55;
+  static const _popGrowFraction = 0.42;
   static const _revealDuration = Duration(milliseconds: 160);
-  static const _popDuration = Duration(milliseconds: 350);
+  static const _popGrowDuration = Duration(milliseconds: 220);
+  static const _popShrinkDuration = Duration(milliseconds: 300);
   static const _edgeHitExpand = 24.0;
 
   var _edge = kHomeInputDockDefaultEdge;
   var _along = kHomeInputDockDefaultAlong;
   Offset? _freeCenter;
   Offset? _dragCenter;
-  var _loaded = false;
   var _isDragging = false;
   var _engaged = false;
   Offset? _pointerDownGlobal;
   var _cycleInProgress = false;
+  /// pop 动画期间展示的图标（峰值前旧模式，峰值后新模式）。
+  HomeInputChannel? _popDisplayChannel;
 
   late final AnimationController _revealController;
   late final AnimationController _popController;
@@ -59,8 +61,19 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
   void initState() {
     super.initState();
     _revealController = AnimationController(vsync: this, duration: _revealDuration);
-    _popController = AnimationController(vsync: this, duration: _popDuration);
+    _popController = AnimationController(vsync: this, duration: _popGrowDuration + _popShrinkDuration);
     unawaited(_loadDockPosition());
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeInputModeDock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.bounds == widget.bounds) return;
+    setState(() {
+      if (_freeCenter != null) {
+        _freeCenter = clampDockCenterForDrag(_freeCenter!, widget.bounds);
+      }
+    });
   }
 
   @override
@@ -86,7 +99,6 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
         _engaged = false;
       }
       _revealController.value = 0;
-      _loaded = true;
     });
   }
 
@@ -165,13 +177,35 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
   Future<void> _cycleMode() async {
     if (_cycleInProgress) return;
     if (!_isFloating && !_isEdgeFullCircle) return;
-    _cycleInProgress = true;
+
     final next = _nextChannel(widget.currentChannel);
-    widget.onChannelSelected(next);
-    await _popController.forward(from: 0);
+    _cycleInProgress = true;
+    _popDisplayChannel = widget.currentChannel;
+    _popController.value = 0;
+    setState(() {});
+
+    // 放大阶段：旧图标，避免底部面板立刻重排打断动画
+    await _popController.animateTo(
+      _popGrowFraction,
+      duration: _popGrowDuration,
+      curve: Curves.easeOut,
+    );
     if (!mounted) return;
-    _popController.reset();
-    if (mounted) setState(() => _cycleInProgress = false);
+
+    widget.onChannelSelected(next);
+    setState(() => _popDisplayChannel = next);
+
+    // 缩小阶段：新图标
+    await _popController.animateTo(
+      1.0,
+      duration: _popShrinkDuration,
+      curve: Curves.easeIn,
+    );
+    if (!mounted) return;
+
+    _popController.value = 0;
+    _popDisplayChannel = null;
+    setState(() => _cycleInProgress = false);
   }
 
   Offset _globalToBoundsLocal(Offset global) {
@@ -271,7 +305,7 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
       );
     }
 
-    // 贴边半圆：向屏内扩大可点区域
+    // 贴边半圆：向屏内扩大可点区域；视觉仍按圆心对齐边缘。
     const vertical = kHomeInputDockDiameter + 16.0;
     const inner = kHomeInputDockDiameter + _edgeHitExpand;
     return switch (_edge) {
@@ -302,15 +336,6 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
     };
   }
 
-  Alignment _semicircleHandleAlignment() {
-    return switch (_edge) {
-      DockEdge.right => Alignment.centerRight,
-      DockEdge.left => Alignment.centerLeft,
-      DockEdge.top => Alignment.topCenter,
-      DockEdge.bottom => Alignment.bottomCenter,
-    };
-  }
-
   IconData _iconFor(HomeInputChannel channel) {
     return switch (channel) {
       HomeInputChannel.voice => Icons.mic_rounded,
@@ -321,15 +346,18 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    if (!_loaded) return const SizedBox.shrink();
-
     return AnimatedBuilder(
       animation: Listenable.merge([_revealController, _popController]),
       builder: (context, _) {
         final reveal = _revealController.value;
         final center = _visualCenter(reveal: reveal);
-        final popScale = _popController.value > 0 ? _popScaleFor(_popController.value) : 1.0;
+        final popT = _popController.value;
+        final popActive = _cycleInProgress || popT > 0;
+        final popScale = popActive ? _popScaleFor(popT.clamp(0.0, 1.0)) : 1.0;
+        final displayChannel = _popDisplayChannel ?? widget.currentChannel;
         final hit = _hitTargetRect(center);
+        final handleLeft = center.dx - kHomeInputDockRadius - hit.left;
+        final handleTop = center.dy - kHomeInputDockRadius - hit.top;
 
         return SizedBox.expand(
           child: Stack(
@@ -359,15 +387,19 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
                   onPointerMove: _onPointerMove,
                   onPointerUp: _onPointerUp,
                   onPointerCancel: _onPointerCancel,
-                  child: Align(
-                    alignment: _isEdgeSemicircle && _dragCenter == null
-                        ? _semicircleHandleAlignment()
-                        : Alignment.center,
-                    child: Transform.scale(
-                      scale: popScale,
-                      alignment: Alignment.center,
-                      child: _buildClippedHandle(context, widget.currentChannel),
-                    ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: handleLeft,
+                        top: handleTop,
+                        child: Transform.scale(
+                          scale: popScale,
+                          alignment: Alignment.center,
+                          child: _buildDockHandle(context, displayChannel),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -378,41 +410,28 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
     );
   }
 
-  Widget _buildClippedHandle(BuildContext context, HomeInputChannel channel) {
+  Widget _buildDockHandle(BuildContext context, HomeInputChannel channel) {
     final handle = _buildHandle(context, channel);
     if (!_isEdgeSemicircle || _dragCenter != null) {
       return handle;
     }
-    return switch (_edge) {
-      DockEdge.right => ClipRect(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            widthFactor: 0.5,
-            child: handle,
-          ),
+    return SizedBox(
+      width: kHomeInputDockDiameter,
+      height: kHomeInputDockDiameter,
+      child: ClipRect(
+        child: Align(
+          alignment: switch (_edge) {
+            DockEdge.right => Alignment.centerLeft,
+            DockEdge.left => Alignment.centerRight,
+            DockEdge.top => Alignment.bottomCenter,
+            DockEdge.bottom => Alignment.topCenter,
+          },
+          widthFactor: _edge == DockEdge.left || _edge == DockEdge.right ? 0.5 : 1.0,
+          heightFactor: _edge == DockEdge.top || _edge == DockEdge.bottom ? 0.5 : 1.0,
+          child: handle,
         ),
-      DockEdge.left => ClipRect(
-          child: Align(
-            alignment: Alignment.centerRight,
-            widthFactor: 0.5,
-            child: handle,
-          ),
-        ),
-      DockEdge.top => ClipRect(
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            heightFactor: 0.5,
-            child: handle,
-          ),
-        ),
-      DockEdge.bottom => ClipRect(
-          child: Align(
-            alignment: Alignment.topCenter,
-            heightFactor: 0.5,
-            child: handle,
-          ),
-        ),
-    };
+      ),
+    );
   }
 
   Widget _buildHandle(BuildContext context, HomeInputChannel channel) {
@@ -455,7 +474,7 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
           child: SizedBox(
             width: kHomeInputDockDiameter,
             height: kHomeInputDockDiameter,
-            child: icon,
+            child: Center(child: icon),
           ),
         ),
       );
@@ -469,7 +488,7 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
       child: SizedBox(
         width: kHomeInputDockDiameter,
         height: kHomeInputDockDiameter,
-        child: icon,
+        child: Center(child: icon),
       ),
     );
   }

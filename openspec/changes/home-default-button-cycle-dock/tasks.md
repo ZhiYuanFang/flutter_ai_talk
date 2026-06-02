@@ -15,7 +15,7 @@
 ## 3. Pop 轮转动画
 
 - [x] 3.1 新增 `AnimationController`（~320–380ms）：peakScale ~1.25，`easeOut` 放大 + `easeIn` 缩回
-- [x] 3.2 松开轮转时立即更新图标为新 mode，pop 期间保持全圆位置
+- [x] 3.2 切换模式时分两阶段 pop：先放大（旧图标）→ 峰值切换 → 缩小（新图标）；peak 1.55×
 - [x] 3.3 pop 完成后动画回贴边半圆 idle；与 channel 切换触发的 `_scheduleHistoryReanchorAfterInputModeChange` 协调
 
 ## 4. 语音失败文案（移动端）
