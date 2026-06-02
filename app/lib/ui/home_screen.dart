@@ -19,6 +19,7 @@ import '../config/speech_engine_store.dart';
 import '../config/web_home_input_mode.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../data/event_branding.dart';
+import '../bootstrap/cold_start_background_sync.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
@@ -731,11 +732,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   Future<void> _refreshEventCatalogIfReady() async {
     if (!ref.read(sessionProvider).isLoggedIn) return;
-    await ref.read(deviceNoNotifierProvider.notifier).refresh();
-    if (ref.read(eventCatalogProvider).isEmpty) {
-      await ref.read(eventCatalogProvider.notifier).loadFromDisk();
-    }
-    await ref.read(eventCatalogProvider.notifier).bootstrap();
+    await ref.read(eventCatalogProvider.notifier).refreshFromRemote();
   }
 
   Future<void> _retryEventCatalogIfEmpty() async {
@@ -746,21 +743,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     if (ref.read(eventCatalogProvider).isNotEmpty) return;
-    await _refreshEventCatalogIfReady();
+    await ColdStartBackgroundSync.run(ref);
   }
 
-  /// 事件目录 + 历史：冷启动已在 app 层 bootstrap；此处补刷远端与历史。
+  /// 事件目录 + 历史：Splash 已 hydrate；此处触发后台远端 sync。
   Future<void> _bootstrapHomeData() async {
-    final catalog = ref.read(eventCatalogProvider);
-    if (catalog.isEmpty) {
-      await ref.read(eventCatalogProvider.notifier).loadFromDisk();
-    }
-    if (ref.read(sessionProvider).isLoggedIn) {
-      await ref.read(deviceNoNotifierProvider.notifier).refresh();
-    }
-    if (!mounted) return;
-    await _refreshEventCatalogIfReady();
-    await _history.refreshFromRemote();
+    await ColdStartBackgroundSync.run(ref);
     if (ref.read(eventCatalogProvider).isEmpty) {
       unawaited(_retryEventCatalogIfEmpty());
     }
@@ -1193,6 +1181,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       });
     });
     ref.listen<List<EventDefinition>>(eventCatalogProvider, (prev, next) {
+      if (prev != null && prev.isEmpty && next.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          unawaited(_loadEventUsageAndButtonOrder());
+        });
+      }
       if (next.isNotEmpty) return;
       if (!ref.read(sessionProvider).isLoggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1677,56 +1671,94 @@ class _HomeEmptyStateGallery extends StatelessWidget {
     this.onAction,
   });
 
+  static const _animationSlotSize = 240.0;
+  static const _fallbackImageAsset = 'assets/images/event_placeholder.png';
+
   final String animationPath;
   final String title;
   final String subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
 
+  static bool _isEmptyComposition(LottieComposition? composition) {
+    if (composition == null) return false;
+    return composition.layers.isEmpty;
+  }
+
+  Widget _buildFallbackSlot(ThemeData theme) {
+    return Center(
+      child: Image.asset(
+        _fallbackImageAsset,
+        width: 120,
+        height: 120,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Icon(
+          Icons.child_care,
+          size: 80,
+          color: theme.colorScheme.primary.withValues(alpha: 0.35),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimationSlot(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: _animationSlotSize,
+      height: _animationSlotSize,
+      child: ClipRect(
+        child: Lottie.asset(
+          animationPath,
+          fit: BoxFit.contain,
+          addRepaintBoundary: false,
+          frameBuilder: (context, child, composition) {
+            if (_isEmptyComposition(composition)) {
+              return _buildFallbackSlot(theme);
+            }
+            return child;
+          },
+          errorBuilder: (context, error, stackTrace) => _buildFallbackSlot(theme),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Lottie.asset(
-            animationPath,
-            width: 240,
-            height: 240,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => Icon(
-              Icons.child_care,
-              size: 80,
-              color: theme.colorScheme.primary.withValues(alpha: 0.2),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildAnimationSlot(context),
+            const SizedBox(height: 24),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
             ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.onSurface,
+            const SizedBox(height: 12),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 32),
-            FilledButton.tonal(
-              onPressed: onAction,
-              child: Text(actionLabel!),
-            ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 32),
+              FilledButton.tonal(
+                onPressed: onAction,
+                child: Text(actionLabel!),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

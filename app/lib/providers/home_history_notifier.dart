@@ -179,6 +179,23 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     await _warmFromDisk();
   }
 
+  /// Splash 本地 hydrate：读盘后若有缓存则标记 initialLoadDone，避免有磁盘数据仍转圈。
+  Future<void> hydrateFromDiskForSplash() async {
+    await loadFromDisk();
+    if (state.items.isNotEmpty && !state.initialLoadDone) {
+      state = state.copyWith(initialLoadDone: true);
+      HomeHistoryLog.d(
+        'hydrateFromDiskForSplash initialLoadDone=true count=${state.items.length}',
+      );
+    }
+  }
+
+  void markInitialLoadComplete() {
+    if (state.initialLoadDone) return;
+    state = state.copyWith(initialLoadDone: true);
+    HomeHistoryLog.d('markInitialLoadComplete count=${state.items.length}');
+  }
+
   HomeHistoryCacheSnapshot _currentSnapshot() {
     return HomeHistoryCacheSnapshot(
       items: state.items,
@@ -295,11 +312,19 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     );
   }
 
-  Future<void> refreshFromRemote() async {
+  Future<void>? _refreshFuture;
+
+  Future<void> refreshFromRemote() {
     if (_flyAnimationFrozen) {
       _enqueueIfFrozen(() => unawaited(refreshFromRemote()));
-      return;
+      return Future.value();
     }
+    return _refreshFuture ??= _refreshFromRemoteImpl().whenComplete(() {
+      _refreshFuture = null;
+    });
+  }
+
+  Future<void> _refreshFromRemoteImpl() async {
     HomeHistoryLog.d('refreshFromRemote start memory=${state.items.length}');
     if (!_ref.read(sessionProvider).isLoggedIn) {
       HomeHistoryLog.d('refreshFromRemote skip: not logged in');

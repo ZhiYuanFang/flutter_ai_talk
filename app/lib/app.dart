@@ -4,10 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'bootstrap/cold_start_background_sync.dart';
 import 'bootstrap/cold_start_bootstrap.dart';
-import 'data/home_history_store.dart';
 import 'platform/native_splash.dart';
-import 'providers/device_no_notifier.dart';
 import 'providers/event_catalog_notifier.dart';
 import 'providers/home_history_notifier.dart';
 import 'providers/session_provider.dart';
@@ -19,7 +18,6 @@ import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme_scope.dart';
 import 'ui/widgets/keyboard_dismiss_scope.dart';
-import 'ui/event_logo_startup_warmup.dart';
 import 'ui/widgets/splash_logo_pulse.dart';
 
 class PangbaoApp extends ConsumerStatefulWidget {
@@ -62,25 +60,11 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
     }
 
     if (ref.read(sessionProvider).isLoggedIn) {
+      await ref.read(signInChannelProvider.notifier).restoreFromPrefs();
       await Future.wait<void>([
-        ref.read(deviceNoNotifierProvider.notifier).refresh(),
-        ref.read(signInChannelProvider.notifier).restoreFromPrefs(),
+        ref.read(eventCatalogProvider.notifier).loadFromDisk(),
+        ref.read(homeHistoryProvider.notifier).hydrateFromDiskForSplash(),
       ]);
-      HomeHistoryLog.d('coldStart bootstrap begin (before /home)');
-      await ref.read(homeHistoryProvider.notifier).bootstrap();
-      final h = ref.read(homeHistoryProvider);
-      HomeHistoryLog.d(
-        'coldStart history done items=${h.items.length} initialLoadDone=${h.initialLoadDone}',
-      );
-      await ref.read(eventCatalogProvider.notifier).bootstrap(maxAttempts: 3);
-      HomeHistoryLog.d('coldStart catalog done');
-      final warmupCtx = appScaffoldMessengerKey.currentContext;
-      if (warmupCtx != null && warmupCtx.mounted) {
-        await EventLogoStartupWarmup.precacheCatalog(
-          warmupCtx,
-          ref.read(eventCatalogProvider),
-        );
-      }
     } else {
       await ref.read(signInChannelProvider.notifier).clear();
     }
@@ -88,6 +72,9 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
     if (!mounted) return;
     ref.read(goRouterProvider).go(result.route);
     setState(() => _showStartupOverlay = false);
+    if (ref.read(sessionProvider).isLoggedIn) {
+      unawaited(ColdStartBackgroundSync.run(ref));
+    }
   }
 
   @override

@@ -135,26 +135,40 @@ class EventCatalogStore {
     return out;
   }
 
+  /// 单事件 logo：复用磁盘路径或下载；供后台并发池调用。
+  static Future<EventDefinition> downloadLogoIfNeeded(
+    EventDefinition event,
+    Map<String, EventDefinition> prevById,
+  ) async {
+    if (!eventCatalogSupportsLocalFiles) return event;
+    final url = event.logoUrl;
+    if (url == null || url.isEmpty) {
+      return event.copyWith(clearLocalLogoPath: true);
+    }
+    final prev = prevById[event.id];
+    if (prev?.logoUrl == url &&
+        prev?.localLogoPath != null &&
+        await File(prev!.localLogoPath!).exists()) {
+      return event.copyWith(localLogoPath: prev.localLogoPath);
+    }
+    final localPath = event.localLogoPath;
+    if (localPath != null &&
+        localPath.isNotEmpty &&
+        await File(localPath).exists()) {
+      return event;
+    }
+    final path = await downloadLogo(event.id, url);
+    return path == null ? event : event.copyWith(localLogoPath: path);
+  }
+
   static Future<List<EventDefinition>> applyLogoDownloads(List<EventDefinition> remote) async {
     if (!eventCatalogSupportsLocalFiles) return remote;
     final local = await loadFromDisk();
     final prevById = {for (final e in local) e.id: e};
     final out = <EventDefinition>[];
     for (final e in remote) {
-      final url = e.logoUrl;
-      if (url == null || url.isEmpty) {
-        out.add(e.copyWith(clearLocalLogoPath: true));
-        continue;
-      }
-      final prev = prevById[e.id];
-      if (prev?.logoUrl == url &&
-          prev?.localLogoPath != null &&
-          await File(prev!.localLogoPath!).exists()) {
-        out.add(e.copyWith(localLogoPath: prev.localLogoPath));
-        continue;
-      }
-      final path = await downloadLogo(e.id, url);
-      out.add(path == null ? e : e.copyWith(localLogoPath: path));
+      out.add(await downloadLogoIfNeeded(e, prevById));
+      prevById[e.id] = out.last;
     }
     return out;
   }

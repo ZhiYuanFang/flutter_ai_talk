@@ -16,8 +16,13 @@ class EventCatalogNotifier extends StateNotifier<List<EventDefinition>> {
     unawaited(_warmFromDisk());
   }
 
+  static const _logoDownloadConcurrency = 6;
+
   final Ref _ref;
   Future<void>? _warmFuture;
+  Future<void>? _refreshFuture;
+  Future<void>? _logoDownloadFuture;
+  Timer? _saveDebounce;
 
   Future<void> _warmFromDisk() {
     return _warmFuture ??= _loadWarmFromDisk();
@@ -68,7 +73,13 @@ class EventCatalogNotifier extends StateNotifier<List<EventDefinition>> {
     state = cached;
   }
 
-  Future<void> refreshFromRemote() async {
+  Future<void> refreshFromRemote() {
+    return _refreshFuture ??= _refreshFromRemoteImpl().whenComplete(() {
+      _refreshFuture = null;
+    });
+  }
+
+  Future<void> _refreshFromRemoteImpl() async {
     final loggedIn = _ref.read(sessionProvider).isLoggedIn;
     if (!loggedIn) return;
     await _warmFromDisk();
@@ -85,19 +96,63 @@ class EventCatalogNotifier extends StateNotifier<List<EventDefinition>> {
     }
   }
 
-  Future<void> _downloadLogosInBackground(List<EventDefinition> base) async {
+  void patchEventLocalLogoPath(String eventId, String path) {
+    final idx = state.indexWhere((e) => e.id == eventId);
+    if (idx < 0) return;
+    final next = [...state];
+    next[idx] = next[idx].copyWith(localLogoPath: path);
+    state = next;
+  }
+
+  void _scheduleSaveToDisk() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 300), () {
+      unawaited(EventCatalogStore.saveToDisk(state));
+    });
+  }
+
+  Future<void> _downloadLogosInBackground(List<EventDefinition> base) {
+    return _logoDownloadFuture ??= _downloadLogosImpl(base).whenComplete(() {
+      _logoDownloadFuture = null;
+    });
+  }
+
+  Future<void> _downloadLogosImpl(List<EventDefinition> base) async {
+    if (base.isEmpty) return;
     try {
-      final withLogos = await EventCatalogStore.applyLogoDownloads(base);
-      await EventCatalogStore.saveToDisk(withLogos);
-      final keepPaths = withLogos
-          .map((e) => e.localLogoPath)
-          .whereType<String>()
-          .toSet();
-      await EventCatalogStore.pruneLogoFiles(keepPaths);
-      if (withLogos.isNotEmpty) {
-        state = withLogos;
-        _debugLog('logos persisted: ${withLogos.length} items');
+      final local = await EventCatalogStore.loadFromDisk();
+      final prevById = {for (final e in local) e.id: e};
+      var index = 0;
+
+      Future<void> worker() async {
+        while (true) {
+          final i = index++;
+          if (i >= base.length) return;
+          final event = base[i];
+          final resolved =
+              await EventCatalogStore.downloadLogoIfNeeded(event, prevById);
+          prevById[event.id] = resolved;
+          final path = resolved.localLogoPath;
+          if (path != null && path != event.localLogoPath) {
+            patchEventLocalLogoPath(event.id, path);
+            _scheduleSaveToDisk();
+          }
+        }
       }
+
+      final workerCount = base.length < _logoDownloadConcurrency
+          ? base.length
+          : _logoDownloadConcurrency;
+      if (workerCount > 0) {
+        await Future.wait(List.generate(workerCount, (_) => worker()));
+      }
+
+      _saveDebounce?.cancel();
+      await EventCatalogStore.saveToDisk(state);
+      final keepPaths =
+          state.map((e) => e.localLogoPath).whereType<String>().toSet();
+      await EventCatalogStore.pruneLogoFiles(keepPaths);
+      _debugLog('logos persisted: ${state.length} items');
     } catch (_) {}
   }
 
@@ -129,6 +184,12 @@ class EventCatalogNotifier extends StateNotifier<List<EventDefinition>> {
     if (state.isEmpty) {
       _debugLog('bootstrap finished with empty catalog');
     }
+  }
+
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    super.dispose();
   }
 }
 

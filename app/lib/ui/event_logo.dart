@@ -39,18 +39,20 @@ class EventLogo extends StatelessWidget {
         );
       }
     }
-    final url = definition?.logoUrl;
-    if (url != null && url.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: radius,
-        child: Image.network(
-          url,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _placeholder(size, radius),
-        ),
-      );
+    if (kIsWeb) {
+      final url = definition?.logoUrl;
+      if (url != null && url.isNotEmpty) {
+        return ClipRRect(
+          borderRadius: radius,
+          child: Image.network(
+            url,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder(size, radius),
+          ),
+        );
+      }
     }
     return _placeholder(size, radius);
   }
