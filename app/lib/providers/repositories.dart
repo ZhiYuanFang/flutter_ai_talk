@@ -54,7 +54,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
     (_, __) => tryReconnectHistoryWs(resetStrike: true),
   );
 
-  tryReconnectHistoryWs();
+  // 建连由 watchLatest() 订阅后触发，避免 provider 创建时 watch 未订阅导致失败不重试。
   return remote;
 });
 

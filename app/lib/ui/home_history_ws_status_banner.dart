@@ -36,7 +36,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
           ? Material(
               color: scheme.errorContainer,
               child: InkWell(
-                onTap: tapEnabled && !reconnecting ? onReconnect : null,
+                onTap: tapEnabled ? onReconnect : null,
                 child: SizedBox(
                   height: _kBannerHeight,
                   child: Padding(
@@ -65,7 +65,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (tapEnabled && !reconnecting)
+                        if (tapEnabled)
                           Icon(Icons.refresh, size: 20, color: onContainer),
                       ],
                     ),

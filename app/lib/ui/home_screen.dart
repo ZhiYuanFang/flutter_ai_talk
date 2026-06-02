@@ -1218,7 +1218,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final showWsDisconnectBanner = loggedIn && !needsDeviceBind && !_wsReady;
     final wsBannerReconnecting =
         _historyWsPhase == HistoryWsPhase.autoReconnecting || _historyWsManualReconnecting;
-    final wsBannerTapEnabled = _historyWsPhase != HistoryWsPhase.autoReconnecting;
+    final wsBannerTapEnabled = true;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
