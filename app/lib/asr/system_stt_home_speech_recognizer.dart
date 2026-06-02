@@ -4,10 +4,13 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../audio/pcm_level.dart';
 import 'home_speech_recognizer.dart';
 
+const _kFallbackChineseLocaleId = 'zh_CN';
+
 /// 系统 [speech_to_text]（主要用于 iOS「系统语音识别」选项）。
 class SystemSttHomeSpeechRecognizer implements HomeSpeechRecognizer {
   final _speech = stt.SpeechToText();
   var _ready = false;
+  String _chineseLocaleId = _kFallbackChineseLocaleId;
   HomeSpeechPrepareFailure? _lastFailure;
 
   @override
@@ -23,8 +26,10 @@ class SystemSttHomeSpeechRecognizer implements HomeSpeechRecognizer {
     _ready = ok;
     if (!ok) {
       _lastFailure = HomeSpeechPrepareFailure.engineError;
+      return false;
     }
-    return ok;
+    await _cacheChineseLocaleId();
+    return true;
   }
 
   @override
@@ -34,6 +39,7 @@ class SystemSttHomeSpeechRecognizer implements HomeSpeechRecognizer {
     PcmDiagnosticsCallback? onPcmDiagnostics,
   }) async {
     await _speech.listen(
+      localeId: _chineseLocaleId,
       onResult: (r) => onPartial(r.recognizedWords),
       onSoundLevelChange: onLevel == null
           ? null
@@ -59,4 +65,36 @@ class SystemSttHomeSpeechRecognizer implements HomeSpeechRecognizer {
 
   @override
   void dispose() {}
+
+  Future<void> _cacheChineseLocaleId() async {
+    try {
+      final locales = await _speech.locales();
+      _chineseLocaleId = _pickChineseLocaleId(locales);
+    } catch (e) {
+      debugPrint('speech_to_text locales error: $e');
+      _chineseLocaleId = _kFallbackChineseLocaleId;
+    }
+  }
+
+  static String _pickChineseLocaleId(List<stt.LocaleName> locales) {
+    bool matches(String localeId, String target) =>
+        _normalizeLocaleId(localeId) == _normalizeLocaleId(target);
+
+    for (final locale in locales) {
+      if (matches(locale.localeId, 'zh_CN')) return locale.localeId;
+    }
+    for (final locale in locales) {
+      if (matches(locale.localeId, 'cmn-Hans-CN')) return locale.localeId;
+    }
+    for (final locale in locales) {
+      final normalized = _normalizeLocaleId(locale.localeId);
+      if (normalized.startsWith('zh') || normalized.startsWith('cmn_hans')) {
+        return locale.localeId;
+      }
+    }
+    return _kFallbackChineseLocaleId;
+  }
+
+  static String _normalizeLocaleId(String localeId) =>
+      localeId.replaceAll('-', '_').toLowerCase();
 }

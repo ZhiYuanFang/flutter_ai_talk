@@ -26,7 +26,7 @@ android {
 
     defaultConfig {
         applicationId = "com.fzy.pangbao"
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

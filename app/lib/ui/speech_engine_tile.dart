@@ -9,10 +9,7 @@ import '../config/speech_engine_store.dart';
 
 /// 设置中心：语音识别方式（下拉选择）。
 class SpeechEngineTile extends StatefulWidget {
-  const SpeechEngineTile({this.onEngineChanged, super.key});
-
-  /// 用户切换引擎后回调（用于联动隐藏/显示录音数据开关等）。
-  final ValueChanged<SpeechEngine>? onEngineChanged;
+  const SpeechEngineTile({super.key});
 
   @override
   State<SpeechEngineTile> createState() => _SpeechEngineTileState();
@@ -42,7 +39,6 @@ class _SpeechEngineTileState extends State<SpeechEngineTile> {
     await SpeechEngineStore.save(engine);
     if (!mounted) return;
     setState(() => _engine = engine);
-    widget.onEngineChanged?.call(engine);
   }
 
   @override

@@ -11,6 +11,7 @@ import '../ui/register_screen.dart';
 import '../ui/policy_screen.dart';
 import '../ui/baby_bind_screen.dart';
 import '../ui/baby_profile_edit_screen.dart';
+import '../ui/change_password_screen.dart';
 import '../ui/settings_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
@@ -78,6 +79,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/bind-baby',
         builder: (context, state) => const BabyBindScreen(),
+      ),
+      GoRoute(
+        path: '/settings/change-password',
+        builder: (context, state) => const ChangePasswordScreen(),
       ),
       GoRoute(
         path: '/policy',

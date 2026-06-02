@@ -11,6 +11,8 @@ import '../providers/sign_in_channel_provider.dart';
 import '../wechat/wechat_auth_client.dart';
 import '../wechat/wechat_auth_exception.dart';
 import '../providers/authorized_api_client_provider.dart';
+import '../session/credential_history_store.dart';
+import 'user_account_profile.dart';
 import 'repositories.dart' show AuthRepository;
 
 /// 网关 `POST /device/app/api/login`；请求体字段 `jsCode`（微信临时 code）来自 [weChatAuthGetter]、`WX_LOGIN_CODE` 或 [wxCodeOverride]。
@@ -91,6 +93,7 @@ class RemoteAuthRepository implements AuthRepository {
       },
       withAuthorization: false,
     );
+    await rememberSuccessfulLogin(_normalizeAccount(account), password);
     await _persistLoginData(data);
     await _ref.read(signInChannelProvider.notifier).setUsername();
   }
@@ -154,6 +157,15 @@ class RemoteAuthRepository implements AuthRepository {
       },
       withAuthorization: true,
     );
+  }
+
+  @override
+  Future<UserAccountProfile> fetchUserProfile() async {
+    final data = await _api.getEnvelope('/device/app/api/user/profile');
+    if (data == null) {
+      throw ApiBusinessException(-1, '用户 profile 为空');
+    }
+    return UserAccountProfile.fromGateway(data);
   }
 
   @override

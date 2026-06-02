@@ -63,6 +63,12 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   static double slotHeightFor({required bool showRelativeAgo}) =>
       showRelativeAgo ? rowHeight + timelineBadgeSlotHeight : rowHeight;
 
+  static const Color _relativeAgoBadgeTextRedTarget = Color(0xFFE53935);
+  static const double _relativeAgoBadgeTextRedLerp = 0.15;
+
+  static Color _relativeAgoBadgeTextColor(Color accent) =>
+      Color.lerp(accent, _relativeAgoBadgeTextRedTarget, _relativeAgoBadgeTextRedLerp)!;
+
   static double dotRadiusForFromBottom(int fromBottom) =>
       fromBottom == 0 ? 3.5 : 2.5;
 
@@ -226,9 +232,10 @@ class HomeHistoryTimelineTile extends StatelessWidget {
       );
     }
 
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final onShell = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     final badgeFontSize = fontSize - 1;
+    final themePrimary = Theme.of(context).colorScheme.primary;
+    final badgeBg = themePrimary.withValues(alpha: 0.1);
+    final badgeTextColor = _relativeAgoBadgeTextColor(accent);
 
     final badge = Padding(
       padding: EdgeInsets.only(
@@ -237,7 +244,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
       ),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: onShell.withValues(alpha: 0.2),
+          color: badgeBg,
           borderRadius: BorderRadius.circular(6),
         ),
         child: Padding(
@@ -249,7 +256,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
             style: TextStyle(
               fontSize: badgeFontSize,
               height: 1.2,
-              color: onShell,
+              color: badgeTextColor,
             ),
           ),
         ),

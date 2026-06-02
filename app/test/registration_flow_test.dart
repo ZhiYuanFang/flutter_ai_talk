@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pangbao_app/data/repositories.dart';
+import 'package:pangbao_app/data/user_account_profile.dart';
 import 'package:pangbao_app/providers/repositories.dart';
 import 'package:pangbao_app/ui/login_screen.dart';
 import 'package:pangbao_app/ui/register_screen.dart';
@@ -43,6 +44,10 @@ class _FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> signInWithWeChat() async => throw UnimplementedError();
+
+  @override
+  Future<UserAccountProfile> fetchUserProfile() async =>
+      const UserAccountProfile(account: '', isWxBound: false);
 
   @override
   Future<void> signOut() async => throw UnimplementedError();

@@ -8,8 +8,9 @@ import '../config/env.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
+import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
-import '../session/account_history_store.dart';
+import '../session/credential_history_store.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/theme_bootstrap_cache.dart';
 import 'auth/auth_ui.dart';
@@ -26,6 +27,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   static final RegExp _accountPattern = RegExp(r'^[a-z0-9_]{4,32}$');
 
+  final _accountFieldKey = GlobalKey();
   final _accountCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _accountFocusNode = FocusNode();
@@ -34,7 +36,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   var _loading = false;
   var _resumedPendingWebLogin = false;
   var _obscurePassword = true;
-  List<String> _recentAccounts = const [];
+  List<CredentialEntry> _credentialEntries = const [];
   String? _accountError;
   String? _passwordError;
 
@@ -45,10 +47,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _passwordFocusNode.addListener(_onPasswordFocusChange);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _loadRecentAccounts();
+      _applyPrefillAccountFromRoute();
+      _loadCredentialEntries();
       _showPendingWebWeChatError();
       _resumePendingWebWeChatLogin();
     });
+  }
+
+  void _applyPrefillAccountFromRoute() {
+    final account = GoRouterState.of(context).uri.queryParameters['account']?.trim();
+    if (account == null || account.isEmpty) return;
+    _accountCtrl.text = account.trim().toLowerCase();
+    _accountError = null;
   }
 
   @override
@@ -93,20 +103,86 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   String _normalizeAccount(String raw) => raw.trim().toLowerCase();
 
-  Future<void> _loadRecentAccounts() async {
-    final recent = await loadRecentAccounts();
-    if (!mounted) return;
-    setState(() {
-      _recentAccounts = recent;
-    });
+  Future<void> _loadCredentialEntries() async {
+    try {
+      final entries = await loadCredentialEntries();
+      if (!mounted) return;
+      setState(() {
+        _credentialEntries = entries;
+      });
+    } catch (_) {
+      // 读取失败时保留现有列表，避免箭头闪烁消失。
+    }
   }
 
-  Future<void> _rememberAccount(String account) async {
-    final next = await pushRecentAccount(account);
-    if (!mounted) return;
+  void _applyCredentialEntry(CredentialEntry entry) {
+    _accountCtrl.value = TextEditingValue(
+      text: entry.account,
+      selection: TextSelection.collapsed(offset: entry.account.length),
+    );
+    _passwordCtrl.value = TextEditingValue(
+      text: entry.password ?? '',
+      selection: TextSelection.collapsed(offset: (entry.password ?? '').length),
+    );
     setState(() {
-      _recentAccounts = next;
+      _accountError = null;
+      _passwordError = null;
     });
+    final binding = keyboardInputBridgeController.binding;
+    if (binding == null) return;
+    if (binding.controller == _accountCtrl) {
+      keyboardInputBridgeController.updateDraft(entry.account);
+    } else if (binding.controller == _passwordCtrl) {
+      keyboardInputBridgeController.updateDraft(entry.password ?? '');
+    }
+  }
+
+  Future<void> _showCredentialPicker() async {
+    if (_loading) return;
+
+    final entries = await loadCredentialEntries();
+    if (!mounted) return;
+    if (entries.isEmpty) {
+      setState(() => _credentialEntries = const []);
+      return;
+    }
+    setState(() => _credentialEntries = entries);
+
+    final box = _accountFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !mounted) return;
+
+    final offset = box.localToGlobal(Offset.zero);
+    final selected = await showMenu<String>(
+      context: context,
+      color: const Color(0xFFFBF8F3),
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: const Color(0xFF8C7E74).withValues(alpha: 0.35)),
+      ),
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy + box.size.height + 4,
+        offset.dx + box.size.width,
+        offset.dy + box.size.height + 4,
+      ),
+      items: entries
+          .map(
+            (entry) => PopupMenuItem<String>(
+              value: entry.account,
+              child: Text(
+                entry.account,
+                style: const TextStyle(color: Color(0xFF4A3428), fontSize: 15),
+              ),
+            ),
+          )
+          .toList(),
+    );
+    if (selected == null || !mounted) return;
+
+    final password = await readPasswordForAccount(selected);
+    if (!mounted) return;
+    _applyCredentialEntry(CredentialEntry(account: selected, password: password));
   }
 
   bool _validateCredentialInputs() {
@@ -138,7 +214,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         normalized,
         _passwordCtrl.text,
       );
-      await _rememberAccount(normalized);
+      if (!mounted) return;
+      await _loadCredentialEntries();
       if (!mounted) return;
       await _afterLoginSuccess();
     } on ApiBusinessException catch (e) {
@@ -226,11 +303,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _accountError = null;
       _passwordError = null;
     });
-    await _rememberAccount(account);
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(sessionProvider, (previous, next) {
+      if (previous?.isLoggedIn == true && !next.isLoggedIn) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadCredentialEntries();
+        });
+      }
+    });
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Container(
@@ -251,6 +335,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       buildAuthBrandHeader(context),
                       const SizedBox(height: 20),
                       TextField(
+                        key: _accountFieldKey,
                         controller: _accountCtrl,
                         focusNode: _accountFocusNode,
                         enabled: !_loading,
@@ -262,39 +347,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           labelText: '账号',
                           hintText: '4-32 位，仅 a-z0-9_',
                           errorText: _accountError,
+                          suffixIcon: _credentialEntries.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: _loading ? null : _showCredentialPicker,
+                                  icon: const Icon(Icons.arrow_drop_down),
+                                ),
                         ),
                       ),
-                      if (_recentAccounts.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '最近账号',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: _recentAccounts
-                                .map(
-                                  (e) => ActionChip(
-                                    label: Text(e),
-                                    onPressed: _loading
-                                        ? null
-                                        : () => setState(() {
-                                              _accountCtrl.text = e;
-                                              _accountError = null;
-                                            }),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                        ),
-                      ],
                       const SizedBox(height: 12),
                       TextField(
                         controller: _passwordCtrl,

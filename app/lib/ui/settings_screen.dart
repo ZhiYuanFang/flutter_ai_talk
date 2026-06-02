@@ -7,24 +7,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../api/api_exceptions.dart';
 import '../config/env.dart';
 import '../data/models.dart';
-import '../providers/repositories.dart';
-import '../providers/home_history_notifier.dart';
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
-import '../providers/device_no_notifier.dart';
-import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import '../theme/custom_background_persist.dart';
 import '../theme/theme_preset.dart';
+import 'account_management_sheet.dart';
 import 'home_history_edit_glass_panel.dart';
-import 'recording_diagnostics_tile.dart';
+import 'speech_engine_tile.dart';
 import 'widgets/app_glass_overlay.dart';
-import 'widgets/keyboard_input_bridge.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -103,7 +98,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               const SizedBox(height: 12),
               if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
-                const VoiceInputSettingsGroup(),
+                const SpeechEngineTile(),
                 const SizedBox(height: 12),
               ],
               _buildGlassTile(
@@ -120,39 +115,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   context,
                   leading: Icons.manage_accounts,
                   title: '账号管理',
-                  subtitle: '改密 / 绑定微信 / 绑定设备 / 微信补齐账号',
-                  onTap: () => _openAccountActions(context, ref),
+                  onTap: () => showAccountManagementSheet(context, ref),
                 ),
                 const SizedBox(height: 12),
               ],
-              _buildGlassTile(
-                context,
-                leading: Icons.swap_horiz,
-                title: '切换账号',
-                onTap: () async {
-                  final ok = await showGlassConfirmDialog(
-                        context,
-                        title: '切换账号',
-                    message: '将清除本地会话、宝宝ID与历史记录缓存并返回登录页。',
-                      ) ??
-                      false;
-                  if (!ok || !context.mounted) return;
-                  await ref.read(authRepositoryProvider).signOut();
-                  await ref.read(sessionProvider).signOut();
-                  await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
-                  await ref.read(signInChannelProvider.notifier).clear();
-                  await ref.read(feedRepositoryProvider).clearCache();
-                  await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
-                  if (context.mounted) context.go('/home');
-                },
-              ),
-              const SizedBox(height: 12),
-              _buildGlassTile(
-                context,
-                leading: Icons.delete_forever,
-                title: '注销账户',
-                onTap: () => _confirmDeregister(context, ref),
-              ),
               const SizedBox(height: 24),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -200,344 +166,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         onTap: onTap,
       ),
     );
-  }
-
-  Future<void> _openAccountActions(BuildContext context, WidgetRef ref) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.password),
-                title: const Text('修改密码'),
-                onTap: () async {
-                  Navigator.of(sheetCtx).pop();
-                  final pair = await _promptTwoFields(
-                    context,
-                    title: '修改密码',
-                    firstLabel: '旧密码',
-                    secondLabel: '新密码',
-                    obscureFirst: true,
-                    obscureSecond: true,
-                  );
-                  if (pair == null) return;
-                  await _runAuthAction(
-                    context,
-                    ref,
-                    action: () => ref.read(authRepositoryProvider).changeUsernamePassword(
-                          oldPassword: pair[0],
-                          newPassword: pair[1],
-                        ),
-                    successMessage: '密码修改成功',
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.link),
-                title: const Text('绑定设备号'),
-                onTap: () async {
-                  Navigator.of(sheetCtx).pop();
-                  final deviceNo = await _promptSingleField(
-                    context,
-                    title: '绑定设备号',
-                    label: 'deviceNo',
-                  );
-                  if (deviceNo == null) return;
-                  await _runAuthAction(
-                    context,
-                    ref,
-                    action: () => ref.read(authRepositoryProvider).bindUsernameDevice(deviceNo.trim()),
-                    successMessage: '设备号绑定成功',
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.chat),
-                title: const Text('绑定微信'),
-                onTap: () async {
-                  Navigator.of(sheetCtx).pop();
-                  final jsCode = await _promptSingleField(
-                    context,
-                    title: '绑定微信',
-                    label: 'jsCode',
-                  );
-                  if (jsCode == null) return;
-                  await _runAuthAction(
-                    context,
-                    ref,
-                    action: () => ref.read(authRepositoryProvider).bindUsernameWx(jsCode: jsCode.trim()),
-                    successMessage: '微信绑定请求已提交',
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.person_add_alt_1),
-                title: const Text('微信账号补齐用户名密码'),
-                onTap: () async {
-                  Navigator.of(sheetCtx).pop();
-                  final pair = await _promptTwoFields(
-                    context,
-                    title: '补齐用户名密码',
-                    firstLabel: '账号',
-                    secondLabel: '密码',
-                    obscureFirst: false,
-                    obscureSecond: true,
-                  );
-                  if (pair == null) return;
-                  await _runAuthAction(
-                    context,
-                    ref,
-                    action: () => ref.read(authRepositoryProvider).createUsernameForWx(
-                          pair[0].trim().toLowerCase(),
-                          pair[1],
-                        ),
-                    successMessage: '账号密码创建成功',
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.science_outlined),
-                title: const Text('业务登录校验（联调）'),
-                subtitle: const Text('调用 /user/username/login，不写 token'),
-                onTap: () async {
-                  Navigator.of(sheetCtx).pop();
-                  final pair = await _promptTwoFields(
-                    context,
-                    title: '业务登录校验（联调）',
-                    firstLabel: '账号',
-                    secondLabel: '密码',
-                    obscureFirst: false,
-                    obscureSecond: true,
-                  );
-                  if (pair == null) return;
-                  await _runAuthAction(
-                    context,
-                    ref,
-                    action: () async {
-                      await ref.read(authRepositoryProvider).loginUsernameBusiness(
-                            pair[0].trim().toLowerCase(),
-                            pair[1],
-                          );
-                    },
-                    successMessage: '业务登录校验成功（未写入会话）',
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _runAuthAction(
-    BuildContext context,
-    WidgetRef ref, {
-    required Future<void> Function() action,
-    required String successMessage,
-  }) async {
-    try {
-      await action();
-      if (context.mounted) {
-        ref.showApiToastError(successMessage);
-      }
-    } on ApiBusinessException catch (e) {
-      if (context.mounted) {
-        ref.showApiToastError(e.message);
-      }
-    } on ApiHttpException catch (e) {
-      if (context.mounted) {
-        ref.showApiToastError('网络错误(${e.statusCode})');
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ref.showApiToastError('操作失败：$e');
-      }
-    }
-  }
-
-  Future<String?> _promptSingleField(
-    BuildContext context, {
-    required String title,
-    required String label,
-  }) async {
-    final c = TextEditingController();
-    final focusNode = FocusNode();
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (dCtx) {
-          return AlertDialog(
-            title: Text(title),
-            content: TextField(
-              controller: c,
-              focusNode: focusNode,
-              onTap: () => keyboardInputBridgeController.attach(
-                controller: c,
-                focusNode: focusNode,
-                onConfirm: () => Navigator.of(dCtx).pop(c.text),
-                scene: 'settings.single-field',
-                hint: label,
-              ),
-              onChanged: keyboardInputBridgeController.updateDraft,
-              onTapOutside: (_) => keyboardInputBridgeController.detach(controller: c),
-              decoration: InputDecoration(labelText: label),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  keyboardInputBridgeController.detach(controller: c);
-                  Navigator.of(dCtx).pop();
-                },
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () {
-                  keyboardInputBridgeController.detach(controller: c);
-                  Navigator.of(dCtx).pop(c.text);
-                },
-                child: const Text('确定'),
-              ),
-            ],
-          );
-        },
-      );
-    } finally {
-      focusNode.dispose();
-      c.dispose();
-    }
-  }
-
-  Future<List<String>?> _promptTwoFields(
-    BuildContext context, {
-    required String title,
-    required String firstLabel,
-    required String secondLabel,
-    required bool obscureFirst,
-    required bool obscureSecond,
-  }) async {
-    final c1 = TextEditingController();
-    final c2 = TextEditingController();
-    final f1 = FocusNode();
-    final f2 = FocusNode();
-    try {
-      return await showDialog<List<String>>(
-        context: context,
-        builder: (dCtx) {
-          return AlertDialog(
-            title: Text(title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: c1,
-                  focusNode: f1,
-                  obscureText: obscureFirst,
-                  onTap: () => keyboardInputBridgeController.attach(
-                    controller: c1,
-                    focusNode: f1,
-                    onConfirm: () => f2.requestFocus(),
-                    scene: 'settings.two-field.first',
-                    obscureText: obscureFirst,
-                    hint: firstLabel,
-                  ),
-                  onChanged: keyboardInputBridgeController.updateDraft,
-                  onTapOutside: (_) => keyboardInputBridgeController.detach(controller: c1),
-                  decoration: InputDecoration(labelText: firstLabel),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: c2,
-                  focusNode: f2,
-                  obscureText: obscureSecond,
-                  onTap: () => keyboardInputBridgeController.attach(
-                    controller: c2,
-                    focusNode: f2,
-                    onConfirm: () => Navigator.of(dCtx).pop([c1.text, c2.text]),
-                    scene: 'settings.two-field.second',
-                    obscureText: obscureSecond,
-                    hint: secondLabel,
-                  ),
-                  onChanged: keyboardInputBridgeController.updateDraft,
-                  onTapOutside: (_) => keyboardInputBridgeController.detach(controller: c2),
-                  decoration: InputDecoration(labelText: secondLabel),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  keyboardInputBridgeController.detach(controller: c1);
-                  keyboardInputBridgeController.detach(controller: c2);
-                  Navigator.of(dCtx).pop();
-                },
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () {
-                  keyboardInputBridgeController.detach(controller: c1);
-                  keyboardInputBridgeController.detach(controller: c2);
-                  Navigator.of(dCtx).pop([c1.text, c2.text]);
-                },
-                child: const Text('确定'),
-              ),
-            ],
-          );
-        },
-      );
-    } finally {
-      f1.dispose();
-      f2.dispose();
-      c1.dispose();
-      c2.dispose();
-    }
-  }
-
-  Future<void> _confirmDeregister(BuildContext context, WidgetRef ref) async {
-    final step1 = await showGlassConfirmDialog(
-          context,
-          title: '注销账户',
-          message: '第一步：确认你了解此操作的风险。该操作不可撤销，你的所有记录将被永久删除。',
-          confirmLabel: '继续',
-        ) ??
-        false;
-    if (!step1 || !context.mounted) return;
-
-    final step2 = await showGlassTextConfirmDialog(
-          context,
-          title: '注销确认',
-          message: '第二步：请输入“确定注销”以继续申请。',
-          expectedText: '确定注销',
-          confirmLabel: '确认注销',
-        ) ??
-        false;
-    if (!step2 || !context.mounted) return;
-
-    try {
-      // 1. 调用后端注销接口
-      await ref.read(authRepositoryProvider).deactivateAccount();
-
-      // 2. 接口成功后，清理本地所有状态
-      await ref.read(sessionProvider).signOut();
-      await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
-      await ref.read(signInChannelProvider.notifier).clear();
-      await ref.read(feedRepositoryProvider).clearCache();
-      await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
-
-      if (context.mounted) {
-        context.go('/home');
-        ref.showApiToastError('注销成功'); // 使用 Toast 提示
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ref.showApiToastError('注销失败：$e');
-      }
-    }
   }
 }
 

@@ -942,18 +942,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   void _resetVoiceLevel() => _voiceLevelSmoother.reset();
 
-  /// 设置页修改「显示录音数据」后需重新读取（[_init] 只执行一次）。
-  Future<void> _refreshRecordingDiagnosticsPref() async {
-    if (kIsWeb) return;
-    final show = await RecordingDiagnosticsStore.load();
-    if (!mounted) return;
-    if (_showRecordingDiagnostics != show) {
-      setState(() => _showRecordingDiagnostics = show);
-    } else {
-      _showRecordingDiagnostics = show;
-    }
-  }
-
   void _startRecordingDiagnosticsSession() {
     _listenStopwatch = Stopwatch()..start();
     _lastDiagnosticsEmit = null;
@@ -1271,10 +1259,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     HomeImmersiveHeader(
                       title: '胖宝',
                       onTrendsTap: () => context.push('/trends'),
-                      onSettingsTap: () async {
-                        await context.push('/settings');
-                        if (mounted) await _refreshRecordingDiagnosticsPref();
-                      },
+                      onSettingsTap: () => context.push('/settings'),
                     ),
                     const SizedBox(height: _kImmersiveHeaderContentSpacing),
                     if (showBindBanner)

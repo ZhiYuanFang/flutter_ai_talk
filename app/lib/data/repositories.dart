@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 export 'feed_repository.dart';
 import 'history_hourly_dual_day.dart';
 import 'models.dart';
+import 'user_account_profile.dart';
 
 abstract class AuthRepository {
   Future<void> signInWithWeChat();
@@ -21,6 +22,8 @@ abstract class AuthRepository {
   Future<void> changeUsernamePassword({required String oldPassword, required String newPassword});
 
   Future<void> createUsernameForWx(String account, String password);
+
+  Future<UserAccountProfile> fetchUserProfile();
 
   Future<void> signOut();
 

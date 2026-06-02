@@ -109,9 +109,11 @@ Future<bool?> showGlassConfirmDialog(
   required String message,
   String cancelLabel = '取消',
   String confirmLabel = '确定',
+  bool useRootNavigator = true,
 }) {
   return showGlassDialog<bool>(
     context: context,
+    useRootNavigator: useRootNavigator,
     contentBuilder: (ctx) {
       final glassText = historyEditGlassTextColor(ctx);
       final glassLabel = historyEditGlassLabelColor(ctx);
@@ -175,9 +177,11 @@ Future<bool?> showGlassTextConfirmDialog(
   String hintText = '请输入以确认',
   String cancelLabel = '取消',
   String confirmLabel = '确定',
+  bool useRootNavigator = true,
 }) {
   return showGlassDialog<bool>(
     context: context,
+    useRootNavigator: useRootNavigator,
     contentBuilder: (ctx) {
       return _GlassTextConfirmDialogBody(
         title: title,
