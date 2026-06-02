@@ -6,7 +6,7 @@
 
 ## 2. 动画槽兜底
 
-- [x] 2.1 实现 `errorBuilder` 静态兜底（`Icon` 或 bundled `Image.asset`），尺寸与动画槽一致
+- [x] 2.1 实现 `errorBuilder` 静态兜底：使用与 Android 原先一致的 `Icons.child_care` 宝宝占位（不得使用 `app_icon` 瓶身图）
 - [x] 2.2 若 `{}` stub 在 iOS 不触发 `errorBuilder` 仍占满槽位，视情况增加 `frameBuilder` 或无效 composition 检测，确保灰块不超出 240×240 且文案可见
 
 ## 3. 资源（可选）

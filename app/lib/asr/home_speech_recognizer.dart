@@ -38,12 +38,15 @@ enum HomeSpeechPrepareFailure {
 }
 
 extension HomeSpeechPrepareFailureMessage on HomeSpeechPrepareFailure {
-  String get message => switch (this) {
-        HomeSpeechPrepareFailure.modelMissing =>
-          '语音识别资源未就绪，请稍后重试或改用文字输入',
+  String message({required bool forWeb}) => switch (this) {
+        HomeSpeechPrepareFailure.modelMissing => forWeb
+            ? '语音识别资源未就绪，请稍后重试或改用文字输入'
+            : '语音识别资源未就绪，请稍后重试或切换到事件记录模式',
         HomeSpeechPrepareFailure.permissionDenied => '需要麦克风权限才能使用语音输入',
         HomeSpeechPrepareFailure.voiceWsDisconnected =>
           '语音转写服务未连接，请稍候再按或检查网络',
-        HomeSpeechPrepareFailure.engineError => '语音识别初始化失败，请改用文字输入',
+        HomeSpeechPrepareFailure.engineError => forWeb
+            ? '语音识别初始化失败，请改用文字输入'
+            : '语音识别初始化失败，请切换到事件记录模式',
       };
 }

@@ -9,6 +9,7 @@ import '../theme/app_visual_tokens.dart';
 import 'home_input_channel.dart';
 
 /// 贴边半露、可拖动吸附的输入模式切换器。
+/// 贴边半圆：点击滑出整圆；贴边整圆 / 自由悬浮：点击切换模式。
 class HomeInputModeDock extends StatefulWidget {
   const HomeInputModeDock({
     super.key,
@@ -33,28 +34,70 @@ class HomeInputModeDock extends StatefulWidget {
   State<HomeInputModeDock> createState() => _HomeInputModeDockState();
 }
 
-class _HomeInputModeDockState extends State<HomeInputModeDock> {
-  var _expanded = false;
+class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProviderStateMixin {
+  static const _tapSlop = 12.0;
+  static const _peakScale = 1.28;
+  static const _popGrowFraction = 0.45;
+  static const _revealDuration = Duration(milliseconds: 160);
+  static const _popDuration = Duration(milliseconds: 350);
+  static const _edgeHitExpand = 24.0;
+
   var _edge = kHomeInputDockDefaultEdge;
   var _along = kHomeInputDockDefaultAlong;
+  Offset? _freeCenter;
   Offset? _dragCenter;
   var _loaded = false;
+  var _isDragging = false;
+  var _engaged = false;
+  Offset? _pointerDownGlobal;
+  var _cycleInProgress = false;
+
+  late final AnimationController _revealController;
+  late final AnimationController _popController;
 
   @override
   void initState() {
     super.initState();
+    _revealController = AnimationController(vsync: this, duration: _revealDuration);
+    _popController = AnimationController(vsync: this, duration: _popDuration);
     unawaited(_loadDockPosition());
+  }
+
+  @override
+  void dispose() {
+    _revealController.dispose();
+    _popController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDockPosition() async {
     final snap = await HomeInputDockStore.load();
     if (!mounted) return;
     setState(() {
-      _edge = snap.edge;
-      _along = snap.along;
+      if (snap.isFloating) {
+        _freeCenter = clampDockCenterForDrag(snap.freeCenter!, widget.bounds);
+        _edge = kHomeInputDockDefaultEdge;
+        _along = kHomeInputDockDefaultAlong;
+        _engaged = false;
+      } else {
+        _freeCenter = null;
+        _edge = snap.edge;
+        _along = snap.along;
+        _engaged = false;
+      }
+      _revealController.value = 0;
       _loaded = true;
     });
   }
+
+  bool get _isFloating => _freeCenter != null;
+
+  /// 贴边且处于整圆（已滑出）状态。
+  bool get _isEdgeFullCircle =>
+      !_isFloating && (_engaged || _revealController.value >= 0.5);
+
+  /// 贴边且处于半圆（未滑出）状态。
+  bool get _isEdgeSemicircle => !_isFloating && !_isEdgeFullCircle;
 
   Offset get _snappedCenter => dockCircleCenterForSnapped(
         edge: _edge,
@@ -62,89 +105,209 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> {
         bounds: widget.bounds,
       );
 
-  Offset get _displayCenter => _dragCenter ?? _snappedCenter;
+  Offset _fullCenterForSnap() => dockCircleCenterForFullCircle(
+        edge: _edge,
+        along: _along,
+        bounds: widget.bounds,
+      );
 
-  void _collapse() {
-    if (!_expanded) return;
-    setState(() => _expanded = false);
-  }
-
-  void _toggleExpanded() {
-    setState(() => _expanded = !_expanded);
-  }
-
-  Future<void> _persistSnap(DockEdge edge, double along) async {
-    await HomeInputDockStore.save(edge, along);
-  }
-
-  void _onPanUpdate(DragUpdateDetails details) {
-    final box = context.findRenderObject() as RenderBox?;
-    final local = box?.globalToLocal(details.globalPosition) ?? details.localPosition;
-    setState(() {
-      _expanded = false;
-      _dragCenter = clampDockCenterForDrag(local, widget.bounds);
-    });
-  }
-
-  void _onPanEnd(DragEndDetails details) {
-    final center = _dragCenter;
-    if (center == null) return;
-    final snap = snapDockToNearestEdge(
-      center,
-      widget.bounds,
-      allowTopBottom: !widget.restrictToHorizontalEdges,
-    );
-    setState(() {
-      _edge = snap.edge;
-      _along = snap.along;
-      _dragCenter = null;
-    });
-    unawaited(_persistSnap(snap.edge, snap.along));
-  }
-
-  void _selectChannel(HomeInputChannel channel) {
-    widget.onChannelSelected(channel);
-    _collapse();
+  Offset _visualCenter({required double reveal}) {
+    if (_dragCenter != null) return _dragCenter!;
+    if (_freeCenter != null) return _freeCenter!;
+    final semi = _snappedCenter;
+    final full = _fullCenterForSnap();
+    return Offset.lerp(semi, full, reveal.clamp(0.0, 1.0))!;
   }
 
   List<HomeInputChannel> get _availableChannels {
     if (widget.showButtonsOption) {
-      return HomeInputChannel.values;
+      return const [HomeInputChannel.buttons, HomeInputChannel.voice];
     }
     return const [HomeInputChannel.voice, HomeInputChannel.text];
   }
 
-  /// 展开菜单沿主轴尺寸（与 [_buildExpandedMenu] 布局一致）。
-  double get _menuMainAxisExtent {
-    final count = _availableChannels.length;
-    const itemSize = 40.0;
-    const padding = 8.0;
-    const itemGap = 4.0;
-    return padding + count * itemSize + (count - 1) * itemGap;
+  HomeInputChannel _nextChannel(HomeInputChannel current) {
+    final channels = _availableChannels;
+    final index = channels.indexOf(current);
+    if (index < 0) return channels.first;
+    return channels[(index + 1) % channels.length];
   }
 
-  /// 集群左上角：展开时保持 handle 圆心不变，菜单向屏内展开。
-  Offset _clusterTopLeft(Offset handleCenter) {
-    const clusterGap = 6.0;
-    if (!_expanded) {
-      return Offset(
-        handleCenter.dx - kHomeInputDockRadius,
-        handleCenter.dy - kHomeInputDockRadius,
+  Future<void> _persistSnap(DockEdge edge, double along) async {
+    await HomeInputDockStore.saveEdge(edge, along);
+  }
+
+  Future<void> _persistFree(Offset center) async {
+    await HomeInputDockStore.saveFree(center);
+  }
+
+  double _popScaleFor(double t) {
+    if (t <= _popGrowFraction) {
+      final growT = Curves.easeOut.transform(t / _popGrowFraction);
+      return 1.0 + (_peakScale - 1.0) * growT;
+    }
+    final shrinkT = Curves.easeIn.transform((t - _popGrowFraction) / (1 - _popGrowFraction));
+    return _peakScale - (_peakScale - 1.0) * shrinkT;
+  }
+
+  Future<void> _engage() async {
+    if (_engaged || _cycleInProgress || _isFloating) return;
+    setState(() => _engaged = true);
+    await _revealController.forward();
+  }
+
+  Future<void> _disengage() async {
+    if (!_engaged || _cycleInProgress || _isFloating) return;
+    setState(() => _engaged = false);
+    await _revealController.reverse();
+  }
+
+  Future<void> _cycleMode() async {
+    if (_cycleInProgress) return;
+    if (!_isFloating && !_isEdgeFullCircle) return;
+    _cycleInProgress = true;
+    final next = _nextChannel(widget.currentChannel);
+    widget.onChannelSelected(next);
+    await _popController.forward(from: 0);
+    if (!mounted) return;
+    _popController.reset();
+    if (mounted) setState(() => _cycleInProgress = false);
+  }
+
+  Offset _globalToBoundsLocal(Offset global) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return global;
+    return box.globalToLocal(global);
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (_cycleInProgress) return;
+    _pointerDownGlobal = event.position;
+    _isDragging = false;
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (_pointerDownGlobal == null || _cycleInProgress) return;
+    if (!_isDragging && (event.position - _pointerDownGlobal!).distance > _tapSlop) {
+      _isDragging = true;
+      setState(() {
+        _dragCenter ??= _visualCenter(reveal: _revealController.value);
+      });
+    }
+    if (!_isDragging) return;
+    final local = _globalToBoundsLocal(event.position);
+    setState(() => _dragCenter = clampDockCenterForDrag(local, widget.bounds));
+  }
+
+  Future<void> _finishDrag() async {
+    final center = _dragCenter;
+    if (center == null) return;
+    final clamped = clampDockCenterForDrag(center, widget.bounds);
+    final allowTopBottom = !widget.restrictToHorizontalEdges;
+    if (dockShouldSnapToEdge(clamped, widget.bounds, allowTopBottom: allowTopBottom)) {
+      final snap = snapDockToNearestEdge(
+        clamped,
+        widget.bounds,
+        allowTopBottom: allowTopBottom,
+      );
+      setState(() {
+        _freeCenter = null;
+        _edge = snap.edge;
+        _along = snap.along;
+        _dragCenter = null;
+        _engaged = false;
+      });
+      _revealController.value = 0;
+      await _persistSnap(snap.edge, snap.along);
+    } else {
+      setState(() {
+        _freeCenter = clamped;
+        _dragCenter = null;
+        _engaged = false;
+      });
+      _revealController.reset();
+      await _persistFree(clamped);
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (_cycleInProgress) return;
+    final wasDragging = _isDragging;
+    _pointerDownGlobal = null;
+    _isDragging = false;
+
+    if (wasDragging) {
+      unawaited(_finishDrag());
+      return;
+    }
+
+    if (_isFloating) {
+      unawaited(_cycleMode());
+      return;
+    }
+    if (_isEdgeSemicircle) {
+      unawaited(_engage());
+    } else {
+      unawaited(_cycleMode());
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _pointerDownGlobal = null;
+    _isDragging = false;
+    if (_dragCenter != null) {
+      setState(() => _dragCenter = null);
+    }
+  }
+
+  ({double left, double top, double width, double height}) _hitTargetRect(Offset center) {
+    if (_isFloating || _isEdgeFullCircle || _dragCenter != null) {
+      const size = kHomeInputDockDiameter + _edgeHitExpand * 2;
+      return (
+        left: center.dx - size / 2,
+        top: center.dy - size / 2,
+        width: size,
+        height: size,
       );
     }
+
+    // 贴边半圆：向屏内扩大可点区域
+    const vertical = kHomeInputDockDiameter + 16.0;
+    const inner = kHomeInputDockDiameter + _edgeHitExpand;
     return switch (_edge) {
-      DockEdge.right => Offset(
-          handleCenter.dx - kHomeInputDockRadius - clusterGap - _menuMainAxisExtent,
-          handleCenter.dy - kHomeInputDockRadius,
+      DockEdge.right => (
+          left: center.dx - inner,
+          top: center.dy - vertical / 2,
+          width: inner,
+          height: vertical,
         ),
-      DockEdge.left || DockEdge.top => Offset(
-          handleCenter.dx - kHomeInputDockRadius,
-          handleCenter.dy - kHomeInputDockRadius,
+      DockEdge.left => (
+          left: center.dx,
+          top: center.dy - vertical / 2,
+          width: inner,
+          height: vertical,
         ),
-      DockEdge.bottom => Offset(
-          handleCenter.dx - kHomeInputDockRadius,
-          handleCenter.dy - kHomeInputDockRadius - clusterGap - _menuMainAxisExtent,
+      DockEdge.top => (
+          left: center.dx - vertical / 2,
+          top: center.dy,
+          width: vertical,
+          height: inner,
         ),
+      DockEdge.bottom => (
+          left: center.dx - vertical / 2,
+          top: center.dy - inner,
+          width: vertical,
+          height: inner,
+        ),
+    };
+  }
+
+  Alignment _semicircleHandleAlignment() {
+    return switch (_edge) {
+      DockEdge.right => Alignment.centerRight,
+      DockEdge.left => Alignment.centerLeft,
+      DockEdge.top => Alignment.topCenter,
+      DockEdge.bottom => Alignment.bottomCenter,
     };
   }
 
@@ -156,168 +319,103 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> {
     };
   }
 
-  String _labelFor(HomeInputChannel channel) {
-    return switch (channel) {
-      HomeInputChannel.voice => '语音',
-      HomeInputChannel.text => '文字',
-      HomeInputChannel.buttons => '按钮',
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const SizedBox.shrink();
 
-    final center = _displayCenter;
-    final clusterOrigin = _clusterTopLeft(center);
+    return AnimatedBuilder(
+      animation: Listenable.merge([_revealController, _popController]),
+      builder: (context, _) {
+        final reveal = _revealController.value;
+        final center = _visualCenter(reveal: reveal);
+        final popScale = _popController.value > 0 ? _popScaleFor(_popController.value) : 1.0;
+        final hit = _hitTargetRect(center);
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        if (_expanded)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: widget.bottomInputPanelHeight,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _collapse,
-              child: const SizedBox.expand(),
-            ),
+        return SizedBox.expand(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (_isEdgeFullCircle)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: widget.bottomInputPanelHeight,
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: (_) {},
+                    onPointerUp: (_) => unawaited(_disengage()),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              Positioned(
+                left: hit.left,
+                top: hit.top,
+                width: hit.width,
+                height: hit.height,
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: _onPointerDown,
+                  onPointerMove: _onPointerMove,
+                  onPointerUp: _onPointerUp,
+                  onPointerCancel: _onPointerCancel,
+                  child: Align(
+                    alignment: _isEdgeSemicircle && _dragCenter == null
+                        ? _semicircleHandleAlignment()
+                        : Alignment.center,
+                    child: Transform.scale(
+                      scale: popScale,
+                      alignment: Alignment.center,
+                      child: _buildClippedHandle(context, widget.currentChannel),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        Positioned(
-          left: clusterOrigin.dx,
-          top: clusterOrigin.dy,
-          child: _buildDockCluster(context),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildDockCluster(BuildContext context) {
-    final handle = _buildSemicircleHandle(context, widget.currentChannel);
-    final semicircle = GestureDetector(
-      onTap: _expanded ? _collapse : _toggleExpanded,
-      onPanUpdate: _onPanUpdate,
-      onPanEnd: _onPanEnd,
-      child: handle,
-    );
-
-    if (!_expanded) return semicircle;
-
-    final menu = _buildExpandedMenu(context);
+  Widget _buildClippedHandle(BuildContext context, HomeInputChannel channel) {
+    final handle = _buildHandle(context, channel);
+    if (!_isEdgeSemicircle || _dragCenter != null) {
+      return handle;
+    }
     return switch (_edge) {
-      DockEdge.right => Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [menu, const SizedBox(width: 6), semicircle],
+      DockEdge.right => ClipRect(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: 0.5,
+            child: handle,
+          ),
         ),
-      DockEdge.left => Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [semicircle, const SizedBox(width: 6), menu],
+      DockEdge.left => ClipRect(
+          child: Align(
+            alignment: Alignment.centerRight,
+            widthFactor: 0.5,
+            child: handle,
+          ),
         ),
-      DockEdge.bottom => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [menu, const SizedBox(height: 6), semicircle],
+      DockEdge.top => ClipRect(
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            heightFactor: 0.5,
+            child: handle,
+          ),
         ),
-      DockEdge.top => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [semicircle, const SizedBox(height: 6), menu],
+      DockEdge.bottom => ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: 0.5,
+            child: handle,
+          ),
         ),
     };
   }
 
-  Widget _buildExpandedMenu(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final horizontal = _edge == DockEdge.top || _edge == DockEdge.bottom;
-
-    final items = _availableChannels
-        .map(
-          (channel) => _menuItem(
-            context: context,
-            channel: channel,
-            selected: channel == widget.currentChannel,
-            onTap: () => _selectChannel(channel),
-          ),
-        )
-        .toList();
-
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final panelColor = tokens?.surfaceColor ?? themePrimaryBlend(context, alpha: 0.22);
-    final menuBody = Padding(
-      padding: const EdgeInsets.all(4),
-      child: horizontal
-          ? Row(mainAxisSize: MainAxisSize.min, children: _intersperse(items, const SizedBox(width: 4)))
-          : Column(mainAxisSize: MainAxisSize.min, children: _intersperse(items, const SizedBox(height: 4))),
-    );
-    if (tokens != null) {
-      return Material(
-        type: MaterialType.transparency,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: panelColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: tokens.surfaceBorderColor),
-          ),
-          child: menuBody,
-        ),
-      );
-    }
-    return Material(
-      elevation: 4,
-      shadowColor: scheme.primary.withValues(alpha: 0.18),
-      borderRadius: BorderRadius.circular(16),
-      color: panelColor,
-      child: menuBody,
-    );
-  }
-
-  List<Widget> _intersperse(List<Widget> items, Widget spacer) {
-    if (items.isEmpty) return items;
-    final out = <Widget>[items.first];
-    for (var i = 1; i < items.length; i++) {
-      out.add(spacer);
-      out.add(items[i]);
-    }
-    return out;
-  }
-
-  Widget _menuItem({
-    required BuildContext context,
-    required HomeInputChannel channel,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: _labelFor(channel),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? scheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(
-            _iconFor(channel),
-            size: 22,
-            color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSemicircleHandle(BuildContext context, HomeInputChannel channel) {
+  Widget _buildHandle(BuildContext context, HomeInputChannel channel) {
     final scheme = Theme.of(context).colorScheme;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final handleColor = tokens?.surfaceColor ?? themePrimaryBlend(context, alpha: 0.24);

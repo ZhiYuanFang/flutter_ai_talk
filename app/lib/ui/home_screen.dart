@@ -85,8 +85,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   var _listening = false;
   String _partial = '';
 
-  /// 首页输入方式：语音 / 文字（移动端可切换；Web 由环境决定默认项）。
-  HomeInputChannel _inputChannel = HomeInputChannel.voice;
+  /// 首页输入方式：移动端默认事件按钮；Web 由 `WEB_HOME_INPUT` 决定。
+  HomeInputChannel _inputChannel =
+      kIsWeb ? HomeInputChannel.voice : HomeInputChannel.buttons;
 
   late final WebHomeInputMode _webHomeInputMode;
 
@@ -186,10 +187,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     };
   }
 
+  bool _hasBoundDeviceNo() {
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    return dn != null && dn.isNotEmpty;
+  }
+
   bool _isInputChannelAvailable(HomeInputChannel channel) {
+    if (kIsWeb) {
+      return switch (channel) {
+        HomeInputChannel.voice || HomeInputChannel.text => true,
+        HomeInputChannel.buttons => false,
+      };
+    }
     return switch (channel) {
-      HomeInputChannel.voice || HomeInputChannel.text => true,
-      HomeInputChannel.buttons => _showButtonsInputMode,
+      HomeInputChannel.voice => _hasBoundDeviceNo(),
+      HomeInputChannel.buttons => true,
+      HomeInputChannel.text => false,
     };
   }
 
@@ -305,7 +318,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       _voiceReady = ok && (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady);
       if (!ok && mounted) {
         final failure = _recognizer!.lastPrepareFailure ?? HomeSpeechPrepareFailure.engineError;
-        showAppToast(failure.message, tone: AppToastTone.error);
+        showAppToast(failure.message(forWeb: false), tone: AppToastTone.error);
       } else if (!_voiceReady && mounted && _speechEngine == SpeechEngine.cloudAsr) {
         showAppToast('语音转写服务未连接，请稍后再试', tone: AppToastTone.error);
       }
@@ -313,7 +326,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     } catch (e) {
       debugPrint('prepare voice input failed: $e');
       if (mounted) {
-        showAppToast('语音识别初始化失败，请改用文字输入', tone: AppToastTone.error);
+        showAppToast('语音识别初始化失败，请切换到事件记录模式', tone: AppToastTone.error);
       }
       return false;
     }
@@ -321,6 +334,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   Future<void> _selectInputChannel(HomeInputChannel channel, {bool persist = true}) async {
     if (_inputChannel == channel) return;
+    if (channel == HomeInputChannel.voice &&
+        _showButtonsInputMode &&
+        !_hasBoundDeviceNo()) {
+      return;
+    }
     if (channel != HomeInputChannel.voice && _listening) {
       await _onVoiceCancel();
     }
@@ -1170,7 +1188,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
       if (!ref.read(sessionProvider).isLoggedIn) return;
       final nextDn = next.asData?.value;
-      if (nextDn == null || nextDn.isEmpty) return;
+      if (nextDn == null || nextDn.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (_showButtonsInputMode && _inputChannel != HomeInputChannel.buttons) {
+            unawaited(_selectInputChannel(HomeInputChannel.buttons, persist: false));
+          }
+        });
+        return;
+      }
       final prevDn = prev?.asData?.value;
       if (prevDn == nextDn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1211,6 +1237,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       data: (dn) => dn == null || dn.isEmpty,
       orElse: () => false,
     );
+    if (needsDeviceBind &&
+        _showButtonsInputMode &&
+        _inputChannel != HomeInputChannel.buttons) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_selectInputChannel(HomeInputChannel.buttons, persist: false));
+      });
+    }
     // 只有当不需要全屏 3D 动画（即不是无历史记录时）才显示 Banner。
     // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
@@ -1365,7 +1399,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     ),
                   ],
                 ),
-                if (_canSwitchInputMode)
+                if (_canSwitchInputMode && !needsDeviceBind)
                   Positioned.fill(
                     child: HomeInputModeDock(
                       bounds: dockBounds,
@@ -1446,6 +1480,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       return stack;
     }
 
+    if (!kIsWeb) {
+      return stack;
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1464,6 +1502,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       case HomeInputChannel.voice:
         return _buildVoiceOrb(context);
       case HomeInputChannel.text:
+        assert(kIsWeb);
         return _buildTextInput(context);
       case HomeInputChannel.buttons:
         return HomeButtonEventGrid(
@@ -1671,8 +1710,11 @@ class _HomeEmptyStateGallery extends StatelessWidget {
     this.onAction,
   });
 
-  static const _animationSlotSize = 240.0;
-  static const _fallbackImageAsset = 'assets/images/event_placeholder.png';
+  static const _visualSlotWidth = 240.0;
+  static const _visualSlotHeight = 128.0;
+  static const _visualToTitleGap = 8.0;
+  static const _titleToSubtitleGap = 8.0;
+  static const _subtitleToActionGap = 24.0;
 
   final String animationPath;
   final String title;
@@ -1680,23 +1722,18 @@ class _HomeEmptyStateGallery extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
 
-  static bool _isEmptyComposition(LottieComposition? composition) {
+  static bool _shouldUseFallback(LottieComposition? composition) {
     if (composition == null) return false;
     return composition.layers.isEmpty;
   }
 
-  Widget _buildFallbackSlot(ThemeData theme) {
+  /// 与 Android 原先 `errorBuilder` 一致的宝宝占位图标（非 app_icon 瓶身形象）。
+  Widget _buildBabyPlaceholder(ThemeData theme) {
     return Center(
-      child: Image.asset(
-        _fallbackImageAsset,
-        width: 120,
-        height: 120,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) => Icon(
-          Icons.child_care,
-          size: 80,
-          color: theme.colorScheme.primary.withValues(alpha: 0.35),
-        ),
+      child: Icon(
+        Icons.child_care,
+        size: 120,
+        color: theme.colorScheme.primary.withValues(alpha: 0.35),
       ),
     );
   }
@@ -1704,20 +1741,25 @@ class _HomeEmptyStateGallery extends StatelessWidget {
   Widget _buildAnimationSlot(BuildContext context) {
     final theme = Theme.of(context);
     return SizedBox(
-      width: _animationSlotSize,
-      height: _animationSlotSize,
+      width: _visualSlotWidth,
+      height: _visualSlotHeight,
       child: ClipRect(
         child: Lottie.asset(
           animationPath,
+          width: _visualSlotWidth,
+          height: _visualSlotHeight,
           fit: BoxFit.contain,
           addRepaintBoundary: false,
           frameBuilder: (context, child, composition) {
-            if (_isEmptyComposition(composition)) {
-              return _buildFallbackSlot(theme);
+            if (composition == null) {
+              return _buildBabyPlaceholder(theme);
+            }
+            if (_shouldUseFallback(composition)) {
+              return _buildBabyPlaceholder(theme);
             }
             return child;
           },
-          errorBuilder: (context, error, stackTrace) => _buildFallbackSlot(theme),
+          errorBuilder: (context, error, stackTrace) => _buildBabyPlaceholder(theme),
         ),
       ),
     );
@@ -1733,7 +1775,7 @@ class _HomeEmptyStateGallery extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildAnimationSlot(context),
-            const SizedBox(height: 24),
+            const SizedBox(height: _visualToTitleGap),
             Text(
               title,
               textAlign: TextAlign.center,
@@ -1742,7 +1784,7 @@ class _HomeEmptyStateGallery extends StatelessWidget {
                 color: theme.colorScheme.onSurface,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: _titleToSubtitleGap),
             Text(
               subtitle,
               textAlign: TextAlign.center,
@@ -1751,7 +1793,7 @@ class _HomeEmptyStateGallery extends StatelessWidget {
               ),
             ),
             if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 32),
+              const SizedBox(height: _subtitleToActionGap),
               FilledButton.tonal(
                 onPressed: onAction,
                 child: Text(actionLabel!),
