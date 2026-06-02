@@ -8,6 +8,12 @@ The system SHALL present a keyboard-top input confirm bar for managed text input
 - **WHEN** 用户在受管控页面或弹层中点击可编辑输入框并触发键盘弹出
 - **THEN** 系统在键盘上方显示输入确认条，且右侧提供可点击“确定”按钮
 
+#### Scenario: 确认条展示当前输入场景提示
+- **WHEN** 用户在确认条中尚未输入任何内容
+- **THEN** 确认条左侧文本区以占位样式展示该输入场景的 hint，说明当前输入框所代表的内容（如账号、密码、备注等）
+- **WHEN** 用户已输入内容
+- **THEN** 确认条左侧文本区展示当前输入内容（密码场景仍为脱敏展示），不再显示 hint
+
 ### Requirement: 聚焦输入不得顶起主界面
 The system MUST keep the managed screen layout stable and MUST NOT push up the primary content area due to keyboard appearance.
 在纳入该能力的输入场景中，系统必须保持主界面布局稳定，不得因键盘弹出而将主要内容区域整体顶起；输入行为应由键盘顶部确认条承接。

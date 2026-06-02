@@ -102,6 +102,7 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
         focusNode: _remarkFocusNode,
         onConfirm: () => _remarkFocusNode.unfocus(),
         scene: 'home.number.remark',
+        hint: '备注（可选）',
       );
       return;
     }

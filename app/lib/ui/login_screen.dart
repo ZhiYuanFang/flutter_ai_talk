@@ -69,6 +69,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         focusNode: _accountFocusNode,
         onConfirm: () => _passwordFocusNode.requestFocus(),
         scene: 'login.account',
+        hint: '账号',
       );
       return;
     }
@@ -83,6 +84,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         onConfirm: _onUsernameLogin,
         scene: 'login.password',
         obscureText: true,
+        hint: '密码',
       );
       return;
     }

@@ -1125,6 +1125,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         focusNode: _webFocusNode,
         onConfirm: _onTextSubmit,
         scene: 'home.text',
+        hint: kIsWeb ? '输入后按 Enter 或点按钮提交' : '输入后点按钮提交',
       );
       return;
     }

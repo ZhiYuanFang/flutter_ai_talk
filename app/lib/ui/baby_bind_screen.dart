@@ -80,6 +80,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         focusNode: _deviceFocusNode,
         onConfirm: () => _deviceFocusNode.unfocus(),
         scene: 'baby-bind.device-id',
+        hint: '请输入宝宝ID',
       );
       return;
     }
@@ -93,6 +94,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         focusNode: _nicknameFocusNode,
         onConfirm: () => _nicknameFocusNode.unfocus(),
         scene: 'baby-bind.nickname',
+        hint: '请输入宝宝昵称',
       );
       return;
     }

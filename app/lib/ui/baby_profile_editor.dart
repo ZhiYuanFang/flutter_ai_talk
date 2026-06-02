@@ -84,6 +84,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
         focusNode: _nicknameFocusNode,
         onConfirm: () => _nicknameFocusNode.unfocus(),
         scene: 'baby-profile.nickname',
+        hint: '宝宝昵称',
       );
       return;
     }

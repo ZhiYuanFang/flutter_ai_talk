@@ -62,6 +62,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         focusNode: _accountFocusNode,
         onConfirm: () => _passwordFocusNode.requestFocus(),
         scene: 'register.account',
+        hint: '账号',
       );
       return;
     }
@@ -76,6 +77,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         onConfirm: () => _confirmPasswordFocusNode.requestFocus(),
         scene: 'register.password',
         obscureText: true,
+        hint: '密码',
       );
       return;
     }
@@ -90,6 +92,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         onConfirm: _onRegisterUsername,
         scene: 'register.confirm-password',
         obscureText: true,
+        hint: '确认密码',
       );
       return;
     }

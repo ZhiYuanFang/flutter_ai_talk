@@ -7,6 +7,7 @@ class KeyboardInputBinding {
     required this.onConfirm,
     required this.scene,
     required this.obscureText,
+    required this.hint,
   });
 
   final TextEditingController controller;
@@ -14,6 +15,7 @@ class KeyboardInputBinding {
   final VoidCallback? onConfirm;
   final String scene;
   final bool obscureText;
+  final String hint;
 }
 
 class KeyboardInputBridgeController extends ChangeNotifier {
@@ -32,12 +34,17 @@ class KeyboardInputBridgeController extends ChangeNotifier {
     return List<String>.filled(_draftText.runes.length, '•').join();
   }
 
+  String get hint => _binding?.hint ?? '';
+
+  bool get showsHintPlaceholder => visibleText.isEmpty && hint.isNotEmpty;
+
   void attach({
     required TextEditingController controller,
     required FocusNode focusNode,
     VoidCallback? onConfirm,
     String scene = '',
     bool obscureText = false,
+    String hint = '',
   }) {
     _binding = KeyboardInputBinding(
       controller: controller,
@@ -45,6 +52,7 @@ class KeyboardInputBridgeController extends ChangeNotifier {
       onConfirm: onConfirm,
       scene: scene,
       obscureText: obscureText,
+      hint: hint,
     );
     _draftText = controller.text;
     notifyListeners();
@@ -131,10 +139,16 @@ class KeyboardInputConfirmBarOverlay extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                keyboardInputBridgeController.visibleText,
+                                keyboardInputBridgeController.showsHintPlaceholder
+                                    ? keyboardInputBridgeController.hint
+                                    : keyboardInputBridgeController.visibleText,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodyMedium,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: keyboardInputBridgeController.showsHintPlaceholder
+                                          ? Theme.of(context).colorScheme.onSurfaceVariant
+                                          : null,
+                                    ),
                               ),
                             ),
                           ),

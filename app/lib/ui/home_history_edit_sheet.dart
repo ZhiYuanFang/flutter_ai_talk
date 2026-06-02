@@ -92,6 +92,7 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
         focusNode: _remarkFocusNode,
         onConfirm: () => _remarkFocusNode.unfocus(),
         scene: 'home.history-edit.remark',
+        hint: '备注',
       );
       return;
     }
