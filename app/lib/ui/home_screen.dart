@@ -11,6 +11,7 @@ import 'package:lottie/lottie.dart';
 import '../audio/voice_level_smoother.dart';
 import '../asr/home_speech_factory.dart';
 import '../asr/home_speech_recognizer.dart';
+import '../config/ai_chat_data_consent_store.dart';
 import '../config/event_button_usage_store.dart';
 import '../config/home_input_channel_store.dart';
 import '../config/recording_diagnostics_store.dart';
@@ -810,6 +811,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     return ok;
   }
 
+  Future<bool> _ensureAiChatDataConsent() async {
+    if (await AiChatDataConsentStore.load()) return true;
+    if (!mounted) return false;
+    final agreed = await showGlassConfirmDialog(
+          context,
+          title: '使用 AI 对话前请知悉',
+          message: '您输入的内容及近期喂养记录将发送至第三方 AI 服务，用于分析与回复。',
+          confirmLabel: '同意并继续',
+        ) ??
+        false;
+    if (!agreed) return false;
+    await AiChatDataConsentStore.saveAccepted();
+    return true;
+  }
+
   void _maybeShowGaveUpSnackbar() {
     if (_gaveUpSnackbarShown) return;
     _gaveUpSnackbarShown = true;
@@ -990,6 +1006,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
     if (!await _ensureRemoteGate()) return;
     if (!_isVoiceHoldCurrent(seq) || !mounted) return;
+    if (!await _ensureAiChatDataConsent()) return;
+    if (!_isVoiceHoldCurrent(seq) || !mounted) return;
     if (!_ensureHistoryWsForSend()) return;
     if (!await _prepareVoiceInput()) return;
     if (!_isVoiceHoldCurrent(seq) || !mounted || _recognizer == null) return;
@@ -1100,6 +1118,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (text.isEmpty) return;
     if (!await _ensureRemoteGate()) return;
     if (!_ensureHistoryWsForSend()) return;
+    if (!await _ensureAiChatDataConsent()) return;
     final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
     _webController.clear();
     if (!mounted) return;
@@ -1628,7 +1647,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 Text(
                   _listening
                       ? (_slideToCancel ? '松开取消' : '松开结束')
-                      : '按住说话',
+                      : 'AI 对话',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: _listening && _slideToCancel ? scheme.error : color,
