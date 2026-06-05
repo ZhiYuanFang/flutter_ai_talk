@@ -11,6 +11,7 @@ import '../providers/device_no_notifier.dart';
 import '../providers/session_provider.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
+import '../session/session_device_token_sync.dart';
 import 'history_mapper.dart';
 import 'history_list_page.dart';
 import 'home_history_store.dart';
@@ -167,7 +168,7 @@ class RemoteFeedRepository implements FeedRepository {
     HomeHistoryLog.d('ws $message');
   }
 
-  /// 建连前若 access 将过期/已过期则静默 refresh；失败则登出并清理本地会话相关状态。
+  /// 建连前若 access 将过期/已过期则静默 refresh；本地有 deviceNo 时对齐 JWT claim。
   Future<String?> _prepareAccessTokenForConnect() async {
     final session = _ref.read(sessionProvider);
     if (!session.isLoggedIn) {
@@ -180,6 +181,15 @@ class RemoteFeedRepository implements FeedRepository {
       await _ref.read(signInChannelProvider.notifier).clear();
       _ref.showApiToastError('登录已过期，请重新登录');
       return null;
+    }
+    final dn = _deviceNoGetter();
+    if (dn != null && dn.isNotEmpty) {
+      final synced = await ensureAccessTokenHasDeviceNo(_ref, localDeviceNo: dn);
+      if (!synced) {
+        _logWs('token refresh for device_no failed');
+        _ref.showApiToastError('会话刷新失败，请重新登录后再试');
+        return null;
+      }
     }
     return _ref.read(sessionProvider).accessToken;
   }

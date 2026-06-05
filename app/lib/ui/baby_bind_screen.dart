@@ -13,6 +13,7 @@ import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
+import '../session/session_device_token_sync.dart';
 import '../theme/app_visual_tokens.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/baby_birth_picker_sheet.dart';
@@ -110,8 +111,13 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       await api.postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(no);
       ref.invalidate(settingsBabyProvider);
-      // 触发首页 WS 在新绑定的 deviceNo 下进行重连
-      unawaited(ref.read(feedRepositoryProvider).reconnectHistoryWebSocket());
+      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
+      if (!synced && mounted) {
+        ref.showApiToastError('会话刷新失败，请重新登录后再试');
+      }
+      unawaited(
+        ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
+      );
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
@@ -161,8 +167,13 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(dn);
       ref.invalidate(settingsBabyProvider);
-      // 触发首页 WS 在新绑定的 deviceNo 下进行重连
-      unawaited(ref.read(feedRepositoryProvider).reconnectHistoryWebSocket());
+      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: dn);
+      if (!synced && mounted) {
+        ref.showApiToastError('会话刷新失败，请重新登录后再试');
+      }
+      unawaited(
+        ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
+      );
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);

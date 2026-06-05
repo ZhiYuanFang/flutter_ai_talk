@@ -21,6 +21,11 @@ class SignInChannelNotifier extends Notifier<SignInChannel> {
     state = SignInChannel.wechat;
   }
 
+  Future<void> setApple() async {
+    await SignInChannelStore.save(SignInChannel.apple);
+    state = SignInChannel.apple;
+  }
+
   Future<void> setUsername() async {
     await SignInChannelStore.save(SignInChannel.username);
     state = SignInChannel.username;

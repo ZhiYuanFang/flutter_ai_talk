@@ -72,7 +72,13 @@ flutter build ipa --release
 # 或先 flutter build ios，再用 Xcode 打开 ios/Runner.xcworkspace → Product → Archive
 ```
 
-产物与上传 TestFlight / App Store Connect 的流程以 Apple 文档为准；需正确配置 **Bundle ID**、**签名与描述文件**、**Capabilities**（如 Universal Links 与微信相关能力）。
+产物与上传 TestFlight / App Store Connect 的流程以 Apple 文档为准；需正确配置 **Bundle ID**、**签名与描述文件**、**Capabilities**（如 Universal Links 与微信相关能力、**Sign in with Apple**）。
+
+**iOS 发布检查清单（`add-apple-sign-in`）：**
+
+- 执行 `bash tool/ci/prepare_ios_project.sh` 后确认 `ios/Runner/Info.plist` 含更新后的 `NSMicrophoneUsageDescription`（含育儿语音示例；可通过 `IOS_MICROPHONE_USAGE_DESCRIPTION` 覆盖）。
+- 确认 `ios/Runner/Runner.entitlements` 含 `com.apple.developer.applesignin` = `Default`；Apple Developer App ID 须启用 Sign in with Apple Capability，与描述文件一致。
+- CI/IPA 构建前核对 `prepare_ios_project.sh` 已运行；打包后可用 `codesign -d --entitlements -` 抽查 entitlements。
 
 - **无 Mac 方案**：仓库已提供 GitHub Actions 远程打包配置，可在 GitHub 的 macOS Runner 上生成 `.ipa`；说明见 `../docs/github-ios-ipa.md`。
 

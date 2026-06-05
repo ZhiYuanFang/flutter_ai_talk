@@ -345,6 +345,8 @@ PowerShell：
 ### Build iOS ad-hoc
 
 - 固定 ad-hoc 导出并上传蒲公英
+- 构建时自动注入 `API_BASE_URL=https://test.pangbao.cuplay.top`（测试网关；WebSocket 与相对资源 URL 由该基址推导）
+- TestFlight / App Store 入口不注入测试基址，仍使用 `AppEnv` 默认生产网关
 - 必须配置 `PGYER_API_KEY`
 - 可选填写：`pgyer_update_description`、`pgyer_install_password`
 - 蒲公英上传失败将直接失败（硬失败）
@@ -368,6 +370,7 @@ PowerShell：
 - 如果仓库里暂时没有 `app/ios/`，执行 `flutter create . --platforms=ios`
 - 把 `WECHAT_APP_ID` / `WECHAT_UNIVERSAL_LINK` 注入到 `app/pubspec.yaml`
 - 在 `flutter build ipa` 时显式注入 `--dart-define=WECHAT_APP_ID=...` 与 `--dart-define=WECHAT_UNIVERSAL_LINK=...`
+- ad-hoc 入口额外注入 `--dart-define=API_BASE_URL=https://test.pangbao.cuplay.top`
 - fail-fast 校验：`WECHAT_APP_ID`、`WECHAT_UNIVERSAL_LINK` 不得为空
 - 校验 `WECHAT_UNIVERSAL_LINK` 为 `https://` 且不含 `*`，并校验其域名与 `IOS_ASSOCIATED_DOMAIN` 一致
 - 为 `speech_to_text` / `record` 自动补齐 iOS 权限文案
