@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../providers/session_provider.dart';
 import 'focus_cleanup_observer.dart';
-import '../ui/home_screen.dart';
+import '../ucg/ui/ucg_home_shell.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
 import '../ui/login_screen.dart';
 import '../ui/register_screen.dart';
@@ -62,7 +62,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/home',
-        builder: (context, state) => const HomeScreen(),
+        builder: (context, state) => const UcgHomeShell(),
       ),
       GoRoute(
         path: '/trends',

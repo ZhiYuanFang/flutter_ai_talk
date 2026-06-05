@@ -1,0 +1,284 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+import '../../config/env.dart';
+import 'ucg_api_client.dart';
+import 'ucg_models.dart';
+
+import 'ucg_presign.dart';
+
+typedef UcgUserIdGetter = String? Function();
+
+/// UCG HTTP + 聊天 WebSocket（经 gateway `/ucg/app/ws/chat`）。
+class UcgRepository {
+  UcgRepository({
+    required UcgApiClient api,
+    required UcgUserIdGetter userIdGetter,
+    required String? Function() accessTokenGetter,
+  })  : _api = api,
+        _userIdGetter = userIdGetter,
+        _accessTokenGetter = accessTokenGetter;
+
+  final UcgApiClient _api;
+  final UcgUserIdGetter _userIdGetter;
+  final String? Function() _accessTokenGetter;
+
+  WebSocketChannel? _ws;
+  StreamSubscription<dynamic>? _wsSub;
+  Timer? _reconnectTimer;
+  var _wsConnected = false;
+  var _shouldStayConnected = false;
+  final _messageController = StreamController<UcgChatMessage>.broadcast();
+  final _wsReadyController = StreamController<bool>.broadcast();
+
+  Stream<UcgChatMessage> get incomingMessages => _messageController.stream;
+  Stream<bool> get wsReadyStream => _wsReadyController.stream;
+  bool get isWsConnected => _wsConnected;
+
+  void dispose() {
+    _shouldStayConnected = false;
+    _reconnectTimer?.cancel();
+    _wsSub?.cancel();
+    _ws?.sink.close();
+    _messageController.close();
+    _wsReadyController.close();
+  }
+
+  void setWsConnectionDesired(bool desired) {
+    _shouldStayConnected = desired;
+    if (desired) {
+      unawaited(connectChatWs());
+    } else {
+      _tearDownWs();
+    }
+  }
+
+  Future<void> connectChatWs() async {
+    final url = AppEnv.wsUcgChatUrlEffective;
+    final token = _accessTokenGetter();
+    if (url.isEmpty || token == null || token.isEmpty) return;
+    if (_wsConnected) return;
+
+    _wsSub?.cancel();
+    _ws?.sink.close();
+
+    try {
+      _ws = WebSocketChannel.connect(Uri.parse(url));
+      _wsSub = _ws!.stream.listen(
+        _onWsMessage,
+        onError: (_) => _scheduleReconnect(),
+        onDone: () => _scheduleReconnect(),
+      );
+      _ws!.sink.add(jsonEncode({'type': 'auth', 'token': token}));
+    } catch (_) {
+      _scheduleReconnect();
+    }
+  }
+
+  void _onWsMessage(dynamic raw) {
+    try {
+      final decoded = jsonDecode(raw as String);
+      if (decoded is! Map<String, dynamic>) return;
+      final type = decoded['type'] as String? ?? '';
+      if (type == 'auth_ok') {
+        _wsConnected = true;
+        if (!_wsReadyController.isClosed) _wsReadyController.add(true);
+        return;
+      }
+      if (type == 'message' || type == 'chat_message') {
+        final payload = decoded['data'] ?? decoded['message'] ?? decoded;
+        if (payload is Map<String, dynamic>) {
+          final msg = UcgChatMessage.fromJson(payload, currentUserId: _userIdGetter());
+          if (!_messageController.isClosed) _messageController.add(msg);
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _tearDownWs() {
+    _wsConnected = false;
+    if (!_wsReadyController.isClosed) _wsReadyController.add(false);
+    _wsSub?.cancel();
+    _wsSub = null;
+    _ws?.sink.close();
+    _ws = null;
+  }
+
+  void _scheduleReconnect() {
+    _tearDownWs();
+    if (!_shouldStayConnected) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      unawaited(connectChatWs());
+    });
+  }
+
+  Future<void> sendChatWs(Map<String, dynamic> payload) async {
+    if (_ws == null) await connectChatWs();
+    _ws?.sink.add(jsonEncode(payload));
+  }
+
+  Future<UcgProfile?> fetchMyProfile() async {
+    final data = await _api.get('/profile/me');
+    return data == null ? null : UcgProfile.fromJson(data);
+  }
+
+  Future<UcgProfile?> fetchProfile(String userId) async {
+    final data = await _api.get('/profile/$userId');
+    return data == null ? null : UcgProfile.fromJson(data);
+  }
+
+  Future<UcgProfile> updateMyProfile(UcgProfile profile) async {
+    final data = await _api.put('/profile/me', profile.toJson());
+    return UcgProfile.fromJson(data ?? profile.toJson());
+  }
+
+  Future<UcgPagedPosts> fetchRecommendedFeed({required int page}) async {
+    final data = await _api.get(
+      '/feed/recommended',
+      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+      withAuthorization: false,
+    );
+    return parsePagedPosts(data, publicFeedOnly: true);
+  }
+
+  Future<UcgPagedPosts> fetchFollowingFeed({required int page}) async {
+    final data = await _api.get(
+      '/feed/following',
+      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+    );
+    return parsePagedPosts(data, publicFeedOnly: true);
+  }
+
+  Future<UcgPagedPosts> fetchMyPosts({required int page}) async {
+    final data = await _api.get(
+      '/posts/mine',
+      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+    );
+    return parsePagedPosts(data);
+  }
+
+  Future<UcgPost> createPost({
+    required String text,
+    List<String> imageKeys = const [],
+    String? videoKey,
+  }) async {
+    final body = <String, dynamic>{
+      'text': text,
+      if (imageKeys.isNotEmpty) 'imageKeys': imageKeys,
+      if (videoKey != null && videoKey.isNotEmpty) 'videoKey': videoKey,
+    };
+    final data = await _api.post('/posts', body);
+    return UcgPost.fromJson(data ?? body);
+  }
+
+  Future<UcgPresignResult> presignMedia({
+    required String fileName,
+    required String contentType,
+  }) async {
+    final data = await _api.post('/media/presign', UcgPresignRequest(
+      fileName: fileName,
+      contentType: contentType,
+    ).toJson());
+    return UcgPresignResult.fromJson(data ?? {});
+  }
+
+  Future<void> uploadToPresignedUrl({
+    required String uploadUrl,
+    required List<int> bytes,
+    required String contentType,
+  }) async {
+    final res = await http.put(
+      Uri.parse(uploadUrl),
+      headers: {'Content-Type': contentType},
+      body: bytes,
+    );
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw StateError('上传失败(${res.statusCode})');
+    }
+  }
+
+  Future<void> likePost(String postId) async {
+    await _api.post('/posts/$postId/like', {});
+  }
+
+  Future<void> unlikePost(String postId) async {
+    await _api.delete('/posts/$postId/like');
+  }
+
+  Future<List<UcgComment>> fetchComments(String postId) async {
+    final data = await _api.get('/posts/$postId/comments');
+    final raw = data?['list'] ?? data?['items'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map((e) => UcgComment.fromJson(e, currentUserId: _userIdGetter()))
+        .toList();
+  }
+
+  Future<UcgComment> addComment(String postId, String text) async {
+    final data = await _api.post('/posts/$postId/comments', {'text': text});
+    return UcgComment.fromJson(data ?? {'text': text, 'postId': postId}, currentUserId: _userIdGetter());
+  }
+
+  Future<void> deleteComment(String postId, String commentId) async {
+    await _api.delete('/posts/$postId/comments/$commentId');
+  }
+
+  Future<void> followUser(String userId) async {
+    await _api.post('/follow/$userId', {});
+  }
+
+  Future<void> unfollowUser(String userId) async {
+    await _api.delete('/follow/$userId');
+  }
+
+  Future<List<UcgProfile>> fetchFollowingList() async {
+    final data = await _api.get('/follow/following');
+    final raw = data?['list'] ?? data?['items'];
+    if (raw is! List) return const [];
+    return raw.whereType<Map<String, dynamic>>().map(UcgProfile.fromJson).toList();
+  }
+
+  Future<List<UcgConversation>> fetchConversations() async {
+    final data = await _api.get('/conversations');
+    final raw = data?['list'] ?? data?['items'];
+    if (raw is! List) return const [];
+    return raw.whereType<Map<String, dynamic>>().map(UcgConversation.fromJson).toList();
+  }
+
+  Future<List<UcgChatMessage>> fetchChatHistory(String conversationId) async {
+    final data = await _api.get('/conversations/$conversationId/messages');
+    final raw = data?['list'] ?? data?['items'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map((e) => UcgChatMessage.fromJson(e, currentUserId: _userIdGetter()))
+        .toList();
+  }
+
+  Future<void> sendTextMessage({
+    required String conversationId,
+    required String peerId,
+    required String text,
+  }) async {
+    await sendChatWs({
+      'type': 'send_message',
+      'conversationId': conversationId,
+      'peerId': peerId,
+      'contentType': 'text',
+      'text': text,
+    });
+  }
+
+  Future<void> deleteConversation(String conversationId) async {
+    await _api.delete('/conversations/$conversationId');
+  }
+
+  Future<void> pinConversation(String conversationId, {required bool pinned}) async {
+    await _api.post('/conversations/$conversationId/pin', {'pinned': pinned});
+  }
+}

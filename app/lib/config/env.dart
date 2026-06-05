@@ -85,6 +85,33 @@ abstract final class AppEnv {
     ).toString();
   }
 
+  /// UCG 聊天 WebSocket **完整 URL**；为空时由 [wsUcgChatUrlEffective] 根据 [apiBaseUrl] 推导为 `/ucg/app/ws/chat`。
+  static const wsUcgChatUrl = String.fromEnvironment(
+    'WS_UCG_CHAT_URL',
+    defaultValue: '',
+  );
+
+  /// 与网关约定一致：未配置 `WS_UCG_CHAT_URL` 时由 HTTP 基址推导 `ws(s)://host[:port]/ucg/app/ws/chat`（含 [apiBaseUrl] 的 path 前缀）。
+  static String get wsUcgChatUrlEffective {
+    if (wsUcgChatUrl.isNotEmpty) return wsUcgChatUrl;
+    final u = Uri.parse(apiBaseUrl);
+    if (!u.hasScheme || u.host.isEmpty) return '';
+    final scheme = u.scheme == 'https' ? 'wss' : 'ws';
+    var p = u.path;
+    if (p == '/') {
+      p = '';
+    } else if (p.endsWith('/')) {
+      p = p.substring(0, p.length - 1);
+    }
+    final path = (p.isEmpty ? '/ucg/app/ws/chat' : '$p/ucg/app/ws/chat').replaceAll('//', '/');
+    return Uri(
+      scheme: scheme,
+      host: u.host,
+      port: u.hasPort ? u.port : null,
+      path: path.startsWith('/') ? path : '/$path',
+    ).toString();
+  }
+
   /// 与网关约定一致：未配置 `WS_HISTORY_URL` 时由 HTTP 基址推导 `ws(s)://host[:port]/device/app/ws/history`（含 [apiBaseUrl] 的 path 前缀）。
   static String get wsHistoryUrlEffective {
     if (wsHistoryUrl.isNotEmpty) return wsHistoryUrl;
