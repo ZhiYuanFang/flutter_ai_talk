@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../apple/apple_sign_in_client.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import '../api/gateway_json.dart';
@@ -84,6 +85,21 @@ class RemoteAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> signInWithApple() async {
+    final identityToken = await obtainAppleIdentityToken();
+    final data = await _anon.postJsonEnvelope(
+      '/device/app/api/apple_login',
+      {
+        'identityToken': identityToken,
+        'platform': 'ios',
+      },
+      withAuthorization: false,
+    );
+    await _persistLoginData(data);
+    await _ref.read(signInChannelProvider.notifier).setApple();
+  }
+
+  @override
   Future<void> signInWithUsernamePassword(String account, String password) async {
     final data = await _anon.postJsonEnvelope(
       '/device/app/api/username_login',
@@ -126,6 +142,30 @@ class RemoteAuthRepository implements AuthRepository {
   Future<void> bindUsernameWx({required String jsCode, String? platform}) async {
     await _api.postJsonEnvelope(
       '/device/app/api/user/username/bindwx',
+      {
+        'jsCode': jsCode,
+        'platform': (platform == null || platform.isEmpty) ? _platform : platform,
+      },
+      withAuthorization: true,
+    );
+  }
+
+  @override
+  Future<void> bindApple({required String identityToken, String? platform}) async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/apple/bind',
+      {
+        'identityToken': identityToken,
+        'platform': (platform == null || platform.isEmpty) ? 'ios' : platform,
+      },
+      withAuthorization: true,
+    );
+  }
+
+  @override
+  Future<void> bindWx({required String jsCode, String? platform}) async {
+    await _api.postJsonEnvelope(
+      '/device/app/api/user/wx/bindwx',
       {
         'jsCode': jsCode,
         'platform': (platform == null || platform.isEmpty) ? _platform : platform,

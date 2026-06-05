@@ -1,6 +1,7 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fluwx/fluwx.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/api_exceptions.dart';
@@ -36,6 +37,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   var _loading = false;
   var _resumedPendingWebLogin = false;
   var _obscurePassword = true;
+  bool? _isWeChatInstalled;
   List<CredentialEntry> _credentialEntries = const [];
   String? _accountError;
   String? _passwordError;
@@ -51,8 +53,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _loadCredentialEntries();
       _showPendingWebWeChatError();
       _resumePendingWebWeChatLogin();
+      _detectWeChatInstalled();
     });
   }
+
+  Future<void> _detectWeChatInstalled() async {
+    if (kIsWeb) {
+      if (!mounted) return;
+      setState(() => _isWeChatInstalled = _canRedirectWebWeChatAuthorize);
+      return;
+    }
+    try {
+      final installed = await Fluwx().isWeChatInstalled;
+      if (!mounted) return;
+      setState(() => _isWeChatInstalled = installed);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isWeChatInstalled = false);
+    }
+  }
+
+  bool get _showWeChatLoginButton => _isWeChatInstalled == true;
+
+  bool get _showAppleLoginButton => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   void _applyPrefillAccountFromRoute() {
     final account = GoRouterState.of(context).uri.queryParameters['account']?.trim();
@@ -288,6 +311,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _onAppleLogin() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      final auth = ref.read(authRepositoryProvider);
+      await auth.signInWithApple();
+      if (!mounted) return;
+      await _afterLoginSuccess();
+    } on ApiBusinessException catch (e) {
+      ref.showApiToastError(e.message);
+    } on ApiHttpException catch (e) {
+      ref.showApiToastError('网络错误(${e.statusCode})');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _openRegisterScreen() async {
     if (_loading) return;
     final result = await context.push<Map<String, String>>('/register');
@@ -411,13 +451,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ],
                         ),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: _loading ? null : _onWeChatLogin,
-                        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                        icon: const Icon(Icons.chat_bubble_outline),
-                        label: const Text('微信登录'),
-                      ),
-                      const SizedBox(height: 12),
+                      if (_showAppleLoginButton) ...[
+                        OutlinedButton.icon(
+                          onPressed: _loading ? null : _onAppleLogin,
+                          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                          icon: const Icon(Icons.apple),
+                          label: const Text('通过 Apple 登录'),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (_showWeChatLoginButton)
+                        OutlinedButton.icon(
+                          onPressed: _loading ? null : _onWeChatLogin,
+                          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                          icon: const Icon(Icons.chat_bubble_outline),
+                          label: const Text('微信登录'),
+                        ),
+                      if (_showWeChatLoginButton) const SizedBox(height: 12),
                       buildAuthPrivacyAgreement(
                         context,
                         leadText: '登录即代表您已阅读并同意',

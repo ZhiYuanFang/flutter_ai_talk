@@ -73,7 +73,7 @@ with plist_path.open('rb') as file:
 
 info['NSMicrophoneUsageDescription'] = os.getenv(
     'IOS_MICROPHONE_USAGE_DESCRIPTION',
-    '需要麦克风权限以支持语音输入与录音',
+    '胖宝需要访问您的麦克风，以便将您说出的育儿记录（例如「宝宝刚刚喝了 120ml 奶」）转换为文字并保存。麦克风仅用于语音输入，不会在后台录音或用于广告。',
 )
 info['NSSpeechRecognitionUsageDescription'] = os.getenv(
     'IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION',
@@ -92,6 +92,29 @@ if display_name:
 
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
+PY
+
+python3 <<'PY'
+from pathlib import Path
+import plistlib
+
+entitlements_path = Path('ios/Runner/Runner.entitlements')
+if not entitlements_path.parent.exists():
+    print('skip: ios/Runner 不存在，跳过 Runner.entitlements（flutter create . --platforms=ios 后再执行）')
+else:
+    data = {}
+    if entitlements_path.exists():
+        with entitlements_path.open('rb') as file:
+            data = plistlib.load(file)
+    apple_signin = data.get('com.apple.developer.applesignin')
+    if not isinstance(apple_signin, list) or 'Default' not in apple_signin:
+        data['com.apple.developer.applesignin'] = ['Default']
+        entitlements_path.parent.mkdir(parents=True, exist_ok=True)
+        with entitlements_path.open('wb') as file:
+            plistlib.dump(data, file)
+        print('Patched Runner.entitlements: Sign in with Apple enabled')
+    else:
+        print('Runner.entitlements already has Sign in with Apple')
 PY
 
 python3 <<'PY'

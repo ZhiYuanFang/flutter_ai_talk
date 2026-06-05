@@ -8,6 +8,8 @@ import 'user_account_profile.dart';
 abstract class AuthRepository {
   Future<void> signInWithWeChat();
 
+  Future<void> signInWithApple();
+
   Future<void> signInWithUsernamePassword(String account, String password);
 
   Future<void> registerUsername(String account, String password);
@@ -16,6 +18,10 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>?> loginUsernameBusiness(String account, String password);
 
   Future<void> bindUsernameWx({required String jsCode, String? platform});
+
+  Future<void> bindApple({required String identityToken, String? platform});
+
+  Future<void> bindWx({required String jsCode, String? platform});
 
   Future<void> bindUsernameDevice(String deviceNo);
 

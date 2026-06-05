@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/api_exceptions.dart';
+import '../apple/apple_sign_in_client.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/device_no_notifier.dart';
@@ -14,6 +15,7 @@ import '../providers/wechat_auth_provider.dart';
 import '../router/app_router.dart';
 import '../session/credential_history_store.dart';
 import '../wechat/wechat_auth_exception.dart';
+import 'account_bind_messages.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 
@@ -47,6 +49,7 @@ class _AccountManagementSheetBody extends ConsumerStatefulWidget {
 
 class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementSheetBody> {
   var _bindingWx = false;
+  var _bindingApple = false;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +95,21 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
                 widget.hostContext.push('/settings/change-password');
               },
             ),
+          if (profile.isAppleBound)
+            _AccountActionTile(
+              icon: Icons.apple,
+              title: '已绑定 Apple',
+              glassText: glassLabel.withValues(alpha: 0.7),
+              enabled: false,
+            )
+          else
+            _AccountActionTile(
+              icon: Icons.apple,
+              title: _bindingApple ? '绑定中…' : '绑定 Apple',
+              glassText: glassText,
+              enabled: !_bindingApple && !_bindingWx,
+              onTap: (_bindingApple || _bindingWx) ? null : () => _bindApple(context),
+            ),
           if (profile.isWxBound)
             _AccountActionTile(
               icon: Icons.chat,
@@ -104,8 +122,8 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
               icon: Icons.chat,
               title: _bindingWx ? '绑定中…' : '绑定微信',
               glassText: glassText,
-              enabled: !_bindingWx,
-              onTap: _bindingWx ? null : () => _bindWeChat(context),
+              enabled: !_bindingWx && !_bindingApple,
+              onTap: (_bindingWx || _bindingApple) ? null : () => _bindWeChat(context),
             ),
           Divider(color: glassLabel.withValues(alpha: 0.2), height: 24),
           _AccountActionTile(
@@ -120,7 +138,7 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
             glassText: glassText,
             onTap: () => _deregister(),
           ),
-          if (_bindingWx)
+          if (_bindingWx || _bindingApple)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Center(
@@ -145,7 +163,7 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
         return;
       }
       final code = await client.obtainWxCode();
-      await ref.read(authRepositoryProvider).bindUsernameWx(jsCode: code);
+      await ref.read(authRepositoryProvider).bindWx(jsCode: code);
       ref.invalidate(userProfileProvider);
       if (!context.mounted) return;
       await showGlassDialog<void>(
@@ -185,13 +203,63 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
     } on WeChatAuthException catch (e) {
       ref.showApiToastError(e.message);
     } on ApiBusinessException catch (e) {
-      ref.showApiToastError(e.message);
+      ref.showApiToastError(bindConflictMessage(e));
     } on ApiHttpException catch (e) {
       ref.showApiToastError('网络错误(${e.statusCode})');
     } catch (e) {
       ref.showApiToastError('绑定失败：$e');
     } finally {
       if (mounted) setState(() => _bindingWx = false);
+    }
+  }
+
+  Future<void> _bindApple(BuildContext context) async {
+    setState(() => _bindingApple = true);
+    try {
+      final identityToken = await obtainAppleIdentityToken();
+      await ref.read(authRepositoryProvider).bindApple(identityToken: identityToken);
+      ref.invalidate(userProfileProvider);
+      if (!context.mounted) return;
+      await showGlassDialog<void>(
+        context: context,
+        contentBuilder: (ctx) {
+          final text = historyEditGlassTextColor(ctx);
+          final label = historyEditGlassLabelColor(ctx);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '绑定成功',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: text),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '绑定 Apple 账号成功',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: label),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(ctx).colorScheme.primary,
+                  minimumSize: const Size(double.infinity, 44),
+                  shape: const StadiumBorder(),
+                ),
+                child: const Text('确定'),
+              ),
+            ],
+          );
+        },
+      );
+    } on ApiBusinessException catch (e) {
+      ref.showApiToastError(bindConflictMessage(e));
+    } on ApiHttpException catch (e) {
+      ref.showApiToastError('网络错误(${e.statusCode})');
+    } catch (e) {
+      ref.showApiToastError('绑定失败：$e');
+    } finally {
+      if (mounted) setState(() => _bindingApple = false);
     }
   }
 

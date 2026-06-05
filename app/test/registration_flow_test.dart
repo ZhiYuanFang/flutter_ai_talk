@@ -47,7 +47,7 @@ class _FakeAuthRepository implements AuthRepository {
 
   @override
   Future<UserAccountProfile> fetchUserProfile() async =>
-      const UserAccountProfile(account: '', isWxBound: false);
+      const UserAccountProfile(account: '', isWxBound: false, isAppleBound: false, authProviders: []);
 
   @override
   Future<void> signOut() async => throw UnimplementedError();
