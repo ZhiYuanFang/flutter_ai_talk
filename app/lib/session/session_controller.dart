@@ -61,6 +61,12 @@ class SessionController extends ChangeNotifier {
     return false;
   }
 
+  /// 绑定宝宝或 WS 建连前对齐 JWT `device_no`：无条件 refresh（不受过期 buffer 限制）。
+  Future<bool> refreshSessionForDeviceBind() async {
+    if (!isLoggedIn) return false;
+    return trySilentRefresh();
+  }
+
   /// 使用 [AppEnv.refreshTokenPath] 与 body `{ refreshToken }` 尝试换新 access（无 path 则 false）。
   Future<bool> trySilentRefresh() async {
     if (AppEnv.refreshTokenPath.isEmpty) return false;

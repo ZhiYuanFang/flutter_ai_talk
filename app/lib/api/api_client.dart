@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'api_exceptions.dart';
+import 'gateway_user_message.dart';
 
 typedef AccessTokenProvider = String? Function();
 typedef UnauthorizedRefresh = Future<bool> Function();
@@ -109,7 +110,8 @@ class ApiClient {
     final code = codeVal is int ? codeVal : (codeVal is num ? codeVal.toInt() : -1);
     final message = decoded['message'] as String? ?? '';
     if (code != 0) {
-      throw ApiBusinessException(code, message.isEmpty ? '业务失败($code)' : message);
+      final userMessage = message.isEmpty ? '业务失败($code)' : message;
+      throw ApiBusinessException(code, normalizeUserFacingApiMessage(userMessage));
     }
     final data = decoded['data'];
     if (data == null) return null;

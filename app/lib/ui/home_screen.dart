@@ -838,10 +838,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   String _historyWsBannerMessage() {
     return switch (_historyWsPhase) {
-      HistoryWsPhase.autoReconnecting => kHomeHistoryWsAutoReconnectMessage,
       HistoryWsPhase.gaveUp => kHomeHistoryWsGaveUpMessage,
-      HistoryWsPhase.ready => kHomeHistoryWsDisconnectMessage,
-      HistoryWsPhase.disconnected => kHomeHistoryWsDisconnectMessage,
+      HistoryWsPhase.ready ||
+      HistoryWsPhase.disconnected ||
+      HistoryWsPhase.autoReconnecting =>
+        kHomeHistoryWsDisconnectMessage,
     };
   }
 
@@ -1257,7 +1258,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
-    final showWsDisconnectBanner = loggedIn && !needsDeviceBind && !_wsReady;
+    final showWsDisconnectBanner = loggedIn &&
+        !needsDeviceBind &&
+        !_wsReady &&
+        _historyWsPhase != HistoryWsPhase.autoReconnecting;
     final wsBannerReconnecting =
         _historyWsPhase == HistoryWsPhase.autoReconnecting || _historyWsManualReconnecting;
     final wsBannerTapEnabled = true;

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/gateway_user_message.dart';
 import '../ui/widgets/app_toast.dart';
 
 @immutable
@@ -17,7 +18,8 @@ final apiToastProvider = StateProvider<AppToastPayload?>((ref) => null);
 /// 供 [Ref] / [WidgetRef] 调用方使用。
 extension ApiToastRefX on Ref {
   void showApiToast(String message, {AppToastTone tone = AppToastTone.info}) {
-    read(apiToastProvider.notifier).state = AppToastPayload(message, tone: tone);
+    read(apiToastProvider.notifier).state =
+        AppToastPayload(normalizeUserFacingApiMessage(message), tone: tone);
   }
 
   void showApiToastError(String message) {
@@ -27,7 +29,8 @@ extension ApiToastRefX on Ref {
 
 extension ApiToastWidgetRefX on WidgetRef {
   void showApiToast(String message, {AppToastTone tone = AppToastTone.info}) {
-    read(apiToastProvider.notifier).state = AppToastPayload(message, tone: tone);
+    read(apiToastProvider.notifier).state =
+        AppToastPayload(normalizeUserFacingApiMessage(message), tone: tone);
   }
 
   void showApiToastError(String message) {
