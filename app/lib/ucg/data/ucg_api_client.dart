@@ -45,7 +45,7 @@ class UcgApiClient {
     Map<String, dynamic> body, {
     bool withAuthorization = true,
   }) {
-    return _api.postJsonEnvelope(
+    return _api.putJsonEnvelope(
       _path(path),
       body,
       withAuthorization: withAuthorization,
@@ -56,9 +56,26 @@ class UcgApiClient {
     String path, {
     bool withAuthorization = true,
   }) {
-    return _api.postJsonEnvelope(
+    return _api.deleteEnvelope(
       _path(path),
-      const {},
+      withAuthorization: withAuthorization,
+    );
+  }
+
+  Future<Map<String, dynamic>?> postMultipart(
+    String path, {
+    required Map<String, String> fields,
+    required String fileField,
+    required String fileName,
+    required List<int> bytes,
+    bool withAuthorization = true,
+  }) {
+    return _api.postMultipartEnvelope(
+      _path(path),
+      fields: fields,
+      fileField: fileField,
+      fileName: fileName,
+      bytes: bytes,
       withAuthorization: withAuthorization,
     );
   }

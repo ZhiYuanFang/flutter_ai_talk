@@ -54,3 +54,18 @@ bool accessTokenShouldRefresh(
   if (exp == null) return true;
   return DateTime.now().add(buffer).isAfter(exp);
 }
+
+/// 从 JWT access token 解析 `sub`（微信 wx.id）；缺失或解析失败返回 null。
+String? readJwtWxId(String? token) {
+  if (token == null || token.isEmpty) return null;
+  final map = readJwtPayload(token);
+  if (map == null) return null;
+  final sub = map['sub'];
+  if (sub == null) return null;
+  final normalized = sub.toString().trim();
+  return normalized.isEmpty ? null : normalized;
+}
+
+/// UCG 需已绑定微信账号（`sub` 非零）。
+bool isUcgWxAccountBound(String? wxId) =>
+    wxId != null && wxId.isNotEmpty && wxId != '0';

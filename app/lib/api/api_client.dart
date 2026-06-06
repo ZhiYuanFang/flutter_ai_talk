@@ -79,6 +79,67 @@ class ApiClient {
     return _decodeResponse(res);
   }
 
+  Future<Map<String, dynamic>?> putJsonEnvelope(
+    String path,
+    Map<String, dynamic> body, {
+    Map<String, String>? query,
+    bool withAuthorization = true,
+  }) async {
+    final uri = _uri(path, query);
+    final encoded = jsonEncode(body);
+    final res = await _send(
+      () => http.put(
+            uri,
+            headers: _headers(withAuthorization: withAuthorization),
+            body: encoded,
+          ),
+      withAuthorization: withAuthorization,
+    );
+    return _decodeResponse(res);
+  }
+
+  Future<Map<String, dynamic>?> deleteEnvelope(
+    String path, {
+    Map<String, String>? query,
+    bool withAuthorization = true,
+  }) async {
+    final uri = _uri(path, query);
+    final res = await _send(
+      () => http.delete(uri, headers: _headers(withAuthorization: withAuthorization)),
+      withAuthorization: withAuthorization,
+    );
+    return _decodeResponse(res);
+  }
+
+  /// multipart/form-data POST；用于 UCG Web 媒体同域代理上传等场景。
+  Future<Map<String, dynamic>?> postMultipartEnvelope(
+    String path, {
+    required Map<String, String> fields,
+    required String fileField,
+    required String fileName,
+    required List<int> bytes,
+    Map<String, String>? query,
+    bool withAuthorization = true,
+  }) async {
+    final uri = _uri(path, query);
+    Future<http.Response> send() async {
+      final req = http.MultipartRequest('POST', uri);
+      if (withAuthorization) {
+        final t = accessTokenProvider();
+        if (t != null && t.isNotEmpty) {
+          req.headers['Authorization'] = 'Bearer $t';
+        }
+      }
+      req.fields.addAll(fields);
+      req.files.add(http.MultipartFile.fromBytes(fileField, bytes, filename: fileName));
+      final streamed = await req.send();
+      return http.Response.fromStream(streamed);
+    }
+
+    final res = await _send(send, withAuthorization: withAuthorization);
+    return _decodeResponse(res);
+  }
+
   Future<http.Response> _send(
     Future<http.Response> Function() once, {
     required bool withAuthorization,

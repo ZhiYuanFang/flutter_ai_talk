@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/session_provider.dart';
+import '../../session/token_expiry.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
@@ -12,6 +13,7 @@ import 'ucg_login_gate.dart';
 import 'ucg_messages_tab.dart';
 import 'ucg_profile_screens.dart';
 import 'ucg_square_tab.dart';
+import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 class UcgShell extends ConsumerStatefulWidget {
@@ -40,14 +42,17 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     }
     setState(() => _tabIndex = index);
     if (index == 3) {
-      ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
+      final wxId = ref.read(ucgCurrentUserIdProvider);
+      if (isUcgWxAccountBound(wxId)) {
+        ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
+      }
     } else {
       ref.read(ucgRepositoryProvider).setWsConnectionDesired(false);
     }
   }
 
   Future<void> _openCompose({UcgPost? editing}) async {
-    if (!await requireUcgLogin(context, ref)) return;
+    if (!await requireUcgWxAccount(context, ref)) return;
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => UcgComposeScreen(editingPost: editing)),
@@ -86,6 +91,24 @@ class UcgProfileTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionProvider);
+    if (!session.isLoggedIn) {
+      return UcgTabPage(
+        title: '我的',
+        subtitle: '记录与分享你的育儿故事',
+        leading: ucgBackLeading(context, onBackToFeeding),
+        body: const UcgLoginPrompt(message: '登录后查看我的'),
+      );
+    }
+    if (!isUcgWxAccountBound(ref.watch(ucgCurrentUserIdProvider))) {
+      return UcgTabPage(
+        title: '我的',
+        subtitle: '记录与分享你的育儿故事',
+        leading: ucgBackLeading(context, onBackToFeeding),
+        body: const UcgWxBindPrompt(),
+      );
+    }
+
     final profileAsync = ref.watch(ucgMyProfileProvider);
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
@@ -119,8 +142,9 @@ class UcgProfileTab extends ConsumerWidget {
                       child: CircleAvatar(
                         radius: 40,
                         backgroundColor: primary.withValues(alpha: 0.12),
-                        backgroundImage:
-                            profile.avatarUrl != null ? NetworkImage(profile.avatarUrl!) : null,
+                        backgroundImage: profile.avatarUrl != null
+                            ? ucgNetworkImageProvider(profile.avatarUrl!)
+                            : null,
                         child: profile.avatarUrl == null
                             ? Icon(Icons.face_retouching_natural_rounded, color: primary, size: 40)
                             : null,

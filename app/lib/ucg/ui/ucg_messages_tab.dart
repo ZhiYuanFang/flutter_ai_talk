@@ -7,9 +7,11 @@ import 'package:intl/intl.dart';
 import '../../providers/session_provider.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_models.dart';
+import '../../session/token_expiry.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_chat_screen.dart';
 import 'ucg_login_gate.dart';
+import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 class UcgMessagesTab extends ConsumerStatefulWidget {
@@ -29,7 +31,10 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   void initState() {
     super.initState();
     unawaited(_load());
-    ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
+    final wxId = ref.read(ucgCurrentUserIdProvider);
+    if (isUcgWxAccountBound(wxId)) {
+      ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
+    }
   }
 
   Future<void> _load() async {
@@ -78,6 +83,14 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
         subtitle: '与宝妈宝爸私信聊天',
         leading: ucgBackLeading(context, widget.onBackToFeeding),
         body: const UcgLoginPrompt(message: '登录后查看消息'),
+      );
+    }
+    if (!isUcgWxAccountBound(ref.watch(ucgCurrentUserIdProvider))) {
+      return UcgTabPage(
+        title: '消息',
+        subtitle: '与宝妈宝爸私信聊天',
+        leading: ucgBackLeading(context, widget.onBackToFeeding),
+        body: const UcgWxBindPrompt(),
       );
     }
 
@@ -151,8 +164,9 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
                               child: CircleAvatar(
                                 radius: 22,
                                 backgroundColor: primary.withValues(alpha: 0.1),
-                                backgroundImage:
-                                    c.peerAvatarUrl != null ? NetworkImage(c.peerAvatarUrl!) : null,
+                                backgroundImage: c.peerAvatarUrl != null
+                                    ? ucgNetworkImageProvider(c.peerAvatarUrl!)
+                                    : null,
                                 child: c.peerAvatarUrl == null
                                     ? Icon(Icons.person_rounded, color: primary)
                                     : null,

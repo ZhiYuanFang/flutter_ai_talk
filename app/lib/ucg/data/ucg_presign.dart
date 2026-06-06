@@ -1,27 +1,51 @@
-/// `POST /ucg/app/api/media/presign` 请求/响应契约（与 OpenSpec ucg-media-cdn 一致）。
+import 'ucg_media_url.dart';
+
+/// `POST /ucg/app/api/media/presign` 请求/响应契约（对齐 go_ai_talk ucg-service）。
 class UcgPresignRequest {
   const UcgPresignRequest({
-    required this.fileName,
-    required this.contentType,
+    required this.mediaKind,
+    required this.extension,
   });
 
-  final String fileName;
-  final String contentType;
+  /// 1=图片，2=视频。
+  final int mediaKind;
+  final String extension;
 
   Map<String, dynamic> toJson() => {
-        'fileName': fileName,
-        'contentType': contentType,
+        'mediaKind': mediaKind,
+        'extension': extension,
       };
+
+  factory UcgPresignRequest.fromFileName(String fileName, {required bool isVideo}) {
+    return UcgPresignRequest(
+      mediaKind: isVideo ? 2 : 1,
+      extension: ucgExtensionFromFileName(fileName, isVideo: isVideo),
+    );
+  }
+}
+
+/// 上传完成后的 objectKey + 可选 API cdnUrl（展示用）。
+class UcgUploadResult {
+  const UcgUploadResult({required this.objectKey, this.cdnUrl});
+
+  final String objectKey;
+  final String? cdnUrl;
+
+  String get displayUrl => UcgMediaUrl.resolveUrl(objectKey: objectKey, cdnUrl: cdnUrl);
 }
 
 class UcgPresignResult {
   const UcgPresignResult({
     required this.objectKey,
     required this.uploadUrl,
+    this.cdnUrl,
+    this.headers = const {},
   });
 
   final String objectKey;
   final String uploadUrl;
+  final String? cdnUrl;
+  final Map<String, String> headers;
 
   factory UcgPresignResult.fromJson(Map<String, dynamic> json) {
     final objectKey = json['objectKey'] as String? ?? json['key'] as String? ?? '';
@@ -29,8 +53,29 @@ class UcgPresignResult {
     if (objectKey.isEmpty || uploadUrl.isEmpty) {
       throw const FormatException('presign 响应缺少 objectKey 或 uploadUrl');
     }
-    return UcgPresignResult(objectKey: objectKey, uploadUrl: uploadUrl);
+    final headersRaw = json['headers'];
+    final headers = <String, String>{};
+    if (headersRaw is Map) {
+      headersRaw.forEach((k, v) {
+        if (k != null && v != null) headers[k.toString()] = v.toString();
+      });
+    }
+    return UcgPresignResult(
+      objectKey: objectKey,
+      uploadUrl: uploadUrl,
+      cdnUrl: json['cdnUrl'] as String?,
+      headers: headers,
+    );
   }
+}
+
+String ucgExtensionFromFileName(String fileName, {required bool isVideo}) {
+  final lower = fileName.toLowerCase();
+  final dot = lower.lastIndexOf('.');
+  var ext = dot >= 0 ? lower.substring(dot + 1) : (isVideo ? 'mp4' : 'jpg');
+  if (ext == 'jpeg') ext = 'jpg';
+  if (ext == 'mpeg') ext = 'mp4';
+  return ext;
 }
 
 String ucgContentTypeForFileName(String fileName) {

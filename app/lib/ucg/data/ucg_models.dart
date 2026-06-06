@@ -8,12 +8,22 @@ enum UcgPostStatus {
   published,
   rejected;
 
-  static UcgPostStatus fromApi(String? raw) {
-    return switch (raw) {
-      'draft' => UcgPostStatus.draft,
-      'pending_audit' => UcgPostStatus.pendingAudit,
-      'published' => UcgPostStatus.published,
-      'rejected' => UcgPostStatus.rejected,
+  static UcgPostStatus fromApi(dynamic raw) {
+    if (raw is int || raw is num) {
+      return switch (raw is num ? raw.toInt() : raw) {
+        0 => UcgPostStatus.draft,
+        1 => UcgPostStatus.pendingAudit,
+        2 => UcgPostStatus.published,
+        3 => UcgPostStatus.rejected,
+        _ => UcgPostStatus.published,
+      };
+    }
+    final s = raw?.toString();
+    return switch (s) {
+      'draft' || '0' => UcgPostStatus.draft,
+      'pending_audit' || '1' => UcgPostStatus.pendingAudit,
+      'published' || '2' => UcgPostStatus.published,
+      'rejected' || '3' => UcgPostStatus.rejected,
       _ => UcgPostStatus.published,
     };
   }
@@ -31,6 +41,7 @@ class UcgProfile {
     required this.userId,
     required this.nickname,
     this.avatarKey,
+    this.avatarCdnUrl,
     this.bio = '',
     this.followerCount = 0,
     this.followingCount = 0,
@@ -40,19 +51,28 @@ class UcgProfile {
   final String userId;
   final String nickname;
   final String? avatarKey;
+  final String? avatarCdnUrl;
   final String bio;
   final int followerCount;
   final int followingCount;
   final int postCount;
 
-  String? get avatarUrl =>
-      avatarKey == null || avatarKey!.isEmpty ? null : UcgMediaUrl.objectKeyToCdn(avatarKey!);
+  String? get avatarUrl {
+    final fromApi = avatarCdnUrl?.trim();
+    if (fromApi != null && fromApi.isNotEmpty) return fromApi;
+    if (avatarKey == null || avatarKey!.isEmpty) return null;
+    return UcgMediaUrl.objectKeyToCdn(avatarKey!);
+  }
 
   factory UcgProfile.fromJson(Map<String, dynamic> json) {
     return UcgProfile(
-      userId: json['userId'] as String? ?? json['id'] as String? ?? '',
+      userId: json['wxId']?.toString() ??
+          json['userId'] as String? ??
+          json['id']?.toString() ??
+          '',
       nickname: json['nickname'] as String? ?? '',
       avatarKey: json['avatarKey'] as String? ?? json['avatar'] as String?,
+      avatarCdnUrl: json['avatarUrl'] as String?,
       bio: json['bio'] as String? ?? '',
       followerCount: _int(json['followerCount']),
       followingCount: _int(json['followingCount']),
@@ -73,9 +93,12 @@ class UcgPost {
     required this.authorId,
     required this.authorNickname,
     this.authorAvatarKey,
+    this.authorAvatarCdnUrl,
     required this.text,
     this.imageKeys = const [],
+    this.imageCdnUrls = const [],
     this.videoKey,
+    this.videoCdnUrl,
     required this.status,
     this.rejectReason,
     required this.createdAt,
@@ -88,9 +111,12 @@ class UcgPost {
   final String authorId;
   final String authorNickname;
   final String? authorAvatarKey;
+  final String? authorAvatarCdnUrl;
   final String text;
   final List<String> imageKeys;
+  final List<String> imageCdnUrls;
   final String? videoKey;
+  final String? videoCdnUrl;
   final UcgPostStatus status;
   final String? rejectReason;
   final DateTime createdAt;
@@ -100,15 +126,25 @@ class UcgPost {
 
   bool get isVideo => videoKey != null && videoKey!.isNotEmpty;
 
-  String? get authorAvatarUrl => authorAvatarKey == null || authorAvatarKey!.isEmpty
-      ? null
-      : UcgMediaUrl.objectKeyToCdn(authorAvatarKey!);
+  String? get authorAvatarUrl {
+    final fromApi = authorAvatarCdnUrl?.trim();
+    if (fromApi != null && fromApi.isNotEmpty) return fromApi;
+    if (authorAvatarKey == null || authorAvatarKey!.isEmpty) return null;
+    return UcgMediaUrl.objectKeyToCdn(authorAvatarKey!);
+  }
 
-  List<String> get imageUrls =>
-      imageKeys.map(UcgMediaUrl.objectKeyToCdn).where((u) => u.isNotEmpty).toList();
+  List<String> get imageUrls => [
+        for (var i = 0; i < imageKeys.length; i++)
+          UcgMediaUrl.resolveUrl(
+            objectKey: imageKeys[i],
+            cdnUrl: i < imageCdnUrls.length ? imageCdnUrls[i] : null,
+          ),
+      ].where((u) => u.isNotEmpty).toList();
 
-  String? get videoUrl =>
-      videoKey == null || videoKey!.isEmpty ? null : UcgMediaUrl.objectKeyToCdn(videoKey!);
+  String? get videoUrl {
+    if (videoKey == null || videoKey!.isEmpty) return null;
+    return UcgMediaUrl.resolveUrl(objectKey: videoKey!, cdnUrl: videoCdnUrl);
+  }
 
   bool get isVisibleInPublicFeed => status == UcgPostStatus.published;
 
@@ -122,9 +158,12 @@ class UcgPost {
       authorId: authorId,
       authorNickname: authorNickname,
       authorAvatarKey: authorAvatarKey,
+      authorAvatarCdnUrl: authorAvatarCdnUrl,
       text: text,
       imageKeys: imageKeys,
+      imageCdnUrls: imageCdnUrls,
       videoKey: videoKey,
+      videoCdnUrl: videoCdnUrl,
       status: status,
       rejectReason: rejectReason,
       createdAt: createdAt,
@@ -135,22 +174,61 @@ class UcgPost {
   }
 
   factory UcgPost.fromJson(Map<String, dynamic> json) {
-    final imagesRaw = json['imageKeys'] ?? json['images'];
     final keys = <String>[];
-    if (imagesRaw is List) {
-      for (final e in imagesRaw) {
-        if (e is String && e.isNotEmpty) keys.add(e);
+    final cdnUrls = <String>[];
+    String? videoKey;
+    String? videoCdnUrl;
+    final mediaRaw = json['media'];
+    if (mediaRaw is List) {
+      for (final item in mediaRaw) {
+        if (item is! Map<String, dynamic>) continue;
+        final key = item['objectKey'] as String? ?? '';
+        if (key.isEmpty) continue;
+        final cdn = item['cdnUrl'] as String? ?? '';
+        final kind = _int(item['mediaKind']);
+        if (kind == 2) {
+          videoKey = key;
+          videoCdnUrl = cdn.isNotEmpty ? cdn : null;
+        } else {
+          keys.add(key);
+          cdnUrls.add(cdn);
+        }
       }
+    } else {
+      final imagesRaw = json['imageKeys'] ?? json['images'];
+      if (imagesRaw is List) {
+        for (final e in imagesRaw) {
+          if (e is String && e.isNotEmpty) keys.add(e);
+        }
+      }
+      videoKey = json['videoKey'] as String?;
+    }
+    final author = json['author'];
+    var authorId = json['authorWxId']?.toString() ??
+        json['authorId'] as String? ??
+        json['userId']?.toString() ??
+        '';
+    var authorNickname = json['authorNickname'] as String? ?? json['nickname'] as String? ?? '';
+    var authorAvatarKey = json['authorAvatarKey'] as String? ?? json['avatarKey'] as String?;
+    var authorAvatarCdnUrl = json['authorAvatarUrl'] as String? ?? json['avatarUrl'] as String?;
+    if (author is Map<String, dynamic>) {
+      authorId = author['wxId']?.toString() ?? authorId;
+      authorNickname = author['nickname'] as String? ?? authorNickname;
+      authorAvatarKey = author['avatarKey'] as String? ?? authorAvatarKey;
+      authorAvatarCdnUrl = author['avatarUrl'] as String? ?? authorAvatarCdnUrl;
     }
     return UcgPost(
-      id: json['id'] as String? ?? json['postId'] as String? ?? '',
-      authorId: json['authorId'] as String? ?? json['userId'] as String? ?? '',
-      authorNickname: json['authorNickname'] as String? ?? json['nickname'] as String? ?? '',
-      authorAvatarKey: json['authorAvatarKey'] as String? ?? json['avatarKey'] as String?,
-      text: json['text'] as String? ?? json['content'] as String? ?? '',
+      id: json['id']?.toString() ?? json['postId']?.toString() ?? '',
+      authorId: authorId,
+      authorNickname: authorNickname,
+      authorAvatarKey: authorAvatarKey,
+      authorAvatarCdnUrl: authorAvatarCdnUrl,
+      text: json['content'] as String? ?? json['text'] as String? ?? '',
       imageKeys: keys,
-      videoKey: json['videoKey'] as String?,
-      status: UcgPostStatus.fromApi(json['status'] as String?),
+      imageCdnUrls: cdnUrls,
+      videoKey: videoKey,
+      videoCdnUrl: videoCdnUrl,
+      status: UcgPostStatus.fromApi(json['status']),
       rejectReason: json['rejectReason'] as String? ?? json['reason'] as String?,
       createdAt: _date(json['createdAt']),
       likeCount: _int(json['likeCount']),
@@ -196,13 +274,22 @@ class UcgComment {
   final bool isMine;
 
   factory UcgComment.fromJson(Map<String, dynamic> json, {String? currentUserId}) {
-    final authorId = json['authorId'] as String? ?? json['userId'] as String? ?? '';
+    final author = json['author'];
+    var authorId = json['authorWxId']?.toString() ??
+        json['authorId'] as String? ??
+        json['userId']?.toString() ??
+        '';
+    var authorNickname = json['authorNickname'] as String? ?? json['nickname'] as String? ?? '';
+    if (author is Map<String, dynamic>) {
+      authorId = author['wxId']?.toString() ?? authorId;
+      authorNickname = author['nickname'] as String? ?? authorNickname;
+    }
     return UcgComment(
-      id: json['id'] as String? ?? '',
-      postId: json['postId'] as String? ?? '',
+      id: json['id']?.toString() ?? '',
+      postId: json['postId']?.toString() ?? '',
       authorId: authorId,
-      authorNickname: json['authorNickname'] as String? ?? json['nickname'] as String? ?? '',
-      text: json['text'] as String? ?? json['content'] as String? ?? '',
+      authorNickname: authorNickname,
+      text: json['content'] as String? ?? json['text'] as String? ?? '',
       createdAt: _date(json['createdAt']),
       isMine: currentUserId != null && authorId == currentUserId,
     );
@@ -248,15 +335,24 @@ class UcgConversation {
   }
 
   factory UcgConversation.fromJson(Map<String, dynamic> json) {
+    final pinnedRaw = json['pinned'];
     return UcgConversation(
-      id: json['id'] as String? ?? json['conversationId'] as String? ?? '',
-      peerId: json['peerId'] as String? ?? json['targetUserId'] as String? ?? '',
+      id: json['id']?.toString() ?? json['conversationId']?.toString() ?? '',
+      peerId: json['peerWxId']?.toString() ??
+          json['peerId'] as String? ??
+          json['targetUserId']?.toString() ??
+          '',
       peerNickname: json['peerNickname'] as String? ?? json['nickname'] as String? ?? '',
       peerAvatarKey: json['peerAvatarKey'] as String? ?? json['avatarKey'] as String?,
-      lastMessagePreview: json['lastMessagePreview'] as String? ?? json['preview'] as String? ?? '',
-      lastMessageAt: json['lastMessageAt'] != null ? _date(json['lastMessageAt']) : null,
+      lastMessagePreview: json['lastPreview'] as String? ??
+          json['lastMessagePreview'] as String? ??
+          json['preview'] as String? ??
+          '',
+      lastMessageAt: json['lastMessageAt'] != null
+          ? _date(json['lastMessageAt'])
+          : (json['updatedAt'] != null ? _date(json['updatedAt']) : null),
       unreadCount: _int(json['unreadCount']),
-      pinned: json['pinned'] == true,
+      pinned: pinnedRaw == true || pinnedRaw == 1,
     );
   }
 }
@@ -287,12 +383,15 @@ class UcgChatMessage {
   final bool isMine;
 
   factory UcgChatMessage.fromJson(Map<String, dynamic> json, {String? currentUserId}) {
-    final senderId = json['senderId'] as String? ?? json['fromUserId'] as String? ?? '';
+    final senderId = json['senderWxId']?.toString() ??
+        json['senderId'] as String? ??
+        json['fromUserId']?.toString() ??
+        '';
     return UcgChatMessage(
-      id: json['id'] as String? ?? json['messageId'] as String? ?? '',
-      conversationId: json['conversationId'] as String? ?? '',
+      id: json['id']?.toString() ?? json['messageId']?.toString() ?? '',
+      conversationId: json['conversationId']?.toString() ?? '',
       senderId: senderId,
-      text: json['text'] as String? ?? json['content'] as String? ?? '',
+      text: json['content'] as String? ?? json['text'] as String? ?? '',
       imageKey: json['imageKey'] as String?,
       videoKey: json['videoKey'] as String?,
       createdAt: _date(json['createdAt']),

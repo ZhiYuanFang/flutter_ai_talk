@@ -16,25 +16,22 @@ bool ucgValidateVideoBytes(Uint8List bytes, {Duration? duration}) {
   return true;
 }
 
-Future<String> ucgUploadBytes({
+Future<UcgUploadResult> ucgUploadBytes({
   required UcgRepository repo,
   required Uint8List bytes,
   required String fileName,
   required String contentType,
+  required bool isVideo,
 }) async {
-  final presign = await repo.presignMedia(
+  return repo.uploadMediaBytes(
+    isVideo: isVideo,
     fileName: fileName,
-    contentType: contentType,
-  );
-  await repo.uploadToPresignedUrl(
-    uploadUrl: presign.uploadUrl,
     bytes: bytes,
     contentType: contentType,
   );
-  return presign.objectKey;
 }
 
-Future<List<String>> ucgPickAndUploadImages({
+Future<List<UcgUploadResult>> ucgPickAndUploadImages({
   required UcgRepository repo,
   required int remainingSlots,
 }) async {
@@ -45,22 +42,23 @@ Future<List<String>> ucgPickAndUploadImages({
   );
   if (picked.isEmpty) return const [];
 
-  final keys = <String>[];
+  final results = <UcgUploadResult>[];
   for (final file in picked) {
     final bytes = await file.readAsBytes();
     final name = ucgFallbackFileName(isVideo: false, path: file.path);
-    final key = await ucgUploadBytes(
+    final uploaded = await ucgUploadBytes(
       repo: repo,
       bytes: bytes,
       fileName: name,
       contentType: ucgContentTypeForFileName(name),
+      isVideo: false,
     );
-    keys.add(key);
+    results.add(uploaded);
   }
-  return keys;
+  return results;
 }
 
-Future<String?> ucgPickAndUploadVideo({
+Future<UcgUploadResult?> ucgPickAndUploadVideo({
   required UcgRepository repo,
 }) async {
   final file = await _picker.pickVideo(
@@ -80,5 +78,6 @@ Future<String?> ucgPickAndUploadVideo({
     bytes: bytes,
     fileName: name,
     contentType: ucgContentTypeForFileName(name),
+    isVideo: true,
   );
 }

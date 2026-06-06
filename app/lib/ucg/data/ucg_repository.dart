@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../config/env.dart';
+import '../../session/token_expiry.dart';
 import 'ucg_api_client.dart';
 import 'ucg_models.dart';
 
@@ -60,6 +62,7 @@ class UcgRepository {
     final url = AppEnv.wsUcgChatUrlEffective;
     final token = _accessTokenGetter();
     if (url.isEmpty || token == null || token.isEmpty) return;
+    if (!isUcgWxAccountBound(readJwtWxId(token))) return;
     if (_wsConnected) return;
 
     _wsSub?.cancel();
@@ -82,10 +85,25 @@ class UcgRepository {
     try {
       final decoded = jsonDecode(raw as String);
       if (decoded is! Map<String, dynamic>) return;
-      final type = decoded['type'] as String? ?? '';
-      if (type == 'auth_ok') {
+      final type = (decoded['type'] as String? ?? '').toLowerCase();
+      if (type == 'auth_ok' || type == 'authok') {
         _wsConnected = true;
         if (!_wsReadyController.isClosed) _wsReadyController.add(true);
+        return;
+      }
+      if (type == 'message_delivered') {
+        final payload = decoded['message'];
+        if (payload is Map<String, dynamic>) {
+          final convId = decoded['conversationId']?.toString() ?? payload['conversationId']?.toString();
+          final msg = UcgChatMessage.fromJson(
+            {
+              ...payload,
+              if (convId != null && convId.isNotEmpty) 'conversationId': convId,
+            },
+            currentUserId: _userIdGetter(),
+          );
+          if (!_messageController.isClosed) _messageController.add(msg);
+        }
         return;
       }
       if (type == 'message' || type == 'chat_message') {
@@ -126,8 +144,14 @@ class UcgRepository {
     return data == null ? null : UcgProfile.fromJson(data);
   }
 
-  Future<UcgProfile?> fetchProfile(String userId) async {
-    final data = await _api.get('/profile/$userId');
+  Future<UcgProfile?> fetchProfile(
+    String userId, {
+    bool withAuthorization = true,
+  }) async {
+    final data = await _api.get(
+      '/profile/$userId',
+      withAuthorization: withAuthorization,
+    );
     return data == null ? null : UcgProfile.fromJson(data);
   }
 
@@ -138,7 +162,7 @@ class UcgRepository {
 
   Future<UcgPagedPosts> fetchRecommendedFeed({required int page}) async {
     final data = await _api.get(
-      '/feed/recommended',
+      '/feed/recommend',
       query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
       withAuthorization: false,
     );
@@ -166,34 +190,99 @@ class UcgRepository {
     List<String> imageKeys = const [],
     String? videoKey,
   }) async {
+    final mediaType = videoKey != null && videoKey.isNotEmpty
+        ? 2
+        : (imageKeys.isNotEmpty ? 1 : 0);
+    final media = <Map<String, dynamic>>[];
+    var sort = 0;
+    for (final key in imageKeys) {
+      media.add({'objectKey': key, 'mediaKind': 1, 'sortOrder': sort++});
+    }
+    if (videoKey != null && videoKey.isNotEmpty) {
+      media.add({'objectKey': videoKey, 'mediaKind': 2, 'sortOrder': 0});
+    }
     final body = <String, dynamic>{
-      'text': text,
-      if (imageKeys.isNotEmpty) 'imageKeys': imageKeys,
-      if (videoKey != null && videoKey.isNotEmpty) 'videoKey': videoKey,
+      'content': text,
+      'mediaType': mediaType,
+      'submit': true,
+      if (media.isNotEmpty) 'media': media,
     };
     final data = await _api.post('/posts', body);
     return UcgPost.fromJson(data ?? body);
   }
 
   Future<UcgPresignResult> presignMedia({
+    required bool isVideo,
     required String fileName,
+  }) async {
+    final data = await _api.post(
+      '/media/presign',
+      UcgPresignRequest.fromFileName(fileName, isVideo: isVideo).toJson(),
+    );
+    return UcgPresignResult.fromJson(data ?? {});
+  }
+
+  /// Web 经 gateway 同域代理上传，规避 OSS 直传 CORS 预检 403。
+  Future<UcgUploadResult> uploadMediaViaGateway({
+    required bool isVideo,
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final req = UcgPresignRequest.fromFileName(fileName, isVideo: isVideo);
+    final data = await _api.postMultipart(
+      '/media/upload',
+      fields: {
+        'mediaKind': '${req.mediaKind}',
+        'extension': req.extension,
+      },
+      fileField: 'file',
+      fileName: fileName,
+      bytes: bytes,
+    );
+    final objectKey = data?['objectKey'] as String? ?? '';
+    if (objectKey.isEmpty) {
+      throw const FormatException('upload 响应缺少 objectKey');
+    }
+    return UcgUploadResult(
+      objectKey: objectKey,
+      cdnUrl: data?['cdnUrl'] as String?,
+    );
+  }
+
+  Future<UcgUploadResult> uploadMediaBytes({
+    required bool isVideo,
+    required String fileName,
+    required List<int> bytes,
     required String contentType,
   }) async {
-    final data = await _api.post('/media/presign', UcgPresignRequest(
-      fileName: fileName,
-      contentType: contentType,
-    ).toJson());
-    return UcgPresignResult.fromJson(data ?? {});
+    if (kIsWeb) {
+      return uploadMediaViaGateway(
+        isVideo: isVideo,
+        fileName: fileName,
+        bytes: bytes,
+      );
+    }
+    final presign = await presignMedia(isVideo: isVideo, fileName: fileName);
+    await uploadToPresignedUrl(
+      uploadUrl: presign.uploadUrl,
+      bytes: bytes,
+      contentType: presign.headers['Content-Type'] ?? contentType,
+      extraHeaders: presign.headers,
+    );
+    return UcgUploadResult(objectKey: presign.objectKey, cdnUrl: presign.cdnUrl);
   }
 
   Future<void> uploadToPresignedUrl({
     required String uploadUrl,
     required List<int> bytes,
     required String contentType,
+    Map<String, String> extraHeaders = const {},
   }) async {
+    final headers = <String, String>{...extraHeaders};
+    headers.putIfAbsent('Content-Type', () => contentType);
     final res = await http.put(
       Uri.parse(uploadUrl),
-      headers: {'Content-Type': contentType},
+      headers: headers,
       body: bytes,
     );
     if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -220,12 +309,15 @@ class UcgRepository {
   }
 
   Future<UcgComment> addComment(String postId, String text) async {
-    final data = await _api.post('/posts/$postId/comments', {'text': text});
-    return UcgComment.fromJson(data ?? {'text': text, 'postId': postId}, currentUserId: _userIdGetter());
+    final data = await _api.post('/posts/$postId/comments', {'content': text});
+    return UcgComment.fromJson(
+      data ?? {'content': text, 'postId': postId},
+      currentUserId: _userIdGetter(),
+    );
   }
 
   Future<void> deleteComment(String postId, String commentId) async {
-    await _api.delete('/posts/$postId/comments/$commentId');
+    await _api.delete('/comments/$commentId');
   }
 
   Future<void> followUser(String userId) async {
@@ -250,6 +342,15 @@ class UcgRepository {
     return raw.whereType<Map<String, dynamic>>().map(UcgConversation.fromJson).toList();
   }
 
+  Future<UcgConversation> createConversation(String peerWxId) async {
+    final wxIdNum = int.tryParse(peerWxId);
+    final body = <String, dynamic>{
+      'targetWxId': wxIdNum ?? peerWxId,
+    };
+    final data = await _api.post('/conversations', body);
+    return UcgConversation.fromJson(data ?? {'peerWxId': peerWxId});
+  }
+
   Future<List<UcgChatMessage>> fetchChatHistory(String conversationId) async {
     final data = await _api.get('/conversations/$conversationId/messages');
     final raw = data?['list'] ?? data?['items'];
@@ -265,12 +366,12 @@ class UcgRepository {
     required String peerId,
     required String text,
   }) async {
+    final convId = int.tryParse(conversationId) ?? conversationId;
     await sendChatWs({
-      'type': 'send_message',
-      'conversationId': conversationId,
-      'peerId': peerId,
-      'contentType': 'text',
-      'text': text,
+      'type': 'message',
+      'conversationId': convId,
+      'content': text,
+      'clientMsgId': 'client-${DateTime.now().millisecondsSinceEpoch}',
     });
   }
 
@@ -279,6 +380,6 @@ class UcgRepository {
   }
 
   Future<void> pinConversation(String conversationId, {required bool pinned}) async {
-    await _api.post('/conversations/$conversationId/pin', {'pinned': pinned});
+    await _api.put('/conversations/$conversationId/pin', {'pinned': pinned});
   }
 }

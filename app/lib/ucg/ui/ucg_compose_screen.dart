@@ -7,6 +7,7 @@ import '../data/ucg_media_picker.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
+import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 /// 发布页：文本 + ≤9 图 OR 1 视频（15s / 20MB 客户端校验）。
@@ -24,6 +25,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   late final TextEditingController _text;
   final _imageKeys = <String>[];
+  final _imageCdnUrls = <String, String>{};
   String? _videoKey;
   var _publishing = false;
   var _uploadingMedia = false;
@@ -35,6 +37,11 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     _text = TextEditingController(text: post?.text ?? '');
     if (post != null) {
       _imageKeys.addAll(post.imageKeys);
+      for (var i = 0; i < post.imageKeys.length; i++) {
+        if (i < post.imageCdnUrls.length && post.imageCdnUrls[i].isNotEmpty) {
+          _imageCdnUrls[post.imageKeys[i]] = post.imageCdnUrls[i];
+        }
+      }
       _videoKey = post.videoKey;
     } else {
       unawaited(_restoreDraft());
@@ -83,12 +90,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     }
     setState(() => _uploadingMedia = true);
     try {
-      final keys = await ucgPickAndUploadImages(
+      final uploads = await ucgPickAndUploadImages(
         repo: ref.read(ucgRepositoryProvider),
         remainingSlots: remaining,
       );
-      if (!mounted || keys.isEmpty) return;
-      setState(() => _imageKeys.addAll(keys));
+      if (!mounted || uploads.isEmpty) return;
+      setState(() {
+        for (final upload in uploads) {
+          _imageKeys.add(upload.objectKey);
+          final cdn = upload.cdnUrl?.trim();
+          if (cdn != null && cdn.isNotEmpty) {
+            _imageCdnUrls[upload.objectKey] = cdn;
+          }
+        }
+      });
       unawaited(_persistDraft());
     } catch (e) {
       _toast('图片上传失败');
@@ -104,10 +119,10 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     }
     setState(() => _uploadingMedia = true);
     try {
-      final key = await ucgPickAndUploadVideo(repo: ref.read(ucgRepositoryProvider));
+      final upload = await ucgPickAndUploadVideo(repo: ref.read(ucgRepositoryProvider));
       if (!mounted) return;
-      if (key == null) return;
-      setState(() => _videoKey = key);
+      if (upload == null) return;
+      setState(() => _videoKey = upload.objectKey);
       unawaited(_persistDraft());
     } on StateError catch (e) {
       _toast(e.message);
@@ -202,8 +217,11 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
-                                child: Image.network(
-                                  UcgMediaUrl.objectKeyToCdn(key),
+                                child: UcgNetworkImage(
+                                  url: UcgMediaUrl.resolveUrl(
+                                    objectKey: key,
+                                    cdnUrl: _imageCdnUrls[key],
+                                  ),
                                   width: 76,
                                   height: 76,
                                   fit: BoxFit.cover,
@@ -219,7 +237,10 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                   onPressed: busy
                                       ? null
                                       : () {
-                                          setState(() => _imageKeys.remove(key));
+                                          setState(() {
+                                            _imageKeys.remove(key);
+                                            _imageCdnUrls.remove(key);
+                                          });
                                           unawaited(_persistDraft());
                                         },
                                   icon: Icon(Icons.cancel_rounded, color: primary.withValues(alpha: 0.8)),

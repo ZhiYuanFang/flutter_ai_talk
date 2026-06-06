@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/app_visual_tokens.dart';
+import '../../providers/session_provider.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
+import 'ucg_chat_screen.dart';
 import 'ucg_login_gate.dart';
+import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 class UcgProfileEditScreen extends ConsumerStatefulWidget {
@@ -149,14 +152,18 @@ class _UcgUserProfileScreenState extends ConsumerState<UcgUserProfileScreen> {
 
   Future<void> _load() async {
     try {
-      _profile = await ref.read(ucgRepositoryProvider).fetchProfile(widget.userId);
+      final loggedIn = ref.read(sessionProvider).isLoggedIn;
+      _profile = await ref.read(ucgRepositoryProvider).fetchProfile(
+            widget.userId,
+            withAuthorization: loggedIn,
+          );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _toggleFollow() async {
-    if (!await requireUcgLogin(context, ref)) return;
+    if (!await requireUcgWxAccount(context, ref)) return;
     final repo = ref.read(ucgRepositoryProvider);
     if (_isFollowing) {
       await repo.unfollowUser(widget.userId);
@@ -164,6 +171,23 @@ class _UcgUserProfileScreenState extends ConsumerState<UcgUserProfileScreen> {
       await repo.followUser(widget.userId);
     }
     if (mounted) setState(() => _isFollowing = !_isFollowing);
+  }
+
+  Future<void> _startChat() async {
+    if (!await requireUcgWxAccount(context, ref)) return;
+    try {
+      final conv = await ref.read(ucgRepositoryProvider).createConversation(widget.userId);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => UcgChatScreen(conversation: conv)),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法发起私信')),
+        );
+      }
+    }
   }
 
   @override
@@ -221,6 +245,19 @@ class _UcgUserProfileScreenState extends ConsumerState<UcgUserProfileScreen> {
                                   ),
                                 if (!mine) ...[
                                   const SizedBox(height: 16),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: FilledButton(
+                                      onPressed: _startChat,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: primary,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                      ),
+                                      child: const Text('发消息'),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
                                   SizedBox(
                                     width: double.infinity,
                                     child: FilledButton.tonal(
@@ -364,7 +401,8 @@ class _ProfileAvatarRing extends StatelessWidget {
       child: CircleAvatar(
         radius: radius,
         backgroundColor: primary.withValues(alpha: 0.12),
-        backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl!) : null,
+        backgroundImage:
+            avatarUrl != null ? ucgNetworkImageProvider(avatarUrl!) : null,
         child: avatarUrl == null
             ? Icon(Icons.face_retouching_natural_rounded, color: primary, size: radius)
             : null,

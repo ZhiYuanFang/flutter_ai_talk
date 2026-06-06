@@ -18,6 +18,7 @@ OpenSpec 变更：`openspec/changes/cold-start-fast-splash`（冷启动品牌 Sp
 cd app
 flutter pub get
 flutter run -d chrome
+flutter run -d chrome  --dart-define=API_BASE_URL=http://localhost:9702 
 # 或
 flutter run -d android
 ```
@@ -256,6 +257,13 @@ flutter run -d chrome --dart-define=MOCK_NEWER_VERSION=true --web-browser-flag "
 （PowerShell 可直接一行粘贴；CMD 可用 `^` 换行。）请先创建目录 `C:/temp/flutter_chrome_cors_dev`（路径可改）。**不要用你日常 Chrome 的默认用户目录**，且联调结束应关掉该实例。
 
 **其它**：若将来 Web 页是 **HTTPS** 而 API 仍是 **HTTP**，还会触发 **mixed content** 被拦截，需 API 也走 HTTPS 或由同源代理转发。
+
+### UCG 媒体上传（Web）
+
+- **Web**：发帖选图/视频走 **`POST /ucg/app/api/media/upload`**（multipart 经 gateway 同域代理至 ucg-service 再写 OSS），**不再**从浏览器直传 `pang-bao.oss-cn-beijing.aliyuncs.com`，以避免 OSS bucket 未配 CORS 时 `OPTIONS` 预检 403。
+- **Android / iOS**：仍走 presign → 客户端 **PUT** 预签名 URL（无浏览器 CORS 限制）。
+- **部署**：需 ucg-service 含 `POST /ucg/app/api/media/upload` 且 `config.ucg-service.yaml` 的 `server.clientMaxBodySize` ≥ `25MB`；gateway 反代亦须允许 ≥25MB body。
+- **备选（直传 OSS）**：若希望 Web 也走 presign 直传，须在阿里云 OSS 控制台为 bucket `pang-bao` 配置 CORS：允许来源含 `http://localhost:*` 与正式 Web 域名，方法 `PUT`/`GET`/`HEAD`，允许头 `Content-Type`。
 
 ## `--dart-define`（勿把真实密钥写入仓库）
 

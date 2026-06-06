@@ -12,6 +12,7 @@ import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_login_gate.dart';
 import 'ucg_profile_screens.dart';
+import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 enum _SquareFeedMode { recommended, following }
@@ -94,7 +95,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   }
 
   Future<void> _toggleLike(UcgPost post) async {
-    if (!await requireUcgLogin(context, ref)) return;
+    if (!await requireUcgWxAccount(context, ref)) return;
     final repo = ref.read(ucgRepositoryProvider);
     final liked = post.likedByMe;
     try {
@@ -201,7 +202,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
             );
           },
           onCommentTap: () async {
-            if (!await requireUcgLogin(context, ref)) return;
+            if (!await requireUcgWxAccount(context, ref)) return;
             if (!context.mounted) return;
             await showGlassAdaptiveBottomSheet<void>(
               context: context,
@@ -258,8 +259,9 @@ class UcgFeedCard extends StatelessWidget {
                   child: CircleAvatar(
                     radius: 20,
                     backgroundColor: primary.withValues(alpha: 0.12),
-                    backgroundImage:
-                        post.authorAvatarUrl != null ? NetworkImage(post.authorAvatarUrl!) : null,
+                    backgroundImage: post.authorAvatarUrl != null
+                        ? ucgNetworkImageProvider(post.authorAvatarUrl!)
+                        : null,
                     child: post.authorAvatarUrl == null
                         ? Icon(Icons.person_rounded, size: 20, color: primary)
                         : null,
@@ -367,7 +369,7 @@ class _MediaGrid extends StatelessWidget {
       itemCount: count,
       itemBuilder: (_, i) => ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: Image.network(urls[i], fit: BoxFit.cover),
+        child: UcgNetworkImage(url: urls[i], fit: BoxFit.cover),
       ),
     );
   }
