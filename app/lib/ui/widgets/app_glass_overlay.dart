@@ -18,6 +18,7 @@ Future<T?> showGlassAdaptiveBottomSheet<T>({
   bool isDismissible = true,
   bool wrapInGlassPanel = true,
   bool scrollable = true,
+  bool respectKeyboardInset = false,
   bool useRootNavigator = false,
 }) {
   return showModalBottomSheet<T>(
@@ -46,6 +47,7 @@ Future<T?> showGlassAdaptiveBottomSheet<T>({
           showDragHandle: showDragHandle,
           maxHeightFraction: maxHeightFraction,
           scrollable: scrollable,
+          respectKeyboardInset: respectKeyboardInset,
           bottomExtraPadding: bottomExtraPadding,
           child: inner,
         ),

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
+import '../theme/ucg_theme.dart';
 import '../providers/ucg_providers.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
@@ -43,6 +44,32 @@ Future<bool> requireUcgWxAccount(BuildContext context, WidgetRef ref) async {
   return isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider));
 }
 
+/// 已登录但资料加载失败时的重试占位（避免误展示「去登录」）。
+class UcgProfileLoadError extends StatelessWidget {
+  const UcgProfileLoadError({super.key, required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return UcgEmptyState(
+      icon: Icons.cloud_off_outlined,
+      title: '资料加载失败',
+      subtitle: '请检查网络后重试',
+      action: FilledButton(
+        onPressed: onRetry,
+        style: FilledButton.styleFrom(
+          backgroundColor: primary,
+          foregroundColor: UcgTheme.onPrimary(context),
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+        ),
+        child: const Text('重试'),
+      ),
+    );
+  }
+}
+
 /// 未登录占位。
 class UcgLoginPrompt extends StatelessWidget {
   const UcgLoginPrompt({super.key, this.message = '登录后即可使用此功能'});
@@ -60,7 +87,7 @@ class UcgLoginPrompt extends StatelessWidget {
         onPressed: () => context.push('/login'),
         style: FilledButton.styleFrom(
           backgroundColor: primary,
-          foregroundColor: Colors.white,
+          foregroundColor: UcgTheme.onPrimary(context),
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
         ),
         child: const Text('去登录'),
@@ -84,7 +111,7 @@ class UcgWxBindPrompt extends StatelessWidget {
         onPressed: () => context.push('/login'),
         style: FilledButton.styleFrom(
           backgroundColor: primary,
-          foregroundColor: Colors.white,
+          foregroundColor: UcgTheme.onPrimary(context),
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
         ),
         child: const Text('去绑定'),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme_scope.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../theme/ucg_theme.dart';
 
 /// 喂养页右侧「进入广场」可展开拉条。
 class UcgEnterSquareTab extends StatefulWidget {
@@ -38,7 +39,7 @@ class _UcgEnterSquareTabState extends State<UcgEnterSquareTab> with SingleTicker
     final scheme = Theme.of(context).colorScheme;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final primary = scheme.primary;
-    final border = tokens?.surfaceBorderColor ?? Colors.white.withValues(alpha: 0.22);
+    final border = tokens?.surfaceBorderColor ?? UcgTheme.surfaceBorder(context);
 
     return Positioned(
       right: 0,

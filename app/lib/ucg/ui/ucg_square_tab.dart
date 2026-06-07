@@ -2,16 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:intl/intl.dart';
 
 import '../../providers/session_provider.dart';
 import '../../theme/app_visual_tokens.dart';
-import '../../ui/home_history_edit_glass_panel.dart';
-import '../../ui/widgets/app_glass_overlay.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_login_gate.dart';
+import 'ucg_post_detail_screen.dart';
 import 'ucg_profile_screens.dart';
+import 'widgets/ucg_masonry_feed_card.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
@@ -51,7 +52,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
 
   void _onScroll() {
     if (!_hasMore || _loading) return;
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 120) {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       unawaited(_load(refresh: false));
     }
   }
@@ -94,52 +95,64 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     await _load(refresh: true);
   }
 
-  Future<void> _toggleLike(UcgPost post) async {
-    if (!await requireUcgWxAccount(context, ref)) return;
-    final repo = ref.read(ucgRepositoryProvider);
-    final liked = post.likedByMe;
-    try {
-      if (liked) {
-        await repo.unlikePost(post.id);
-      } else {
-        await repo.likePost(post.id);
-      }
-      if (!mounted) return;
-      setState(() {
-        final i = _items.indexWhere((e) => e.id == post.id);
-        if (i >= 0) {
-          _items[i] = post.copyWith(
-            likedByMe: !liked,
-            likeCount: post.likeCount + (liked ? -1 : 1),
-          );
-        }
-      });
-    } catch (_) {}
+  void _openUserProfile(String userId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => UcgUserProfileScreen(userId: userId),
+      ),
+    );
+  }
+
+  void _openDetail(UcgPost post) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => UcgPostDetailScreen(postId: post.id, seedPost: post),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(ucgPostsChangedProvider, (previous, next) {
+      if (next > 0 && previous != next) {
+        unawaited(_load(refresh: true));
+      }
+    });
+
     final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
         Theme.of(context).colorScheme.onSurface;
+    final primary = Theme.of(context).colorScheme.primary;
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
 
     return UcgTabPage(
-      title: '广场',
-      subtitle: '看看大家的育儿日常',
+      title: '',
+      showTitle: false,
       leading: ucgBackLeading(context, widget.onBackToFeeding),
-      headerBottom: Center(
-        child: UcgSegmentedPills<_SquareFeedMode>(
-          segments: const [_SquareFeedMode.recommended, _SquareFeedMode.following],
-          selected: _mode,
-          labelBuilder: (m) => m == _SquareFeedMode.recommended ? '推荐' : '关注',
-          onSelected: (m) {
-            if (m == _SquareFeedMode.following && !loggedIn) {
-              setState(() => _mode = m);
-              return;
-            }
-            unawaited(_onModeChanged(m));
-          },
-        ),
+      titleWidget: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _InlineFeedTab(
+            label: '推荐',
+            selected: _mode == _SquareFeedMode.recommended,
+            primary: primary,
+            fg: fg,
+            onTap: () => unawaited(_onModeChanged(_SquareFeedMode.recommended)),
+          ),
+          const SizedBox(width: 16),
+          _InlineFeedTab(
+            label: '关注',
+            selected: _mode == _SquareFeedMode.following,
+            primary: primary,
+            fg: fg,
+            onTap: () {
+              if (!loggedIn) {
+                setState(() => _mode = _SquareFeedMode.following);
+                return;
+              }
+              unawaited(_onModeChanged(_SquareFeedMode.following));
+            },
+          ),
+        ],
       ),
       body: _mode == _SquareFeedMode.following && !loggedIn
           ? const UcgLoginPrompt(message: '登录后查看关注动态')
@@ -176,12 +189,14 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         ],
       );
     }
-    return ListView.separated(
+    return MasonryGridView.count(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+      crossAxisCount: 2,
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
       itemCount: _items.length + (_loading ? 1 : 0),
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         if (index >= _items.length) {
           return const Padding(
@@ -190,49 +205,75 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
           );
         }
         final post = _items[index];
-        return UcgFeedCard(
+        return UcgMasonryFeedCard(
           post: post,
-          onLikeTap: () => _toggleLike(post),
-          onLikeLongPress: post.likedByMe ? () => _toggleLike(post) : null,
-          onAvatarTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => UcgUserProfileScreen(userId: post.authorId),
-              ),
-            );
-          },
-          onCommentTap: () async {
-            if (!await requireUcgWxAccount(context, ref)) return;
-            if (!context.mounted) return;
-            await showGlassAdaptiveBottomSheet<void>(
-              context: context,
-              maxHeightFraction: 0.72,
-              bodyBuilder: (ctx) => _CommentsSheetBody(postId: post.id),
-            );
-          },
+          onTap: () => _openDetail(post),
+          onAvatarTap: () => _openUserProfile(post.authorId),
         );
       },
     );
   }
 }
 
+class _InlineFeedTab extends StatelessWidget {
+  const _InlineFeedTab({
+    required this.label,
+    required this.selected,
+    required this.primary,
+    required this.fg,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color primary;
+  final Color fg;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? primary : fg.withValues(alpha: 0.55),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 保留供详情页等复用的 Moments 卡片（广场已改用 [UcgMasonryFeedCard]）。
 class UcgFeedCard extends StatelessWidget {
   const UcgFeedCard({
     super.key,
     required this.post,
     this.onAvatarTap,
+    this.onUserTap,
     this.onLikeTap,
     this.onLikeLongPress,
     this.onCommentTap,
-    this.showStatusBanner = false,
+    this.onReplyToComment,
+    this.showAuditBadge = false,
+    this.wrapInShellCard = true,
   });
 
   final UcgPost post;
   final VoidCallback? onAvatarTap;
+  final void Function(String userId)? onUserTap;
   final VoidCallback? onLikeTap;
   final VoidCallback? onLikeLongPress;
   final VoidCallback? onCommentTap;
-  final bool showStatusBanner;
+  final void Function(UcgComment comment)? onReplyToComment;
+  final bool showAuditBadge;
+  final bool wrapInShellCard;
 
   @override
   Widget build(BuildContext context) {
@@ -240,239 +281,67 @@ class UcgFeedCard extends StatelessWidget {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     final time = DateFormat('MM-dd HH:mm').format(post.createdAt.toLocal());
+    final ipLoc = post.ipLocationDisplay;
+    final bio = post.authorBio.trim();
 
-    return UcgShellGlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showStatusBanner) _statusBanner(context, post),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: onAvatarTap,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: primary.withValues(alpha: 0.3)),
-                  ),
-                  child: CircleAvatar(
-                    radius: 20,
-                    backgroundColor: primary.withValues(alpha: 0.12),
-                    backgroundImage: post.authorAvatarUrl != null
-                        ? ucgNetworkImageProvider(post.authorAvatarUrl!)
-                        : null,
-                    child: post.authorAvatarUrl == null
-                        ? Icon(Icons.person_rounded, size: 20, color: primary)
-                        : null,
-                  ),
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: onAvatarTap,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: primary.withValues(alpha: 0.3)),
+                ),
+                child: UcgAvatar(
+                  radius: 20,
+                  url: post.authorAvatarThumbnailUrl,
+                  backgroundColor: primary.withValues(alpha: 0.12),
+                  foregroundColor: primary,
+                  placeholderIconSize: 20,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    post.authorNickname.isEmpty ? '用户' : post.authorNickname,
+                    style: TextStyle(fontWeight: FontWeight.w600, color: fg, fontSize: 15),
+                  ),
+                  if (bio.isNotEmpty)
                     Text(
-                      post.authorNickname.isEmpty ? '用户' : post.authorNickname,
-                      style: TextStyle(fontWeight: FontWeight.w600, color: fg, fontSize: 15),
+                      bio,
+                      style: TextStyle(fontSize: 12, color: fg.withValues(alpha: 0.55), height: 1.3),
                     ),
-                    Text(time, style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.48))),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (post.text.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              post.text,
-              style: TextStyle(color: fg.withValues(alpha: 0.88), height: 1.45, fontSize: 15),
-            ),
-          ],
-          if (post.imageUrls.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _MediaGrid(urls: post.imageUrls),
-          ],
-          if (post.videoUrl != null) ...[
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [primary.withValues(alpha: 0.12), primary.withValues(alpha: 0.04)],
-                    ),
-                  ),
-                  child: Center(child: Icon(Icons.play_circle_filled_rounded, color: primary, size: 48)),
-                ),
+                ],
               ),
             ),
           ],
+        ),
+        if (post.text.isNotEmpty) ...[
           const SizedBox(height: 12),
-          Row(
-            children: [
-              UcgInteractionChip(
-                icon: post.likedByMe ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                label: '${post.likeCount}',
-                active: post.likedByMe,
-                onTap: onLikeTap,
-                onLongPress: onLikeLongPress,
-              ),
-              const SizedBox(width: 10),
-              UcgInteractionChip(
-                icon: Icons.chat_bubble_outline_rounded,
-                label: '${post.commentCount}',
-                onTap: onCommentTap,
-              ),
-            ],
+          Text(
+            post.text,
+            style: TextStyle(color: fg.withValues(alpha: 0.88), height: 1.45, fontSize: 15),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _statusBanner(BuildContext context, UcgPost post) {
-    final fg = Theme.of(context).colorScheme.error;
-    final label = switch (post.status) {
-      UcgPostStatus.pendingAudit => '审核中',
-      UcgPostStatus.rejected => '违规已下架${post.rejectReason != null ? '：${post.rejectReason}' : ''}',
-      _ => '',
-    };
-    if (label.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(label, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w500)),
-    );
-  }
-}
-
-class _MediaGrid extends StatelessWidget {
-  const _MediaGrid({required this.urls});
-
-  final List<String> urls;
-
-  @override
-  Widget build(BuildContext context) {
-    final count = urls.length.clamp(1, 9);
-    final cross = count == 1 ? 1 : (count <= 4 ? 2 : 3);
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cross,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: count,
-      itemBuilder: (_, i) => ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: UcgNetworkImage(url: urls[i], fit: BoxFit.cover),
-      ),
-    );
-  }
-}
-
-class _CommentsSheetBody extends ConsumerStatefulWidget {
-  const _CommentsSheetBody({required this.postId});
-
-  final String postId;
-
-  @override
-  ConsumerState<_CommentsSheetBody> createState() => _CommentsSheetBodyState();
-}
-
-class _CommentsSheetBodyState extends ConsumerState<_CommentsSheetBody> {
-  final _controller = TextEditingController();
-  var _loading = true;
-  var _comments = <UcgComment>[];
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    try {
-      final list = await ref.read(ucgRepositoryProvider).fetchComments(widget.postId);
-      if (mounted) setState(() => _comments = list);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _send() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-    final c = await ref.read(ucgRepositoryProvider).addComment(widget.postId, text);
-    _controller.clear();
-    if (mounted) setState(() => _comments = [..._comments, c]);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final glassText = historyEditGlassTextColor(context);
-    final glassLabel = historyEditGlassLabelColor(context);
-    final scheme = Theme.of(context).colorScheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
+        const SizedBox(height: 10),
         Text(
-          '评论',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: glassText),
-        ),
-        const SizedBox(height: 8),
-        Divider(height: 1, color: Colors.white.withValues(alpha: 0.18)),
-        Expanded(
-          child: _loading
-              ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary))
-              : _comments.isEmpty
-                  ? Center(child: Text('还没有评论', style: TextStyle(color: glassLabel)))
-                  : ListView.builder(
-                      itemCount: _comments.length,
-                      itemBuilder: (_, i) {
-                        final c = _comments[i];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(c.authorNickname, style: TextStyle(color: glassText, fontWeight: FontWeight.w600)),
-                          subtitle: Text(c.text, style: TextStyle(color: glassLabel)),
-                          trailing: c.isMine
-                              ? IconButton(
-                                  icon: Icon(Icons.delete_outline, color: glassLabel),
-                                  onPressed: () async {
-                                    await ref.read(ucgRepositoryProvider).deleteComment(widget.postId, c.id);
-                                    if (mounted) setState(() => _comments.removeAt(i));
-                                  },
-                                )
-                              : null,
-                        );
-                      },
-                    ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                style: TextStyle(color: glassText),
-                decoration: historyEditGlassInputDecoration(context, labelText: '写评论…'),
-              ),
-            ),
-            IconButton(onPressed: _send, icon: Icon(Icons.send_rounded, color: scheme.primary)),
-          ],
+          ipLoc.isNotEmpty ? '$time · $ipLoc' : time,
+          style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.42)),
         ),
       ],
     );
+
+    if (!wrapInShellCard) return content;
+    return UcgShellGlassCard(child: content);
   }
 }

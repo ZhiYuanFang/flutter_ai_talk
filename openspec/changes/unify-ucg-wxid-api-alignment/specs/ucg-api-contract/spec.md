@@ -55,3 +55,19 @@ WS client MUST send auth first frame per gateway proxy expectation (JWT in agree
 #### Scenario: 发送文本消息字段
 - **WHEN** 用户在聊天页发送文本
 - **THEN** WS payload SHALL 使用 ucg-service 约定的 `type` 与正文字段名（非仅 Flutter 草稿字段）
+
+### Requirement: Gateway SHALL inject trusted client IP for UCG IP location
+
+gateway-app `HookBeforeServe` SHALL strip client-spoofed `X-Internal-Client-IP`, `X-Internal-Wx-Id`, and `X-Internal-Device-No`, then inject `X-Internal-Client-IP` from `X-Forwarded-For` first hop or `RemoteAddr`. ucg-service SHALL read this header for IP-to-region resolution; clients MUST NOT send `ipLocation` in profile or post bodies.
+
+#### Scenario: 网关注入客户端 IP
+- **WHEN** 任意请求经 gateway-app 转发至 ucg-service
+- **THEN** 下游请求 SHALL 携带网关解析的 `X-Internal-Client-IP`，且 SHALL NOT 信任客户端伪造值
+
+#### Scenario: 删除帖子使用 DELETE
+- **WHEN** 作者删除自己的帖子
+- **THEN** Client SHALL 调用 `DELETE /ucg/app/api/posts/{id}`
+
+#### Scenario: device internal 更新 IP 属地
+- **WHEN** ucg-service 解析出用户 IP 属地且节流窗口已过
+- **THEN** ucg-service SHALL 调用 `PUT /device/internal/api/ucg/wx/{wxId}/ip-location` 写入 `wx.ip_location`

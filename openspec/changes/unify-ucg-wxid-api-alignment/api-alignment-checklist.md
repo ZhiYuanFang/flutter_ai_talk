@@ -4,17 +4,19 @@ Gateway 前缀：`/ucg/app/api`（HTTP）、`/ucg/app/ws/chat`（WS 代理至 uc
 
 | 功能 | Flutter `UcgRepository` | HTTP | 请求体 canonical 字段 | 响应关键字段 |
 |------|-------------------------|------|----------------------|--------------|
-| 推荐 Feed | `fetchRecommendedFeed` | `GET /feed/recommend` | query: `page`, `pageSize` | `{ list, total, page, pageSize }`，帖子 `authorWxId`, `content`, `status`(int), `media[]` |
+| 推荐 Feed | `fetchRecommendedFeed` | `GET /feed/recommend` | query: `page`, `pageSize`；已登录时带 Bearer | `{ list, total, page, pageSize }`，帖子 `authorWxId`, `content`, `status`(int), `media[]`（`objectKey`, `cdnUrl`, `mediaKind`, 可选 `thumbnailUrl`/`thumbKey`）, `likedByMe`（已登录 wxId>0） |
 | 关注 Feed | `fetchFollowingFeed` | `GET /feed/following` | 同上 | 同上 |
 | 我的动态 | `fetchMyPosts` | `GET /posts/mine` | 同上 | 含 pending/rejected status |
-| 我的资料 | `fetchMyProfile` | `GET /profile/me` | Bearer | `wxId`, `nickname`, `avatarKey`, `bio` |
-| 更新资料 | `updateMyProfile` | **PUT** `/profile/me` | `nickname`, `avatarKey`, `bio` | `UcgProfileRes` |
-| 他人资料 | `fetchProfile(wxId)` | `GET /profile/{wxId}` | 匿名（gateway 白名单） | `wxId` |
+| 我的资料 | `fetchMyProfile` | `GET /profile/me` | Bearer | `wxId`, `nickname`, `avatarKey`, `bio`, `ipLocation` |
+| 更新资料 | `updateMyProfile` | **PUT** `/profile/me` | `nickname`, `avatarKey`, `bio`（**无** `ipLocation`） | `UcgProfileRes` |
+| 他人资料 | `fetchProfile(wxId)` | `GET /profile/{wxId}` | 匿名（gateway 白名单） | `wxId`, `ipLocation` |
 | 媒体 presign | `presignMedia` | `POST /media/presign` | `mediaKind`(1/2), `extension` | `uploadUrl`, `objectKey`, `cdnUrl`, `headers` |
 | 媒体上传（Web 代理） | `uploadMediaViaGateway` | `POST /media/upload` | multipart: `file`, `mediaKind`, `extension` | `objectKey`, `cdnUrl` |
-| 发帖 | `createPost` | `POST /posts` | `content`, `mediaType`, `submit`, `media[]` | `UcgPostItem` |
+| 发帖 | `createPost` | `POST /posts` | `content`, `mediaType`, `submit`, `media[]`（**无** `ipLocation`） | `UcgPostItem`（含 `ipLocation` 快照） |
+| 删帖 | `deletePost` | **DELETE** `/posts/{id}` | — | — |
 | 点赞 | `likePost` | **POST** `/posts/{id}/like` | `{}` | — |
 | 取消赞 | `unlikePost` | **DELETE** `/posts/{id}/like` | — | — |
+| 点赞名单 | `fetchPostLikes` | **GET** `/posts/{id}/likes` | query 分页 | `list[].wxId`, `list[].nickname`, `list[].avatarKey`, `list[].avatarUrl`（服务端 `GetPublicProfile`；头像缺失时客户端占位） |
 | 评论列表 | `fetchComments` | `GET /posts/{id}/comments` | query 分页 | `list[].content`, `authorWxId` |
 | 发表评论 | `addComment` | `POST /posts/{id}/comments` | `content` | `UcgCommentItem` |
 | 删评论 | `deleteComment` | **DELETE** `/comments/{id}` | — | — |
@@ -25,6 +27,7 @@ Gateway 前缀：`/ucg/app/api`（HTTP）、`/ucg/app/ws/chat`（WS 代理至 uc
 | 创建会话 | `createConversation` | **POST** `/conversations` | `targetWxId` | `UcgConversationItem` |
 | 历史消息 | `fetchChatHistory` | `GET /conversations/{id}/messages` | query 分页 | `senderWxId`, `content` |
 | 置顶会话 | `pinConversation` | **PUT** `/conversations/{id}/pin` | `pinned` | — |
+| 标记已读 | `markConversationRead` | **POST** `/conversations/{id}/read` | `lastMsgId`（可选） | — |
 | 删会话 | `deleteConversation` | **DELETE** `/conversations/{id}` | — | — |
 
 ## 帖子 status 整型（`internal/services/ucg/constants.go`）
@@ -42,9 +45,9 @@ Gateway 前缀：`/ucg/app/api`（HTTP）、`/ucg/app/ws/chat`（WS 代理至 uc
 |------|------|------|
 | 客户端 → 服务端 auth | `auth` | `token`（JWT access token） |
 | 服务端 → 客户端 | `auth_ok` | `wxId` |
-| 客户端 → 服务端发消息 | `message` | `conversationId`, `content`, `clientMsgId`（可选） |
+| 客户端 → 服务端发消息 | `message` | `conversationId`, `content`, `clientMsgId`（可选）, `imageKey` / `videoKey`（可选，互斥） |
 | 服务端 → 客户端 | `message_ack` | `clientMsgId` |
-| 服务端 → 客户端 | `message_delivered` | `conversationId`, `message` |
+| 服务端 → 客户端 | `message_delivered` | `conversationId`, `message`（含 `imageKey`/`videoKey`/`mediaCdnUrl`） |
 | 服务端 → 客户端 | `audit_failed` | `clientMsgId`, `reason` |
 | 心跳 | `ping` / `pong` | — |
 

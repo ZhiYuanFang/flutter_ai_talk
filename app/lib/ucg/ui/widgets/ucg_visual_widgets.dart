@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme_scope.dart';
 import '../../../theme/app_visual_tokens.dart';
+import '../../theme/ucg_theme.dart';
 
 const _kHeaderContentSpacing = 10.0;
 const _kShellGlassBlur = 18.0;
@@ -36,15 +37,20 @@ class UcgImmersiveHeader extends StatelessWidget {
   const UcgImmersiveHeader({
     super.key,
     required this.title,
+    this.titleWidget,
     this.subtitle,
     this.leading,
     this.actions = const [],
+    this.showTitle = true,
   });
 
   final String title;
+  /// When set, replaces centered [title] with a left-aligned compact row (e.g. chat peer avatar + nickname).
+  final Widget? titleWidget;
   final String? subtitle;
   final Widget? leading;
   final List<Widget> actions;
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -54,50 +60,69 @@ class UcgImmersiveHeader extends StatelessWidget {
     const sideSlot = 52.0;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, _kHeaderContentSpacing),
+      padding: EdgeInsets.fromLTRB(8, 4, 8, showTitle || titleWidget != null ? _kHeaderContentSpacing : 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: 44,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (leading != null)
-                  Positioned(left: 0, top: 0, bottom: 0, child: leading!),
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: (leading != null || actions.isNotEmpty) ? sideSlot : 16,
+          if (titleWidget != null)
+            SizedBox(
+              height: 44,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (leading != null) leading!,
+                  Expanded(child: titleWidget!),
+                  if (actions.isNotEmpty)
+                    Row(mainAxisSize: MainAxisSize.min, children: actions),
+                ],
+              ),
+            )
+          else if (showTitle)
+            SizedBox(
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (leading != null)
+                    Positioned(left: 0, top: 0, bottom: 0, child: leading!),
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: (leading != null || actions.isNotEmpty) ? sideSlot : 16,
+                    ),
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                            color: fg,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 28,
+                            letterSpacing: -0.3,
+                          ) ??
+                          TextStyle(
+                            color: fg,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
                   ),
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                          color: fg,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 28,
-                          letterSpacing: -0.3,
-                        ) ??
-                        TextStyle(
-                          color: fg,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ),
-                if (actions.isNotEmpty)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: Row(mainAxisSize: MainAxisSize.min, children: actions),
-                  ),
-              ],
+                  if (actions.isNotEmpty)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+                    ),
+                ],
+              ),
+            )
+          else if (leading != null)
+            SizedBox(
+              height: 44,
+              child: Align(alignment: Alignment.centerLeft, child: leading!),
             ),
-          ),
-          if (subtitle != null && subtitle!.isNotEmpty)
+          if (titleWidget == null && showTitle && subtitle != null && subtitle!.isNotEmpty)
             Text(
               subtitle!,
               textAlign: TextAlign.center,
@@ -119,18 +144,23 @@ class UcgTabPage extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.titleWidget,
     this.leading,
     this.actions = const [],
     required this.body,
     this.headerBottom,
+    this.showTitle = true,
   });
 
   final String title;
   final String? subtitle;
+  /// When set, replaces centered [title] with a left-aligned compact row beside [leading].
+  final Widget? titleWidget;
   final Widget? leading;
   final List<Widget> actions;
   final Widget? headerBottom;
   final Widget body;
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -140,8 +170,10 @@ class UcgTabPage extends StatelessWidget {
         UcgImmersiveHeader(
           title: title,
           subtitle: subtitle,
+          titleWidget: titleWidget,
           leading: leading,
           actions: actions,
+          showTitle: showTitle,
         ),
         if (headerBottom != null) ...[
           Padding(
@@ -173,6 +205,33 @@ class UcgShellGlassCard extends StatelessWidget {
   final double? borderRadius;
   final EdgeInsets? margin;
 
+  /// Gradient fill matching the card interior (e.g. sliding pane cover in 我的动态).
+  static BoxDecoration interiorFillDecoration(BuildContext context) {
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final scheme = Theme.of(context).colorScheme;
+    final primary = scheme.primary;
+    final isDark = tokens?.isDarkShell ?? false;
+
+    final fillTop = Color.alphaBlend(
+      primary.withValues(alpha: isDark ? 0.14 : 0.10),
+      (tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.14))
+          .withValues(alpha: isDark ? 0.72 : 0.82),
+    );
+    final fillBottom = Color.alphaBlend(
+      primary.withValues(alpha: isDark ? 0.08 : 0.06),
+      tokens?.surfaceColor.withValues(alpha: isDark ? 0.55 : 0.65) ??
+          themePrimaryBlend(context, alpha: 0.08),
+    );
+
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [fillTop, fillBottom],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
@@ -191,7 +250,7 @@ class UcgShellGlassCard extends StatelessWidget {
       tokens?.surfaceColor.withValues(alpha: isDark ? 0.55 : 0.65) ??
           themePrimaryBlend(context, alpha: 0.08),
     );
-    final border = tokens?.surfaceBorderColor ?? Colors.white.withValues(alpha: 0.22);
+    final border = tokens?.surfaceBorderColor ?? UcgTheme.surfaceBorder(context);
 
     Widget card = ClipRRect(
       borderRadius: BorderRadius.circular(radius),
@@ -338,7 +397,7 @@ class _Pill extends StatelessWidget {
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
           decoration: BoxDecoration(
-            color: selected ? Color.alphaBlend(primary.withValues(alpha: 0.22), Colors.transparent) : Colors.transparent,
+            color: selected ? Color.alphaBlend(primary.withValues(alpha: 0.22), const Color(0x00000000)) : const Color(0x00000000),
             borderRadius: BorderRadius.circular(999),
             border: selected ? Border.all(color: primary.withValues(alpha: 0.35)) : null,
           ),
@@ -496,7 +555,7 @@ class UcgGlassBottomDock extends StatelessWidget {
     final bottom = MediaQuery.paddingOf(context).bottom;
     final isDark = tokens?.isDarkShell ?? false;
     final surface = tokens?.surfaceColor ?? themePrimaryBlend(context, alpha: 0.24);
-    final border = tokens?.surfaceBorderColor ?? Colors.white.withValues(alpha: 0.2);
+    final border = tokens?.surfaceBorderColor ?? UcgTheme.surfaceBorder(context);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, bottom + 10),
@@ -555,8 +614,9 @@ class _ComposeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onPrimary = UcgTheme.onPrimary(context);
     return Material(
-      color: Colors.transparent,
+      color: const Color(0x00000000),
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
@@ -568,13 +628,13 @@ class _ComposeButton extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [primary, Color.lerp(primary, Colors.white, 0.15)!],
+              colors: [primary, UcgTheme.primaryGradientEnd(context)],
             ),
             boxShadow: [
               BoxShadow(color: primary.withValues(alpha: 0.38), blurRadius: 14, offset: const Offset(0, 5)),
             ],
           ),
-          child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+          child: Icon(Icons.add_rounded, color: onPrimary, size: 28),
         ),
       ),
     );
@@ -605,7 +665,7 @@ class _DockItem extends StatelessWidget {
 
     return Expanded(
       child: Material(
-        color: Colors.transparent,
+        color: const Color(0x00000000),
         child: InkWell(
           onTap: onTap,
           child: Column(
@@ -657,13 +717,17 @@ class UcgGlassInputDock extends StatelessWidget {
     required this.controller,
     required this.hintText,
     required this.onSend,
+    this.onAttach,
     this.enabled = true,
+    this.busy = false,
   });
 
   final TextEditingController controller;
   final String hintText;
   final VoidCallback onSend;
+  final VoidCallback? onAttach;
   final bool enabled;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -671,6 +735,7 @@ class UcgGlassInputDock extends StatelessWidget {
     final primary = Theme.of(context).colorScheme.primary;
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     final bottom = MediaQuery.paddingOf(context).bottom;
+    final onPrimary = UcgTheme.onPrimary(context);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 10),
@@ -679,10 +744,17 @@ class UcgGlassInputDock extends StatelessWidget {
         borderRadius: 28,
         child: Row(
           children: [
+            if (onAttach != null) ...[
+              IconButton(
+                onPressed: enabled && !busy ? onAttach : null,
+                icon: Icon(Icons.add_circle_outline_rounded, color: fg.withValues(alpha: 0.55)),
+                tooltip: '添加图片或视频',
+              ),
+            ],
             Expanded(
               child: TextField(
                 controller: controller,
-                enabled: enabled,
+                enabled: enabled && !busy,
                 textInputAction: TextInputAction.send,
                 onSubmitted: enabled ? (_) => onSend() : null,
                 decoration: InputDecoration(
@@ -694,9 +766,9 @@ class UcgGlassInputDock extends StatelessWidget {
               ),
             ),
             Material(
-              color: Colors.transparent,
+              color: const Color(0x00000000),
               child: InkWell(
-                onTap: enabled ? onSend : null,
+                onTap: enabled && !busy ? onSend : null,
                 customBorder: const CircleBorder(),
                 child: Ink(
                   width: 40,
@@ -706,10 +778,15 @@ class UcgGlassInputDock extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [primary, Color.lerp(primary, Colors.white, 0.15)!],
+                      colors: [primary, UcgTheme.primaryGradientEnd(context)],
                     ),
                   ),
-                  child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                  child: busy
+                      ? Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: onPrimary.withValues(alpha: 0.9)),
+                        )
+                      : Icon(Icons.send_rounded, color: onPrimary, size: 20),
                 ),
               ),
             ),

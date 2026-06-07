@@ -35,9 +35,11 @@ class UcgRepository {
   var _shouldStayConnected = false;
   final _messageController = StreamController<UcgChatMessage>.broadcast();
   final _wsReadyController = StreamController<bool>.broadcast();
+  final _notificationController = StreamController<void>.broadcast();
 
   Stream<UcgChatMessage> get incomingMessages => _messageController.stream;
   Stream<bool> get wsReadyStream => _wsReadyController.stream;
+  Stream<void> get notificationEvents => _notificationController.stream;
   bool get isWsConnected => _wsConnected;
 
   void dispose() {
@@ -47,6 +49,7 @@ class UcgRepository {
     _ws?.sink.close();
     _messageController.close();
     _wsReadyController.close();
+    _notificationController.close();
   }
 
   void setWsConnectionDesired(bool desired) {
@@ -112,6 +115,10 @@ class UcgRepository {
           final msg = UcgChatMessage.fromJson(payload, currentUserId: _userIdGetter());
           if (!_messageController.isClosed) _messageController.add(msg);
         }
+        return;
+      }
+      if (type == 'comment_notification') {
+        if (!_notificationController.isClosed) _notificationController.add(null);
       }
     } catch (_) {}
   }
@@ -164,7 +171,6 @@ class UcgRepository {
     final data = await _api.get(
       '/feed/recommend',
       query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
-      withAuthorization: false,
     );
     return parsePagedPosts(data, publicFeedOnly: true);
   }
@@ -183,6 +189,47 @@ class UcgRepository {
       query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
     );
     return parsePagedPosts(data);
+  }
+
+  Future<UcgPost> fetchPost(String postId) async {
+    final data = await _api.get('/posts/$postId');
+    if (data == null) {
+      throw StateError('帖子不存在');
+    }
+    return UcgPost.fromJson(data);
+  }
+
+  Future<UcgPagedCommentNotifications> fetchCommentNotifications({
+    required int page,
+  }) async {
+    final data = await _api.get(
+      '/notifications/comments',
+      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+    );
+    final raw = data?['list'] ?? data?['items'];
+    final items = raw is List
+        ? raw.whereType<Map<String, dynamic>>().map(UcgCommentNotification.fromJson).toList()
+        : <UcgCommentNotification>[];
+    return UcgPagedCommentNotifications(
+      items: items,
+      page: (data?['page'] as num?)?.toInt() ?? page,
+      pageSize: (data?['pageSize'] as num?)?.toInt() ?? kUcgPageSize,
+      total: (data?['total'] as num?)?.toInt() ?? items.length,
+      unreadCount: (data?['unreadCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Future<void> markNotificationsRead({List<String>? ids, bool all = false}) async {
+    final body = <String, dynamic>{
+      if (all) 'all': true,
+      if (!all && ids != null && ids.isNotEmpty)
+        'ids': ids.map((id) => int.tryParse(id) ?? id).toList(),
+    };
+    await _api.post('/notifications/comments/read', body);
+  }
+
+  Future<void> deletePost(String postId) async {
+    await _api.delete('/posts/$postId');
   }
 
   Future<UcgPost> createPost({
@@ -298,6 +345,27 @@ class UcgRepository {
     await _api.delete('/posts/$postId/like');
   }
 
+  Future<List<UcgLiker>> fetchPostLikes(String postId) async {
+    const pageSize = 50;
+    var page = 1;
+    final all = <UcgLiker>[];
+    var total = 0;
+    while (true) {
+      final data = await _api.get(
+        '/posts/$postId/likes',
+        query: UcgApiClient.pageQuery(page: page, pageSize: pageSize),
+      );
+      total = (data?['total'] as num?)?.toInt() ?? 0;
+      final raw = data?['list'] ?? data?['items'];
+      if (raw is! List) break;
+      final batch = raw.whereType<Map<String, dynamic>>().map(UcgLiker.fromJson).toList();
+      all.addAll(batch);
+      if (batch.isEmpty || all.length >= total) break;
+      page++;
+    }
+    return all;
+  }
+
   Future<List<UcgComment>> fetchComments(String postId) async {
     final data = await _api.get('/posts/$postId/comments');
     final raw = data?['list'] ?? data?['items'];
@@ -332,7 +400,18 @@ class UcgRepository {
     final data = await _api.get('/follow/following');
     final raw = data?['list'] ?? data?['items'];
     if (raw is! List) return const [];
-    return raw.whereType<Map<String, dynamic>>().map(UcgProfile.fromJson).toList();
+    final profiles = <UcgProfile>[];
+    for (final item in raw) {
+      if (item is Map<String, dynamic>) {
+        profiles.add(UcgProfile.fromJson(item));
+        continue;
+      }
+      final wxId = item?.toString() ?? '';
+      if (wxId.isEmpty) continue;
+      final profile = await fetchProfile(wxId);
+      if (profile != null) profiles.add(profile);
+    }
+    return profiles;
   }
 
   Future<List<UcgConversation>> fetchConversations() async {
@@ -340,6 +419,59 @@ class UcgRepository {
     final raw = data?['list'] ?? data?['items'];
     if (raw is! List) return const [];
     return raw.whereType<Map<String, dynamic>>().map(UcgConversation.fromJson).toList();
+  }
+
+  /// 补全会话对方昵称/头像（与聊天页 `_ensurePeerProfile` 一致：缺字段时 `GET /profile/{peerWxId}`）。
+  Future<List<UcgConversation>> enrichConversationsWithPeerProfiles(
+    List<UcgConversation> list,
+  ) async {
+    final selfId = _userIdGetter();
+    final loggedIn = selfId != null && selfId.isNotEmpty;
+    final profileCache = <String, UcgProfile?>{};
+    final out = <UcgConversation>[];
+
+    for (final c in list) {
+      if (c.peerId.isEmpty || c.peerId == selfId) {
+        out.add(c);
+        continue;
+      }
+      final needsNickname = c.peerNickname.trim().isEmpty;
+      final needsAvatar = c.peerAvatarThumbnailUrl == null;
+      if (!needsNickname && !needsAvatar) {
+        out.add(c);
+        continue;
+      }
+      UcgProfile? profile;
+      if (profileCache.containsKey(c.peerId)) {
+        profile = profileCache[c.peerId];
+      } else {
+        try {
+          profile = await fetchProfile(c.peerId, withAuthorization: loggedIn);
+        } catch (_) {
+          profile = null;
+        }
+        profileCache[c.peerId] = profile;
+      }
+      if (profile == null) {
+        out.add(c);
+        continue;
+      }
+      out.add(c.copyWith(
+        peerNickname: needsNickname && profile.nickname.trim().isNotEmpty
+            ? profile.nickname
+            : c.peerNickname,
+        peerAvatarKey: needsAvatar && profile.avatarKey != null
+            ? profile.avatarKey
+            : c.peerAvatarKey,
+        peerAvatarCdnUrl: needsAvatar && profile.avatarUrl != null
+            ? profile.avatarUrl
+            : c.peerAvatarCdnUrl,
+        peerAvatarThumbnailCdnUrl: needsAvatar && profile.avatarThumbnailUrl != null
+            ? profile.avatarThumbnailUrl
+            : c.peerAvatarThumbnailCdnUrl,
+      ));
+    }
+    return out;
   }
 
   Future<UcgConversation> createConversation(String peerWxId) async {
@@ -366,11 +498,25 @@ class UcgRepository {
     required String peerId,
     required String text,
   }) async {
+    await sendChatMessage(
+      conversationId: conversationId,
+      text: text,
+    );
+  }
+
+  Future<void> sendChatMessage({
+    required String conversationId,
+    String text = '',
+    String? imageKey,
+    String? videoKey,
+  }) async {
     final convId = int.tryParse(conversationId) ?? conversationId;
     await sendChatWs({
       'type': 'message',
       'conversationId': convId,
       'content': text,
+      if (imageKey != null && imageKey.isNotEmpty) 'imageKey': imageKey,
+      if (videoKey != null && videoKey.isNotEmpty) 'videoKey': videoKey,
       'clientMsgId': 'client-${DateTime.now().millisecondsSinceEpoch}',
     });
   }
@@ -381,5 +527,17 @@ class UcgRepository {
 
   Future<void> pinConversation(String conversationId, {required bool pinned}) async {
     await _api.put('/conversations/$conversationId/pin', {'pinned': pinned});
+  }
+
+  Future<void> markConversationRead(
+    String conversationId, {
+    String? lastMsgId,
+  }) async {
+    final body = <String, dynamic>{};
+    if (lastMsgId != null && lastMsgId.isNotEmpty) {
+      final id = int.tryParse(lastMsgId);
+      body['lastMsgId'] = id ?? lastMsgId;
+    }
+    await _api.post('/conversations/$conversationId/read', body);
   }
 }

@@ -2,19 +2,12 @@ import 'dart:typed_data';
 
 import 'package:image_picker/image_picker.dart';
 
+import 'ucg_media_compress.dart';
+import 'ucg_media_limits.dart';
 import 'ucg_presign.dart';
 import 'ucg_repository.dart';
 
-const maxUcgVideoBytes = 20 * 1024 * 1024;
-const maxUcgVideoDuration = Duration(seconds: 15);
-
 final _picker = ImagePicker();
-
-bool ucgValidateVideoBytes(Uint8List bytes, {Duration? duration}) {
-  if (bytes.length > maxUcgVideoBytes) return false;
-  if (duration != null && duration > maxUcgVideoDuration) return false;
-  return true;
-}
 
 Future<UcgUploadResult> ucgUploadBytes({
   required UcgRepository repo,
@@ -23,11 +16,31 @@ Future<UcgUploadResult> ucgUploadBytes({
   required String contentType,
   required bool isVideo,
 }) async {
+  final prepared = isVideo
+      ? bytes
+      : await ucgCompressImageBytes(bytes);
   return repo.uploadMediaBytes(
     isVideo: isVideo,
     fileName: fileName,
-    bytes: bytes,
+    bytes: prepared,
     contentType: contentType,
+  );
+}
+
+/// 单张图片（头像等）；Web 上比 [pickMultiImage] 更可靠。
+Future<UcgUploadResult?> ucgPickAndUploadSingleImage({
+  required UcgRepository repo,
+}) async {
+  final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+  if (picked == null) return null;
+  final bytes = await picked.readAsBytes();
+  final name = ucgFallbackFileName(isVideo: false, path: picked.path);
+  return ucgUploadBytes(
+    repo: repo,
+    bytes: bytes,
+    fileName: name,
+    contentType: ucgContentTypeForFileName(name),
+    isVideo: false,
   );
 }
 
@@ -63,21 +76,39 @@ Future<UcgUploadResult?> ucgPickAndUploadVideo({
 }) async {
   final file = await _picker.pickVideo(
     source: ImageSource.gallery,
-    maxDuration: maxUcgVideoDuration,
+    maxDuration: UcgMediaLimits.videoMaxDuration,
   );
   if (file == null) return null;
 
   final bytes = await file.readAsBytes();
-  if (!ucgValidateVideoBytes(bytes)) {
-    throw StateError('视频超过 20MB 或 15 秒限制');
-  }
-
+  final prepared = await ucgPrepareVideoBytes(bytes: bytes, sourcePath: file.path);
   final name = ucgFallbackFileName(isVideo: true, path: file.path);
+  return ucgUploadBytes(
+    repo: repo,
+    bytes: prepared,
+    fileName: name,
+    contentType: ucgContentTypeForFileName(name),
+    isVideo: true,
+  );
+}
+
+/// 聊天附件：单张图片或单个视频（互斥）。
+Future<UcgUploadResult?> ucgPickAndUploadChatMedia({
+  required UcgRepository repo,
+  required bool isVideo,
+}) async {
+  if (isVideo) {
+    return ucgPickAndUploadVideo(repo: repo);
+  }
+  final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+  if (picked == null) return null;
+  final bytes = await picked.readAsBytes();
+  final name = ucgFallbackFileName(isVideo: false, path: picked.path);
   return ucgUploadBytes(
     repo: repo,
     bytes: bytes,
     fileName: name,
     contentType: ucgContentTypeForFileName(name),
-    isVideo: true,
+    isVideo: false,
   );
 }

@@ -12,7 +12,23 @@ final customBackgroundProvider = StateProvider<Color?>((ref) => null);
 
 final themePresetProvider = StateProvider<ThemePreset?>((ref) => null);
 
-Color _sexPrimary(BabySex sex) => sexPrimary(sex);
+/// 经典浅色 preset 用性别主色；其它 preset / 自定义背景从 bundle 种子推导 accent。
+Color _resolveSchemeSeed(VisualBundle bundle, BabySex sex) {
+  if (bundle.preset == ThemePreset.classicLight) {
+    return sexPrimary(sex);
+  }
+  return bundle.seedColor;
+}
+
+Color _resolveThemePrimary(VisualBundle bundle, BabySex sex) {
+  if (bundle.preset == ThemePreset.classicLight) {
+    return sexPrimary(sex);
+  }
+  if (bundle.isDarkShell) {
+    return bundle.seedColor;
+  }
+  return ColorScheme.fromSeed(seedColor: bundle.seedColor).primary;
+}
 
 /// 主题主色叠在 shell 或 surface 上（随深色 shell 分支变化）。
 Color themePrimaryBlend(BuildContext context, {double alpha = 0.12}) {
@@ -45,15 +61,15 @@ ThemeData buildAppTheme({
 }) {
   final bundle = resolveVisualBundle(sex: sex, seed: customBackground, preset: preset);
   final tokens = bundle.toTokens();
-  final sexPrimaryColor = _sexPrimary(sex);
-  final accentSeed = tokens.isDarkShell ? bundle.seedColor : sexPrimaryColor;
+  final schemeSeed = _resolveSchemeSeed(bundle, sex);
+  final primaryColor = _resolveThemePrimary(bundle, sex);
 
   final scheme = ColorScheme.fromSeed(
-    seedColor: accentSeed,
+    seedColor: schemeSeed,
     brightness: tokens.isDarkShell ? Brightness.dark : Brightness.light,
   ).copyWith(
     surface: tokens.surfaceColor,
-    primary: tokens.isDarkShell ? accentSeed : sexPrimaryColor,
+    primary: primaryColor,
   );
 
   final shell = ThemeData(

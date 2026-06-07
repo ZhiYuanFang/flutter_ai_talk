@@ -10,7 +10,7 @@ import '../providers/ucg_providers.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
-/// 发布页：文本 + ≤9 图 OR 1 视频（15s / 20MB 客户端校验）。
+/// 发布页：文本 + ≤9 图 OR 1 视频（超限自动压缩；视频 ≤15s / 20MB 目标）。
 class UcgComposeScreen extends ConsumerStatefulWidget {
   const UcgComposeScreen({super.key, this.editingPost});
 
@@ -155,6 +155,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
             videoKey: _videoKey,
           );
       await ref.read(ucgComposeDraftStoreProvider).clear();
+      ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
+      ref.invalidate(ucgMyProfileProvider);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       _toast('发布失败');
