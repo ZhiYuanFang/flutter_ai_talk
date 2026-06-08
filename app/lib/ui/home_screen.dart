@@ -1240,13 +1240,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final historyInitialLoadDone = homeHistory.initialLoadDone;
     final todayTotals = aggregateTodayTotals(historyItems);
     final eventCatalog = ref.watch(eventCatalogProvider);
-    // 仅当本地未缓存 deviceNo 时提示绑定；无历史记录见下方「暂无历史记录」。
+    // 仅当已登录且本地未缓存 deviceNo 时提示绑定；游客见下方登录引导空态。
     final dnAsync = ref.watch(deviceNoNotifierProvider);
-    final needsDeviceBind = dnAsync.maybeWhen(
-      data: (dn) => dn == null || dn.isEmpty,
-      orElse: () => false,
-    );
-    if (needsDeviceBind &&
+    final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    final needsGuestLogin = !loggedIn;
+    final needsDeviceBind = loggedIn &&
+        dnAsync.maybeWhen(
+          data: (dn) => dn == null || dn.isEmpty,
+          orElse: () => false,
+        );
+    final blockHomeInputChrome = needsGuestLogin || needsDeviceBind;
+    if (blockHomeInputChrome &&
         _showButtonsInputMode &&
         _inputChannel != HomeInputChannel.buttons) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1257,7 +1261,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     // 只有当不需要全屏 3D 动画（即不是无历史记录时）才显示 Banner。
     // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
-    final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final showWsDisconnectBanner = loggedIn &&
         !needsDeviceBind &&
         !_wsReady &&
@@ -1331,33 +1334,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                         children: [
                           Expanded(
                             child: historyItems.isEmpty
-                                ? (historyInitialLoadDone
-                                    ? (needsDeviceBind
-                                        ? _HomeEmptyStateGallery(
-                                            animationPath: 'assets/images/ani_baby_welcome.json',
-                                            title: '嗨，我是胖宝！',
-                                            subtitle: '我想更好地陪伴宝宝成长',
-                                            actionLabel: '立即绑定宝宝',
-                                            onAction: _onBindBannerTap,
-                                          )
-                                        : Consumer(
-                                            builder: (context, ref, _) {
-                                              final baby = ref.watch(settingsBabyProvider).asData?.value;
-                                              final name = baby?.nickname ?? '宝宝';
-                                              return _HomeEmptyStateGallery(
-                                                animationPath: 'assets/images/ani_baby_feeding_guide.json',
-                                                title: '还没有为 $name 记录哦',
-                                                subtitle: '试试点击下方按钮，开始记录第一笔吧',
-                                              );
-                                            },
-                                          ))
-                                    : const Center(
-                                        child: SizedBox(
-                                          width: 24,
-                                          height: 24,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        ),
-                                      ))
+                                ? (needsGuestLogin
+                                    ? _HomeEmptyStateGallery(
+                                        animationPath: 'assets/images/ani_baby_welcome.json',
+                                        title: '尚未登录',
+                                        subtitle: '登录后即可记录与查看宝宝日常',
+                                        footnote: '左滑可先逛逛广场，看看其他宝妈宝爸的动态',
+                                        actionLabel: '去登录',
+                                        onAction: _onBindBannerTap,
+                                      )
+                                    : (historyInitialLoadDone
+                                        ? (needsDeviceBind
+                                            ? _HomeEmptyStateGallery(
+                                                animationPath: 'assets/images/ani_baby_welcome.json',
+                                                title: '嗨，我是胖宝！',
+                                                subtitle: '我想更好地陪伴宝宝成长',
+                                                actionLabel: '立即绑定宝宝',
+                                                onAction: _onBindBannerTap,
+                                              )
+                                            : Consumer(
+                                                builder: (context, ref, _) {
+                                                  final baby = ref.watch(settingsBabyProvider).asData?.value;
+                                                  final name = baby?.nickname ?? '宝宝';
+                                                  return _HomeEmptyStateGallery(
+                                                    animationPath: 'assets/images/ani_baby_feeding_guide.json',
+                                                    title: '还没有为 $name 记录哦',
+                                                    subtitle: '试试点击下方按钮，开始记录第一笔吧',
+                                                  );
+                                                },
+                                              ))
+                                        : const Center(
+                                            child: SizedBox(
+                                              width: 24,
+                                              height: 24,
+                                              child: CircularProgressIndicator(strokeWidth: 2),
+                                            ),
+                                          )))
                                 : HomeHistoryTopFadeMask(
                                     child: HomeHistoryScroll(
                                       key: _historyScrollKey,
@@ -1408,7 +1420,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     ),
                   ],
                 ),
-                if (_canSwitchInputMode && !needsDeviceBind)
+                if (_canSwitchInputMode && !blockHomeInputChrome)
                   Positioned.fill(
                     child: HomeInputModeDock(
                       bounds: dockBounds,
@@ -1715,6 +1727,7 @@ class _HomeEmptyStateGallery extends StatelessWidget {
     required this.animationPath,
     required this.title,
     required this.subtitle,
+    this.footnote,
     this.actionLabel,
     this.onAction,
   });
@@ -1723,11 +1736,13 @@ class _HomeEmptyStateGallery extends StatelessWidget {
   static const _visualSlotHeight = 128.0;
   static const _visualToTitleGap = 8.0;
   static const _titleToSubtitleGap = 8.0;
+  static const _footnoteToActionGap = 20.0;
   static const _subtitleToActionGap = 24.0;
 
   final String animationPath;
   final String title;
   final String subtitle;
+  final String? footnote;
   final String? actionLabel;
   final VoidCallback? onAction;
 
@@ -1801,8 +1816,34 @@ class _HomeEmptyStateGallery extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (footnote != null) ...[
+              const SizedBox(height: _titleToSubtitleGap),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.swipe_left_alt_rounded,
+                    size: 18,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.75),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      footnote!,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.85),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: _subtitleToActionGap),
+              SizedBox(
+                height: footnote != null ? _footnoteToActionGap : _subtitleToActionGap,
+              ),
               FilledButton.tonal(
                 onPressed: onAction,
                 child: Text(actionLabel!),

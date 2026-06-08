@@ -11,3 +11,6 @@ abstract final class UcgMediaLimits {
 
   static const videoMaxDuration = Duration(seconds: 15);
 }
+
+/// prepared bytes 哈希管线版本；变更压缩/prepare 算法时 bump（如 v2），旧 blob 不参与跨版本 dedup。
+const kUcgMediaTransformVersion = 'v1';

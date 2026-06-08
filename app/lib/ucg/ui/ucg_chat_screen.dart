@@ -367,7 +367,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
                         },
                       ),
           ),
-          UcgGlassInputDock(
+          UcgInputDock(
             controller: _controller,
             hintText: _uploadingMedia ? '正在处理媒体…' : '发消息…',
             onSend: _send,
@@ -600,7 +600,7 @@ class _ChatBubble extends StatelessWidget {
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
-      child: UcgShellGlassCard(
+      child: UcgSurfaceCard(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         borderRadius: 18,
         child: content,

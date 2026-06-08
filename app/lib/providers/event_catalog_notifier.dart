@@ -81,15 +81,17 @@ class EventCatalogNotifier extends StateNotifier<List<EventDefinition>> {
 
   Future<void> _refreshFromRemoteImpl() async {
     final loggedIn = _ref.read(sessionProvider).isLoggedIn;
-    if (!loggedIn) return;
     await _warmFromDisk();
     if (state.isEmpty) {
       await loadFromDisk();
     }
-    final dn = _ref.read(deviceNoNotifierProvider).asData?.value;
+    final dn = loggedIn ? _ref.read(deviceNoNotifierProvider).asData?.value : null;
 
     final sync = EventCatalogSync(_ref.read(authorizedApiClientProvider));
-    final updated = await sync.refreshAndPersist(deviceNo: dn);
+    final updated = await sync.refreshAndPersist(
+      deviceNo: dn,
+      withAuthorization: loggedIn,
+    );
     _applyRefreshResult(updated, dn);
     if (updated != null && updated.isNotEmpty) {
       unawaited(_downloadLogosInBackground(updated));

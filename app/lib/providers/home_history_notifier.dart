@@ -141,6 +141,9 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     HomeHistoryLog.d('warmFromDisk start');
     if (!_ref.read(sessionProvider).isLoggedIn) {
       HomeHistoryLog.d('warmFromDisk skip: not logged in');
+      if (!state.initialLoadDone) {
+        state = state.copyWith(initialLoadDone: true);
+      }
       return;
     }
     var dn = _ref.read(deviceNoNotifierProvider).asData?.value;

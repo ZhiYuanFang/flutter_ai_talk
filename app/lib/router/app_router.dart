@@ -12,6 +12,7 @@ import '../ui/policy_screen.dart';
 import '../ui/baby_bind_screen.dart';
 import '../ui/baby_profile_edit_screen.dart';
 import '../ui/change_password_screen.dart';
+import '../ui/feedback_list_screen.dart';
 import '../ui/settings_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
@@ -31,14 +32,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final splash = loc == '/splash';
       final loggingIn = loc == '/login';
       final registering = loc == '/register';
-      final public = splash ||
+      const settingsPathsRequiringLogin = <String>{
+        '/settings/baby',
+        '/settings/bind-baby',
+        '/settings/change-password',
+        '/settings/feedback',
+      };
+      final guestAllowed = splash ||
           loggingIn ||
           registering ||
           loc.startsWith('/auth/') ||
-          loc == '/policy';
-      if (public) {
+          loc == '/policy' ||
+          loc == '/home' ||
+          loc == '/trends' ||
+          loc == '/settings';
+      if (guestAllowed) {
         if (session.isLoggedIn && (loggingIn || registering)) return '/home';
         return null;
+      }
+      if (!session.isLoggedIn && settingsPathsRequiringLogin.contains(loc)) {
+        return '/login';
       }
       if (!session.isLoggedIn) return '/login';
       return null;
@@ -83,6 +96,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/change-password',
         builder: (context, state) => const ChangePasswordScreen(),
+      ),
+      GoRoute(
+        path: '/settings/feedback',
+        builder: (context, state) => const FeedbackListScreen(),
       ),
       GoRoute(
         path: '/policy',

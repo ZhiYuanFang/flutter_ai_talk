@@ -69,6 +69,53 @@ class UcgPresignResult {
   }
 }
 
+/// `POST /media/resolve` 响应。
+class UcgResolveResult {
+  const UcgResolveResult({
+    required this.hit,
+    this.objectKey,
+    this.cdnUrl,
+  });
+
+  final bool hit;
+  final String? objectKey;
+  final String? cdnUrl;
+
+  factory UcgResolveResult.fromJson(Map<String, dynamic> json) {
+    final hit = json['hit'] as bool? ?? false;
+    return UcgResolveResult(
+      hit: hit,
+      objectKey: json['objectKey'] as String?,
+      cdnUrl: json['cdnUrl'] as String?,
+    );
+  }
+}
+
+/// `POST /media/register` 请求体。
+class UcgRegisterRequest {
+  const UcgRegisterRequest({
+    required this.objectKey,
+    required this.contentHash,
+    required this.transformVersion,
+    required this.mediaKind,
+    required this.dedupHit,
+  });
+
+  final String objectKey;
+  final String contentHash;
+  final String transformVersion;
+  final int mediaKind;
+  final bool dedupHit;
+
+  Map<String, dynamic> toJson() => {
+        'objectKey': objectKey,
+        'contentHash': contentHash,
+        'transformVersion': transformVersion,
+        'mediaKind': mediaKind,
+        'dedupHit': dedupHit,
+      };
+}
+
 String ucgExtensionFromFileName(String fileName, {required bool isVideo}) {
   final lower = fileName.toLowerCase();
   final dot = lower.lastIndexOf('.');

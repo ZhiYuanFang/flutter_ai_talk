@@ -51,3 +51,33 @@ ucg-service SHALL expose `POST /ucg/app/api/notifications/comments/read` accepti
 #### Scenario: 全部已读
 - **WHEN** 用户 POST `{ "all": true }`
 - **THEN** 该用户所有未读 comment/mention 通知 SHALL 标记已读
+
+## MODIFIED Requirements
+
+### Requirement: Notification insert SHALL snapshot post cover thumb at write time
+
+Each notification row written by `NotifyOnComment` (for `comment_on_post` and `mention_in_comment`) SHALL include denormalized post cover fields: `post_thumb_url` VARCHAR(512) and `post_media_kind` TINYINT where `0=none`, `1=image`, `2=video`. For each comment event, ucg-service SHALL call `loadPostMedia(ctx, postID)` **exactly once** before inserting notification rows, using the first media item by `sort_order`.
+
+#### Scenario: 图片帖通知封面
+- **WHEN** 被评论帖首条媒体为图片（`media_kind=1`）
+- **THEN** 写入的 `post_thumb_url` SHALL 等于 `BuildImageThumbnailURL(objectKey)` 且 `post_media_kind=1`
+
+#### Scenario: 视频帖通知封面 Option B
+- **WHEN** 被评论帖首条媒体为视频（`media_kind=2`）
+- **THEN** 写入的 `post_thumb_url` SHALL 为 OSS 视频截帧 URL（`x-oss-process=video/snapshot,t_0` 作用于 CDN URL）且 `post_media_kind=2`；SHALL NOT 使用 placeholder 或空串代替
+
+#### Scenario: 无媒体帖
+- **WHEN** 帖子无 `ucg_post_media` 行
+- **THEN** `post_thumb_url` SHALL 为空串且 `post_media_kind=0`
+
+#### Scenario: 每条评论仅一次 loadPostMedia
+- **WHEN** 一条评论同时触发帖主通知与多个 @ 通知
+- **THEN** ucg-service SHALL 对 `post_id` 仅调用一次 `loadPostMedia` 并将同一 snapshot 写入所有 insert 行
+
+### Requirement: Notification list SHALL NOT batch-enrich posts on read
+
+`GET /notifications/comments` SHALL return stored `postThumbUrl` and `postMediaKind` from each notification row. The list handler MUST NOT batch `loadPostMedia`, join `ucg_post`, or recompute thumbs at read time.
+
+#### Scenario: 列表直接返回快照字段
+- **WHEN** 客户端分页拉取互动消息
+- **THEN** 每条 DTO SHALL 含 `postThumbUrl` / `postMediaKind` 且值来自 DB 列而非运行时 enrich

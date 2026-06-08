@@ -191,6 +191,17 @@ class UcgRepository {
     return parsePagedPosts(data);
   }
 
+  Future<UcgPagedPosts> fetchUserPosts({
+    required String wxId,
+    required int page,
+  }) async {
+    final data = await _api.get(
+      '/posts/user/$wxId',
+      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+    );
+    return parsePagedPosts(data, publicFeedOnly: true);
+  }
+
   Future<UcgPost> fetchPost(String postId) async {
     final data = await _api.get('/posts/$postId');
     if (data == null) {
@@ -269,7 +280,86 @@ class UcgRepository {
     return UcgPresignResult.fromJson(data ?? {});
   }
 
-  /// Web 经 gateway 同域代理上传，规避 OSS 直传 CORS 预检 403。
+  Future<UcgResolveResult> resolveMedia({
+    required String contentHash,
+    required String transformVersion,
+    required bool isVideo,
+  }) async {
+    final data = await _api.post('/media/resolve', {
+      'contentHash': contentHash,
+      'transformVersion': transformVersion,
+      'mediaKind': isVideo ? 2 : 1,
+    });
+    return UcgResolveResult.fromJson(data ?? const {});
+  }
+
+  Future<UcgUploadResult> registerMedia({
+    required String objectKey,
+    required String contentHash,
+    required String transformVersion,
+    required bool isVideo,
+    required bool dedupHit,
+  }) async {
+    final data = await _api.post(
+      '/media/register',
+      UcgRegisterRequest(
+        objectKey: objectKey,
+        contentHash: contentHash,
+        transformVersion: transformVersion,
+        mediaKind: isVideo ? 2 : 1,
+        dedupHit: dedupHit,
+      ).toJson(),
+    );
+    final key = data?['objectKey'] as String? ?? objectKey;
+    if (key.isEmpty) {
+      throw const FormatException('register 响应缺少 objectKey');
+    }
+    return UcgUploadResult(objectKey: key, cdnUrl: data?['cdnUrl'] as String?);
+  }
+
+  /// 删除已上传但未发帖的 OSS 媒体（孤儿清理）。
+  Future<({List<String> deleted, List<String> skipped})> deleteMedia({
+    required List<String> objectKeys,
+  }) async {
+    if (objectKeys.isEmpty) {
+      return (deleted: <String>[], skipped: <String>[]);
+    }
+    final data = await _api.post('/media/delete', {'objectKeys': objectKeys});
+    final deleted = <String>[];
+    final skipped = <String>[];
+    final rawDeleted = data?['deleted'];
+    if (rawDeleted is List) {
+      for (final e in rawDeleted) {
+        if (e is String && e.isNotEmpty) deleted.add(e);
+      }
+    }
+    final rawSkipped = data?['skipped'];
+    if (rawSkipped is List) {
+      for (final e in rawSkipped) {
+        if (e is String && e.isNotEmpty) skipped.add(e);
+      }
+    }
+    return (deleted: List<String>.from(deleted), skipped: List<String>.from(skipped));
+  }
+
+  /// AI 润笔正文（需已上传图片 objectKeys）。
+  Future<String> polishPost({
+    required List<String> imageKeys,
+    String? text,
+  }) async {
+    final body = <String, dynamic>{
+      'imageKeys': imageKeys,
+      if (text != null && text.trim().isNotEmpty) 'text': text.trim(),
+    };
+    final data = await _api.post('/posts/polish', body);
+    final polished = data?['polishedText'] as String? ?? '';
+    if (polished.trim().isEmpty) {
+      throw const FormatException('润笔响应缺少 polishedText');
+    }
+    return polished.trim();
+  }
+
+  /// Web 经 gateway 同域代理上传，规避 OSS 直传 CORS 预检 403（不写 ownership）。
   Future<UcgUploadResult> uploadMediaViaGateway({
     required bool isVideo,
     required String fileName,
@@ -301,14 +391,44 @@ class UcgRepository {
     required String fileName,
     required List<int> bytes,
     required String contentType,
+    required String contentHash,
+    required String transformVersion,
   }) async {
+    final resolved = await resolveMedia(
+      contentHash: contentHash,
+      transformVersion: transformVersion,
+      isVideo: isVideo,
+    );
+
+    if (resolved.hit) {
+      final objectKey = resolved.objectKey;
+      if (objectKey == null || objectKey.isEmpty) {
+        throw const FormatException('resolve hit 响应缺少 objectKey');
+      }
+      return registerMedia(
+        objectKey: objectKey,
+        contentHash: contentHash,
+        transformVersion: transformVersion,
+        isVideo: isVideo,
+        dedupHit: true,
+      );
+    }
+
     if (kIsWeb) {
-      return uploadMediaViaGateway(
+      final uploaded = await uploadMediaViaGateway(
         isVideo: isVideo,
         fileName: fileName,
         bytes: bytes,
       );
+      return registerMedia(
+        objectKey: uploaded.objectKey,
+        contentHash: contentHash,
+        transformVersion: transformVersion,
+        isVideo: isVideo,
+        dedupHit: false,
+      );
     }
+
     final presign = await presignMedia(isVideo: isVideo, fileName: fileName);
     await uploadToPresignedUrl(
       uploadUrl: presign.uploadUrl,
@@ -316,7 +436,13 @@ class UcgRepository {
       contentType: presign.headers['Content-Type'] ?? contentType,
       extraHeaders: presign.headers,
     );
-    return UcgUploadResult(objectKey: presign.objectKey, cdnUrl: presign.cdnUrl);
+    return registerMedia(
+      objectKey: presign.objectKey,
+      contentHash: contentHash,
+      transformVersion: transformVersion,
+      isVideo: isVideo,
+      dedupHit: false,
+    );
   }
 
   Future<void> uploadToPresignedUrl({
@@ -414,11 +540,21 @@ class UcgRepository {
     return profiles;
   }
 
-  Future<List<UcgConversation>> fetchConversations() async {
-    final data = await _api.get('/conversations');
+  Future<UcgPagedConversations> fetchConversations({required int page}) async {
+    final data = await _api.get(
+      '/conversations',
+      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+    );
     final raw = data?['list'] ?? data?['items'];
-    if (raw is! List) return const [];
-    return raw.whereType<Map<String, dynamic>>().map(UcgConversation.fromJson).toList();
+    final items = raw is List
+        ? raw.whereType<Map<String, dynamic>>().map(UcgConversation.fromJson).toList()
+        : <UcgConversation>[];
+    return UcgPagedConversations(
+      items: items,
+      page: (data?['page'] as num?)?.toInt() ?? page,
+      pageSize: (data?['pageSize'] as num?)?.toInt() ?? kUcgPageSize,
+      total: (data?['total'] as num?)?.toInt() ?? items.length,
+    );
   }
 
   /// 补全会话对方昵称/头像（与聊天页 `_ensurePeerProfile` 一致：缺字段时 `GET /profile/{peerWxId}`）。

@@ -29,31 +29,36 @@
 - Feed 列表 `author.bio` 必须始终有值（帖子快照缺失时 profile fallback）。
 - 新增 `ucg_notification` 表及评论通知 API。
 - `AddComment` hook：通知帖子作者（跳过自己）；解析 `@mentions` → 通知被 @ 用户（**Option A**：仅「互动消息」inbox，**不**自动创建 DM）。
-- `GET /notifications/comments`（分页）、标记已读 API。
+- **通知写入时快照帖子封面**（每条 comment 仅 **一次** `loadPostMedia`）：新增列 `post_thumb_url` VARCHAR(512)、`post_media_kind` TINYINT（0=none, 1=image, 2=video）；图片用 `BuildImageThumbnailURL`；**视频用 OSS `video/snapshot,t_0` URL 写入**（通知专用例外，非 placeholder）；列表读取 **不得** batch enrich 帖子。
+- `GET /notifications/comments`（分页）、`POST /notifications/comments/read`（`{ ids }` / `{ all: true }`）、现有分页 `GET /conversations` 不变。
+- NotificationDTO / API 扩展 `postThumbUrl`、`postMediaKind`。
 
 ### Flutter 客户端
 
 - 解析 `authorBio`；`fetchPost`；masonry 布局。
-- 消息 Tab 新增「互动消息」区块 → 评论通知列表 → 点击跳转帖子详情。
-- WebSocket 推送 `comment_notification`（可选，见 design.md）。
+- 消息 Tab：**虚拟「互动消息」系统会话行**（统一 @ + 评论）置顶 → 点击进入 `UcgInteractionInboxScreen`（头像、昵称、2 行评论摘要、右侧方形帖子缩略图来自 `postThumbUrl`）；inbox 与 conversations **分页**；顶栏「全部已读」→ `POST read { all: true }`；点击条目 → `UcgPostDetailScreen`。
+- **Shell 级 WebSocket**（非消息 Tab 门控）+ 底部「消息」红点 = 会话未读 **OR** 互动未读。
+- 评论 Composer：**展示层仅 `@昵称`**，**提交层 `@昵称#wxId`**；@ 高亮；Backspace 原子删除整段 mention。
+- ~~消息 Tab 内嵌 flat「互动消息」列表~~（**已 supersede**，见 tasks §8）。
 
 ## Capabilities
 
 ### New Capabilities
 
-- `ucg-notifications`：评论与 @ 提及的 inbox 通知存储、列表、已读、AddComment 触发规则（Option A：仅通知，不自动 DM）。
+- `ucg-notifications`：评论与 @ 提及的 inbox 通知存储、列表、已读、AddComment 触发规则（Option A：仅通知，不自动 DM）；写入时帖子封面快照（含视频 OSS snapshot URL）。
 
 ### Modified Capabilities
 
 - `ucg-square-feed`：双列 masonry、精简卡片交互、Feed 作者 bio、图片 lightbox vs 详情路由差异。
-- `ucg-interactions`：详情页点赞/评论 UX、长按回复 @、全量点赞评论展示、Feed 卡片心形点赞。
+- `ucg-interactions`：详情页点赞/评论 UX、长按回复 @、全量点赞评论展示、Feed 卡片心形只读展示；**Composer @ 展示层**（display `@nick` / wire `@nick#wxId`、高亮、原子删除）。
 - `ucg-api-contract`：`GET /posts/{id}`、`likedByMe` enrichment、Feed `author.bio` fallback、评论通知 REST 契约。
-- `ucg-chat-ui`：消息 Tab「互动消息」区块与通知列表导航。
+- `ucg-chat-ui`：虚拟「互动消息」系统行、`UcgInteractionInboxScreen`、全部已读、分页、Shell 级未读红点。
+- `ucg-shell-navigation`：Shell 级 WebSocket 连接（非 Tab 门控）。
 - `ucg-profile`：Feed/详情展示作者 bio（列表 2 行截断、详情全文）。
 
 ## Impact
 
-- **Flutter**：`app/lib/ucg/ui/ucg_square_tab.dart`、`ucg_post_detail_screen.dart`、`ucg_feed_moments_widgets.dart`、`ucg_messages_tab.dart`、`ucg_repository.dart`、`ucg_models.dart`；新增 `flutter_staggered_grid_view` 依赖。
+- **Flutter**：`app/lib/ucg/ui/ucg_square_tab.dart`、`ucg_post_detail_screen.dart`、`ucg_messages_tab.dart`、`ucg_shell.dart`、`ucg_repository.dart`、`ucg_models.dart`；新增 `UcgInteractionInboxScreen`、`flutter_staggered_grid_view` 依赖。
 - **后端**：`d:\work\go_ai_talk` ucg-service（posts handler、notification service/migration、AddComment hook）；gateway-app 路由白名单与可选 WS 帧。
 - **OpenSpec**：本变更 delta 覆盖 `unify-ucg-wxid-api-alignment` 中 Moments 单列/内联互动相关条款；与之并行时以本变更 Feed/详情/通知需求为准。
 - **部署顺序**：先后端（表迁移 + API）再 Flutter；旧客户端在无 `GET /posts/{id}` 时仍可依赖 Feed 项进入详情（降级策略见 design.md）。

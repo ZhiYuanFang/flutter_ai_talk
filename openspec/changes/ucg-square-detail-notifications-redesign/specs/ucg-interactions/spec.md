@@ -20,15 +20,15 @@
 
 ### Requirement: MVP interactions SHALL include like, comment, delete own comment, long-press undo own like
 
-The app SHALL support liking posts, commenting from **detail page** (and via detail overflow menu), deleting own comments, and follow/unfollow on detail header. Feed cards SHALL expose direct heart tap for like/unlike without opening detail. Long-press undo own like on feed heart MAY remain or map to double-tap; detail heart SHALL toggle like. Block and report MUST NOT be included in MVP.
+The app SHALL support liking posts, commenting from **detail page** (and via detail overflow menu), deleting own comments, and follow/unfollow on detail header. Feed cards SHALL expose read-only like count display (detail page performs like/unlike). Long-press undo own like on feed heart MAY remain or map to double-tap; detail heart SHALL toggle like. Block and report MUST NOT be included in MVP.
 
 #### Scenario: 详情页点赞
 - **WHEN** 已登录用户在详情页点击心形或 overflow 中 Like
 - **THEN** App SHALL 调用 `POST/DELETE /posts/{id}/like` 并更新 UI
 
-#### Scenario: Feed 卡片快捷点赞
-- **WHEN** 已登录用户在广场卡片点击心形
-- **THEN** App SHALL 调用 like API 且 SHALL NOT 要求进入详情
+#### Scenario: Feed 卡片只读点赞展示
+- **WHEN** 用户在广场卡片查看点赞态
+- **THEN** App SHALL 展示只读心形/计数且 SHALL NOT 在卡片上触发 like API
 
 #### Scenario: 详情页评论
 - **WHEN** 已登录用户在详情页通过 overflow Comment 或底部输入框提交评论
@@ -62,13 +62,43 @@ When feed or `GET /posts/{id}` carries logged-in wxId, responses SHALL include `
 - **WHEN** 帖子评论数大于 5
 - **THEN** 详情页 SHALL 默认展示全部评论且无折叠控件
 
-### Requirement: Long-press comment SHALL prefill reply with @nickname
+### Requirement: Long-press comment SHALL prefill reply with @nickname wire format
 
-On detail page, long-pressing a comment SHALL open the comment composer with text prefilled `@${authorNickname} ` (trailing space) for reply. User MAY edit before send. Mention text SHALL be included in `POST /posts/{id}/comments` body for server mention parsing.
+On detail page, long-pressing a comment SHALL open the comment composer with wire text prefilled `@${authorNickname}#${authorWxId} ` (trailing space) when wxId is known, else `@${authorNickname} `. User MAY edit before send. Mention text SHALL be included in `POST /posts/{id}/comments` body for server mention parsing.
 
-#### Scenario: 长按评论回复
-- **WHEN** 用户在详情页长按某条评论
-- **THEN** App SHALL 弹出输入框且内容预填 `@该评论者昵称 `
+#### Scenario: 长按他人评论回复
+- **WHEN** 用户在详情页长按**他人**评论
+- **THEN** App SHALL 弹出输入框且 wire 内容预填 `@昵称#wxId `（有 wxId 时）
+
+#### Scenario: 长按本人评论删除
+- **WHEN** 用户在详情页长按**本人**评论
+- **THEN** App SHALL 在评论上方展示删除图标且 SHALL NOT 预填 @ 回复
+- **AND WHEN** 用户点击删除图标
+- **THEN** App SHALL 立即调用 `DELETE /comments/{commentId}` 且无二次确认弹窗
+
+#### Scenario: 禁止 @ 自己
+- **WHEN** 用户发送的评论 mention 指向当前登录 wxId
+- **THEN** App SHALL strip 该 @ 片段且 POST body SHALL NOT 含 `@自己#wxId`
+
+### Requirement: Comment composer SHALL separate display layer from submit wire for @mentions
+
+The detail comment composer and comment list display layer SHALL show `@nickname` only (strip `#wxId` suffix). The submitted `POST /posts/{id}/comments` body SHALL retain `@nickname#wxId` wire tokens. `@mention` spans in the composer SHALL be visually highlighted. Backspace at the end of or inside a mention token SHALL delete the entire `@nickname#wxId` segment (including trailing space) atomically in one keystroke.
+
+#### Scenario: 展示层隐藏 wxId
+- **WHEN** 用户在 Composer 或评论列表查看含 `@昵称#123` 的内容
+- **THEN** UI SHALL 仅渲染 `@昵称`
+
+#### Scenario: 提交层保留 wxId
+- **WHEN** 用户发送含 @ 回复的评论
+- **THEN** POST body SHALL 含 `@昵称#wxId` 供服务端解析
+
+#### Scenario: @ 高亮
+- **WHEN** Composer 含有效 @ mention
+- **THEN** `@昵称` 片段 SHALL 以主题色或 TextSpan 高亮
+
+#### Scenario: Backspace 原子删除 mention
+- **WHEN** 光标位于 `@昵称#wxId ` 块内或块尾且用户按 Backspace
+- **THEN** App SHALL 一次删除整段 mention（含 `#wxId` 与尾空格）
 
 ### Requirement: Post author SHALL delete own post from detail only
 

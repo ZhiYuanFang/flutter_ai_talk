@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bootstrap/cold_start_background_sync.dart';
 import 'bootstrap/cold_start_bootstrap.dart';
+import 'bootstrap/ios_network_permission_probe.dart';
 import 'platform/native_splash.dart';
 import 'providers/event_catalog_notifier.dart';
 import 'providers/home_history_notifier.dart';
@@ -41,6 +42,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
     if (_startupStarted) return;
     _startupStarted = true;
     unawaited(hideNativeSplash());
+    unawaited(IosNetworkPermissionProbe.run());
     unawaited(_runColdStart());
   }
 
@@ -67,6 +69,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
       ]);
     } else {
       await ref.read(signInChannelProvider.notifier).clear();
+      unawaited(ref.read(eventCatalogProvider.notifier).refreshFromRemote());
     }
 
     if (!mounted) return;

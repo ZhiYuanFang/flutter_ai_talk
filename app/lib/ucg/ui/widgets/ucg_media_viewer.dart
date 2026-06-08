@@ -715,7 +715,7 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
                     ),
                   )
                 else
-                  Icon(Icons.play_circle_filled_rounded, color: primary, size: 44),
+                  Icon(Icons.play_circle_filled_rounded, color: primary.withValues(alpha: 0.55), size: 44),
               ],
             ),
           ),

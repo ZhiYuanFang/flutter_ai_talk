@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +19,7 @@ import 'account_management_sheet.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'speech_engine_tile.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/settings_glass_panel.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -118,6 +118,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => showAccountManagementSheet(context, ref),
                 ),
                 const SizedBox(height: 12),
+                _buildGlassTile(
+                  context,
+                  leading: Icons.feedback_outlined,
+                  title: '反馈建议',
+                  onTap: () => context.push('/settings/feedback'),
+                ),
+                const SizedBox(height: 12),
               ],
               const SizedBox(height: 24),
               Padding(
@@ -150,7 +157,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final onShell = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
 
-    return _SettingsGlassPanel(
+    return SettingsGlassPanel(
       contentPadding: EdgeInsets.zero,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -211,7 +218,7 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
     final tokens = visualTokensOf(context);
     final onShell = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
 
-    return _SettingsGlassPanel(
+    return SettingsGlassPanel(
       contentPadding: EdgeInsets.zero,
       child: InkWell(
         onTap: () => context.push('/settings/baby'),
@@ -406,68 +413,6 @@ class _ThemePresetSection extends ConsumerWidget {
       ThemePreset.softPurple => kThemeSoftSwatchColors[5],
       _ => kThemeSoftSwatchColors[0],
     };
-  }
-}
-
-class _SettingsGlassPanel extends StatelessWidget {
-  const _SettingsGlassPanel({
-    required this.child,
-    this.contentPadding,
-  });
-
-  final Widget child;
-  final EdgeInsets? contentPadding;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final tokens = visualTokensOf(context);
-    final isDark = tokens?.isDarkShell ?? (theme.brightness == Brightness.dark);
-
-    final base = tokens?.surfaceColor ?? scheme.surface;
-    final top = Color.alphaBlend(
-      Colors.white.withValues(alpha: isDark ? 0.06 : 0.20),
-      base,
-    );
-    final bottom = Color.alphaBlend(
-      scheme.primary.withValues(alpha: isDark ? 0.16 : 0.10),
-      base,
-    );
-
-    final borderColor = Color.alphaBlend(
-      Colors.white.withValues(alpha: isDark ? 0.22 : 0.55),
-      scheme.outline.withValues(alpha: isDark ? 0.10 : 0.08),
-    );
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: borderColor),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [top, bottom],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.08),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: contentPadding ?? const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: child,
-          ),
-        ),
-      ),
-    );
   }
 }
 

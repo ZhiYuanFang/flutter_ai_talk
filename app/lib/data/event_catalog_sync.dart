@@ -12,31 +12,44 @@ class EventCatalogSync {
 
   final ApiClient _api;
 
-  Future<List<EventDefinition>> fetchRemoteList({String? deviceNo}) async {
-    final withDevice = await _fetchOnce(deviceNo);
+  Future<List<EventDefinition>> fetchRemoteList({
+    String? deviceNo,
+    bool withAuthorization = true,
+  }) async {
+    final withDevice = await _fetchOnce(deviceNo, withAuthorization: withAuthorization);
     if (withDevice.isNotEmpty) return withDevice;
     if (deviceNo != null && deviceNo.isNotEmpty) {
-      return _fetchOnce(null);
+      return _fetchOnce(null, withAuthorization: withAuthorization);
     }
     return withDevice;
   }
 
-  Future<List<EventDefinition>> _fetchOnce(String? deviceNo) async {
+  Future<List<EventDefinition>> _fetchOnce(
+    String? deviceNo, {
+    required bool withAuthorization,
+  }) async {
     final query = (deviceNo != null && deviceNo.isNotEmpty)
         ? {'deviceNo': deviceNo}
         : null;
     final data = await _api.getEnvelope(
       '/device/history/api/event/options',
       query: query,
+      withAuthorization: withAuthorization,
     );
     final list = envelopeListOrEmpty(data);
     return parseEventOptionsList(list);
   }
 
   /// 拉取远端、对比本地；有变化则写盘并下载 logo。失败或远端空列表时保留本地缓存。
-  Future<List<EventDefinition>?> refreshAndPersist({String? deviceNo}) async {
+  Future<List<EventDefinition>?> refreshAndPersist({
+    String? deviceNo,
+    bool withAuthorization = true,
+  }) async {
     try {
-      final remote = await fetchRemoteList(deviceNo: deviceNo);
+      final remote = await fetchRemoteList(
+        deviceNo: deviceNo,
+        withAuthorization: withAuthorization,
+      );
       final local = await EventCatalogStore.loadFromDisk();
       if (remote.isEmpty && local.isNotEmpty) {
         return local;

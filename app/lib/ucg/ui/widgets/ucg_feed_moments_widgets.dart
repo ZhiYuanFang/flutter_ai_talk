@@ -388,9 +388,9 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
                   child: Material(
                     elevation: 2,
                     color: pillBg,
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -399,6 +399,7 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
                               icon: widget.likedByMe
                                   ? Icons.favorite_rounded
                                   : Icons.favorite_border_rounded,
+                              label: '点赞',
                               color: widget.likedByMe ? primary : fg.withValues(alpha: 0.75),
                               onTap: () {
                                 _collapse();
@@ -409,6 +410,7 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
                           if (widget.onCommentTap != null)
                             _ActionIcon(
                               icon: Icons.chat_bubble_outline_rounded,
+                              label: '评论',
                               color: fg.withValues(alpha: 0.75),
                               onTap: () {
                                 _collapse();
@@ -418,6 +420,7 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
                           if (widget.onDeleteTap != null)
                             _ActionIcon(
                               icon: Icons.delete_outline_rounded,
+                              label: '删除',
                               color: fg.withValues(alpha: 0.75),
                               onTap: () {
                                 _collapse();
@@ -501,12 +504,14 @@ class _TwoDotMoreIcon extends StatelessWidget {
 class _ActionIcon extends StatelessWidget {
   const _ActionIcon({
     required this.icon,
+    required this.label,
     required this.color,
     required this.onTap,
     this.onLongPress,
   });
 
   final IconData icon;
+  final String label;
   final Color color;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -518,8 +523,23 @@ class _ActionIcon extends StatelessWidget {
       onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-        child: Icon(icon, size: 16, color: color),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: color,
+                height: 1.2,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

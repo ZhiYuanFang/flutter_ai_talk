@@ -43,10 +43,10 @@
 ## 6. Flutter — 我的动态与消息 Tab
 
 - [x] 6.1 「我的动态」图片/行点击 → 详情（**禁止** lightbox）— `ucg-profile`
-- [x] 6.2 `UcgMessagesTab` 增加「互动消息」section UI — `ucg-chat-ui`
-- [x] 6.3 互动消息列表分页、点击 → `UcgPostDetailScreen(postId)` — `ucg-chat-ui`
-- [x] 6.4 查看/点击时调用 mark read；消息 Tab 红点合并会话与互动未读 — `ucg-chat-ui`
-- [x] 6.5 （可选）WS 监听 `comment_notification` → invalidate provider — design §8
+- [x] 6.2 `UcgMessagesTab` 增加「互动消息」section UI — `ucg-chat-ui` **（首版 flat 列表；§8 改为虚拟系统行 + Inbox 页）**
+- [x] 6.3 互动消息列表分页、点击 → `UcgPostDetailScreen(postId)` — `ucg-chat-ui` **（§8 迁移至 Inbox 页）**
+- [x] 6.4 查看/点击时调用 mark read；消息 Tab 红点合并会话与互动未读 — `ucg-chat-ui` **（§8 改为 Shell 级红点 + Inbox「全部已读」）**
+- [x] 6.5 WS 监听 `comment_notification` → invalidate provider — design §10 **（§8 改为 Shell 级 WS）**
 
 ## 7. 联调与验收
 
@@ -63,3 +63,44 @@
 - [x] **详情删除入口**：自己的动态移除顶栏删除 IconButton；删除移入时间行 `···` 展开菜单，图标样式与点赞/评论一致（`delete_outline_rounded`，`fg @ 0.75`）。
 - [x] **详情互动跳转**：点赞头像、评论昵称点击跳转 `UcgUserProfileScreen`；评论长按仍 @ 回复。
 - 7.1–7.4 仍需部署后手工验收（含 @mention 端到端；7.3 Feed 心形改为只读展示，点赞在详情页操作）。
+
+## 8. 互动消息 Inbox 重做 + 通知封面快照（2026-06-08 rework）
+
+> **Supersedes** tasks 6.2–6.5 的 flat section / Tab-gated WS 行为；首版已落地代码需 refactor。
+
+### 8.1 后端 — 通知封面快照
+
+- [x] 8.1.1 Migration `ALTER ucg_notification ADD post_thumb_url VARCHAR(512) NOT NULL DEFAULT ''`, `ADD post_media_kind TINYINT NOT NULL DEFAULT 0` — `ucg-notifications`
+- [x] 8.1.2 实现 `BuildVideoSnapshotURL(objectKey)`（CDN + `x-oss-process=video/snapshot,t_0`）— `ucg-notifications` / design §6
+- [x] 8.1.3 `NotifyOnComment`：每条 comment **一次** `loadPostMedia` → 首媒体 snapshot → 传入 `InsertNotification` — `ucg-notifications`
+- [x] 8.1.4 `NotificationDTO` / OpenAPI item 增加 `postThumbUrl`, `postMediaKind`；`ListCommentNotifications` **不得** batch enrich 帖子 — `ucg-api-contract`
+- [ ] 8.1.5 回归：视频帖 comment 通知行 `postThumbUrl` 为 OSS snapshot URL（非空 placeholder）
+
+### 8.2 Flutter — 虚拟系统行 + Inbox 页
+
+- [x] 8.2.1 `UcgCommentNotification` model 增加 `postThumbUrl`, `postMediaKind` 解析 — `ucg-api-contract`
+- [x] 8.2.2 移除 `UcgMessagesTab` flat「互动消息」section；改为置顶 **虚拟系统会话行**（未读角标、固定文案）— `ucg-chat-ui`
+- [x] 8.2.3 新增 `UcgInteractionInboxScreen`：AppBar「全部已读」→ `{ all: true }`；列表行 avatar + nickname + 2-line preview + 方形 `postThumbUrl`；分页 load more — `ucg-chat-ui`
+- [x] 8.2.4 Inbox 点击行 → `UcgPostDetailScreen`；单条 mark read — `ucg-chat-ui`
+- [x] 8.2.5 `ucgCommentNotificationsProvider` 支持 inbox 分页 append；conversations 列表分页（若缺失则补）— `ucg-chat-ui`
+- [x] 8.2.6 `UcgShell` mount 时 `setWsConnectionDesired(true)` + 监听 `comment_notification`；移除 `UcgMessagesTab` / Tab tap WS toggle — `ucg-shell-navigation`
+- [x] 8.2.7 Shell 底部「消息」红点 = chat unread OR interaction unread（任意 Tab 可见）— `ucg-shell-navigation`
+
+### 8.3 Flutter — Composer @ 展示层
+
+- [x] 8.3.1 详情评论 Composer：展示 `@昵称`、提交 `@昵称#wxId`（已有 wire 保持）— `ucg-interactions`
+- [x] 8.3.2 @ mention 高亮（TextSpan / 主题色）— `ucg-interactions`
+- [x] 8.3.3 Backspace 原子删除整段 `@昵称#wxId`（含尾空格）— `ucg-interactions`
+
+### 8.4 验收
+
+- [ ] 8.4.1 视频帖被 comment/@ → Inbox 右侧缩略图为 OSS video snapshot（非 placeholder）
+- [ ] 8.4.2 消息 Tab 仅见系统行 + 私信；点击进入 Inbox；「全部已读」清空未读 + Shell 红点消失
+- [ ] 8.4.3 非消息 Tab 时收到 WS `comment_notification` → Shell 红点更新
+- [x] 8.4.4 Composer：输入框见 `@昵称` 高亮，提交 payload 含 `#wxId`，Backspace 一次删整段 mention
+
+## 9. 评论长按分支 + 禁止 @ 自己（2026-06-08）
+
+- [x] 9.1 长按他人评论 → @ 回复；长按本人评论 → 评论上方删除图标（点图标即删，无二次确认）— `ucg-interactions`
+- [x] 9.2 `DELETE /comments/{id}` 删除后本地列表与 commentCount 更新 — `ucg-interactions`
+- [x] 9.3 发送评论时 strip 对当前 wxId 的 @ mention（不允许 @ 自己）— `ucg-interactions`

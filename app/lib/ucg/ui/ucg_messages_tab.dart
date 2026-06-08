@@ -11,8 +11,8 @@ import '../data/ucg_models.dart';
 import '../../session/token_expiry.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_chat_screen.dart';
+import 'ucg_interaction_inbox_screen.dart';
 import 'ucg_login_gate.dart';
-import 'ucg_post_detail_screen.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
@@ -26,30 +26,93 @@ class UcgMessagesTab extends ConsumerStatefulWidget {
 }
 
 class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
-  StreamSubscription<void>? _notifSub;
+  final _scrollController = ScrollController();
+  var _conversations = <UcgConversation>[];
+  var _convPage = 1;
+  var _convHasMore = true;
+  var _convLoading = true;
+  var _convLoadingMore = false;
+  String? _convError;
 
   @override
   void initState() {
     super.initState();
-    final wxId = ref.read(ucgCurrentUserIdProvider);
-    if (isUcgWxAccountBound(wxId)) {
-      final repo = ref.read(ucgRepositoryProvider);
-      repo.setWsConnectionDesired(true);
-      _notifSub = repo.notificationEvents.listen((_) {
-        bumpUcgNotificationsRefresh(ref);
-      });
-    }
+    _scrollController.addListener(_onScroll);
+    unawaited(_loadConversationsFirst());
   }
 
   @override
   void dispose() {
-    _notifSub?.cancel();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_convHasMore || _convLoadingMore || _convLoading) return;
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      unawaited(_loadConversationsMore());
+    }
+  }
+
+  Future<void> _loadConversationsFirst() async {
+    setState(() {
+      _convLoading = true;
+      _convError = null;
+      _convPage = 1;
+    });
+    try {
+      final page = await ref.read(ucgRepositoryProvider).fetchConversations(page: 1);
+      final enriched = await ref.read(ucgRepositoryProvider).enrichConversationsWithPeerProfiles(page.items);
+      if (!mounted) return;
+      setState(() {
+        _conversations = enriched;
+        _convPage = page.page;
+        _convHasMore = page.hasMore;
+        _convLoading = false;
+      });
+      _syncUnreadBadge();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _convLoading = false;
+        _convError = '加载失败';
+      });
+    }
+  }
+
+  Future<void> _loadConversationsMore() async {
+    if (!_convHasMore || _convLoadingMore) return;
+    setState(() => _convLoadingMore = true);
+    try {
+      final nextPage = _convPage + 1;
+      final page = await ref.read(ucgRepositoryProvider).fetchConversations(page: nextPage);
+      final enriched = await ref.read(ucgRepositoryProvider).enrichConversationsWithPeerProfiles(page.items);
+      if (!mounted) return;
+      setState(() {
+        _conversations = [..._conversations, ...enriched];
+        _convPage = page.page;
+        _convHasMore = page.hasMore;
+        _convLoadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _convLoadingMore = false);
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    bumpUcgConversationsRefresh(ref);
+    bumpUcgNotificationsRefresh(ref);
+    await Future.wait([
+      _loadConversationsFirst(),
+      ref.read(ucgCommentNotificationsProvider.future),
+    ]);
   }
 
   Future<void> _deleteConv(UcgConversation c) async {
     await ref.read(ucgRepositoryProvider).deleteConversation(c.id);
-    bumpUcgConversationsRefresh(ref);
+    setState(() => _conversations = _conversations.where((x) => x.id != c.id).toList());
+    _syncUnreadBadge();
   }
 
   String _peerDisplayName(UcgConversation c) {
@@ -61,37 +124,13 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
 
   Future<void> _pinConv(UcgConversation c, bool pinned) async {
     await ref.read(ucgRepositoryProvider).pinConversation(c.id, pinned: pinned);
-    bumpUcgConversationsRefresh(ref);
+    await _loadConversationsFirst();
   }
 
-  void _syncUnreadBadge(List<UcgConversation> items, int interactionUnread) {
-    final chatUnread = items.fold<int>(0, (s, c) => s + c.unreadCount);
+  void _syncUnreadBadge() {
+    final interactionUnread = ref.read(ucgCommentNotificationsProvider).valueOrNull?.unreadCount ?? 0;
+    final chatUnread = _conversations.fold<int>(0, (s, c) => s + c.unreadCount);
     ref.read(ucgUnreadCountProvider.notifier).state = chatUnread + interactionUnread;
-  }
-
-  Future<void> _openNotification(UcgCommentNotification n) async {
-    if (!n.read) {
-      await ref.read(ucgRepositoryProvider).markNotificationsRead(ids: [n.id]);
-      bumpUcgNotificationsRefresh(ref);
-    }
-    if (!mounted) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => UcgPostDetailScreen(postId: n.postId),
-      ),
-    );
-  }
-
-  String _notificationTitle(UcgCommentNotification n) {
-    final nick = n.actorNickname.trim().isEmpty ? '用户' : n.actorNickname.trim();
-    return switch (n.type) {
-      'mention_in_comment' => '$nick 在评论中提到了你',
-      _ => '$nick 评论了你的动态',
-    };
-  }
-
-  String _displayNotificationPreview(String preview) {
-    return preview.replaceAll(RegExp(r'@([^\s@]+?)#\d+'), r'@$1');
   }
 
   @override
@@ -117,174 +156,148 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
     final fmt = DateFormat('MM-dd HH:mm');
-    final conversationsAsync = ref.watch(ucgConversationsProvider);
     final notificationsAsync = ref.watch(ucgCommentNotificationsProvider);
+    final interactionUnread = notificationsAsync.valueOrNull?.unreadCount ?? 0;
 
-    ref.listen<AsyncValue<List<UcgConversation>>>(ucgConversationsProvider, (prev, next) {
-      final interactionUnread = ref.read(ucgCommentNotificationsProvider).valueOrNull?.unreadCount ?? 0;
-      next.whenData((items) => _syncUnreadBadge(items, interactionUnread));
-    });
     ref.listen<AsyncValue<UcgPagedCommentNotifications>>(ucgCommentNotificationsProvider, (prev, next) {
-      final interactionUnread = next.valueOrNull?.unreadCount ?? 0;
-      conversationsAsync.whenData((items) => _syncUnreadBadge(items, interactionUnread));
+      _syncUnreadBadge();
     });
 
     return UcgTabPage(
       title: '消息',
       subtitle: '与宝妈宝爸私信聊天',
       leading: ucgBackLeading(context, widget.onBackToFeeding),
-      body: conversationsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-        error: (_, __) => UcgEmptyState(
-          icon: Icons.cloud_off_rounded,
-          title: '加载失败',
-          subtitle: '请稍后重试',
-          action: TextButton(
-            onPressed: () {
-              bumpUcgConversationsRefresh(ref);
-              bumpUcgNotificationsRefresh(ref);
-            },
-            child: const Text('重试'),
-          ),
-        ),
-        data: (conversations) {
-          final notifications = notificationsAsync.valueOrNull?.items ?? const <UcgCommentNotification>[];
-          final interactionUnread = notificationsAsync.valueOrNull?.unreadCount ?? 0;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _syncUnreadBadge(conversations, interactionUnread);
-          });
-
-          if (conversations.isEmpty && notifications.isEmpty) {
-            return const UcgEmptyState(
-              icon: Icons.chat_bubble_outline_rounded,
-              title: '暂无消息',
-              subtitle: '互动与私信都会出现在这里',
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () async {
-              bumpUcgConversationsRefresh(ref);
-              bumpUcgNotificationsRefresh(ref);
-              await Future.wait([
-                ref.read(ucgConversationsProvider.future),
-                ref.read(ucgCommentNotificationsProvider.future),
-              ]);
-            },
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              children: [
-                if (notifications.isNotEmpty) ...[
-                  Row(
+      body: _convLoading && notificationsAsync.isLoading
+          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+          : _convError != null && _conversations.isEmpty
+              ? UcgEmptyState(
+                  icon: Icons.cloud_off_rounded,
+                  title: _convError!,
+                  subtitle: '请稍后重试',
+                  action: TextButton(onPressed: () => unawaited(_refreshAll()), child: const Text('重试')),
+                )
+              : RefreshIndicator(
+                  onRefresh: _refreshAll,
+                  child: ListView(
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                     children: [
-                      Text(
-                        '互动消息',
-                        style: TextStyle(fontWeight: FontWeight.w700, color: fg, fontSize: 15),
+                      _InteractionSystemRow(
+                        unreadCount: interactionUnread,
+                        fg: fg,
+                        primary: primary,
+                        onTap: () {
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute(builder: (_) => const UcgInteractionInboxScreen()),
+                          );
+                        },
                       ),
-                      if (interactionUnread > 0) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: primary,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '$interactionUnread',
-                            style: TextStyle(
-                              color: UcgTheme.onPrimary(context),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                      if (_conversations.isEmpty && ! _convLoading) ...[
+                        const SizedBox(height: 24),
+                        UcgEmptyState(
+                          icon: Icons.chat_bubble_outline_rounded,
+                          title: '暂无私信',
+                          subtitle: interactionUnread > 0 ? '互动消息在上方入口查看' : '与宝妈宝爸私信聊天',
                         ),
                       ],
+                      for (var i = 0; i < _conversations.length; i++) ...[
+                        if (i == 0) const SizedBox(height: 10),
+                        if (i > 0) const SizedBox(height: 10),
+                        _ConversationTile(
+                          conversation: _conversations[i],
+                          fg: fg,
+                          primary: primary,
+                          fmt: fmt,
+                          peerDisplayName: _peerDisplayName(_conversations[i]),
+                          onTap: () async {
+                            await Navigator.of(context).push<void>(
+                              MaterialPageRoute(
+                                builder: (_) => UcgChatScreen(conversation: _conversations[i]),
+                              ),
+                            );
+                            bumpUcgConversationsRefresh(ref);
+                            await _loadConversationsFirst();
+                          },
+                          onPin: (pinned) => _pinConv(_conversations[i], pinned),
+                          onDelete: () => _deleteConv(_conversations[i]),
+                        ),
+                      ],
+                      if (_convLoadingMore)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  for (final n in notifications)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: UcgShellGlassCard(
-                        onTap: () => unawaited(_openNotification(n)),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        child: Row(
-                          children: [
-                            UcgAvatar(
-                              radius: 20,
-                              url: n.actorAvatarUrl,
-                              backgroundColor: primary.withValues(alpha: 0.1),
-                              foregroundColor: primary,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _notificationTitle(n),
-                                    style: TextStyle(fontWeight: FontWeight.w600, color: fg),
-                                  ),
-                                  if (n.preview.isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _displayNotificationPreview(n.preview),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: fg.withValues(alpha: 0.58), fontSize: 13),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            if (!n.read)
-                              Container(
-                                width: 8,
-                                height: 8,
-                                margin: const EdgeInsets.only(left: 8),
-                                decoration: BoxDecoration(color: primary, shape: BoxShape.circle),
-                              ),
-                            const SizedBox(width: 4),
-                            Text(
-                              fmt.format(n.createdAt.toLocal()),
-                              style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.45)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  if (conversations.isNotEmpty)
-                    Text(
-                      '私信',
-                      style: TextStyle(fontWeight: FontWeight.w700, color: fg, fontSize: 15),
-                    ),
-                  if (conversations.isNotEmpty) const SizedBox(height: 8),
-                ],
-                for (var i = 0; i < conversations.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 10),
-                  _ConversationTile(
-                    conversation: conversations[i],
-                    fg: fg,
-                    primary: primary,
-                    fmt: fmt,
-                    peerDisplayName: _peerDisplayName(conversations[i]),
-                    onTap: () async {
-                      await Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) => UcgChatScreen(conversation: conversations[i]),
-                        ),
-                      );
-                    },
-                    onPin: (pinned) => _pinConv(conversations[i], pinned),
-                    onDelete: () => _deleteConv(conversations[i]),
-                  ),
-                ],
+                ),
+    );
+  }
+}
+
+class _InteractionSystemRow extends StatelessWidget {
+  const _InteractionSystemRow({
+    required this.unreadCount,
+    required this.fg,
+    required this.primary,
+    required this.onTap,
+  });
+
+  final int unreadCount;
+  final Color fg;
+  final Color primary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return UcgSurfaceCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: primary.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.notifications_active_outlined, color: primary, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '互动消息',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: fg),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '评论与 @ 提及',
+                  style: TextStyle(color: fg.withValues(alpha: 0.58), fontSize: 13),
+                ),
               ],
             ),
-          );
-        },
+          ),
+          if (unreadCount > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: primary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$unreadCount',
+                style: TextStyle(
+                  color: UcgTheme.onPrimary(context),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -342,7 +355,7 @@ class _ConversationTile extends StatelessWidget {
         await onDelete();
         return true;
       },
-      child: UcgShellGlassCard(
+      child: UcgSurfaceCard(
         onTap: onTap,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(

@@ -3,8 +3,6 @@ import 'package:intl/intl.dart';
 
 import '../../data/ucg_models.dart';
 import '../../theme/ucg_theme.dart';
-import 'ucg_feed_moments_widgets.dart';
-import 'ucg_media_viewer.dart';
 import 'ucg_network_image.dart';
 import 'ucg_visual_widgets.dart';
 
@@ -29,7 +27,7 @@ class UcgMasonryFeedCard extends StatelessWidget {
     final timeStyle = TextStyle(fontSize: 10, color: fg.withValues(alpha: 0.42));
     final bio = post.authorBio.trim();
 
-    return UcgShellGlassCard(
+    return UcgSurfaceCard(
       padding: const EdgeInsets.all(10),
       borderRadius: 12,
       onTap: onTap,
@@ -133,28 +131,79 @@ class _MasonryMedia extends StatelessWidget {
       final url = post.imageThumbnailUrls.isNotEmpty
           ? post.imageThumbnailUrls.first
           : post.imageUrls.first;
-      return GestureDetector(
-        onTap: () => showUcgPhotoLightbox(
-          context,
-          urls: post.imageUrls,
-        ),
-        behavior: HitTestBehavior.opaque,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: AspectRatio(
-            aspectRatio: 3 / 4,
-            child: UcgNetworkImage(url: url, fit: BoxFit.cover),
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: AspectRatio(
+          aspectRatio: 3 / 4,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              UcgNetworkImage(url: url, fit: BoxFit.cover),
+              if (post.imageUrls.length > 1)
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: _MultiImageCountBadge(count: post.imageUrls.length),
+                ),
+            ],
           ),
         ),
       );
     }
     if (post.videoUrl != null) {
-      return UcgMomentsVideoTile(
-        videoUrl: post.videoUrl!,
-        videoWidth: post.videoWidth,
-        videoHeight: post.videoHeight,
-      );
+      return const _MasonryVideoCover();
     }
     return const SizedBox.shrink();
+  }
+}
+
+/// Feed 视频封面：静态占位 + 播放图标，点击由外层 card 进详情。
+class _MasonryVideoCover extends StatelessWidget {
+  const _MasonryVideoCover();
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: AspectRatio(
+        aspectRatio: 3 / 4,
+        child: ColoredBox(
+          color: Colors.black.withValues(alpha: 0.08),
+          child: Center(
+            child: Icon(
+              Icons.play_circle_outline_rounded,
+              size: 40,
+              color: UcgTheme.onShell(context).withValues(alpha: 0.45),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MultiImageCountBadge extends StatelessWidget {
+  const _MultiImageCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '×$count',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withValues(alpha: 0.92),
+          height: 1.2,
+        ),
+      ),
+    );
   }
 }

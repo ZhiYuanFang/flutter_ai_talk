@@ -4,16 +4,30 @@ import 'package:go_router/go_router.dart';
 
 import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
+import '../../ui/widgets/app_glass_overlay.dart';
 import '../theme/ucg_theme.dart';
 import '../providers/ucg_providers.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
-/// UCG 需登录操作的统一门控。
-Future<bool> requireUcgLogin(BuildContext context, WidgetRef ref) async {
+/// 个人信息入口：玻璃确认弹窗后跳转登录。
+Future<bool> promptLoginForPersonalAction(BuildContext context, WidgetRef ref) async {
   if (ref.read(sessionProvider).isLoggedIn) return true;
   if (!context.mounted) return false;
+  final go = await showGlassConfirmDialog(
+        context,
+        title: '需要登录',
+        message: '请先登录后再操作。',
+        confirmLabel: '去登录',
+      ) ??
+      false;
+  if (!go || !context.mounted) return false;
   await context.push('/login');
   return ref.read(sessionProvider).isLoggedIn;
+}
+
+/// UCG 需登录操作的统一门控。
+Future<bool> requireUcgLogin(BuildContext context, WidgetRef ref) async {
+  return promptLoginForPersonalAction(context, ref);
 }
 
 /// UCG 需已绑定微信账号（JWT `sub` 非零）；设备态已登录但 `sub=0` 时展示绑定提示。

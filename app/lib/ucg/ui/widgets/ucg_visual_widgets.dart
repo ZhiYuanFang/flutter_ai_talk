@@ -1,13 +1,10 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
+import '../../data/ucg_feature_flags.dart';
 import '../../../theme/app_theme_scope.dart';
 import '../../../theme/app_visual_tokens.dart';
-import '../../theme/ucg_theme.dart';
-
+import '../../../ui/widgets/managed_keyboard_text_field.dart';
 const _kHeaderContentSpacing = 10.0;
-const _kShellGlassBlur = 18.0;
 
 /// UCG 页面脚手架：shell 背景 + 安全区，无 AppBar 色块。
 class UcgScaffold extends StatelessWidget {
@@ -15,10 +12,12 @@ class UcgScaffold extends StatelessWidget {
     super.key,
     required this.body,
     this.bottomNavigationBar,
+    this.resizeToAvoidBottomInset = false,
   });
 
   final Widget body;
   final Widget? bottomNavigationBar;
+  final bool resizeToAvoidBottomInset;
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +25,7 @@ class UcgScaffold extends StatelessWidget {
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
       backgroundColor: shellBg,
+      resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       body: SafeArea(bottom: false, child: body),
       bottomNavigationBar: bottomNavigationBar,
     );
@@ -45,7 +45,6 @@ class UcgImmersiveHeader extends StatelessWidget {
   });
 
   final String title;
-  /// When set, replaces centered [title] with a left-aligned compact row (e.g. chat peer avatar + nickname).
   final Widget? titleWidget;
   final String? subtitle;
   final Widget? leading;
@@ -154,7 +153,6 @@ class UcgTabPage extends StatelessWidget {
 
   final String title;
   final String? subtitle;
-  /// When set, replaces centered [title] with a left-aligned compact row beside [leading].
   final Widget? titleWidget;
   final Widget? leading;
   final List<Widget> actions;
@@ -188,15 +186,16 @@ class UcgTabPage extends StatelessWidget {
   }
 }
 
-/// Shell 上玻璃拟态卡片（磨砂 + 主题色微渐变 + 柔光描边）。
-class UcgShellGlassCard extends StatelessWidget {
-  const UcgShellGlassCard({
+/// Shell 上轻表面卡片（单色浅底、无 blur/阴影）。
+class UcgSurfaceCard extends StatelessWidget {
+  const UcgSurfaceCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.onTap,
     this.borderRadius,
     this.margin,
+    this.showBorder = false,
   });
 
   final Widget child;
@@ -204,79 +203,31 @@ class UcgShellGlassCard extends StatelessWidget {
   final VoidCallback? onTap;
   final double? borderRadius;
   final EdgeInsets? margin;
+  final bool showBorder;
 
-  /// Gradient fill matching the card interior (e.g. sliding pane cover in 我的动态).
-  static BoxDecoration interiorFillDecoration(BuildContext context) {
+  static Color surfaceFillColor(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final scheme = Theme.of(context).colorScheme;
-    final primary = scheme.primary;
-    final isDark = tokens?.isDarkShell ?? false;
+    return tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.06);
+  }
 
-    final fillTop = Color.alphaBlend(
-      primary.withValues(alpha: isDark ? 0.14 : 0.10),
-      (tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.14))
-          .withValues(alpha: isDark ? 0.72 : 0.82),
-    );
-    final fillBottom = Color.alphaBlend(
-      primary.withValues(alpha: isDark ? 0.08 : 0.06),
-      tokens?.surfaceColor.withValues(alpha: isDark ? 0.55 : 0.65) ??
-          themePrimaryBlend(context, alpha: 0.08),
-    );
-
-    return BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [fillTop, fillBottom],
-      ),
-    );
+  /// 与卡片内填充一致的单色装饰（如滑动面板遮罩）。
+  static BoxDecoration interiorFillDecoration(BuildContext context) {
+    return BoxDecoration(color: surfaceFillColor(context));
   }
 
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final scheme = Theme.of(context).colorScheme;
-    final primary = scheme.primary;
-    final radius = borderRadius ?? (tokens?.surfaceRadius ?? 14) + 4;
-    final isDark = tokens?.isDarkShell ?? false;
+    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final radius = borderRadius ?? (tokens?.surfaceRadius ?? 14).toDouble();
 
-    final fillTop = Color.alphaBlend(
-      primary.withValues(alpha: isDark ? 0.14 : 0.10),
-      (tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.14))
-          .withValues(alpha: isDark ? 0.72 : 0.82),
-    );
-    final fillBottom = Color.alphaBlend(
-      primary.withValues(alpha: isDark ? 0.08 : 0.06),
-      tokens?.surfaceColor.withValues(alpha: isDark ? 0.55 : 0.65) ??
-          themePrimaryBlend(context, alpha: 0.08),
-    );
-    final border = tokens?.surfaceBorderColor ?? UcgTheme.surfaceBorder(context);
-
-    Widget card = ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: _kShellGlassBlur, sigmaY: _kShellGlassBlur),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(radius),
-            border: Border.all(color: border),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [fillTop, fillBottom],
-            ),
-            boxShadow: tokens?.panelShadow ??
-                [
-                  BoxShadow(
-                    color: primary.withValues(alpha: 0.08),
-                    blurRadius: 20,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-          ),
-          child: Padding(padding: padding, child: child),
-        ),
+    Widget card = DecoratedBox(
+      decoration: BoxDecoration(
+        color: surfaceFillColor(context),
+        borderRadius: BorderRadius.circular(radius),
+        border: showBorder ? Border.all(color: fg.withValues(alpha: 0.08)) : null,
       ),
+      child: Padding(padding: padding, child: child),
     );
 
     if (margin != null) {
@@ -295,8 +246,11 @@ class UcgShellGlassCard extends StatelessWidget {
   }
 }
 
-/// 兼容旧名。
-typedef UcgGlassCard = UcgShellGlassCard;
+@Deprecated('Use UcgSurfaceCard')
+typedef UcgShellGlassCard = UcgSurfaceCard;
+
+@Deprecated('Use UcgSurfaceCard')
+typedef UcgGlassCard = UcgSurfaceCard;
 
 class UcgSectionLabel extends StatelessWidget {
   const UcgSectionLabel({super.key, required this.label, this.trailing});
@@ -348,24 +302,20 @@ class UcgSegmentedPills<T> extends StatelessWidget {
     final onShell = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
         Theme.of(context).colorScheme.onSurface;
 
-    return UcgShellGlassCard(
-      padding: const EdgeInsets.all(4),
-      borderRadius: 999,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final seg in segments) ...[
-            if (seg != segments.first) const SizedBox(width: 2),
-            _Pill(
-              label: labelBuilder(seg),
-              selected: seg == selected,
-              primary: primary,
-              onShell: onShell,
-              onTap: () => onSelected(seg),
-            ),
-          ],
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final seg in segments) ...[
+          if (seg != segments.first) const SizedBox(width: 8),
+          _Pill(
+            label: labelBuilder(seg),
+            selected: seg == selected,
+            primary: primary,
+            onShell: onShell,
+            onTap: () => onSelected(seg),
+          ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -387,27 +337,17 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected ? Color.alphaBlend(primary.withValues(alpha: 0.22), const Color(0x00000000)) : const Color(0x00000000),
-            borderRadius: BorderRadius.circular(999),
-            border: selected ? Border.all(color: primary.withValues(alpha: 0.35)) : null,
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? primary : onShell.withValues(alpha: 0.68),
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              fontSize: 14,
-            ),
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? primary : onShell.withValues(alpha: 0.55),
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 14,
           ),
         ),
       ),
@@ -415,7 +355,7 @@ class _Pill extends StatelessWidget {
   }
 }
 
-/// 空态 / 占位（可爱、大气）。
+/// 空态 / 占位。
 class UcgEmptyState extends StatelessWidget {
   const UcgEmptyState({
     super.key,
@@ -439,21 +379,12 @@ class UcgEmptyState extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-        child: UcgShellGlassCard(
+        child: UcgSurfaceCard(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: primary.withValues(alpha: 0.12),
-                  border: Border.all(color: primary.withValues(alpha: 0.22)),
-                ),
-                child: Icon(icon, size: 32, color: primary),
-              ),
-              const SizedBox(height: 16),
+              Icon(icon, size: 40, color: primary.withValues(alpha: 0.75)),
+              const SizedBox(height: 14),
               Text(
                 title,
                 textAlign: TextAlign.center,
@@ -481,7 +412,7 @@ class UcgEmptyState extends StatelessWidget {
   }
 }
 
-/// Feed 互动条（胶囊底）。
+/// Feed 互动条（轻量 icon + 文字）。
 class UcgInteractionChip extends StatelessWidget {
   const UcgInteractionChip({
     super.key,
@@ -505,141 +436,86 @@ class UcgInteractionChip extends StatelessWidget {
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     final color = active ? primary : fg.withValues(alpha: 0.62);
 
-    return Material(
-      color: active ? primary.withValues(alpha: 0.1) : tokens?.pillBackground ?? themePrimaryBlend(context, alpha: 0.08),
-      shape: StadiumBorder(
-        side: BorderSide(
-          color: active ? primary.withValues(alpha: 0.35) : (tokens?.pillBorder ?? primary.withValues(alpha: 0.15)),
-        ),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        customBorder: const StadiumBorder(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 17, color: color),
-              const SizedBox(width: 5),
-              Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w500, fontSize: 13)),
-            ],
-          ),
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 17, color: color),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// 底部五栏玻璃悬浮 dock。
-class UcgGlassBottomDock extends StatelessWidget {
-  const UcgGlassBottomDock({
+/// 底部五栏扁平 dock，嵌入 shell 背景。
+class UcgBottomDock extends StatelessWidget {
+  const UcgBottomDock({
     super.key,
     required this.currentIndex,
     required this.onTap,
     required this.onComposeTap,
+    this.onComposeLongPress,
     this.showMessageBadge = false,
   });
 
   final int currentIndex;
   final ValueChanged<int> onTap;
   final VoidCallback onComposeTap;
+  final VoidCallback? onComposeLongPress;
   final bool showMessageBadge;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final scheme = Theme.of(context).colorScheme;
-    final primary = scheme.primary;
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final isDark = tokens?.isDarkShell ?? false;
-    final surface = tokens?.surfaceColor ?? themePrimaryBlend(context, alpha: 0.24);
-    final border = tokens?.surfaceBorderColor ?? UcgTheme.surfaceBorder(context);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, bottom + 10),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(30),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: border),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  surface.withValues(alpha: isDark ? 0.78 : 0.88),
-                  Color.alphaBlend(primary.withValues(alpha: 0.06), surface.withValues(alpha: isDark ? 0.68 : 0.78)),
-                ],
-              ),
-              boxShadow: tokens?.panelShadow,
+      padding: EdgeInsets.only(bottom: bottom),
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            _DockItem(icon: Icons.auto_awesome_rounded, label: '广场', selected: currentIndex == 0, onTap: () => onTap(0)),
+            if (kUcgTreasureEnabled)
+              _DockItem(icon: Icons.diamond_outlined, label: '宝藏', selected: currentIndex == 1, onTap: () => onTap(1)),
+            _DockItem(
+              icon: Icons.add_rounded,
+              label: '发布',
+              selected: false,
+              onTap: onComposeTap,
+              onLongPress: onComposeLongPress,
             ),
-            child: SizedBox(
-              height: 66,
-              child: Row(
-                children: [
-                  _DockItem(icon: Icons.auto_awesome_rounded, label: '广场', selected: currentIndex == 0, onTap: () => onTap(0)),
-                  _DockItem(icon: Icons.diamond_outlined, label: '宝藏', selected: currentIndex == 1, onTap: () => onTap(1)),
-                  Expanded(
-                    child: Center(
-                      child: _ComposeButton(onTap: onComposeTap, primary: primary),
-                    ),
-                  ),
-                  _DockItem(
-                    icon: Icons.chat_bubble_rounded,
-                    label: '消息',
-                    selected: currentIndex == 3,
-                    showBadge: showMessageBadge,
-                    onTap: () => onTap(3),
-                  ),
-                  _DockItem(icon: Icons.face_retouching_natural_rounded, label: '我的', selected: currentIndex == 4, onTap: () => onTap(4)),
-                ],
-              ),
+            _DockItem(
+              icon: Icons.chat_bubble_rounded,
+              label: '消息',
+              selected: currentIndex == 3,
+              showBadge: showMessageBadge,
+              onTap: () => onTap(3),
             ),
-          ),
+            _DockItem(icon: Icons.face_retouching_natural_rounded, label: '我的', selected: currentIndex == 4, onTap: () => onTap(4)),
+          ],
         ),
       ),
     );
   }
 }
 
-class _ComposeButton extends StatelessWidget {
-  const _ComposeButton({required this.onTap, required this.primary});
-
-  final VoidCallback onTap;
-  final Color primary;
-
-  @override
-  Widget build(BuildContext context) {
-    final onPrimary = UcgTheme.onPrimary(context);
-    return Material(
-      color: const Color(0x00000000),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Ink(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [primary, UcgTheme.primaryGradientEnd(context)],
-            ),
-            boxShadow: [
-              BoxShadow(color: primary.withValues(alpha: 0.38), blurRadius: 14, offset: const Offset(0, 5)),
-            ],
-          ),
-          child: Icon(Icons.add_rounded, color: onPrimary, size: 28),
-        ),
-      ),
-    );
-  }
-}
+@Deprecated('Use UcgBottomDock')
+typedef UcgGlassBottomDock = UcgBottomDock;
 
 class _DockItem extends StatelessWidget {
   const _DockItem({
@@ -647,6 +523,7 @@ class _DockItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.onLongPress,
     this.showBadge = false,
   });
 
@@ -654,6 +531,7 @@ class _DockItem extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final bool showBadge;
 
   @override
@@ -668,39 +546,34 @@ class _DockItem extends StatelessWidget {
         color: const Color(0x00000000),
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: EdgeInsets.symmetric(horizontal: selected ? 10 : 0, vertical: selected ? 4 : 0),
-                decoration: selected
-                    ? BoxDecoration(
-                        color: primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(16),
-                      )
-                    : null,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(icon, color: fg, size: selected ? 23 : 21),
-                    if (showBadge)
-                      Positioned(
-                        right: -3,
-                        top: -2,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(color: primary, shape: BoxShape.circle),
-                        ),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(icon, color: fg, size: selected ? 23 : 21),
+                  if (showBadge)
+                    Positioned(
+                      right: -3,
+                      top: -2,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(color: primary, shape: BoxShape.circle),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
               const SizedBox(height: 3),
               Text(
                 label,
-                style: TextStyle(fontSize: 10, color: fg, fontWeight: selected ? FontWeight.w600 : FontWeight.w400),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: fg,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
               ),
             ],
           ),
@@ -710,9 +583,9 @@ class _DockItem extends StatelessWidget {
   }
 }
 
-/// 底部玻璃输入条（聊天、评论等）。
-class UcgGlassInputDock extends StatelessWidget {
-  const UcgGlassInputDock({
+/// 底部扁平输入条（聊天等）。
+class UcgInputDock extends StatelessWidget {
+  const UcgInputDock({
     super.key,
     required this.controller,
     required this.hintText,
@@ -735,67 +608,60 @@ class UcgGlassInputDock extends StatelessWidget {
     final primary = Theme.of(context).colorScheme.primary;
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final onPrimary = UcgTheme.onPrimary(context);
+    final fieldEnabled = enabled && !busy;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 10),
-      child: UcgShellGlassCard(
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-        borderRadius: 28,
-        child: Row(
-          children: [
-            if (onAttach != null) ...[
-              IconButton(
-                onPressed: enabled && !busy ? onAttach : null,
-                icon: Icon(Icons.add_circle_outline_rounded, color: fg.withValues(alpha: 0.55)),
-                tooltip: '添加图片或视频',
-              ),
-            ],
-            Expanded(
-              child: TextField(
-                controller: controller,
-                enabled: enabled && !busy,
-                textInputAction: TextInputAction.send,
-                onSubmitted: enabled ? (_) => onSend() : null,
-                decoration: InputDecoration(
-                  hintText: hintText,
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  hintStyle: TextStyle(color: fg.withValues(alpha: 0.42)),
-                ),
-              ),
-            ),
-            Material(
-              color: const Color(0x00000000),
-              child: InkWell(
-                onTap: enabled && !busy ? onSend : null,
-                customBorder: const CircleBorder(),
-                child: Ink(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [primary, UcgTheme.primaryGradientEnd(context)],
-                    ),
-                  ),
-                  child: busy
-                      ? Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: CircularProgressIndicator(strokeWidth: 2, color: onPrimary.withValues(alpha: 0.9)),
-                        )
-                      : Icon(Icons.send_rounded, color: onPrimary, size: 20),
-                ),
-              ),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 8),
+      child: Row(
+        children: [
+          if (onAttach != null) ...[
+            IconButton(
+              onPressed: fieldEnabled ? onAttach : null,
+              icon: Icon(Icons.add_circle_outline_rounded, color: fg.withValues(alpha: 0.55)),
+              tooltip: '添加图片或视频',
             ),
           ],
-        ),
+          Expanded(
+            child: ManagedKeyboardTextField(
+              controller: controller,
+              hint: hintText,
+              scene: 'ucg.chat',
+              onConfirm: fieldEnabled ? onSend : null,
+              enabled: fieldEnabled,
+              textInputAction: TextInputAction.send,
+              onSubmitted: fieldEnabled ? (_) => onSend() : null,
+              decoration: InputDecoration(
+                hintText: hintText,
+                filled: true,
+                fillColor: UcgSurfaceCard.surfaceFillColor(context),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                hintStyle: TextStyle(color: fg.withValues(alpha: 0.42)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            onPressed: fieldEnabled ? onSend : null,
+            icon: busy
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                  )
+                : Icon(Icons.send_rounded, color: primary),
+          ),
+        ],
       ),
     );
   }
 }
+
+@Deprecated('Use UcgInputDock')
+typedef UcgGlassInputDock = UcgInputDock;
 
 Widget? ucgBackLeading(BuildContext context, VoidCallback? onBack, {String tooltip = '返回喂养'}) {
   if (onBack == null) return null;

@@ -75,15 +75,25 @@ void bumpUcgConversationsRefresh(WidgetRef ref) {
   ref.read(ucgConversationsChangedProvider.notifier).state++;
 }
 
-/// 消息会话列表；离开聊天页或进入消息 Tab 时随 [ucgConversationsChangedProvider] 刷新。
-final ucgConversationsProvider = FutureProvider.autoDispose<List<UcgConversation>>((ref) async {
-  if (!ref.watch(sessionProvider.select((s) => s.isLoggedIn))) return [];
+/// 消息会话列表（首屏）；进入消息 Tab 或离开聊天页时随 [ucgConversationsChangedProvider] 刷新。
+final ucgConversationsProvider = FutureProvider.autoDispose<UcgPagedConversations>((ref) async {
+  if (!ref.watch(sessionProvider.select((s) => s.isLoggedIn))) {
+    return const UcgPagedConversations(items: [], page: 1, pageSize: kUcgPageSize, total: 0);
+  }
   final wxId = ref.watch(ucgCurrentUserIdProvider);
-  if (!isUcgWxAccountBound(wxId)) return [];
+  if (!isUcgWxAccountBound(wxId)) {
+    return const UcgPagedConversations(items: [], page: 1, pageSize: kUcgPageSize, total: 0);
+  }
   ref.watch(ucgConversationsChangedProvider);
   final repo = ref.read(ucgRepositoryProvider);
-  final list = await repo.fetchConversations();
-  return repo.enrichConversationsWithPeerProfiles(list);
+  final page = await repo.fetchConversations(page: 1);
+  final enriched = await repo.enrichConversationsWithPeerProfiles(page.items);
+  return UcgPagedConversations(
+    items: enriched,
+    page: page.page,
+    pageSize: page.pageSize,
+    total: page.total,
+  );
 });
 
 /// 我的动态列表；发帖/删除后随 [ucgPostsChangedProvider] 刷新。
@@ -93,6 +103,16 @@ final ucgMyPostsProvider = FutureProvider.autoDispose<List<UcgPost>>((ref) async
   if (!isUcgWxAccountBound(wxId)) return [];
   ref.watch(ucgPostsChangedProvider);
   final page = await ref.read(ucgRepositoryProvider).fetchMyPosts(page: 1);
+  return page.items;
+});
+
+/// 指定用户已发布动态（page=1）；随 [ucgPostsChangedProvider] 刷新。
+final ucgUserPostsProvider = FutureProvider.autoDispose
+    .family<List<UcgPost>, String>((ref, userId) async {
+  if (userId.isEmpty) return [];
+  ref.watch(ucgPostsChangedProvider);
+  final page =
+      await ref.read(ucgRepositoryProvider).fetchUserPosts(wxId: userId, page: 1);
   return page.items;
 });
 

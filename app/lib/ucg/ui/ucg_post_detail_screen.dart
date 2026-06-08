@@ -6,8 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../theme/app_visual_tokens.dart';
-import '../../ui/home_history_edit_glass_panel.dart';
-import '../../ui/widgets/app_glass_overlay.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import '../theme/ucg_theme.dart';
@@ -15,6 +13,8 @@ import 'ucg_login_gate.dart';
 import 'ucg_profile_screens.dart';
 import 'widgets/ucg_feed_moments_widgets.dart';
 import 'widgets/ucg_network_image.dart';
+import 'widgets/ucg_mention_composer_field.dart';
+import 'widgets/ucg_mention_text.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 /// 沉浸式帖子详情：模糊背景、全量点赞/评论、长按 @ 回复。
@@ -39,12 +39,135 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   var _authorFollowing = false;
   var _loading = true;
   String? _error;
+  final _commentLayerLinks = <String, LayerLink>{};
+  OverlayEntry? _commentDeleteOverlay;
+  UcgComment? _commentDeleteTarget;
 
   @override
   void initState() {
     super.initState();
     _post = widget.seedPost;
     unawaited(_refresh());
+  }
+
+  @override
+  void dispose() {
+    _removeCommentDeleteOverlay();
+    super.dispose();
+  }
+
+  bool _isOwnComment(UcgComment comment) {
+    final selfId = ref.read(ucgCurrentUserIdProvider);
+    return comment.isMine ||
+        (selfId != null && selfId.isNotEmpty && comment.authorId == selfId);
+  }
+
+  void _removeCommentDeleteOverlay() {
+    final entry = _commentDeleteOverlay;
+    _commentDeleteOverlay = null;
+    _commentDeleteTarget = null;
+    if (entry != null) {
+      if (entry.mounted) entry.remove();
+      entry.dispose();
+    }
+  }
+
+  void _showCommentDeleteBar(LayerLink link, UcgComment comment) {
+    if (_commentDeleteTarget?.id == comment.id) {
+      _removeCommentDeleteOverlay();
+      return;
+    }
+    _removeCommentDeleteOverlay();
+    _commentDeleteTarget = comment;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
+        Theme.of(context).colorScheme.onSurface;
+    final pillBg = Theme.of(context).extension<AppVisualTokens>()?.pillBackground ??
+        fg.withValues(alpha: 0.1);
+
+    _commentDeleteOverlay = OverlayEntry(
+      builder: (overlayContext) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _removeCommentDeleteOverlay,
+                behavior: HitTestBehavior.translucent,
+                child: const SizedBox.expand(),
+              ),
+            ),
+            CompositedTransformFollower(
+              link: link,
+              showWhenUnlinked: false,
+              targetAnchor: Alignment.topCenter,
+              followerAnchor: Alignment.bottomCenter,
+              offset: const Offset(0, -6),
+              child: Material(
+                elevation: 3,
+                color: pillBg,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  onTap: () => unawaited(_deleteCommentNow(comment)),
+                  borderRadius: BorderRadius.circular(8),
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.delete_outline_rounded, size: 22),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    overlay.insert(_commentDeleteOverlay!);
+  }
+
+  Future<void> _deleteCommentNow(UcgComment comment) async {
+    _removeCommentDeleteOverlay();
+    if (!await requireUcgWxAccount(context, ref)) return;
+    try {
+      await ref.read(ucgRepositoryProvider).deleteComment(widget.postId, comment.id);
+      if (!mounted) return;
+      setState(() {
+        _comments = _comments.where((c) => c.id != comment.id).toList();
+        final post = _post;
+        if (post != null) {
+          final nextCount = post.commentCount > 0 ? post.commentCount - 1 : 0;
+          _post = post.copyWith(commentCount: nextCount);
+        }
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('删除失败')),
+        );
+      }
+    }
+  }
+
+  Future<void> _onCommentLongPress(UcgComment comment, LayerLink link) async {
+    if (_isOwnComment(comment)) {
+      _showCommentDeleteBar(link, comment);
+      return;
+    }
+    _removeCommentDeleteOverlay();
+    final selfId = ref.read(ucgCurrentUserIdProvider);
+    if (selfId != null &&
+        selfId.isNotEmpty &&
+        comment.authorId.isNotEmpty &&
+        comment.authorId == selfId) {
+      return;
+    }
+    await _openCommentSheet(
+      initialText: _mentionPrefix(
+        comment.authorNickname,
+        authorId: comment.authorId,
+      ),
+    );
   }
 
   Future<void> _refresh() async {
@@ -133,33 +256,41 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   }
 
   /// 评论展示时隐藏 @昵称#wxId 中的 wxId 后缀。
-  String _displayCommentText(String text) {
-    return text.replaceAll(RegExp(r'@([^\s@]+?)#\d+'), r'@$1');
-  }
+  String _displayCommentText(String text) => UcgMentionText.displayComment(text);
 
   Future<void> _openCommentSheet({String? initialText}) async {
+    _removeCommentDeleteOverlay();
     if (!await requireUcgWxAccount(context, ref)) return;
     if (!mounted) return;
-    await showGlassAdaptiveBottomSheet<void>(
+    await showModalBottomSheet<void>(
       context: context,
-      maxHeightFraction: 0.42,
-      scrollable: false,
-      respectKeyboardInset: true,
-      bodyBuilder: (ctx) => _DetailCommentSheet(
-        postId: widget.postId,
-        initialText: initialText,
-        onCommentAdded: () async {
-          final comments = await ref.read(ucgRepositoryProvider).fetchComments(widget.postId);
-          if (!mounted) return;
-          setState(() {
-            _comments = comments;
-            final post = _post;
-            if (post != null) {
-              _post = post.copyWith(commentCount: comments.length);
-            }
-          });
-        },
-      ),
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            MediaQuery.paddingOf(ctx).bottom + 16,
+          ),
+          child: _DetailCommentSheet(
+            postId: widget.postId,
+            initialText: initialText,
+            onCommentAdded: () async {
+              final comments = await ref.read(ucgRepositoryProvider).fetchComments(widget.postId);
+              if (!mounted) return;
+              setState(() {
+                _comments = comments;
+                final post = _post;
+                if (post != null) {
+                  _post = post.copyWith(commentCount: comments.length);
+                }
+              });
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -238,6 +369,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
 
     return Scaffold(
       backgroundColor: shellBg,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -247,7 +379,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
             ColoredBox(color: shellBg),
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: Container(color: shellBg.withValues(alpha: 0.9)),
+            child: Container(color: shellBg.withValues(alpha: 0.7)),
           ),
           SafeArea(
             child: Column(
@@ -374,17 +506,20 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                         if (_comments.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           for (final comment in _comments)
-                            GestureDetector(
-                              onLongPress: () => unawaited(
-                                _openCommentSheet(
-                                  initialText: _mentionPrefix(
-                                    comment.authorNickname,
-                                    authorId: comment.authorId,
+                            CompositedTransformTarget(
+                              link: _commentLayerLinks.putIfAbsent(
+                                comment.id,
+                                LayerLink.new,
+                              ),
+                              child: GestureDetector(
+                                onLongPress: () => unawaited(
+                                  _onCommentLongPress(
+                                    comment,
+                                    _commentLayerLinks[comment.id]!,
                                   ),
                                 ),
-                              ),
-                              behavior: HitTestBehavior.opaque,
-                              child: Padding(
+                                behavior: HitTestBehavior.opaque,
+                                child: Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: Text.rich(
                                   TextSpan(
@@ -422,6 +557,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                                 ),
                               ),
                             ),
+                          ),
                         ],
                       ],
                     ),
@@ -483,13 +619,14 @@ class _DetailCommentSheet extends ConsumerStatefulWidget {
 }
 
 class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
+  final _composerKey = GlobalKey<UcgMentionComposerFieldWithHighlightState>();
   late final TextEditingController _controller;
   var _sending = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initialText ?? '');
+    _controller = TextEditingController();
   }
 
   @override
@@ -499,7 +636,7 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
   }
 
   Future<void> _send() async {
-    final text = _controller.text.trim();
+    final text = (_composerKey.currentState?.wireText ?? _controller.text).trim();
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
@@ -514,9 +651,10 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final glassText = historyEditGlassTextColor(context);
     final scheme = Theme.of(context).colorScheme;
+    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ?? scheme.onSurface;
     final isReply = widget.initialText != null && widget.initialText!.trim().isNotEmpty;
+    final hint = isReply ? '回复…' : '写评论…';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -524,22 +662,27 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
       children: [
         Text(
           isReply ? '回复评论' : '写评论',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: glassText),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: fg),
         ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
-              child: TextField(
+              child: UcgMentionComposerFieldWithHighlight(
+                key: _composerKey,
                 controller: _controller,
+                initialWireText: widget.initialText,
+                selfWxId: ref.watch(ucgCurrentUserIdProvider),
                 autofocus: true,
                 enabled: !_sending,
-                style: TextStyle(color: glassText),
+                hint: hint,
+                scene: 'ucg.post.comment',
+                onConfirm: _sending ? null : () => unawaited(_send()),
+                style: TextStyle(color: fg),
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => unawaited(_send()),
-                decoration: historyEditGlassInputDecoration(
-                  context,
-                  labelText: isReply ? '回复…' : '写评论…',
+                onSubmitted: _sending ? null : (_) => unawaited(_send()),
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
                 ),
               ),
             ),

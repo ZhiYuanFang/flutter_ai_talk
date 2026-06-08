@@ -66,18 +66,51 @@ python3 <<'PY'
 from pathlib import Path
 import os
 import plistlib
+import sys
+
+DEFAULT_MICROPHONE = (
+    '胖宝需要访问您的麦克风，以便将您说出的育儿记录（例如「宝宝刚刚喝了 120ml 奶」）'
+    '转换为文字并保存。麦克风仅用于语音输入，不会在后台录音或用于广告。'
+)
+DEFAULT_SPEECH = (
+    '胖宝需要语音识别权限，以便将您说出的育儿记录（例如「宝宝刚刚喝了 120ml 奶」）'
+    '转换为文字并保存。'
+)
+DEFAULT_PHOTO_LIBRARY = (
+    '胖宝需要访问您的相册，以便您在社区发帖时从相册选择图片或视频。'
+)
+DEFAULT_CAMERA = (
+    '胖宝需要访问您的相机，以便您在社区发帖时拍摄照片或视频。'
+)
+
+
+def usage_description(env_name: str, default: str) -> str:
+    raw = os.getenv(env_name)
+    if raw is None:
+        return default
+    stripped = raw.strip()
+    return stripped if stripped else default
+
 
 plist_path = Path('ios/Runner/Info.plist')
 with plist_path.open('rb') as file:
     info = plistlib.load(file)
 
-info['NSMicrophoneUsageDescription'] = os.getenv(
+info['NSMicrophoneUsageDescription'] = usage_description(
     'IOS_MICROPHONE_USAGE_DESCRIPTION',
-    '胖宝需要访问您的麦克风，以便将您说出的育儿记录（例如「宝宝刚刚喝了 120ml 奶」）转换为文字并保存。麦克风仅用于语音输入，不会在后台录音或用于广告。',
+    DEFAULT_MICROPHONE,
 )
-info['NSSpeechRecognitionUsageDescription'] = os.getenv(
+info['NSSpeechRecognitionUsageDescription'] = usage_description(
     'IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION',
-    '需要语音识别权限以将语音转换为文字',
+    DEFAULT_SPEECH,
+)
+info['NSPhotoLibraryUsageDescription'] = usage_description(
+    'IOS_PHOTO_LIBRARY_USAGE_DESCRIPTION',
+    DEFAULT_PHOTO_LIBRARY,
+)
+info['NSCameraUsageDescription'] = usage_description(
+    'IOS_CAMERA_USAGE_DESCRIPTION',
+    DEFAULT_CAMERA,
 )
 
 # 出口合规声明：
@@ -92,6 +125,17 @@ if display_name:
 
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
+
+for key in (
+    'NSMicrophoneUsageDescription',
+    'NSSpeechRecognitionUsageDescription',
+    'NSPhotoLibraryUsageDescription',
+    'NSCameraUsageDescription',
+):
+    value = info.get(key, '')
+    if not value or not str(value).strip():
+        sys.exit(f'Info.plist key {key} is missing or empty')
+    print(f'Info.plist {key}: ok ({len(str(value))} chars)')
 PY
 
 python3 <<'PY'

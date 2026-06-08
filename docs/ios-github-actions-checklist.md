@@ -95,6 +95,8 @@
 | `IOS_APP_DISPLAY_NAME` | iPhone 桌面显示的应用名 |
 | `IOS_MICROPHONE_USAGE_DESCRIPTION` | 麦克风权限提示语 |
 | `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION` | 语音识别权限提示语 |
+| `IOS_PHOTO_LIBRARY_USAGE_DESCRIPTION` | 相册权限提示语（UGC 发帖选图） |
+| `IOS_CAMERA_USAGE_DESCRIPTION` | 相机权限提示语（UGC 发帖拍摄） |
 | `WECHAT_APP_ID` | 微信移动应用 AppId |
 | `WECHAT_UNIVERSAL_LINK` | 微信 iOS Universal Link |
 | `IOS_ASSOCIATED_DOMAIN` | iOS Associated Domains，格式 `applinks:<domain>` |
@@ -320,21 +322,43 @@ com.fzy.pangbao
 
 #### 10. `IOS_MICROPHONE_USAGE_DESCRIPTION`
 
-示例：
+> **不得**使用「需要麦克风权限以支持语音输入与录音」等笼统描述。若留空或未配置该 Secret，CI 脚本会自动写入合规默认文案；若 Secret 值为空字符串，脚本同样回退默认文案。
+
+示例（与 `prepare_ios_project.sh` 默认一致）：
 
 ```text
-需要麦克风权限以支持语音输入与录音
+胖宝需要访问您的麦克风，以便将您说出的育儿记录（例如「宝宝刚刚喝了 120ml 奶」）转换为文字并保存。麦克风仅用于语音输入，不会在后台录音或用于广告。
 ```
 
 #### 11. `IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION`
 
+示例（与 `prepare_ios_project.sh` 默认一致）：
+
+```text
+胖宝需要语音识别权限，以便将您说出的育儿记录（例如「宝宝刚刚喝了 120ml 奶」）转换为文字并保存。
+```
+
+#### 12. `IOS_PHOTO_LIBRARY_USAGE_DESCRIPTION`
+
+可选。未配置或为空时，CI 脚本写入 UGC 发帖场景默认文案。
+
 示例：
 
 ```text
-需要语音识别权限以将语音转换为文字
+胖宝需要访问您的相册，以便您在社区发帖时从相册选择图片或视频。
 ```
 
-#### 12. `WECHAT_APP_ID`
+#### 13. `IOS_CAMERA_USAGE_DESCRIPTION`
+
+可选。未配置或为空时，CI 脚本写入 UGC 发帖场景默认文案。
+
+示例：
+
+```text
+胖宝需要访问您的相机，以便您在社区发帖时拍摄照片或视频。
+```
+
+#### 14. `WECHAT_APP_ID`
 
 示例：
 
@@ -342,7 +366,7 @@ com.fzy.pangbao
 wxe713de83c921f341
 ```
 
-#### 13. `WECHAT_UNIVERSAL_LINK`
+#### 15. `WECHAT_UNIVERSAL_LINK`
 
 示例：
 

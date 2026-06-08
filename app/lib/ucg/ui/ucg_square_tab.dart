@@ -9,7 +9,6 @@ import '../../providers/session_provider.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
-import 'ucg_login_gate.dart';
 import 'ucg_post_detail_screen.dart';
 import 'ucg_profile_screens.dart';
 import 'widgets/ucg_masonry_feed_card.dart';
@@ -17,6 +16,20 @@ import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 enum _SquareFeedMode { recommended, following }
+
+/// 关注 Tab 统一发现空态（游客与已登录空列表共用，无 action 按钮）。
+class UcgFollowingDiscoveryEmpty extends StatelessWidget {
+  const UcgFollowingDiscoveryEmpty({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const UcgEmptyState(
+      icon: Icons.people_outline_rounded,
+      title: '还没有关注的人',
+      subtitle: '去推荐看看，点击动态中的头像进入主页，关注你感兴趣的人',
+    );
+  }
+}
 
 class UcgSquareTab extends ConsumerStatefulWidget {
   const UcgSquareTab({super.key, this.onBackToFeeding});
@@ -154,16 +167,26 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
           ),
         ],
       ),
-      body: _mode == _SquareFeedMode.following && !loggedIn
-          ? const UcgLoginPrompt(message: '登录后查看关注动态')
-          : RefreshIndicator(
-              onRefresh: () => _load(refresh: true),
-              child: _buildBody(fg),
-            ),
+      body: RefreshIndicator(
+        onRefresh: () => _load(refresh: true),
+        child: _buildBody(fg, loggedIn),
+      ),
     );
   }
 
-  Widget _buildBody(Color fg) {
+  Widget _followingEmptyList() {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: const [
+        UcgFollowingDiscoveryEmpty(),
+      ],
+    );
+  }
+
+  Widget _buildBody(Color fg, bool loggedIn) {
+    if (_mode == _SquareFeedMode.following && !loggedIn) {
+      return _followingEmptyList();
+    }
     if (_error != null && _items.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -178,6 +201,9 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       );
     }
     if (_initialLoaded && _items.isEmpty) {
+      if (_mode == _SquareFeedMode.following) {
+        return _followingEmptyList();
+      }
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: const [
@@ -342,6 +368,6 @@ class UcgFeedCard extends StatelessWidget {
     );
 
     if (!wrapInShellCard) return content;
-    return UcgShellGlassCard(child: content);
+    return UcgSurfaceCard(child: content);
   }
 }

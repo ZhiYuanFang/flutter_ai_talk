@@ -3,18 +3,33 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../data/ucg_media_picker.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
+import '../../config/ucg_ai_polish_consent_store.dart';
+import '../../theme/app_visual_tokens.dart';
+import '../../ui/widgets/app_glass_overlay.dart';
+import '../../ui/widgets/managed_keyboard_text_field.dart';
+import 'widgets/ucg_compose_entry_sheet.dart';
+import 'widgets/ucg_compose_light_glass_panel.dart';
+import 'widgets/ucg_compose_media_grid.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
-/// 发布页：文本 + ≤9 图 OR 1 视频（超限自动压缩；视频 ≤15s / 20MB 目标）。
+/// 发布页：玻璃 panel + 9 宫格；支持 textOnly 与入口预填。
 class UcgComposeScreen extends ConsumerStatefulWidget {
-  const UcgComposeScreen({super.key, this.editingPost});
+  const UcgComposeScreen({
+    super.key,
+    this.editingPost,
+    this.initialImageKeys,
+    this.initialVideoKey,
+    this.textOnly = false,
+  });
 
   final UcgPost? editingPost;
+  final List<String>? initialImageKeys;
+  final String? initialVideoKey;
+  final bool textOnly;
 
   @override
   ConsumerState<UcgComposeScreen> createState() => _UcgComposeScreenState();
@@ -22,13 +37,34 @@ class UcgComposeScreen extends ConsumerStatefulWidget {
 
 class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   static const maxImages = 9;
+  static const _bodyHint = '这一刻的想法…';
 
   late final TextEditingController _text;
   final _imageKeys = <String>[];
   final _imageCdnUrls = <String, String>{};
+  final _sessionUploadedKeys = <String>{};
   String? _videoKey;
   var _publishing = false;
   var _uploadingMedia = false;
+  var _polishing = false;
+  var _draggingImage = false;
+
+  bool get _hasContent =>
+      _text.text.trim().isNotEmpty ||
+      _imageKeys.isNotEmpty ||
+      (_videoKey != null && _videoKey!.isNotEmpty);
+
+  bool get _showAiPolish =>
+      _imageKeys.isNotEmpty && (_videoKey == null || _videoKey!.isEmpty) && !_uploadingMedia;
+
+  bool get _busy => _publishing || _uploadingMedia || _polishing;
+
+  bool get _canAddImages =>
+      !widget.textOnly &&
+      (_videoKey == null || _videoKey!.isEmpty) &&
+      _imageKeys.length < maxImages;
+
+  bool get _showImageGrid => _imageKeys.isNotEmpty || _canAddImages;
 
   @override
   void initState() {
@@ -43,6 +79,16 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         }
       }
       _videoKey = post.videoKey;
+      _sessionUploadedKeys.addAll(post.imageKeys);
+      if (post.videoKey != null && post.videoKey!.isNotEmpty) {
+        _sessionUploadedKeys.add(post.videoKey!);
+      }
+    } else if (widget.initialImageKeys != null && widget.initialImageKeys!.isNotEmpty) {
+      _imageKeys.addAll(widget.initialImageKeys!);
+      _sessionUploadedKeys.addAll(widget.initialImageKeys!);
+    } else if (widget.initialVideoKey != null && widget.initialVideoKey!.isNotEmpty) {
+      _videoKey = widget.initialVideoKey;
+      _sessionUploadedKeys.add(widget.initialVideoKey!);
     } else {
       unawaited(_restoreDraft());
     }
@@ -50,13 +96,19 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   Future<void> _restoreDraft() async {
     final draft = await ref.read(ucgComposeDraftStoreProvider).load();
-    if (draft == null || !mounted) return;
+    if (draft == null || draft.isEmpty || !mounted) return;
     _text.text = draft.text;
     setState(() {
       _imageKeys
         ..clear()
         ..addAll(draft.imageKeys);
       _videoKey = draft.videoKey;
+      _sessionUploadedKeys
+        ..clear()
+        ..addAll(draft.imageKeys);
+      if (draft.videoKey != null && draft.videoKey!.isNotEmpty) {
+        _sessionUploadedKeys.add(draft.videoKey!);
+      }
     });
   }
 
@@ -71,14 +123,66 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         );
   }
 
-  @override
-  void dispose() {
-    unawaited(_persistDraft());
-    _text.dispose();
-    super.dispose();
+  Future<void> _discardSession() async {
+    final keys = _sessionUploadedKeys.toList(growable: false);
+    await ref.read(ucgComposeDraftStoreProvider).clear();
+    if (keys.isNotEmpty) {
+      try {
+        await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: keys);
+      } catch (_) {}
+    }
+    _sessionUploadedKeys.clear();
+  }
+
+  void _trackUpload(String objectKey) {
+    if (objectKey.isNotEmpty) _sessionUploadedKeys.add(objectKey);
+  }
+
+  Future<void> _removeImageAt(int index) async {
+    if (index < 0 || index >= _imageKeys.length) return;
+    final key = _imageKeys[index];
+    setState(() {
+      _imageKeys.removeAt(index);
+      _imageCdnUrls.remove(key);
+    });
+    try {
+      await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: [key]);
+      _sessionUploadedKeys.remove(key);
+    } catch (_) {
+      _toast('删除媒体失败');
+    }
+  }
+
+  Future<void> _removeVideo() async {
+    final key = _videoKey;
+    if (key == null || key.isEmpty) return;
+    setState(() => _videoKey = null);
+    try {
+      await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: [key]);
+      _sessionUploadedKeys.remove(key);
+    } catch (_) {
+      _toast('删除视频失败');
+    }
+  }
+
+  Future<bool> _onCloseRequested() async {
+    if (!_hasContent) return true;
+    final action = await showGlassComposeExitDialog(context);
+    switch (action) {
+      case GlassComposeExitAction.saveDraft:
+        await _persistDraft();
+        return true;
+      case GlassComposeExitAction.discard:
+        await _discardSession();
+        return true;
+      case GlassComposeExitAction.cancel:
+      case null:
+        return false;
+    }
   }
 
   Future<void> _pickImages() async {
+    if (widget.textOnly) return;
     if (_videoKey != null && _videoKey!.isNotEmpty) {
       _toast('已选择视频，不能再添加图片');
       return;
@@ -90,46 +194,57 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     }
     setState(() => _uploadingMedia = true);
     try {
-      final uploads = await ucgPickAndUploadImages(
+      final initial = await ucgPickMoreImagesForCompose(
+        context,
         repo: ref.read(ucgRepositoryProvider),
         remainingSlots: remaining,
       );
-      if (!mounted || uploads.isEmpty) return;
+      if (!mounted || initial == null || initial.isEmpty) return;
       setState(() {
-        for (final upload in uploads) {
-          _imageKeys.add(upload.objectKey);
-          final cdn = upload.cdnUrl?.trim();
-          if (cdn != null && cdn.isNotEmpty) {
-            _imageCdnUrls[upload.objectKey] = cdn;
-          }
+        for (final key in initial.imageKeys) {
+          if (_imageKeys.length >= maxImages) break;
+          _imageKeys.add(key);
+          _trackUpload(key);
         }
       });
-      unawaited(_persistDraft());
-    } catch (e) {
+    } catch (_) {
       _toast('图片上传失败');
     } finally {
       if (mounted) setState(() => _uploadingMedia = false);
     }
   }
 
-  Future<void> _pickVideo() async {
-    if (_imageKeys.isNotEmpty) {
-      _toast('已选择图片，不能再添加视频');
-      return;
-    }
-    setState(() => _uploadingMedia = true);
+  Future<bool> _ensureUcgAiPolishConsent() async {
+    if (await UcgAiPolishConsentStore.load()) return true;
+    if (!mounted) return false;
+    final agreed = await showGlassConfirmDialog(
+          context,
+          title: '使用 AI 润笔前请知悉',
+          message: '您所选图片及当前正文将发送至第三方 AI 服务，用于生成润色文案。',
+          confirmLabel: '同意并继续',
+        ) ??
+        false;
+    if (!agreed) return false;
+    await UcgAiPolishConsentStore.saveAccepted();
+    return true;
+  }
+
+  Future<void> _polishWithAi() async {
+    if (!_showAiPolish || _polishing) return;
+    if (!await _ensureUcgAiPolishConsent()) return;
+    setState(() => _polishing = true);
     try {
-      final upload = await ucgPickAndUploadVideo(repo: ref.read(ucgRepositoryProvider));
+      final polished = await ref.read(ucgRepositoryProvider).polishPost(
+            imageKeys: List.unmodifiable(_imageKeys),
+            text: _text.text,
+          );
       if (!mounted) return;
-      if (upload == null) return;
-      setState(() => _videoKey = upload.objectKey);
-      unawaited(_persistDraft());
-    } on StateError catch (e) {
-      _toast(e.message);
+      _text.text = polished;
+      _toast('已润笔，可继续编辑');
     } catch (_) {
-      _toast('视频上传失败');
+      _toast('AI 润笔失败');
     } finally {
-      if (mounted) setState(() => _uploadingMedia = false);
+      if (mounted) setState(() => _polishing = false);
     }
   }
 
@@ -143,8 +258,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       _toast('请输入内容或添加媒体');
       return;
     }
-    if (_uploadingMedia) {
-      _toast('媒体上传中，请稍候');
+    if (_busy) {
+      _toast('请稍候');
       return;
     }
     setState(() => _publishing = true);
@@ -158,146 +273,235 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
       ref.invalidate(ucgMyProfileProvider);
       if (mounted) Navigator.pop(context);
-    } catch (e) {
+    } catch (_) {
       _toast('发布失败');
     } finally {
       if (mounted) setState(() => _publishing = false);
     }
   }
 
+  void _reorderImages(int from, int to) {
+    if (from == to || from < 0 || to < 0 || from >= _imageKeys.length || to >= _imageKeys.length) {
+      return;
+    }
+    setState(() {
+      final item = _imageKeys.removeAt(from);
+      _imageKeys.insert(to, item);
+    });
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final busy = _publishing || _uploadingMedia;
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
+    final shellFg = tokens?.onShell ?? scheme.onSurface;
+    final hintColor = ucgComposeLightHintColor(context);
+    final secondaryColor = ucgComposeLightSecondaryColor(context);
 
-    return UcgScaffold(
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          UcgImmersiveHeader(
-            title: widget.editingPost == null ? '发布动态' : '编辑动态',
-            subtitle: '分享宝宝的可爱瞬间',
-            leading: IconButton(
-              icon: const Icon(Icons.close_rounded),
-              onPressed: busy ? null : () => Navigator.pop(context),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (await _onCloseRequested() && context.mounted) {
+          Navigator.pop(context);
+        }
+      },
+      child: UcgScaffold(
+        body: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                shellBg,
+                Color.alphaBlend(scheme.primary.withValues(alpha: 0.04), shellBg),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: busy ? null : _publish,
-                child: _publishing
-                    ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: primary))
-                    : Text('发布', style: TextStyle(color: primary, fontWeight: FontWeight.w600)),
-              ),
-            ],
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              children: [
-                UcgShellGlassCard(
-                  child: TextField(
-                    controller: _text,
-                    maxLines: 6,
-                    decoration: InputDecoration(
-                      hintText: '分享育儿日常…',
-                      border: InputBorder.none,
-                      hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4)),
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 12, 8),
+                    child: SizedBox(
+                      height: 44,
+                      child: Row(
+                        children: [
+                          TextButton(
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                                    if (await _onCloseRequested() && context.mounted) {
+                                      Navigator.pop(context);
+                                    }
+                                  },
+                            child: Text('取消', style: TextStyle(color: shellFg, fontSize: 16)),
+                          ),
+                          const Spacer(),
+                          FilledButton(
+                            onPressed: _busy ? null : _publish,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: scheme.primary,
+                              foregroundColor: scheme.onPrimary,
+                              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+                              shape: const StadiumBorder(),
+                            ),
+                            child: _publishing
+                                ? SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: scheme.onPrimary,
+                                    ),
+                                  )
+                                : const Text('发表'),
+                          ),
+                        ],
+                      ),
                     ),
-                    onChanged: (_) => unawaited(_persistDraft()),
                   ),
-                ),
-                const SizedBox(height: 12),
-                if (_imageKeys.isNotEmpty) ...[
-                  UcgShellGlassCard(
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       children: [
-                        for (final key in _imageKeys)
-                          Stack(
-                            clipBehavior: Clip.none,
+                        UcgComposeLightGlassPanel(
+                          eventAccent: scheme.primary,
+                          contentPadding: const EdgeInsets.fromLTRB(18, 20, 18, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: UcgNetworkImage(
-                                  url: UcgMediaUrl.resolveUrl(
-                                    objectKey: key,
-                                    cdnUrl: _imageCdnUrls[key],
+                              ManagedKeyboardTextField(
+                                controller: _text,
+                                maxLines: 6,
+                                hint: _bodyHint,
+                                scene: 'ucg.compose.body',
+                                onConfirm: () => unawaited(_persistDraft()),
+                                style: TextStyle(color: shellFg, fontSize: 16, height: 1.45),
+                                decoration: InputDecoration(
+                                  hintText: _bodyHint,
+                                  border: InputBorder.none,
+                                  hintStyle: TextStyle(color: hintColor),
+                                ),
+                              ),
+                              if (_showImageGrid) ...[
+                                const SizedBox(height: 12),
+                                UcgComposeImageGrid(
+                                  imageKeys: _imageKeys,
+                                  cdnUrls: _imageCdnUrls,
+                                  busy: _publishing || _polishing,
+                                  addBusy: _uploadingMedia,
+                                  canAddMore: _canAddImages,
+                                  onAddTap: () => unawaited(_pickImages()),
+                                  onReorder: _reorderImages,
+                                  onDragStarted: (_) => setState(() => _draggingImage = true),
+                                  onDragEnded: () => setState(() => _draggingImage = false),
+                                ),
+                              ],
+                              if (_videoKey != null && _videoKey!.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: UcgNetworkImage(
+                                        url: UcgMediaUrl.resolveUrl(objectKey: _videoKey!),
+                                        width: 56,
+                                        height: 56,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Icon(Icons.videocam_rounded, color: secondaryColor),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _videoKey!.split('/').last,
+                                        style: TextStyle(color: secondaryColor, fontSize: 13),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: _busy ? null : () => unawaited(_removeVideo()),
+                                      icon: Icon(Icons.close_rounded, color: secondaryColor),
+                                    ),
+                                  ],
+                                ),
+                                if (!widget.textOnly)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      '更换视频请关闭并重新从发布入口选择',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: secondaryColor.withValues(alpha: 0.85),
+                                      ),
+                                    ),
                                   ),
-                                  width: 76,
-                                  height: 76,
-                                  fit: BoxFit.cover,
+                              ],
+                              if (_showAiPolish) ...[
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                    onPressed: _polishing ? null : () => unawaited(_polishWithAi()),
+                                    icon: _polishing
+                                        ? SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: scheme.primary,
+                                            ),
+                                          )
+                                        : Icon(Icons.auto_fix_high_outlined, size: 18, color: scheme.primary),
+                                    label: Text(
+                                      _polishing ? '润笔中…' : 'AI润笔',
+                                      style: TextStyle(color: shellFg),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              Positioned(
-                                top: -6,
-                                right: -6,
-                                child: IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: EdgeInsets.zero,
-                                  iconSize: 20,
-                                  onPressed: busy
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _imageKeys.remove(key);
-                                            _imageCdnUrls.remove(key);
-                                          });
-                                          unawaited(_persistDraft());
-                                        },
-                                  icon: Icon(Icons.cancel_rounded, color: primary.withValues(alpha: 0.8)),
+                              ],
+                              if (_uploadingMedia)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    '上传中…',
+                                    style: TextStyle(fontSize: 12, color: secondaryColor.withValues(alpha: 0.85)),
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (_videoKey != null && _videoKey!.isNotEmpty) ...[
-                  UcgShellGlassCard(
-                    child: Row(
-                      children: [
-                        Icon(Icons.videocam_rounded, color: primary),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(_videoKey!.split('/').last)),
-                        IconButton(
-                          onPressed: busy
-                              ? null
-                              : () {
-                                  setState(() => _videoKey = null);
-                                  unawaited(_persistDraft());
-                                },
-                          icon: const Icon(Icons.close_rounded),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
                 ],
-                UcgShellGlassCard(
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      UcgInteractionChip(
-                        icon: Icons.photo_outlined,
-                        label: _uploadingMedia ? '上传中…' : '添加图片',
-                        onTap: busy ? null : () => unawaited(_pickImages()),
-                      ),
-                      UcgInteractionChip(
-                        icon: Icons.videocam_outlined,
-                        label: '添加视频',
-                        onTap: busy ? null : () => unawaited(_pickVideo()),
-                      ),
-                    ],
+              ),
+              if (_draggingImage)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: UcgComposeDeleteOverlay(
+                    onAccept: (index) {
+                      unawaited(_removeImageAt(index));
+                      if (mounted) setState(() => _draggingImage = false);
+                    },
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

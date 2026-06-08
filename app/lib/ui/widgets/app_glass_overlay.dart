@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../ucg/ui/widgets/ucg_compose_light_glass_panel.dart';
 import '../home_history_edit_glass_panel.dart';
 import 'app_adaptive_bottom_sheet.dart';
 
@@ -20,6 +21,7 @@ Future<T?> showGlassAdaptiveBottomSheet<T>({
   bool scrollable = true,
   bool respectKeyboardInset = false,
   bool useRootNavigator = false,
+  bool useLightGlass = false,
 }) {
   return showModalBottomSheet<T>(
     context: context,
@@ -33,12 +35,18 @@ Future<T?> showGlassAdaptiveBottomSheet<T>({
     builder: (ctx) {
       Widget inner = bodyBuilder(ctx);
       if (wrapInGlassPanel) {
-        inner = HistoryEditGlassPanel(
-          eventAccent: eventAccent,
-          onClose: onClose ?? () => Navigator.pop(ctx),
-          contentPadding: glassContentPadding,
-          child: inner,
-        );
+        inner = useLightGlass
+            ? UcgComposeLightGlassPanel(
+                eventAccent: eventAccent,
+                contentPadding: glassContentPadding,
+                child: inner,
+              )
+            : HistoryEditGlassPanel(
+                eventAccent: eventAccent,
+                onClose: onClose ?? () => Navigator.pop(ctx),
+                contentPadding: glassContentPadding,
+                child: inner,
+              );
       }
 
       return Padding(
@@ -67,6 +75,7 @@ Future<T?> showGlassDialog<T>({
   bool barrierDismissible = true,
   bool wrapInGlassPanel = true,
   bool useRootNavigator = true,
+  bool useLightGlass = false,
 }) {
   return showDialog<T>(
     context: context,
@@ -79,11 +88,16 @@ Future<T?> showGlassDialog<T>({
           : null;
       Widget inner = contentBuilder(dialogContext);
       if (wrapInGlassPanel) {
-        inner = HistoryEditGlassPanel(
-          eventAccent: eventAccent,
-          onClose: onClose,
-          child: inner,
-        );
+        inner = useLightGlass
+            ? UcgComposeLightGlassPanel(
+                eventAccent: eventAccent,
+                child: inner,
+              )
+            : HistoryEditGlassPanel(
+                eventAccent: eventAccent,
+                onClose: onClose,
+                child: inner,
+              );
       }
       return Center(
         child: Padding(
@@ -161,6 +175,69 @@ Future<bool?> showGlassConfirmDialog(
                   shape: const StadiumBorder(),
                 ),
                 child: Text(confirmLabel),
+              ),
+            ],
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// 发布页退出三选玻璃对话框：保存草稿 / 放弃 / 取消。
+enum GlassComposeExitAction { saveDraft, discard, cancel }
+
+Future<GlassComposeExitAction?> showGlassComposeExitDialog(BuildContext context) {
+  return showGlassDialog<GlassComposeExitAction>(
+    context: context,
+    useLightGlass: true,
+    contentBuilder: (ctx) {
+      final textColor = ucgComposeLightTextColor(ctx);
+      final secondaryColor = ucgComposeLightSecondaryColor(ctx);
+      final scheme = Theme.of(ctx).colorScheme;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '退出编辑',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.25,
+              fontWeight: FontWeight.w600,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '是否保存草稿？',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, height: 1.4, color: secondaryColor),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, GlassComposeExitAction.discard),
+                style: TextButton.styleFrom(foregroundColor: secondaryColor),
+                child: const Text('放弃'),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, GlassComposeExitAction.cancel),
+                style: TextButton.styleFrom(foregroundColor: secondaryColor),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, GlassComposeExitAction.saveDraft),
+                style: FilledButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: const StadiumBorder(),
+                ),
+                child: const Text('保存草稿'),
               ),
             ],
           ),

@@ -5,13 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/app_visual_tokens.dart';
 import '../../providers/session_provider.dart';
+import '../../session/token_expiry.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_chat_screen.dart';
 import 'ucg_login_gate.dart';
 import 'widgets/ucg_network_image.dart';
-import 'widgets/ucg_profile_header.dart';
 import 'widgets/ucg_visual_widgets.dart';
+import 'ucg_profile_shell.dart';
 
 class UcgUserProfileScreen extends ConsumerStatefulWidget {
   const UcgUserProfileScreen({super.key, required this.userId});
@@ -100,59 +101,36 @@ class _UcgUserProfileScreenState extends ConsumerState<UcgUserProfileScreen> {
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
-    final primary = Theme.of(context).colorScheme.primary;
     final mine = ref.watch(ucgCurrentUserIdProvider) == widget.userId;
+    final wxBound = isUcgWxAccountBound(ref.watch(ucgCurrentUserIdProvider));
 
     return UcgScaffold(
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          UcgImmersiveHeader(
-            title: '',
-            showTitle: false,
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: fg.withValues(alpha: 0.75)),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : _profile == null
-                    ? const UcgEmptyState(
-                        icon: Icons.person_off_outlined,
-                        title: '用户不存在',
-                        subtitle: '该用户可能已注销或不可见',
-                      )
-                    : ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        children: [
-                          UcgShellGlassCard(
-                            child: UcgProfileHeader(
-                              avatar: _ProfileAvatarRing(
-                                avatarUrl: _profile!.avatarUrl,
-                                primary: primary,
-                                radius: 42,
-                              ),
-                              nickname: _profile!.nickname,
-                              bio: _profile!.bio.isNotEmpty ? _profile!.bio : null,
-                              followingCount: _profile!.followingCount,
-                              ipLocationText: _profile!.ipLocationDisplay,
-                              actions: !mine
-                                  ? UcgProfileActionRow(
-                                      isFollowing: _isFollowing,
-                                      followBusy: _followBusy,
-                                      onFollow: _toggleFollow,
-                                      onMessage: _startChat,
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-          ),
-        ],
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+          : _profile == null
+              ? const UcgEmptyState(
+                  icon: Icons.person_off_outlined,
+                  title: '用户不存在',
+                  subtitle: '该用户可能已注销或不可见',
+                )
+              : UcgProfileShell(
+                  mode: UcgProfileMode.viewerScreen,
+                  profile: _profile!,
+                  postsSource:
+                      mine ? UcgProfilePostsSource.mine : UcgProfilePostsSource.user,
+                  postsUserId: mine ? null : widget.userId,
+                  showOwnerActions: mine,
+                  wxBound: wxBound,
+                  leading: IconButton(
+                    icon: Icon(Icons.arrow_back_ios_new_rounded,
+                        size: 18, color: fg.withValues(alpha: 0.75)),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  isFollowing: _isFollowing,
+                  followBusy: _followBusy,
+                  onFollow: mine ? null : _toggleFollow,
+                  onMessage: mine ? null : _startChat,
+                ),
     );
   }
 }
@@ -215,7 +193,7 @@ class _UcgFollowListScreenState extends ConsumerState<UcgFollowListScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (_, i) {
                           final p = _items[i];
-                          return UcgShellGlassCard(
+                          return UcgSurfaceCard(
                             onTap: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute<void>(
@@ -226,7 +204,7 @@ class _UcgFollowListScreenState extends ConsumerState<UcgFollowListScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                             child: Row(
                               children: [
-                                _ProfileAvatarRing(
+                                UcgProfileAvatarRing(
                                   avatarUrl: p.avatarThumbnailUrl,
                                   primary: primary,
                                   radius: 22,
@@ -251,8 +229,9 @@ class _UcgFollowListScreenState extends ConsumerState<UcgFollowListScreen> {
   }
 }
 
-class _ProfileAvatarRing extends StatelessWidget {
-  const _ProfileAvatarRing({
+class UcgProfileAvatarRing extends StatelessWidget {
+  const UcgProfileAvatarRing({
+    super.key,
     required this.avatarUrl,
     required this.primary,
     required this.radius,

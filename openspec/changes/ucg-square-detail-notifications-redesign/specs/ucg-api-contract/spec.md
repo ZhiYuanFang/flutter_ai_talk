@@ -37,5 +37,19 @@ Post list and single-post responses SHALL include `author.bio` (alias `authorBio
 - **THEN** Client SHALL 调用 `GET /ucg/app/api/posts/{postId}`
 
 #### Scenario: 拉取互动消息
-- **WHEN** 用户打开「互动消息」列表
+- **WHEN** 用户打开 `UcgInteractionInboxScreen`
 - **THEN** Client SHALL 调用 `GET /ucg/app/api/notifications/comments` 并解析分页 envelope
+
+## MODIFIED Requirements
+
+### Requirement: Comment notification DTO SHALL expose postThumbUrl and postMediaKind
+
+`GET /notifications/comments` list items and Flutter `UcgCommentNotification` SHALL include `postThumbUrl` (string) and `postMediaKind` (int: 0=none, 1=image, 2=video) sourced from notification row columns written at insert time. These fields SHALL be optional for backward compatibility with rows created before migration (empty thumb, kind 0).
+
+#### Scenario: API 返回封面快照
+- **WHEN** 客户端拉取含图片或视频帖的通知
+- **THEN** 响应 item SHALL 含非空 `postThumbUrl`（视频为 OSS snapshot URL）及正确 `postMediaKind`
+
+#### Scenario: Flutter 模型映射
+- **WHEN** Flutter 解析 notification JSON
+- **THEN** `UcgCommentNotification` SHALL 映射 `postThumbUrl` 与 `postMediaKind` 供 Inbox 缩略图渲染

@@ -399,6 +399,22 @@ class UcgPagedPosts {
   bool get hasMore => page * pageSize < total;
 }
 
+class UcgPagedConversations {
+  const UcgPagedConversations({
+    required this.items,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+  });
+
+  final List<UcgConversation> items;
+  final int page;
+  final int pageSize;
+  final int total;
+
+  bool get hasMore => page * pageSize < total;
+}
+
 class UcgCommentNotification {
   const UcgCommentNotification({
     required this.id,
@@ -409,6 +425,8 @@ class UcgCommentNotification {
     required this.actorNickname,
     this.actorAvatarUrl,
     this.preview = '',
+    this.postThumbUrl = '',
+    this.postMediaKind = 0,
     this.read = false,
     required this.createdAt,
   });
@@ -421,6 +439,8 @@ class UcgCommentNotification {
   final String actorNickname;
   final String? actorAvatarUrl;
   final String preview;
+  final String postThumbUrl;
+  final int postMediaKind;
   final bool read;
   final DateTime createdAt;
 
@@ -443,6 +463,8 @@ class UcgCommentNotification {
       actorNickname: actorNickname,
       actorAvatarUrl: actorAvatarUrl,
       preview: json['preview'] as String? ?? '',
+      postThumbUrl: json['postThumbUrl'] as String? ?? '',
+      postMediaKind: _int(json['postMediaKind']),
       read: json['read'] == true,
       createdAt: _date(json['createdAt']),
     );

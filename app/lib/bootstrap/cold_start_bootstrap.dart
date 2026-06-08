@@ -33,7 +33,7 @@ class ColdStartBootstrap {
     ]);
     final themePrefs = loaded[1] as ThemePreferences;
     return ColdStartResult(
-      route: session.isLoggedIn ? '/home' : '/login',
+      route: '/home',
       cachedSex: loaded[0] as BabySex?,
       cachedBg: themePrefs.seed,
       cachedPreset: themePrefs.preset,

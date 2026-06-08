@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 import 'ucg_media_compress.dart';
@@ -19,11 +21,14 @@ Future<UcgUploadResult> ucgUploadBytes({
   final prepared = isVideo
       ? bytes
       : await ucgCompressImageBytes(bytes);
+  final contentHash = sha256.convert(prepared).toString();
   return repo.uploadMediaBytes(
     isVideo: isVideo,
     fileName: fileName,
     bytes: prepared,
     contentType: contentType,
+    contentHash: contentHash,
+    transformVersion: kUcgMediaTransformVersion,
   );
 }
 
@@ -44,11 +49,40 @@ Future<UcgUploadResult?> ucgPickAndUploadSingleImage({
   );
 }
 
+Future<UcgUploadResult?> ucgCaptureAndUploadPhoto({
+  required UcgRepository repo,
+}) async {
+  if (kIsWeb) return null;
+  final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+  if (picked == null) return null;
+  final bytes = await picked.readAsBytes();
+  final name = ucgFallbackFileName(isVideo: false, path: picked.path);
+  return ucgUploadBytes(
+    repo: repo,
+    bytes: bytes,
+    fileName: name,
+    contentType: ucgContentTypeForFileName(name),
+    isVideo: false,
+  );
+}
+
+Future<UcgUploadResult?> ucgCaptureAndUploadVideo({
+  required UcgRepository repo,
+}) async {
+  if (kIsWeb) return null;
+  return ucgPickAndUploadVideo(repo: repo, source: ImageSource.camera);
+}
+
 Future<List<UcgUploadResult>> ucgPickAndUploadImages({
   required UcgRepository repo,
   required int remainingSlots,
+  ImageSource source = ImageSource.gallery,
 }) async {
   if (remainingSlots <= 0) return const [];
+  if (source == ImageSource.camera) {
+    final one = await ucgCaptureAndUploadPhoto(repo: repo);
+    return one == null ? const [] : [one];
+  }
   final picked = await _picker.pickMultiImage(
     limit: remainingSlots,
     imageQuality: 85,
@@ -73,9 +107,10 @@ Future<List<UcgUploadResult>> ucgPickAndUploadImages({
 
 Future<UcgUploadResult?> ucgPickAndUploadVideo({
   required UcgRepository repo,
+  ImageSource source = ImageSource.gallery,
 }) async {
   final file = await _picker.pickVideo(
-    source: ImageSource.gallery,
+    source: source,
     maxDuration: UcgMediaLimits.videoMaxDuration,
   );
   if (file == null) return null;
