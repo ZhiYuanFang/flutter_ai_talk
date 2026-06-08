@@ -16,7 +16,7 @@ class HomeInputModeDock extends StatefulWidget {
     required this.bounds,
     required this.bottomInputPanelHeight,
     required this.currentChannel,
-    required this.showButtonsOption,
+    required this.dockCycleChannels,
     required this.onChannelSelected,
     this.restrictToHorizontalEdges = false,
   });
@@ -24,7 +24,7 @@ class HomeInputModeDock extends StatefulWidget {
   final Rect bounds;
   final double bottomInputPanelHeight;
   final HomeInputChannel currentChannel;
-  final bool showButtonsOption;
+  final List<HomeInputChannel> dockCycleChannels;
   final ValueChanged<HomeInputChannel> onChannelSelected;
 
   /// Web：仅左右吸附。
@@ -131,12 +131,7 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
     return Offset.lerp(semi, full, reveal.clamp(0.0, 1.0))!;
   }
 
-  List<HomeInputChannel> get _availableChannels {
-    if (widget.showButtonsOption) {
-      return const [HomeInputChannel.buttons, HomeInputChannel.voice];
-    }
-    return const [HomeInputChannel.voice, HomeInputChannel.text];
-  }
+  List<HomeInputChannel> get _availableChannels => widget.dockCycleChannels;
 
   HomeInputChannel _nextChannel(HomeInputChannel current) {
     final channels = _availableChannels;

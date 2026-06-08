@@ -280,22 +280,12 @@ flutter run -d chrome --dart-define=MOCK_NEWER_VERSION=true --web-browser-flag "
 | `REFRESH_TOKEN_PATH` | 静默刷新 access token 的 POST path（相对 [apiBaseUrl]）；请求体字段 **`refreshToken`**；设为空字符串可关闭 |
 | `IOS_APP_STORE_ID` | App Store 数字 ID（占位） |
 | `MOCK_NEWER_VERSION` | `true` 时强制出现「发现新版本」提示（联调 UI） |
-| `WEB_HOME_INPUT` | Web 主页主输入：`text`（默认）或 `voice`（按住说话 + STT，与移动端一致；失败时自动降级为文字） |
 
 示例：
 
 ```bash
 flutter run --dart-define=MOCK_NEWER_VERSION=true --dart-define=PRIVACY_POLICY_URL=https://example.com/privacy
 ```
-
-Web 语音主输入（Chrome 等需允许麦克风；本地 `localhost` 通常可用）：
-
-```bash
-cd app
-flutter run -d chrome --dart-define=WEB_HOME_INPUT=voice
-```
-
-也可修改源码中的默认：`lib/config/web_home_input_mode.dart` 内常量 `kDefaultWebHomeInputMode`（未传 `WEB_HOME_INPUT` 时生效）。
 
 ### 登录（微信 + 账号密码）
 
@@ -381,7 +371,7 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 ## 交互说明（M2）
 
 - **主页历史列表**：每条为富文本摘要；点击一行在主页底部弹出 **编辑 Sheet**，可滚轮调整时分（不改日期）、编辑备注/用量、停止计时或删除，保存走 `POST /device/history/api/event/update`。更新请求体中 **`startTime` / `endTime` 为 Unix 秒级整型时间戳**（与列表解析一致，非毫秒）。`pending:*` 乐观记录在同步完成前为只读。
-- **Web 主输入**：默认 **单行** 输入框，**Enter** 或「提交」走 `POST /device/history/api/chat`。通过 `WEB_HOME_INPUT=voice`（或改 `kDefaultWebHomeInputMode`）可改为按住说话；识别不可用时自动回到文字并提示。
+- **Web 主输入**：默认与 App 一致为**事件按钮网格**；贴边 dock 可在**按钮 ↔ 文字**间切换。文字模式下 **Enter** 或「提交」走 `POST /device/history/api/chat`。游客或未绑宝宝时仅展示按钮、不显示 dock。
 - **趋势中心**：先拉取服务端事件目录，**下拉单选**某一事件后加载 `piece`；展示 **折线 + 量柱**（同一标量：计时类 `eventNumber==0` 为持续**小时数**，否则为次数）。时间范围仍为今日/周/月/季。
 
 ## 已知限制

@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../config/event_number_memory_store.dart';
+import '../config/event_remark_memory_store.dart';
 import '../data/event_definition.dart';
 import '../data/history_mapper.dart';
 import 'event_logo.dart';
@@ -11,6 +12,7 @@ import 'home_event_number_picker.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/event_remark_quick_tags.dart';
 import 'widgets/keyboard_input_bridge.dart';
 
 /// number 类型事件二级页确认结果。
@@ -127,18 +129,26 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
     setState(() => _selectedTime = _withTodayDate(picked));
   }
 
+  void _onRemarkTagSelected(String text) {
+    _remarkCtrl.text = text;
+    keyboardInputBridgeController.updateDraft(text);
+    setState(() {});
+  }
+
   void _confirm() {
     final index = _usagePickerCtrl.hasClients ? _usagePickerCtrl.selectedItem : 0;
     final usage = HomeEventNumberPicker.valueAtIndex(index);
+    final remark = _remarkCtrl.text.trim();
     if (widget.initialUsage == null) {
       unawaited(EventNumberMemoryStore.save(widget.event.id, usage));
     }
+    unawaited(EventRemarkMemoryStore.save(widget.event.id, remark));
     Navigator.pop(
       context,
       HomeNumberEventResult(
         startTime: _withTodayDate(_selectedTime),
         eventNumber: usage,
-        remark: _remarkCtrl.text.trim(),
+        remark: remark,
       ),
     );
   }
@@ -221,6 +231,10 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
             onTap: _onRemarkFocusChange,
             onChanged: keyboardInputBridgeController.updateDraft,
             onSubmitted: (_) => FocusScope.of(context).unfocus(),
+          ),
+          EventRemarkQuickTags(
+            eventId: widget.event.id,
+            onSelect: _onRemarkTagSelected,
           ),
           const SizedBox(height: 16),
           Align(

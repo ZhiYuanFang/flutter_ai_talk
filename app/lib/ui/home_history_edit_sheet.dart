@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/event_remark_memory_store.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
@@ -15,6 +18,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/event_remark_quick_tags.dart';
 import 'widgets/keyboard_input_bridge.dart';
 
 /// 主页历史行编辑：玻璃拟态底部 Sheet，返回 `true` 表示列表已变更。
@@ -83,6 +87,12 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     _remarkCtrl.dispose();
     _usagePickerCtrl.dispose();
     super.dispose();
+  }
+
+  void _onRemarkTagSelected(String text) {
+    _remarkCtrl.text = text;
+    keyboardInputBridgeController.updateDraft(text);
+    setState(() {});
   }
 
   void _onRemarkFocusChange() {
@@ -312,6 +322,7 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     if (!mounted) return;
     setState(() => _saving = false);
     if (!ok || updated == null) return;
+    unawaited(EventRemarkMemoryStore.save(historyRecordEventId(r), remark));
     widget.history.replaceRecord(updated);
     showAppToast('已保存', tone: AppToastTone.success);
     Navigator.pop(context, true);
@@ -488,6 +499,10 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
               onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
               onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
               maxLines: 1,
+            ),
+            EventRemarkQuickTags(
+              eventId: historyRecordEventId(r),
+              onSelect: _onRemarkTagSelected,
             ),
             if (showStop) ...[
               const SizedBox(height: 12),

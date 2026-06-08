@@ -17,7 +17,6 @@ import '../config/home_input_channel_store.dart';
 import '../config/recording_diagnostics_store.dart';
 import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
-import '../config/web_home_input_mode.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../data/event_branding.dart';
 import '../bootstrap/cold_start_background_sync.dart';
@@ -86,11 +85,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   var _listening = false;
   String _partial = '';
 
-  /// 首页输入方式：移动端默认事件按钮；Web 由 `WEB_HOME_INPUT` 决定。
-  HomeInputChannel _inputChannel =
-      kIsWeb ? HomeInputChannel.voice : HomeInputChannel.buttons;
-
-  late final WebHomeInputMode _webHomeInputMode;
+  /// 首页输入方式：全平台默认事件按钮；dock 在平台通道集内轮转。
+  HomeInputChannel _inputChannel = HomeInputChannel.buttons;
 
   HomeHistoryNotifier get _history => ref.read(homeHistoryProvider.notifier);
   final Set<String> _stoppingRecordIds = {};
@@ -153,10 +149,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _voiceLevelSmoother = VoiceLevelSmoother(_voiceLevelNotifier);
     _recordingDiagnosticsNotifier =
         ValueNotifier(const RecordingDiagnosticsSnapshot());
-    _webHomeInputMode = kIsWeb ? resolveWebHomeInputMode() : WebHomeInputMode.text;
-    if (kIsWeb && _webHomeInputMode == WebHomeInputMode.text) {
-      _inputChannel = HomeInputChannel.text;
-    }
     if (ref.read(sessionProvider).isLoggedIn) {
       unawaited(ref.read(deviceNoNotifierProvider.notifier).refresh());
       unawaited(ref.read(signInChannelProvider.notifier).restoreFromPrefs());
@@ -196,8 +188,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   bool _isInputChannelAvailable(HomeInputChannel channel) {
     if (kIsWeb) {
       return switch (channel) {
-        HomeInputChannel.voice || HomeInputChannel.text => true,
-        HomeInputChannel.buttons => false,
+        HomeInputChannel.buttons || HomeInputChannel.text => true,
+        HomeInputChannel.voice => false,
       };
     }
     return switch (channel) {
@@ -212,9 +204,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!mounted) return;
     final channel = _inputChannelFromStorage(saved);
     if (channel == null || !_isInputChannelAvailable(channel)) return;
-    if (kIsWeb && _webHomeInputMode == WebHomeInputMode.text && channel != HomeInputChannel.text) {
-      return;
-    }
     if (_inputChannel == channel) return;
     if (channel == HomeInputChannel.voice) {
       await _selectInputChannel(channel, persist: false);
@@ -224,11 +213,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _scheduleHistoryReanchorAfterInputModeChange();
   }
 
-  bool get _canSwitchInputMode =>
-      !kIsWeb || _webHomeInputMode == WebHomeInputMode.voice;
-
-  /// 按钮模式仅在 Android/iOS 提供；Web 沿用 `WEB_HOME_INPUT` 语音/文字策略。
-  bool get _showButtonsInputMode => !kIsWeb;
+  List<HomeInputChannel> get _dockCycleChannels => kIsWeb
+      ? const [HomeInputChannel.buttons, HomeInputChannel.text]
+      : const [HomeInputChannel.buttons, HomeInputChannel.voice];
 
   double get _bottomInputPanelHeight => switch (_inputChannel) {
         HomeInputChannel.buttons => kHomeButtonInputPanelHeight,
@@ -335,9 +322,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   Future<void> _selectInputChannel(HomeInputChannel channel, {bool persist = true}) async {
     if (_inputChannel == channel) return;
-    if (channel == HomeInputChannel.voice &&
-        _showButtonsInputMode &&
-        !_hasBoundDeviceNo()) {
+    if (channel == HomeInputChannel.voice && !_hasBoundDeviceNo()) {
       return;
     }
     if (channel != HomeInputChannel.voice && _listening) {
@@ -1200,7 +1185,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       if (nextDn == null || nextDn.isEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          if (_showButtonsInputMode && _inputChannel != HomeInputChannel.buttons) {
+          if (_inputChannel != HomeInputChannel.buttons) {
             unawaited(_selectInputChannel(HomeInputChannel.buttons, persist: false));
           }
         });
@@ -1250,9 +1235,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           orElse: () => false,
         );
     final blockHomeInputChrome = needsGuestLogin || needsDeviceBind;
-    if (blockHomeInputChrome &&
-        _showButtonsInputMode &&
-        _inputChannel != HomeInputChannel.buttons) {
+    if (blockHomeInputChrome && _inputChannel != HomeInputChannel.buttons) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_selectInputChannel(HomeInputChannel.buttons, persist: false));
@@ -1420,13 +1403,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     ),
                   ],
                 ),
-                if (_canSwitchInputMode && !blockHomeInputChrome)
+                if (!blockHomeInputChrome)
                   Positioned.fill(
                     child: HomeInputModeDock(
                       bounds: dockBounds,
                       bottomInputPanelHeight: _bottomInputPanelHeight,
                       currentChannel: _inputChannel,
-                      showButtonsOption: _showButtonsInputMode,
+                      dockCycleChannels: _dockCycleChannels,
                       restrictToHorizontalEdges: kIsWeb,
                       onChannelSelected: (channel) => unawaited(_selectInputChannel(channel)),
                     ),
