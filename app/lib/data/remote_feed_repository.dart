@@ -688,6 +688,11 @@ class RemoteFeedRepository implements FeedRepository {
     int? usageCount,
     bool clearEndIfNull = false,
     HistoryRecord? fallbackRecord,
+    int? postId,
+    int? mediaType,
+    List<String>? imageKeys,
+    String? videoKey,
+    bool patchMediaFields = false,
   }) async {
     final existing = await getRecord(id) ?? fallbackRecord;
     if (existing == null) return false;
@@ -698,6 +703,11 @@ class RemoteFeedRepository implements FeedRepository {
       endTime: endTime,
       usageCount: usageCount,
       clearEndIfNull: clearEndIfNull,
+      postId: postId,
+      mediaType: mediaType,
+      imageKeys: imageKeys,
+      videoKey: videoKey,
+      patchMediaFields: patchMediaFields,
     );
     _ensureDeviceNoOnBody(body);
     try {

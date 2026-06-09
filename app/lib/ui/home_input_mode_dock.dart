@@ -19,6 +19,7 @@ class HomeInputModeDock extends StatefulWidget {
     required this.dockCycleChannels,
     required this.onChannelSelected,
     this.restrictToHorizontalEdges = false,
+    this.onDraggingChanged,
   });
 
   final Rect bounds;
@@ -29,6 +30,9 @@ class HomeInputModeDock extends StatefulWidget {
 
   /// Web：仅左右吸附。
   final bool restrictToHorizontalEdges;
+
+  /// 拖动 reposition 开始/结束时通知上层（用于暂停外层 PageView 横滑）。
+  final ValueChanged<bool>? onDraggingChanged;
 
   @override
   State<HomeInputModeDock> createState() => _HomeInputModeDockState();
@@ -219,6 +223,7 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
     if (_pointerDownGlobal == null || _cycleInProgress) return;
     if (!_isDragging && (event.position - _pointerDownGlobal!).distance > _tapSlop) {
       _isDragging = true;
+      widget.onDraggingChanged?.call(true);
       setState(() {
         _dragCenter ??= _visualCenter(reveal: _revealController.value);
       });
@@ -266,6 +271,7 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
     _isDragging = false;
 
     if (wasDragging) {
+      widget.onDraggingChanged?.call(false);
       unawaited(_finishDrag());
       return;
     }
@@ -282,8 +288,12 @@ class _HomeInputModeDockState extends State<HomeInputModeDock> with TickerProvid
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
+    final wasDragging = _isDragging;
     _pointerDownGlobal = null;
     _isDragging = false;
+    if (wasDragging) {
+      widget.onDraggingChanged?.call(false);
+    }
     if (_dragCenter != null) {
       setState(() => _dragCenter = null);
     }

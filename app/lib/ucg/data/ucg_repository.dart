@@ -269,6 +269,33 @@ class UcgRepository {
     return UcgPost.fromJson(data ?? body);
   }
 
+  Future<UcgPost> updatePost({
+    required String postId,
+    required String text,
+    List<String> imageKeys = const [],
+    String? videoKey,
+  }) async {
+    final mediaType = videoKey != null && videoKey.isNotEmpty
+        ? 2
+        : (imageKeys.isNotEmpty ? 1 : 0);
+    final media = <Map<String, dynamic>>[];
+    var sort = 0;
+    for (final key in imageKeys) {
+      media.add({'objectKey': key, 'mediaKind': 1, 'sortOrder': sort++});
+    }
+    if (videoKey != null && videoKey.isNotEmpty) {
+      media.add({'objectKey': videoKey, 'mediaKind': 2, 'sortOrder': 0});
+    }
+    final body = <String, dynamic>{
+      'content': text,
+      'mediaType': mediaType,
+      'submit': true,
+      if (media.isNotEmpty) 'media': media,
+    };
+    final data = await _api.put('/posts/$postId', body);
+    return UcgPost.fromJson(data ?? body);
+  }
+
   Future<UcgPresignResult> presignMedia({
     required bool isVideo,
     required String fileName,

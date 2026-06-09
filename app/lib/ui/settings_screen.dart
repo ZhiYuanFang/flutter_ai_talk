@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../config/env.dart';
+import '../config/event_media_local_store.dart';
 import '../data/models.dart';
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
@@ -19,6 +20,7 @@ import 'account_management_sheet.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'speech_engine_tile.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/app_toast.dart';
 import 'widgets/settings_glass_panel.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -125,6 +127,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => context.push('/settings/feedback'),
                 ),
                 const SizedBox(height: 12),
+                _buildGlassTile(
+                  context,
+                  leading: Icons.photo_library_outlined,
+                  title: '清除历史媒体缓存',
+                  subtitle: '删除本地复制的历史事件图片与视频',
+                  onTap: () => _confirmClearHistoryMediaCache(context),
+                ),
+                const SizedBox(height: 12),
               ],
               const SizedBox(height: 24),
               Padding(
@@ -144,6 +154,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmClearHistoryMediaCache(BuildContext context) async {
+    final go = await showGlassConfirmDialog(
+          context,
+          title: '清除历史媒体缓存？',
+          message: '将删除本机复制的历史事件图片与视频，不影响已同步到广场的内容。',
+          confirmLabel: '清除',
+        ) ??
+        false;
+    if (!go || !context.mounted) return;
+    await EventMediaLocalStore.clearAll();
+    if (!context.mounted) return;
+    ref.showApiToast('已清除历史媒体缓存', tone: AppToastTone.success);
   }
 
   Widget _buildGlassTile(

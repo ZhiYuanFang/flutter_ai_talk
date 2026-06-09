@@ -68,7 +68,10 @@ import '../theme/theme_bootstrap_cache.dart';
 import 'version_prompt.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onDockDraggingChanged});
+
+  /// 输入模式 dock 拖动 reposition 时通知上层暂停 PageView 横滑。
+  final ValueChanged<bool>? onDockDraggingChanged;
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -1120,7 +1123,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       record: record,
       eventCatalog: ref.read(eventCatalogProvider),
       history: _history,
-      onStopActiveTimer: _stopActiveTimer,
     );
   }
 
@@ -1398,6 +1400,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       dockCycleChannels: _dockCycleChannels,
                       restrictToHorizontalEdges: kIsWeb,
                       onChannelSelected: (channel) => unawaited(_selectInputChannel(channel)),
+                      onDraggingChanged: widget.onDockDraggingChanged,
                     ),
                   ),
                 if (_flyTargetRecordId != null)

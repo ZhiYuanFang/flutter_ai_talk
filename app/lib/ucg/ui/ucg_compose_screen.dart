@@ -264,11 +264,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     }
     setState(() => _publishing = true);
     try {
-      await ref.read(ucgRepositoryProvider).createPost(
-            text: text,
-            imageKeys: _imageKeys,
-            videoKey: _videoKey,
-          );
+      if (widget.editingPost != null) {
+        await ref.read(ucgRepositoryProvider).updatePost(
+              postId: widget.editingPost!.id,
+              text: text,
+              imageKeys: _imageKeys,
+              videoKey: _videoKey,
+            );
+      } else {
+        await ref.read(ucgRepositoryProvider).createPost(
+              text: text,
+              imageKeys: _imageKeys,
+              videoKey: _videoKey,
+            );
+      }
       await ref.read(ucgComposeDraftStoreProvider).clear();
       ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
       ref.invalidate(ucgMyProfileProvider);
@@ -364,7 +373,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                       color: scheme.onPrimary,
                                     ),
                                   )
-                                : const Text('发表'),
+                                : Text(widget.editingPost != null ? '更新' : '发表'),
                           ),
                         ],
                       ),

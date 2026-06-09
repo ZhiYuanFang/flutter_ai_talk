@@ -10,6 +10,7 @@ import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import '../theme/ucg_theme.dart';
+import 'ucg_compose_screen.dart';
 import 'ucg_login_gate.dart';
 import 'ucg_profile_screens.dart';
 import 'widgets/ucg_feed_moments_widgets.dart';
@@ -368,6 +369,20 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
     );
   }
 
+  Future<void> _openEdit() async {
+    final post = _post;
+    if (post == null) return;
+    if (!await requireUcgWxAccount(context, ref)) return;
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => UcgComposeScreen(editingPost: post),
+      ),
+    );
+    if (!mounted) return;
+    await _refresh();
+  }
+
   Future<void> _confirmDelete() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -547,6 +562,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                               likedByMe: post.likedByMe,
                               onLikeTap: _toggleLike,
                               onCommentTap: () => unawaited(_openCommentSheet()),
+                              onEditTap: isAuthor ? _openEdit : null,
                               onDeleteTap: isAuthor ? _confirmDelete : null,
                             ),
                           ],

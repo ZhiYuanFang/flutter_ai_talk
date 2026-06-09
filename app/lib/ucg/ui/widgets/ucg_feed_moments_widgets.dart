@@ -262,6 +262,7 @@ class UcgMomentsActionMenu extends StatefulWidget {
     required this.onLikeTap,
     this.onLikeLongPress,
     this.onCommentTap,
+    this.onEditTap,
     this.onDeleteTap,
   });
 
@@ -269,6 +270,7 @@ class UcgMomentsActionMenu extends StatefulWidget {
   final VoidCallback? onLikeTap;
   final VoidCallback? onLikeLongPress;
   final VoidCallback? onCommentTap;
+  final VoidCallback? onEditTap;
   final VoidCallback? onDeleteTap;
 
   @override
@@ -415,6 +417,16 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
                               onTap: () {
                                 _collapse();
                                 widget.onCommentTap?.call();
+                              },
+                            ),
+                          if (widget.onEditTap != null)
+                            _ActionIcon(
+                              icon: Icons.edit_outlined,
+                              label: '编辑',
+                              color: fg.withValues(alpha: 0.75),
+                              onTap: () {
+                                _collapse();
+                                widget.onEditTap?.call();
                               },
                             ),
                           if (widget.onDeleteTap != null)

@@ -5,20 +5,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/event_remark_memory_store.dart';
+import '../config/event_square_sync_preference_store.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
+import '../data/history_edit_media_item.dart';
+import '../data/history_event_square_sync.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
 import '../data/models.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/repositories.dart';
+import '../providers/settings_baby.dart';
+import '../ucg/data/ucg_album_picker.dart';
+import '../ucg/providers/ucg_providers.dart';
 import 'event_logo.dart';
+import 'history_event_media_picker.dart';
 import 'home_event_number_picker.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/event_remark_quick_tags.dart';
+import 'widgets/history_event_media_strip.dart';
 import 'widgets/keyboard_dismiss_scope.dart';
 import 'widgets/keyboard_input_bridge.dart';
 import 'widgets/keyboard_lift.dart';
@@ -29,19 +37,18 @@ Future<bool?> showHomeHistoryEditSheet(
   required HistoryRecord record,
   required List<EventDefinition> eventCatalog,
   required HomeHistoryNotifier history,
-  required Future<bool> Function(HistoryRecord) onStopActiveTimer,
 }) {
   return showGlassAdaptiveBottomSheet<bool>(
     context: context,
     maxHeightFraction: 4 / 5,
     enableDrag: false,
     wrapInGlassPanel: false,
+    scrollable: false,
     respectKeyboardInset: true,
     bodyBuilder: (ctx) => _HomeHistoryEditSheetBody(
       recordId: record.id,
       eventCatalog: eventCatalog,
       history: history,
-      onStopActiveTimer: onStopActiveTimer,
     ),
   );
 }
@@ -51,13 +58,11 @@ class _HomeHistoryEditSheetBody extends ConsumerStatefulWidget {
     required this.recordId,
     required this.eventCatalog,
     required this.history,
-    required this.onStopActiveTimer,
   });
 
   final String recordId;
   final List<EventDefinition> eventCatalog;
   final HomeHistoryNotifier history;
-  final Future<bool> Function(HistoryRecord) onStopActiveTimer;
 
   @override
   ConsumerState<_HomeHistoryEditSheetBody> createState() => _HomeHistoryEditSheetBodyState();
@@ -72,9 +77,11 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   HistoryRecord? _record;
   DateTime _startEdit = DateTime.now();
   DateTime? _endEdit;
-  var _stoppingActive = false;
   var _saving = false;
   var _deleting = false;
+  var _syncToSquare = false;
+  var _loadingMedia = false;
+  final _media = <HistoryEditMediaItem>[];
 
   @override
   void initState() {
@@ -123,6 +130,21 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     setState(() {
       _record = r;
       _applyRecordToForm(r);
+    });
+    unawaited(_loadMediaAndSyncPref(r));
+  }
+
+  Future<void> _loadMediaAndSyncPref(HistoryRecord r) async {
+    setState(() => _loadingMedia = true);
+    final sync = await EventSquareSyncPreferenceStore.load(r.id);
+    final media = await loadHistoryEditMediaItems(r);
+    if (!mounted) return;
+    setState(() {
+      _media
+        ..clear()
+        ..addAll(media);
+      _syncToSquare = media.isEmpty ? false : sync;
+      _loadingMedia = false;
     });
   }
 
@@ -242,13 +264,21 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   Future<void> _save() async {
     final r = _record;
     if (r == null || _pending || _saving) return;
+    if (!validateHistoryEditMedia(_media)) {
+      showAppToast('最多 9 张图片或 1 条视频', tone: AppToastTone.error);
+      return;
+    }
     final n = historyPayloadInt(r.rawPayload, 'eventNumber');
     final repo = ref.read(feedRepositoryProvider);
     final remark = _remarkCtrl.text.trim();
+    final existingPostId = historyPayloadPostId(r.rawPayload);
 
     setState(() => _saving = true);
     HistoryRecord? updated;
     var ok = false;
+    DateTime? saveStart;
+    DateTime? saveEnd;
+    int? saveUsage;
 
     if (n == 0) {
       if (_endEdit != null && _endEdit!.isBefore(_startEdit)) {
@@ -256,44 +286,16 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
         setState(() => _saving = false);
         return;
       }
-      ok = await repo.updateHistoryRecord(
-        r.id,
-        remark: remark,
-        startTime: _startEdit,
-        endTime: _endEdit,
-        clearEndIfNull: true,
-        fallbackRecord: r,
-      );
-      if (ok) {
-        updated = _recordAfterLocalUpdate(
-          r,
-          remark: remark,
-          startTime: _startEdit,
-          endTime: _endEdit,
-          clearEnd: _endEdit == null,
-        );
-      }
+      saveStart = _startEdit;
+      saveEnd = _endEdit;
     } else if (n == 1) {
       if (_endEdit == null) {
         showAppToast('请选择结束时间', tone: AppToastTone.error);
         setState(() => _saving = false);
         return;
       }
-      ok = await repo.updateHistoryRecord(
-        r.id,
-        remark: remark,
-        startTime: _endEdit,
-        endTime: _endEdit,
-        fallbackRecord: r,
-      );
-      if (ok) {
-        updated = _recordAfterLocalUpdate(
-          r,
-          remark: remark,
-          startTime: _endEdit,
-          endTime: _endEdit,
-        );
-      }
+      saveStart = _endEdit;
+      saveEnd = _endEdit;
     } else {
       if (_endEdit == null) {
         showAppToast('请选择结束时间', tone: AppToastTone.error);
@@ -301,23 +303,79 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
         return;
       }
       final idx = _usagePickerCtrl.hasClients ? _usagePickerCtrl.selectedItem : 0;
-      final usage = HomeEventNumberPicker.valueAtIndex(idx);
-      ok = await repo.updateHistoryRecord(
+      saveUsage = HomeEventNumberPicker.valueAtIndex(idx);
+      saveStart = _endEdit;
+      saveEnd = _endEdit;
+    }
+
+    ok = await repo.updateHistoryRecord(
+      r.id,
+      remark: remark,
+      startTime: saveStart,
+      endTime: saveEnd,
+      usageCount: saveUsage,
+      clearEndIfNull: n == 0,
+      fallbackRecord: r,
+    );
+
+    if (ok) {
+      final syncEnabled = _effectiveSyncToSquare;
+      final baby = await ref.read(settingsBabyProvider.future);
+      final eventDef = lookupEventForRecord(widget.eventCatalog, r);
+      final syncEventName = (eventDef?.name ?? r.eventName).trim();
+      final syncResult = await runHistoryEventMediaSideEffects(
+        ucgRepo: ref.read(ucgRepositoryProvider),
+        wxId: ref.read(ucgCurrentUserIdProvider),
+        historyId: r.id,
+        babyNickname: baby.nickname,
+        eventName: syncEventName,
+        remark: remark,
+        media: List.unmodifiable(_media),
+        syncEnabled: syncEnabled,
+        existingPostId: existingPostId,
+      );
+
+      if (syncResult.skippedUcg) {
+        showAppToast('请先绑定微信账号后再同步广场', tone: AppToastTone.info);
+      } else if (syncResult.ucgError != null) {
+        showAppToast('媒体同步失败，历史已保存', tone: AppToastTone.info);
+      }
+
+      await repo.updateHistoryRecord(
         r.id,
         remark: remark,
-        startTime: _endEdit,
-        endTime: _endEdit,
-        usageCount: usage,
+        startTime: saveStart,
+        endTime: saveEnd,
+        usageCount: saveUsage,
+        clearEndIfNull: n == 0,
         fallbackRecord: r,
+        postId: syncResult.postId,
+        mediaType: syncResult.mediaType,
+        imageKeys: syncResult.imageKeys,
+        videoKey: syncResult.videoKey,
+        patchMediaFields: true,
       );
-      if (ok) {
-        updated = _recordAfterLocalUpdate(
-          r,
-          remark: remark,
-          startTime: _endEdit,
-          endTime: _endEdit,
-          usageCount: usage,
-        );
+
+      updated = _recordAfterLocalUpdate(
+        r,
+        remark: remark,
+        startTime: saveStart,
+        endTime: saveEnd,
+        usageCount: saveUsage,
+        clearEnd: n == 0 && saveEnd == null,
+      );
+      updated = applyMediaFieldsToRecord(
+        updated,
+        postId: syncResult.postId,
+        mediaType: syncResult.mediaType,
+        imageKeys: syncResult.imageKeys,
+        videoKey: syncResult.videoKey,
+      );
+
+      if (syncEnabled && syncResult.postId > 0) {
+        ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
+      } else if (!syncEnabled && existingPostId > 0) {
+        ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
       }
     }
 
@@ -325,10 +383,57 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     setState(() => _saving = false);
     if (!ok || updated == null) return;
     unawaited(EventRemarkMemoryStore.save(historyRecordEventId(r), remark));
+    unawaited(EventSquareSyncPreferenceStore.save(r.id, _effectiveSyncToSquare));
     widget.history.replaceRecord(updated);
     showAppToast('已保存', tone: AppToastTone.success);
     Navigator.pop(context, true);
   }
+
+  Future<void> _pickMedia() async {
+    final r = _record;
+    if (r == null || _pending || _saving) return;
+    try {
+      final picked = await pickHistoryEventMedia(
+        context: context,
+        repo: ref.read(ucgRepositoryProvider),
+        current: _media,
+      );
+      if (picked == null || picked.isEmpty || !mounted) return;
+      final current = List<HistoryEditMediaItem>.from(_media);
+      setState(() {
+        _media
+          ..clear()
+          ..addAll(mergeHistoryPickedMedia(current: current, picked: picked));
+      });
+    } on UcgAlbumMixedMediaException {
+      showAppToast('不能同时选择图片和视频', tone: AppToastTone.error);
+    }
+  }
+
+  void _removeMediaAt(int index) {
+    if (index < 0 || index >= _media.length) return;
+    setState(() {
+      _media.removeAt(index);
+      if (_media.isEmpty) _syncToSquare = false;
+    });
+  }
+
+  void _reorderMedia(int from, int to) {
+    if (from == to || from < 0 || to < 0 || from >= _media.length || to >= _media.length) return;
+    setState(() {
+      final item = _media.removeAt(from);
+      _media.insert(to, item);
+    });
+  }
+
+  bool get _canAddMedia {
+    if (_pending) return false;
+    if (_media.any((e) => e.isVideo)) return false;
+    if (_media.where((e) => e.isImage).length >= 9) return false;
+    return true;
+  }
+
+  bool get _effectiveSyncToSquare => _syncToSquare && _media.isNotEmpty;
 
   Future<void> _confirmDelete() async {
     final r = _record;
@@ -351,19 +456,6 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     Navigator.pop(context, true);
   }
 
-  Future<void> _stopActiveTiming() async {
-    final r = _record;
-    if (r == null || _pending || _stoppingActive || !isActiveTimingRecord(r)) return;
-    setState(() => _stoppingActive = true);
-    final ok = await widget.onStopActiveTimer(r);
-    if (!mounted) return;
-    if (ok) {
-      Navigator.of(context).pop(true);
-      return;
-    }
-    setState(() => _stoppingActive = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     final r = _record;
@@ -380,7 +472,6 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     final eventDef = lookupEventForRecord(widget.eventCatalog, r);
     final accent = resolveEventColor(context, eventDef);
     final readOnly = _pending;
-    final showStop = !readOnly && n == 0 && isActiveTimingRecord(r);
     final scheme = Theme.of(context).colorScheme;
     final glassText = historyEditGlassTextColor(context);
     final glassLabel = historyEditGlassLabelColor(context);
@@ -401,164 +492,217 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (readOnly)
+            Flexible(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (readOnly)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          '同步中…',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.primary.withValues(alpha: 0.9),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    Center(child: EventLogo(definition: eventDef, size: 44)),
+                    const SizedBox(height: 10),
+                    Text(
+                      _displayEventName(r),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                        color: glassText,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (n == 0) ...[
+                      HomeHistoryTimeField(
+                        label: '开始时间',
+                        anchorDate: startAnchor,
+                        value: _startEdit,
+                        enabled: !readOnly,
+                        glassStyle: true,
+                        onChanged: (v) => setState(() => _startEdit = v),
+                      ),
+                      const SizedBox(height: 14),
+                      HomeHistoryTimeField(
+                        label: '结束时间',
+                        anchorDate: endAnchor,
+                        value: _endEdit,
+                        enabled: !readOnly,
+                        glassStyle: true,
+                        onChanged: (v) => setState(() => _endEdit = v),
+                      ),
+                      if (!readOnly && _endEdit != null)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => setState(() => _endEdit = null),
+                            style: TextButton.styleFrom(
+                              foregroundColor: glassLabel,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                            ),
+                            child: const Text('清除结束时间'),
+                          ),
+                        ),
+                    ] else ...[
+                      HomeHistoryTimeField(
+                        label: '结束时间',
+                        anchorDate: endAnchor,
+                        value: _endEdit,
+                        enabled: !readOnly,
+                        glassStyle: true,
+                        onChanged: (v) => setState(() => _endEdit = v),
+                      ),
+                    ],
+                    if (n > 1) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        '用量${unit.isNotEmpty ? '（$unit）' : ''}',
+                        style: TextStyle(fontSize: 13, color: glassLabel),
+                      ),
+                      const SizedBox(height: 6),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
+                        child: CupertinoTheme(
+                          data: const CupertinoThemeData(brightness: Brightness.dark),
+                          child: HomeEventNumberPicker(
+                            controller: _usagePickerCtrl,
+                            enabled: !readOnly,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    KeyboardDismissExclude(
+                      child: EventRemarkQuickTags(
+                        eventId: historyRecordEventId(r),
+                        onSelect: _onRemarkTagSelected,
+                        padding: const EdgeInsets.only(bottom: 8),
+                      ),
+                    ),
+                    keyboardLiftTarget(
+                      focusNode: _remarkFocusNode,
+                      anchorKey: _remarkAnchorKey,
+                      child: TextField(
+                        controller: _remarkCtrl,
+                        focusNode: _remarkFocusNode,
+                        readOnly: readOnly,
+                        style: TextStyle(color: glassText, fontSize: 15),
+                        cursorColor: scheme.primary,
+                        decoration: historyEditGlassInputDecoration(context, labelText: '备注').copyWith(
+                          suffixIcon: !readOnly && _canAddMedia
+                              ? IconButton(
+                                  onPressed: _saving ? null : () => unawaited(_pickMedia()),
+                                  icon: Icon(
+                                    Icons.add_circle_outline,
+                                    size: 20,
+                                    color: glassLabel,
+                                  ),
+                                  tooltip: '添加图片或视频',
+                                )
+                              : null,
+                        ),
+                        textInputAction: TextInputAction.done,
+                        onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
+                        onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
+                        maxLines: 1,
+                      ),
+                    ),
+                    if (_loadingMedia)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      )
+                    else if (_media.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      HistoryEventMediaStrip(
+                        items: _media,
+                        enabled: !readOnly,
+                        onReorder: _reorderMedia,
+                        onRemoveAt: _removeMediaAt,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (!readOnly)
               Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  '同步中…',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: scheme.primary.withValues(alpha: 0.9),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            Center(child: EventLogo(definition: eventDef, size: 44)),
-            const SizedBox(height: 10),
-            Text(
-              _displayEventName(r),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 20,
-                height: 1.25,
-                fontWeight: FontWeight.w600,
-                color: glassText,
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (n == 0) ...[
-              HomeHistoryTimeField(
-                label: '开始时间',
-                anchorDate: startAnchor,
-                value: _startEdit,
-                enabled: !readOnly,
-                glassStyle: true,
-                onChanged: (v) => setState(() => _startEdit = v),
-              ),
-              const SizedBox(height: 14),
-              HomeHistoryTimeField(
-                label: '结束时间',
-                anchorDate: endAnchor,
-                value: _endEdit,
-                enabled: !readOnly,
-                glassStyle: true,
-                onChanged: (v) => setState(() => _endEdit = v),
-              ),
-              if (!readOnly && _endEdit != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => setState(() => _endEdit = null),
-                    style: TextButton.styleFrom(
-                      foregroundColor: glassLabel,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                padding: const EdgeInsets.only(top: 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: _deleting ? null : _confirmDelete,
+                      style: TextButton.styleFrom(
+                        foregroundColor: scheme.error.withValues(alpha: 0.9),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      child: Text(_deleting ? '删除中…' : '删除'),
                     ),
-                    child: const Text('清除结束时间'),
-                  ),
-                ),
-            ] else ...[
-              HomeHistoryTimeField(
-                label: '结束时间',
-                anchorDate: endAnchor,
-                value: _endEdit,
-                enabled: !readOnly,
-                glassStyle: true,
-                onChanged: (v) => setState(() => _endEdit = v),
-              ),
-            ],
-            if (n > 1) ...[
-              const SizedBox(height: 14),
-              Text(
-                '用量${unit.isNotEmpty ? '（$unit）' : ''}',
-                style: TextStyle(fontSize: 13, color: glassLabel),
-              ),
-              const SizedBox(height: 6),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                  color: Colors.white.withValues(alpha: 0.06),
-                ),
-                child: CupertinoTheme(
-                  data: const CupertinoThemeData(brightness: Brightness.dark),
-                  child: HomeEventNumberPicker(
-                    controller: _usagePickerCtrl,
-                    enabled: !readOnly,
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            keyboardLiftTarget(
-              focusNode: _remarkFocusNode,
-              anchorKey: _remarkAnchorKey,
-              child: TextField(
-                controller: _remarkCtrl,
-                focusNode: _remarkFocusNode,
-                readOnly: readOnly,
-                style: TextStyle(color: glassText, fontSize: 15),
-                cursorColor: scheme.primary,
-                decoration: historyEditGlassInputDecoration(context, labelText: '备注'),
-                textInputAction: TextInputAction.done,
-                onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
-                onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
-                maxLines: 1,
-              ),
-            ),
-            KeyboardDismissExclude(
-              child: EventRemarkQuickTags(
-                eventId: historyRecordEventId(r),
-                onSelect: _onRemarkTagSelected,
-              ),
-            ),
-            if (showStop) ...[
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: _stoppingActive ? null : _stopActiveTiming,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: glassText,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                ),
-                child: Text(_stoppingActive ? '停止中…' : '停止'),
-              ),
-            ],
-            if (!readOnly) ...[
-              const SizedBox(height: 8),
-              Center(
-                child: TextButton(
-                  onPressed: _deleting ? null : _confirmDelete,
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.error.withValues(alpha: 0.9),
-                  ),
-                  child: Text(_deleting ? '删除中…' : '删除'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: _saving ? null : _requestClose,
-                    style: TextButton.styleFrom(
-                      foregroundColor: glassText,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    const Spacer(),
+                    if (_media.isNotEmpty) ...[
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Theme(
+                            data: Theme.of(context).copyWith(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            child: Transform.scale(
+                              scale: 0.78,
+                              child: Switch(
+                                value: _effectiveSyncToSquare,
+                                onChanged: _saving
+                                    ? null
+                                    : (v) => setState(() => _syncToSquare = v),
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          ),
+                          Transform.translate(
+                            offset: const Offset(0, -4),
+                            child: Text(
+                              '同步广场',
+                              style: TextStyle(
+                                fontSize: 10,
+                                height: 1,
+                                color: glassLabel,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    FilledButton(
+                      onPressed: _saving ? null : _save,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: scheme.primary,
+                        foregroundColor: scheme.onPrimary,
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                        shape: const StadiumBorder(),
+                      ),
+                      child: Text(_saving ? '保存中…' : '保存'),
                     ),
-                    child: const Text('取消'),
-                  ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: _saving ? null : _save,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: scheme.primary,
-                      foregroundColor: scheme.onPrimary,
-                      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-                      shape: const StadiumBorder(),
-                    ),
-                    child: Text(_saving ? '保存中…' : '保存'),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
           ],
         ),
       ),

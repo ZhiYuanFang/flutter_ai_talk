@@ -14,6 +14,7 @@ class UcgHomeShell extends StatefulWidget {
 class _UcgHomeShellState extends State<UcgHomeShell> {
   final _pageController = PageController();
   var _pageIndex = 0;
+  var _blockPageScroll = false;
 
   @override
   void dispose() {
@@ -45,10 +46,18 @@ class _UcgHomeShellState extends State<UcgHomeShell> {
       children: [
         PageView(
           controller: _pageController,
-          physics: const PageScrollPhysics(),
+          physics: _blockPageScroll
+              ? const NeverScrollableScrollPhysics()
+              : const PageScrollPhysics(),
           onPageChanged: (i) => setState(() => _pageIndex = i),
           children: [
-            const _KeepAliveHomeScreen(),
+            _KeepAliveHomeScreen(
+              onDockDraggingChanged: (dragging) {
+                if (_blockPageScroll != dragging) {
+                  setState(() => _blockPageScroll = dragging);
+                }
+              },
+            ),
             UcgShell(onBackToFeeding: _goToFeeding),
           ],
         ),
@@ -59,7 +68,9 @@ class _UcgHomeShellState extends State<UcgHomeShell> {
 }
 
 class _KeepAliveHomeScreen extends StatefulWidget {
-  const _KeepAliveHomeScreen();
+  const _KeepAliveHomeScreen({this.onDockDraggingChanged});
+
+  final ValueChanged<bool>? onDockDraggingChanged;
 
   @override
   State<_KeepAliveHomeScreen> createState() => _KeepAliveHomeScreenState();
@@ -72,6 +83,6 @@ class _KeepAliveHomeScreenState extends State<_KeepAliveHomeScreen> with Automat
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return const HomeScreen();
+    return HomeScreen(onDockDraggingChanged: widget.onDockDraggingChanged);
   }
 }

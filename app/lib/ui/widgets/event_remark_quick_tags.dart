@@ -2,16 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../config/event_remark_memory_store.dart';
 
-/// 备注输入框下方的快捷标签：按 [eventId] 加载最近备注，点击 [onSelect]。
+/// 备注快捷标签：按 [eventId] 加载最近备注，点击 [onSelect]。
 class EventRemarkQuickTags extends StatefulWidget {
   const EventRemarkQuickTags({
     super.key,
     required this.eventId,
     required this.onSelect,
+    this.padding = const EdgeInsets.only(top: 8),
   });
 
   final String eventId;
   final ValueChanged<String> onSelect;
+  final EdgeInsetsGeometry padding;
 
   @override
   State<EventRemarkQuickTags> createState() => _EventRemarkQuickTagsState();
@@ -50,7 +52,7 @@ class _EventRemarkQuickTagsState extends State<EventRemarkQuickTags> {
 
     final fill = Theme.of(context).colorScheme.primary.withValues(alpha: 0.3);
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: widget.padding,
       child: Wrap(
         spacing: 3,
         runSpacing: 3,

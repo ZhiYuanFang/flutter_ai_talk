@@ -28,6 +28,11 @@ abstract class FeedRepository {
     int? usageCount,
     bool clearEndIfNull = false,
     HistoryRecord? fallbackRecord,
+    int? postId,
+    int? mediaType,
+    List<String>? imageKeys,
+    String? videoKey,
+    bool patchMediaFields = false,
   });
 
   /// `POST /device/history/api/event/delete`，body：`id`、`deviceNo`。成功返回 `true`。

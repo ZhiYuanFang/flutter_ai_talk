@@ -10,6 +10,7 @@ import '../data/ucg_album_permission.dart';
 import '../data/ucg_album_selection.dart';
 import '../data/ucg_repository.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../../ui/history_event_media_picker.dart';
 
 /// 全屏自建相册（玻璃顶栏 + 选择侧互斥）。
 class UcgAlbumPickerScreen extends StatefulWidget {
@@ -17,10 +18,13 @@ class UcgAlbumPickerScreen extends StatefulWidget {
     super.key,
     required this.repo,
     this.maxPhotos = 9,
+    this.deferUpload = false,
   });
 
   final UcgRepository repo;
   final int maxPhotos;
+  /// 为 true 时返回本地 [HistoryEditMediaItem] 列表，不上传 OSS。
+  final bool deferUpload;
 
   @override
   State<UcgAlbumPickerScreen> createState() => _UcgAlbumPickerScreenState();
@@ -137,6 +141,16 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
     if (!_selection.hasSelection || _uploading) return;
     setState(() => _uploading = true);
     try {
+      if (widget.deferUpload) {
+        final items = await historyMediaItemsFromAssets(_selection.selected);
+        if (!mounted) return;
+        if (items.isEmpty) {
+          _toast('选择失败');
+          return;
+        }
+        Navigator.pop(context, items);
+        return;
+      }
       final result = await ucgUploadAlbumAssets(
         repo: widget.repo,
         assets: _selection.selected,

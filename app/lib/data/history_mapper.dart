@@ -56,6 +56,11 @@ Map<String, dynamic> buildEventUpdateBody({
   DateTime? endTime,
   int? usageCount,
   bool clearEndIfNull = false,
+  int? postId,
+  int? mediaType,
+  List<String>? imageKeys,
+  String? videoKey,
+  bool patchMediaFields = false,
 }) {
   final p = record.rawPayload;
   int asInt(Object? v, {int fallback = 0}) {
@@ -78,7 +83,7 @@ Map<String, dynamic> buildEventUpdateBody({
     endOut = _unixSecondsFromPayloadField(p['endTime'], 0);
   }
 
-  return {
+  final body = {
     'id': asInt(p['id'], fallback: int.tryParse(record.id) ?? 0),
     'deviceNo': readGatewayStr(Map<String, dynamic>.from(p), 'deviceNo', 'device_no') ?? '',
     'eventId': asInt(p['eventId'], fallback: 0),
@@ -88,6 +93,18 @@ Map<String, dynamic> buildEventUpdateBody({
     'endTime': endOut,
     'remark': remark,
   };
+  if (patchMediaFields) {
+    body['postId'] = postId ?? historyPayloadPostId(p);
+    body['mediaType'] = mediaType ?? historyPayloadMediaType(p);
+    body['imageKeys'] = imageKeys ?? historyPayloadImageKeys(p);
+    body['videoKey'] = videoKey ?? historyPayloadVideoKey(p);
+  } else {
+    if (postId != null) body['postId'] = postId;
+    if (mediaType != null) body['mediaType'] = mediaType;
+    if (imageKeys != null) body['imageKeys'] = imageKeys;
+    if (videoKey != null) body['videoKey'] = videoKey;
+  }
+  return body;
 }
 
 /// 由 add 请求体构建乐观 [HistoryRecord]（`id` 通常为 `pending:<uuid>`）。
@@ -124,6 +141,31 @@ int _payloadEventId(Map<String, Object?> p) {
 
 int _payloadStartUnix(Map<String, Object?> p) {
   final v = p['startTime'];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? 0;
+}
+
+int historyPayloadPostId(Map<String, Object?> p) {
+  final v = p['postId'];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? 0;
+}
+
+List<String> historyPayloadImageKeys(Map<String, Object?> p) {
+  final raw = p['imageKeys'];
+  if (raw is! List) return const [];
+  return raw.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+}
+
+String historyPayloadVideoKey(Map<String, Object?> p) {
+  final v = p['videoKey'];
+  return v?.toString().trim() ?? '';
+}
+
+int historyPayloadMediaType(Map<String, Object?> p) {
+  final v = p['mediaType'];
   if (v is int) return v;
   if (v is num) return v.toInt();
   return int.tryParse(v?.toString() ?? '') ?? 0;
