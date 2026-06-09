@@ -35,7 +35,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   final bool showRelativeAgo;
   final String? relativeAgoLabel;
 
-  static const double rowHeight = 37;
+  static const double rowHeight = 40;
   static const double timelineTimeColumnWidth = 44;
   static const double timelineTimeToDotGap = 2;
   static const double timelineDotColumnWidth = 14;
@@ -99,22 +99,61 @@ class HomeHistoryTimelineTile extends StatelessWidget {
       fontFeatures: const [FontFeature.tabularFigures()],
       color: _historyTextColor(context, emphasis: emphasis, muted: true),
     );
-    final eventStyle = TextStyle(
+    final eventStyle = historyTimelineEventNameStyle(TextStyle(
       fontSize: fontSize,
       height: 1.15,
-      fontWeight: FontWeight.w600,
       color: _historyTextColor(context, emphasis: emphasis),
-    );
+    ));
+    final remarkStyle = historyTimelineRemarkStyle(TextStyle(
+      fontSize: fontSize,
+      height: 1.15,
+      color: _historyTextColor(context, emphasis: emphasis),
+    ));
     final trailingStyle = TextStyle(
       fontSize: fontSize - 1,
       height: 1.15,
       fontFeatures: const [FontFeature.tabularFigures()],
       color: _historyTextColor(context, emphasis: emphasis),
     );
+    final trailingDigitStyle = historyTimelineDigitAccentStyle(trailingStyle, accent);
 
-    final centerLabel = display.remark == null || display.remark!.isEmpty
-        ? display.eventName
-        : '${display.eventName}(${display.remark})';
+    final centerSpans = <InlineSpan>[
+      TextSpan(text: display.eventName, style: eventStyle),
+    ];
+    if (display.remark != null && display.remark!.isNotEmpty) {
+      centerSpans.addAll([
+        TextSpan(text: '(', style: remarkStyle),
+        TextSpan(text: display.remark, style: remarkStyle),
+        TextSpan(text: ')', style: remarkStyle),
+      ]);
+    }
+
+    InlineSpan? trailingSpan;
+    if (display.hasStructuredTrailing) {
+      if (display.trailingCount != null) {
+        trailingSpan = TextSpan(
+          children: historyCountTrailingSpans(
+            display.trailingCount!,
+            display.trailingUnit ?? '',
+            trailingStyle,
+            trailingDigitStyle,
+          ),
+        );
+      } else if (display.trailingPrefix != null && display.trailingDuration != null) {
+        trailingSpan = TextSpan(
+          children: historyDurationTrailingSpans(
+            display.trailingPrefix!,
+            display.trailingDuration!,
+            trailingStyle,
+            trailingDigitStyle,
+          ),
+        );
+      }
+    } else if (display.trailing.isNotEmpty) {
+      trailingSpan = TextSpan(
+        children: historyDigitAccentSpans(display.trailing, trailingStyle, trailingDigitStyle),
+      );
+    }
 
     final rowBody = Padding(
       padding: const EdgeInsets.symmetric(horizontal: timelineRowHorizontalPadding),
@@ -180,11 +219,10 @@ class HomeHistoryTimelineTile extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Expanded(
-            child: Text(
-              centerLabel,
+            child: RichText(
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: eventStyle,
+              text: TextSpan(children: centerSpans),
             ),
           ),
           if (display.isActiveTiming &&
@@ -193,18 +231,18 @@ class HomeHistoryTimelineTile extends StatelessWidget {
             _ActiveTimingTrailing(
               elapsedLabel: activeElapsedLabel!,
               trailingStyle: trailingStyle,
+              digitStyle: trailingDigitStyle,
               onStop: onStop!,
               stopInProgress: stopInProgress,
             )
-          else if (display.trailing.isNotEmpty) ...[
+          else if (trailingSpan != null) ...[
             const SizedBox(width: 6),
             Padding(
               padding: const EdgeInsets.only(right: 2),
-              child: Text(
-                display.trailing,
+              child: RichText(
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: trailingStyle,
+                text: trailingSpan,
               ),
             ),
           ],
@@ -285,12 +323,14 @@ class _ActiveTimingTrailing extends StatelessWidget {
   const _ActiveTimingTrailing({
     required this.elapsedLabel,
     required this.trailingStyle,
+    required this.digitStyle,
     required this.onStop,
     required this.stopInProgress,
   });
 
   final String elapsedLabel;
   final TextStyle trailingStyle;
+  final TextStyle digitStyle;
   final VoidCallback onStop;
   final bool stopInProgress;
 
@@ -302,10 +342,11 @@ class _ActiveTimingTrailing extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            elapsedLabel,
+          RichText(
             maxLines: 1,
-            style: trailingStyle,
+            text: TextSpan(
+              children: historyDigitAccentSpans(elapsedLabel, trailingStyle, digitStyle),
+            ),
           ),
           const SizedBox(width: 2),
           TextButton(

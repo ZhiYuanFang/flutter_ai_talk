@@ -145,6 +145,82 @@ String formatDurationForEvent0(DateTime start, DateTime end) {
   return '$h小时$m分钟';
 }
 
+String _historyEventUnit(Map<String, Object?> payload) {
+  final fromRow = (payload['eventUnit'] as String?)?.trim() ?? '';
+  if (fromRow.isNotEmpty) return fromRow;
+  return (payload['event_unit'] as String?)?.trim() ?? '';
+}
+
+String _formatCountTrailing(int count, String unit) {
+  if (unit.isEmpty) return '$count';
+  return '$count$unit';
+}
+
+/// 将文本中的数字（及计时冒号）拆为强调 span + 普通 span。
+List<InlineSpan> historyDigitAccentSpans(
+  String text,
+  TextStyle base,
+  TextStyle digitStyle,
+) {
+  if (text.isEmpty) return [TextSpan(text: '', style: base)];
+  final spans = <InlineSpan>[];
+  final buf = StringBuffer();
+  void flushBase() {
+    if (buf.isEmpty) return;
+    spans.add(TextSpan(text: buf.toString(), style: base));
+    buf.clear();
+  }
+
+  for (final ch in text.characters) {
+    final isDigit = RegExp(r'[0-9]').hasMatch(ch);
+    if (isDigit || ch == ':') {
+      flushBase();
+      spans.add(TextSpan(text: ch, style: digitStyle));
+    } else {
+      buf.write(ch);
+    }
+  }
+  flushBase();
+  return spans;
+}
+
+TextStyle historyTimelineEventNameStyle(TextStyle base) {
+  final fs = base.fontSize ?? 14;
+  return base.copyWith(fontWeight: FontWeight.w600, fontSize: fs * 1.5);
+}
+
+TextStyle historyTimelineRemarkStyle(TextStyle base) {
+  return base.copyWith(fontWeight: FontWeight.normal);
+}
+
+TextStyle historyTimelineDigitAccentStyle(TextStyle base, Color accent) {
+  final fs = base.fontSize ?? 14;
+  return base.copyWith(
+    fontSize: fs * 2,
+    fontWeight: FontWeight.bold,
+    color: accent,
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
+}
+
+List<InlineSpan> historyCountTrailingSpans(int count, String unit, TextStyle base, TextStyle digitStyle) {
+  final digits = count.toString();
+  if (unit.isEmpty) {
+    return [TextSpan(text: digits, style: digitStyle)];
+  }
+  return [
+    TextSpan(text: digits, style: digitStyle),
+    TextSpan(text: unit, style: base),
+  ];
+}
+
+List<InlineSpan> historyDurationTrailingSpans(String prefix, String duration, TextStyle base, TextStyle digitStyle) {
+  return [
+    if (prefix.isNotEmpty) TextSpan(text: prefix, style: base),
+    ...historyDigitAccentSpans(duration, base, digitStyle),
+  ];
+}
+
 String _displayEventName(String eventName) {
   final e = eventName.trim();
   return e.isEmpty ? '未知事件' : e;
@@ -166,7 +242,8 @@ String historyLinePlainText(HistoryRecord record, DateTime nowLocal) {
   }
   if (n > 1) {
     final t = formatHistoryInstant(end ?? record.createdAt, nowLocal);
-    return '$t:$name->$n';
+    final unit = _historyEventUnit(p);
+    return '$t:$name ${_formatCountTrailing(n, unit)}';
   }
   if (n == 0 && endUnset) {
     final st = start ?? record.createdAt;
@@ -182,15 +259,9 @@ String historyLinePlainText(HistoryRecord record, DateTime nowLocal) {
   return formatHistoryLine(record.eventName, record.action);
 }
 
-TextStyle _eventNameStyle(TextStyle base) {
-  final fs = base.fontSize ?? 14;
-  return base.copyWith(fontWeight: FontWeight.w600, fontSize: fs * 1.08);
-}
+TextStyle _eventNameStyle(TextStyle base) => historyTimelineEventNameStyle(base);
 
-TextStyle _remarkStyle(TextStyle base) {
-  final fs = base.fontSize ?? 14;
-  return base.copyWith(fontWeight: FontWeight.normal, fontSize: fs * 0.85, color: base.color?.withValues(alpha: 0.85));
-}
+TextStyle _remarkStyle(TextStyle base) => historyTimelineRemarkStyle(base);
 
 /// 首页历史行 Rich 片段；[base] 为整行默认样式（含字号）。
 List<InlineSpan> historyLineSpans(HistoryRecord record, TextStyle base, [DateTime? now]) {
@@ -220,10 +291,12 @@ List<InlineSpan> historyLineSpans(HistoryRecord record, TextStyle base, [DateTim
   }
   if (n > 1) {
     final t = formatHistoryInstant(end ?? record.createdAt, nowLocal);
+    final unit = _historyEventUnit(p);
+    final countText = _formatCountTrailing(n, unit);
     return [
       TextSpan(text: '$t:', style: base),
       TextSpan(text: name, style: ev),
-      TextSpan(text: '->$n', style: base),
+      TextSpan(text: ' $countText', style: base),
     ];
   }
   if (n == 0 && endUnset) {
@@ -255,16 +328,29 @@ class HistoryHomeRowDisplay {
     required this.timeLabel,
     required this.eventName,
     this.remark,
-    required this.trailing,
+    this.trailing = '',
+    this.trailingCount,
+    this.trailingUnit,
+    this.trailingPrefix,
+    this.trailingDuration,
     this.isActiveTiming = false,
   });
 
   final String timeLabel;
   final String eventName;
   final String? remark;
+  /// 兼容旧 plain 尾注；结构化字段优先。
   final String trailing;
+  final int? trailingCount;
+  final String? trailingUnit;
+  final String? trailingPrefix;
+  final String? trailingDuration;
   /// 尾注由 [HomeHistoryTimelineTile] 动态渲染（时长 + 停止）。
   final bool isActiveTiming;
+
+  bool get hasStructuredTrailing =>
+      trailingCount != null ||
+      (trailingPrefix != null && trailingDuration != null);
 }
 
 HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record) {
@@ -288,10 +374,12 @@ HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record) {
     );
   }
   if (n > 1) {
+    final unit = _historyEventUnit(p);
     return HistoryHomeRowDisplay(
       timeLabel: timeHm,
       eventName: name,
-      trailing: '→$n',
+      trailingCount: n,
+      trailingUnit: unit.isEmpty ? null : unit,
     );
   }
   if (n == 0 && endUnset) {
@@ -308,7 +396,8 @@ HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record) {
     return HistoryHomeRowDisplay(
       timeLabel: timeHm,
       eventName: name,
-      trailing: '用时$dur',
+      trailingPrefix: '用时',
+      trailingDuration: dur,
     );
   }
   final fallback = formatHistoryLine(record.eventName, record.action);

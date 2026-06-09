@@ -30,6 +30,7 @@ class EventDefinition {
     this.colorRaw,
     this.localLogoPath,
     this.eventType,
+    this.unit,
     this.extraNames,
     this.parentId,
   });
@@ -41,6 +42,8 @@ class EventDefinition {
   final String? localLogoPath;
   /// options 原始 `eventType` 字符串（`number` / `time` / `one`）。
   final String? eventType;
+  /// 计数单位（如 ml、次）；来自 options `unit`。
+  final String? unit;
   final String? extraNames;
   /// 父类 ID；`null` 表示一级目录。
   final String? parentId;
@@ -57,6 +60,7 @@ class EventDefinition {
     String? colorRaw,
     String? localLogoPath,
     String? eventType,
+    String? unit,
     String? extraNames,
     String? parentId,
     bool clearLocalLogoPath = false,
@@ -69,6 +73,7 @@ class EventDefinition {
       colorRaw: colorRaw ?? this.colorRaw,
       localLogoPath: clearLocalLogoPath ? null : (localLogoPath ?? this.localLogoPath),
       eventType: eventType ?? this.eventType,
+      unit: unit ?? this.unit,
       extraNames: extraNames ?? this.extraNames,
       parentId: clearParentId ? null : (parentId ?? this.parentId),
     );
@@ -81,6 +86,7 @@ class EventDefinition {
         if (colorRaw != null) 'colorRaw': colorRaw,
         if (localLogoPath != null) 'localLogoPath': localLogoPath,
         if (eventType != null) 'eventType': eventType,
+        if (unit != null) 'unit': unit,
         if (extraNames != null) 'extraNames': extraNames,
         if (parentId != null) 'parentId': parentId,
       };
@@ -93,6 +99,7 @@ class EventDefinition {
       colorRaw: j['colorRaw'] as String?,
       localLogoPath: j['localLogoPath'] as String?,
       eventType: _trimOrNull(readGatewayStr(j, 'eventType', 'event_type')),
+      unit: _trimOrNull(readGatewayStr(j, 'unit', 'unit')),
       extraNames: _trimOrNull(readGatewayStr(j, 'extraNames', 'extra_names')),
       parentId: _normalizeParentId(_readOptionsField(j, 'parentId', 'parent_id')),
     );
@@ -115,6 +122,7 @@ class EventDefinition {
     final logo = _readLogo(j);
     final color = _trimOrNull(j['color'] as String?);
     final type = _trimOrNull(readGatewayStr(j, 'eventType', 'event_type'));
+    final unit = _trimOrNull(readGatewayStr(j, 'unit', 'unit'));
     final extras = _trimOrNull(readGatewayStr(j, 'extraNames', 'extra_names'));
     return EventDefinition(
       id: id,
@@ -122,6 +130,7 @@ class EventDefinition {
       logoUrl: logo,
       colorRaw: color,
       eventType: type,
+      unit: unit,
       extraNames: extras,
       parentId: _normalizeParentId(_readOptionsField(j, 'parentId', 'parent_id')),
     );
