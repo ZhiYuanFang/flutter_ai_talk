@@ -10,7 +10,7 @@ class FocusCleanupNavigatorObserver extends NavigatorObserver {
       if (focus != null && focus.hasFocus) {
         focus.unfocus();
       }
-      keyboardInputBridgeController.detach();
+      keyboardInputBridgeController.dismiss();
     });
   }
 

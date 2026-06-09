@@ -19,7 +19,9 @@ import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/event_remark_quick_tags.dart';
+import 'widgets/keyboard_dismiss_scope.dart';
 import 'widgets/keyboard_input_bridge.dart';
+import 'widgets/keyboard_lift.dart';
 
 /// 主页历史行编辑：玻璃拟态底部 Sheet，返回 `true` 表示列表已变更。
 Future<bool?> showHomeHistoryEditSheet(
@@ -34,6 +36,7 @@ Future<bool?> showHomeHistoryEditSheet(
     maxHeightFraction: 4 / 5,
     enableDrag: false,
     wrapInGlassPanel: false,
+    respectKeyboardInset: true,
     bodyBuilder: (ctx) => _HomeHistoryEditSheetBody(
       recordId: record.id,
       eventCatalog: eventCatalog,
@@ -63,6 +66,7 @@ class _HomeHistoryEditSheetBody extends ConsumerStatefulWidget {
 class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheetBody> {
   final _remarkCtrl = TextEditingController();
   final _remarkFocusNode = FocusNode();
+  final _remarkAnchorKey = GlobalKey();
   late FixedExtentScrollController _usagePickerCtrl;
 
   HistoryRecord? _record;
@@ -96,17 +100,15 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   }
 
   void _onRemarkFocusChange() {
-    if (_remarkFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _remarkCtrl,
-        focusNode: _remarkFocusNode,
-        onConfirm: () => _remarkFocusNode.unfocus(),
-        scene: 'home.history-edit.remark',
-        hint: '备注',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _remarkCtrl);
+    handleBridgeFocusChange(
+      context: context,
+      focusNode: _remarkFocusNode,
+      controller: _remarkCtrl,
+      scene: 'home.history-edit.remark',
+      onConfirm: () => _remarkFocusNode.unfocus(),
+      hint: '备注',
+      anchorKey: _remarkAnchorKey,
+    );
   }
 
   void _resolveRecord() {
@@ -487,22 +489,27 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
               ),
             ],
             const SizedBox(height: 14),
-            TextField(
-              controller: _remarkCtrl,
+            keyboardLiftTarget(
               focusNode: _remarkFocusNode,
-              readOnly: readOnly,
-              style: TextStyle(color: glassText, fontSize: 15),
-              cursorColor: scheme.primary,
-              decoration: historyEditGlassInputDecoration(context, labelText: '备注'),
-              textInputAction: TextInputAction.done,
-              onTap: _onRemarkFocusChange,
-              onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
-              onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
-              maxLines: 1,
+              anchorKey: _remarkAnchorKey,
+              child: TextField(
+                controller: _remarkCtrl,
+                focusNode: _remarkFocusNode,
+                readOnly: readOnly,
+                style: TextStyle(color: glassText, fontSize: 15),
+                cursorColor: scheme.primary,
+                decoration: historyEditGlassInputDecoration(context, labelText: '备注'),
+                textInputAction: TextInputAction.done,
+                onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
+                onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
+                maxLines: 1,
+              ),
             ),
-            EventRemarkQuickTags(
-              eventId: historyRecordEventId(r),
-              onSelect: _onRemarkTagSelected,
+            KeyboardDismissExclude(
+              child: EventRemarkQuickTags(
+                eventId: historyRecordEventId(r),
+                onSelect: _onRemarkTagSelected,
+              ),
             ),
             if (showStop) ...[
               const SizedBox(height: 12),

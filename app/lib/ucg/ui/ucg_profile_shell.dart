@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api_exceptions.dart';
@@ -16,7 +17,6 @@ import 'ucg_profile_screens.dart' show UcgFollowListScreen;
 import 'widgets/ucg_my_post_timeline_item.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_profile_header.dart';
-import '../../ui/widgets/managed_keyboard_text_field.dart';
 import '../theme/ucg_theme.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
@@ -584,42 +584,7 @@ class UcgProfileOwnerHeaderCard extends ConsumerStatefulWidget {
 }
 
 class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeaderCard> {
-  var _editingNickname = false;
-  var _editingBio = false;
   var _saving = false;
-  late final TextEditingController _nicknameCtrl;
-  late final TextEditingController _bioCtrl;
-  late final FocusNode _nicknameFocus;
-  late final FocusNode _bioFocus;
-
-  @override
-  void initState() {
-    super.initState();
-    _nicknameCtrl = TextEditingController(text: widget.profile.nickname);
-    _bioCtrl = TextEditingController(text: widget.profile.bio);
-    _nicknameFocus = FocusNode();
-    _bioFocus = FocusNode();
-  }
-
-  @override
-  void didUpdateWidget(covariant UcgProfileOwnerHeaderCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!_editingNickname && oldWidget.profile.nickname != widget.profile.nickname) {
-      _nicknameCtrl.text = widget.profile.nickname;
-    }
-    if (!_editingBio && oldWidget.profile.bio != widget.profile.bio) {
-      _bioCtrl.text = widget.profile.bio;
-    }
-  }
-
-  @override
-  void dispose() {
-    _nicknameCtrl.dispose();
-    _bioCtrl.dispose();
-    _nicknameFocus.dispose();
-    _bioFocus.dispose();
-    super.dispose();
-  }
 
   Future<bool> _ensureWxBound() async {
     if (widget.wxBound) return true;
@@ -650,38 +615,73 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
     }
   }
 
-  Future<void> _commitNickname() async {
-    final next = _nicknameCtrl.text.trim();
-    setState(() => _editingNickname = false);
-    if (next == widget.profile.nickname) return;
-    await _saveProfile(nickname: next);
-  }
-
-  Future<void> _commitBio() async {
-    final next = _bioCtrl.text.trim();
-    setState(() => _editingBio = false);
-    if (next == widget.profile.bio) return;
-    await _saveProfile(bio: next);
+  Future<void> _openFieldEditSheet({
+    required String title,
+    required String hint,
+    required String scene,
+    required String initialText,
+    int maxLines = 1,
+    List<TextInputFormatter>? inputFormatters,
+    required Future<void> Function(String text) onSaved,
+  }) async {
+    if (!await _ensureWxBound()) return;
+    if (!mounted) return;
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            MediaQuery.paddingOf(ctx).bottom + 16,
+          ),
+          child: UcgProfileFieldEditSheet(
+            title: title,
+            hint: hint,
+            scene: scene,
+            initialText: initialText,
+            maxLines: maxLines,
+            inputFormatters: inputFormatters,
+            busy: _saving,
+          ),
+        );
+      },
+    );
+    if (result == null || !mounted) return;
+    await onSaved(result);
   }
 
   Future<void> _startNicknameEdit() async {
-    if (!await _ensureWxBound()) return;
-    if (!mounted) return;
-    _nicknameCtrl.text = widget.profile.nickname;
-    setState(() => _editingNickname = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _nicknameFocus.requestFocus();
-    });
+    await _openFieldEditSheet(
+      title: '编辑昵称',
+      hint: '昵称',
+      scene: 'ucg.profile.nickname',
+      initialText: widget.profile.nickname,
+      inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'[\n\r]'))],
+      onSaved: (text) async {
+        final next = text.replaceAll(RegExp(r'[\n\r]'), '').trim();
+        if (next == widget.profile.nickname) return;
+        await _saveProfile(nickname: next);
+      },
+    );
   }
 
   Future<void> _startBioEdit() async {
-    if (!await _ensureWxBound()) return;
-    if (!mounted) return;
-    _bioCtrl.text = widget.profile.bio;
-    setState(() => _editingBio = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _bioFocus.requestFocus();
-    });
+    await _openFieldEditSheet(
+      title: '编辑简介',
+      hint: '介绍一下你和宝宝吧…',
+      scene: 'ucg.profile.bio',
+      initialText: widget.profile.bio,
+      maxLines: 5,
+      onSaved: (text) async {
+        final next = text.trim();
+        if (next == widget.profile.bio) return;
+        await _saveProfile(bio: next);
+      },
+    );
   }
 
   @override
@@ -725,31 +725,6 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
             ),
             onPressed: _saving ? null : () => unawaited(_startNicknameEdit()),
           ),
-        ),
-        ManagedKeyboardTextField(
-          visibility: ManagedInputVisibility.hidden,
-          controller: _nicknameCtrl,
-          focusNode: _nicknameFocus,
-          enabled: !_saving && _editingNickname,
-          hint: '昵称',
-          scene: 'ucg.profile.nickname',
-          onConfirm: _saving ? null : () => unawaited(_commitNickname()),
-          onBlurWithoutConfirm: () {
-            if (mounted) setState(() => _editingNickname = false);
-          },
-        ),
-        ManagedKeyboardTextField(
-          visibility: ManagedInputVisibility.hidden,
-          controller: _bioCtrl,
-          focusNode: _bioFocus,
-          enabled: !_saving && _editingBio,
-          maxLines: 3,
-          hint: '介绍一下你和宝宝吧…',
-          scene: 'ucg.profile.bio',
-          onConfirm: _saving ? null : () => unawaited(_commitBio()),
-          onBlurWithoutConfirm: () {
-            if (mounted) setState(() => _editingBio = false);
-          },
         ),
       ],
     );

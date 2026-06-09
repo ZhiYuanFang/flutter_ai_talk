@@ -6,8 +6,9 @@ import '../api/api_exceptions.dart';
 import '../config/env.dart';
 import '../providers/repositories.dart';
 import '../providers/toast_bus.dart';
+import 'auth/auth_field_scroll.dart';
 import 'auth/auth_ui.dart';
-import 'widgets/keyboard_input_bridge.dart';
+import 'widgets/keyboard_lift.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -25,6 +26,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _accountFocusNode = FocusNode();
   final _passwordFocusNode = FocusNode();
   final _confirmPasswordFocusNode = FocusNode();
+  final _accountFieldKey = GlobalKey();
+  final _passwordFieldKey = GlobalKey();
+  final _confirmPasswordFieldKey = GlobalKey();
+  final _scrollCtrl = ScrollController();
 
   var _loading = false;
   var _obscurePassword = true;
@@ -36,67 +41,68 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   void initState() {
     super.initState();
-    _accountFocusNode.addListener(_onAccountFocusChange);
-    _passwordFocusNode.addListener(_onPasswordFocusChange);
-    _confirmPasswordFocusNode.addListener(_onConfirmPasswordFocusChange);
+    _accountFocusNode.addListener(_scrollAccountIntoView);
+    _passwordFocusNode.addListener(_scrollPasswordIntoView);
+    _confirmPasswordFocusNode.addListener(_scrollConfirmIntoView);
+  }
+
+  void _scrollAccountIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _accountFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _accountFieldKey,
+    );
+  }
+
+  void _scrollPasswordIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _passwordFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _passwordFieldKey,
+    );
+  }
+
+  void _scrollConfirmIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _confirmPasswordFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _confirmPasswordFieldKey,
+    );
+  }
+
+  FocusNode? get _focusedAuthField {
+    if (_accountFocusNode.hasFocus) return _accountFocusNode;
+    if (_passwordFocusNode.hasFocus) return _passwordFocusNode;
+    if (_confirmPasswordFocusNode.hasFocus) return _confirmPasswordFocusNode;
+    return null;
+  }
+
+  GlobalKey? get _focusedAuthAnchor {
+    if (_accountFocusNode.hasFocus) return _accountFieldKey;
+    if (_passwordFocusNode.hasFocus) return _passwordFieldKey;
+    if (_confirmPasswordFocusNode.hasFocus) return _confirmPasswordFieldKey;
+    return null;
   }
 
   @override
   void dispose() {
-    _accountFocusNode.removeListener(_onAccountFocusChange);
-    _passwordFocusNode.removeListener(_onPasswordFocusChange);
-    _confirmPasswordFocusNode.removeListener(_onConfirmPasswordFocusChange);
+    _accountFocusNode.removeListener(_scrollAccountIntoView);
+    _passwordFocusNode.removeListener(_scrollPasswordIntoView);
+    _confirmPasswordFocusNode.removeListener(_scrollConfirmIntoView);
     _accountFocusNode.dispose();
     _passwordFocusNode.dispose();
     _confirmPasswordFocusNode.dispose();
     _accountCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
-  }
-
-  void _onAccountFocusChange() {
-    if (_accountFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _accountCtrl,
-        focusNode: _accountFocusNode,
-        onConfirm: () => _passwordFocusNode.requestFocus(),
-        scene: 'register.account',
-        hint: '账号',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _accountCtrl);
-  }
-
-  void _onPasswordFocusChange() {
-    if (_passwordFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _passwordCtrl,
-        focusNode: _passwordFocusNode,
-        onConfirm: () => _confirmPasswordFocusNode.requestFocus(),
-        scene: 'register.password',
-        obscureText: true,
-        hint: '密码',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _passwordCtrl);
-  }
-
-  void _onConfirmPasswordFocusChange() {
-    if (_confirmPasswordFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _confirmPasswordCtrl,
-        focusNode: _confirmPasswordFocusNode,
-        onConfirm: _onRegisterUsername,
-        scene: 'register.confirm-password',
-        obscureText: true,
-        hint: '确认密码',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _confirmPasswordCtrl);
   }
 
   String _normalizeAccount(String raw) => raw.trim().toLowerCase();
@@ -167,83 +173,107 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           color: Color(0xFFFBF8F3),
         ),
         child: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: IconButton(
-                        onPressed: _loading ? null : () => context.pop(),
-                        icon: const Icon(Icons.arrow_back_ios_new),
-                        tooltip: '返回登录',
-                      ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+              scheduleInlineAuthScrollOnInset(
+                context,
+                focusedNode: _focusedAuthField,
+                scrollController: _scrollCtrl,
+                anchorKey: _focusedAuthAnchor,
+              );
+              return SingleChildScrollView(
+                controller: _scrollCtrl,
+                padding: EdgeInsets.fromLTRB(0, 0, 0, 16 + bottomInset),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: inlineAuthScrollMinHeight(
+                      viewportHeight: constraints.maxHeight,
+                      keyboardInset: bottomInset,
                     ),
-                    Expanded(
-                      child: Padding(
+                  ),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: IconButton(
+                          onPressed: _loading ? null : () => context.pop(),
+                          icon: const Icon(Icons.arrow_back_ios_new),
+                          tooltip: '返回登录',
+                        ),
+                      ),
+                      Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: Column(
                           children: [
                             const SizedBox(height: 8),
                             buildAuthBrandHeader(context),
                             const SizedBox(height: 20),
-                            TextField(
-                              controller: _accountCtrl,
+                            keyboardLiftTarget(
                               focusNode: _accountFocusNode,
-                              enabled: !_loading,
-                              autocorrect: false,
-                              textInputAction: TextInputAction.next,
-                              onTap: _onAccountFocusChange,
-                              onChanged: keyboardInputBridgeController.updateDraft,
-                              decoration: buildAuthInputDecoration(
-                                labelText: '账号',
-                                hintText: '4-32 位，仅 a-z0-9_',
-                                errorText: _accountError,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            TextField(
-                              controller: _passwordCtrl,
-                              focusNode: _passwordFocusNode,
-                              enabled: !_loading,
-                              obscureText: _obscurePassword,
-                              textInputAction: TextInputAction.next,
-                              onTap: _onPasswordFocusChange,
-                              onChanged: keyboardInputBridgeController.updateDraft,
-                              decoration: buildAuthInputDecoration(
-                                labelText: '密码',
-                                hintText: '6-64 位',
-                                errorText: _passwordError,
-                                suffixIcon: IconButton(
-                                  onPressed:
-                                      _loading ? null : () => setState(() => _obscurePassword = !_obscurePassword),
-                                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                              anchorKey: _accountFieldKey,
+                              child: TextField(
+                                controller: _accountCtrl,
+                                focusNode: _accountFocusNode,
+                                enabled: !_loading,
+                                autocorrect: false,
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                                decoration: buildAuthInputDecoration(
+                                  labelText: '账号',
+                                  hintText: '4-32 位，仅 a-z0-9_',
+                                  errorText: _accountError,
                                 ),
                               ),
                             ),
                             const SizedBox(height: 12),
-                            TextField(
-                              controller: _confirmPasswordCtrl,
+                            keyboardLiftTarget(
+                              focusNode: _passwordFocusNode,
+                              anchorKey: _passwordFieldKey,
+                              child: TextField(
+                                controller: _passwordCtrl,
+                                focusNode: _passwordFocusNode,
+                                enabled: !_loading,
+                                obscureText: _obscurePassword,
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) => _confirmPasswordFocusNode.requestFocus(),
+                                decoration: buildAuthInputDecoration(
+                                  labelText: '密码',
+                                  hintText: '6-64 位',
+                                  errorText: _passwordError,
+                                  suffixIcon: IconButton(
+                                    onPressed: _loading
+                                        ? null
+                                        : () => setState(() => _obscurePassword = !_obscurePassword),
+                                    icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            keyboardLiftTarget(
                               focusNode: _confirmPasswordFocusNode,
-                              enabled: !_loading,
-                              obscureText: _obscureConfirmPassword,
-                              onTap: _onConfirmPasswordFocusChange,
-                              onChanged: keyboardInputBridgeController.updateDraft,
-                              onSubmitted: (_) => _onRegisterUsername(),
-                              decoration: buildAuthInputDecoration(
-                                labelText: '确认密码',
-                                hintText: '请再次输入密码',
-                                errorText: _confirmPasswordError,
-                                suffixIcon: IconButton(
-                                  onPressed: _loading
-                                      ? null
-                                      : () => setState(
-                                            () => _obscureConfirmPassword = !_obscureConfirmPassword,
-                                          ),
-                                  icon: Icon(_obscureConfirmPassword ? Icons.visibility_off : Icons.visibility),
+                              anchorKey: _confirmPasswordFieldKey,
+                              child: TextField(
+                                controller: _confirmPasswordCtrl,
+                                focusNode: _confirmPasswordFocusNode,
+                                enabled: !_loading,
+                                obscureText: _obscureConfirmPassword,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _onRegisterUsername(),
+                                decoration: buildAuthInputDecoration(
+                                  labelText: '确认密码',
+                                  hintText: '请再次输入密码',
+                                  errorText: _confirmPasswordError,
+                                  suffixIcon: IconButton(
+                                    onPressed: _loading
+                                        ? null
+                                        : () => setState(
+                                              () => _obscureConfirmPassword = !_obscureConfirmPassword,
+                                            ),
+                                    icon: Icon(_obscureConfirmPassword ? Icons.visibility_off : Icons.visibility),
+                                  ),
                                 ),
                               ),
                             ),
@@ -280,15 +310,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
                               ),
                             ),
-                            const Spacer(),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),

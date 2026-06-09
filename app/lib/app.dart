@@ -111,7 +111,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (child != null) child,
+              if (child != null) KeyboardOverlayInsetSync(child: child),
               const KeyboardInputConfirmBarOverlay(),
               if (_showStartupOverlay) const StartupBrandingOverlay(),
             ],

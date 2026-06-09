@@ -493,13 +493,27 @@ class UcgRepository {
   }
 
   Future<List<UcgComment>> fetchComments(String postId) async {
-    final data = await _api.get('/posts/$postId/comments');
-    final raw = data?['list'] ?? data?['items'];
-    if (raw is! List) return const [];
-    return raw
-        .whereType<Map<String, dynamic>>()
-        .map((e) => UcgComment.fromJson(e, currentUserId: _userIdGetter()))
-        .toList();
+    const pageSize = 50;
+    var page = 1;
+    final all = <UcgComment>[];
+    var total = 0;
+    while (true) {
+      final data = await _api.get(
+        '/posts/$postId/comments',
+        query: UcgApiClient.pageQuery(page: page, pageSize: pageSize),
+      );
+      total = (data?['total'] as num?)?.toInt() ?? 0;
+      final raw = data?['list'] ?? data?['items'];
+      if (raw is! List) break;
+      final batch = raw
+          .whereType<Map<String, dynamic>>()
+          .map((e) => UcgComment.fromJson(e, currentUserId: _userIdGetter()))
+          .toList();
+      all.addAll(batch);
+      if (batch.isEmpty || all.length >= total) break;
+      page++;
+    }
+    return all;
   }
 
   Future<UcgComment> addComment(String postId, String text) async {

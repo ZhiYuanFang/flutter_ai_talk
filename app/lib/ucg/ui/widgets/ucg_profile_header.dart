@@ -16,6 +16,8 @@ class UcgProfileHeader extends StatelessWidget {
     this.ipLocationText,
     this.nicknameTrailing,
     this.actions,
+    this.nicknameLiftKey,
+    this.bioLiftKey,
   });
 
   final Widget avatar;
@@ -28,6 +30,8 @@ class UcgProfileHeader extends StatelessWidget {
   final String? ipLocationText;
   final Widget? nicknameTrailing;
   final Widget? actions;
+  final GlobalKey? nicknameLiftKey;
+  final GlobalKey? bioLiftKey;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +53,7 @@ class UcgProfileHeader extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    key: nicknameLiftKey,
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -93,6 +98,7 @@ class UcgProfileHeader extends StatelessWidget {
         if (onBioTap != null || showBio) ...[
           const SizedBox(height: 10),
           GestureDetector(
+            key: bioLiftKey,
             onTap: onBioTap,
             behavior: HitTestBehavior.opaque,
             child: Text(

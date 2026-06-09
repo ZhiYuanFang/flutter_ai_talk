@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../ui/widgets/keyboard_input_bridge.dart';
 import '../../../ui/widgets/managed_keyboard_text_field.dart';
 import 'ucg_mention_text.dart';
 
@@ -20,6 +21,8 @@ class UcgMentionComposerFieldWithHighlight extends StatefulWidget {
     this.decoration,
     this.textInputAction,
     this.onSubmitted,
+    this.anchorKey,
+    this.showPreview = true,
   });
 
   final TextEditingController controller;
@@ -34,6 +37,8 @@ class UcgMentionComposerFieldWithHighlight extends StatefulWidget {
   final InputDecoration? decoration;
   final TextInputAction? textInputAction;
   final ValueChanged<String>? onSubmitted;
+  final GlobalKey? anchorKey;
+  final bool showPreview;
 
   @override
   State<UcgMentionComposerFieldWithHighlight> createState() =>
@@ -45,13 +50,13 @@ class UcgMentionComposerFieldWithHighlightState
   var _applyingAtomicDelete = false;
   String? _mentionNick;
   String? _mentionWxId;
+  late final FocusNode _focusNode;
   late final _MentionAtomicDeleteFormatter _atomicDeleteFormatter;
-
-  static const _fieldPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 16);
 
   @override
   void initState() {
     super.initState();
+    _focusNode = FocusNode();
     _atomicDeleteFormatter = _MentionAtomicDeleteFormatter(this);
     _bootstrapFromWire(widget.initialWireText ?? widget.controller.text);
     widget.controller.addListener(_onControllerChanged);
@@ -64,7 +69,6 @@ class UcgMentionComposerFieldWithHighlightState
         selfWxId: widget.selfWxId,
       );
 
-  /// 展示层 mention 占用长度（含可选尾空格）；支持昵称被部分删改后仍以 `@` 开头识别。
   int? _leadingMentionEndIn(String text) {
     final nick = _mentionNick;
     if (nick == null || nick.isEmpty) return null;
@@ -85,8 +89,6 @@ class UcgMentionComposerFieldWithHighlightState
 
     return null;
   }
-
-  int? get _mentionPrefixLength => _leadingMentionEndIn(widget.controller.text);
 
   void _clearMention() {
     _mentionNick = null;
@@ -123,6 +125,7 @@ class UcgMentionComposerFieldWithHighlightState
   @override
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -170,7 +173,7 @@ class UcgMentionComposerFieldWithHighlightState
 
     return TextEditingValue(
       text: nextText,
-      selection: TextSelection.collapsed(offset: 0),
+      selection: const TextSelection.collapsed(offset: 0),
     );
   }
 
@@ -183,73 +186,35 @@ class UcgMentionComposerFieldWithHighlightState
     setState(() {});
   }
 
-  List<InlineSpan> _buildHighlightSpans(String display, TextStyle base, Color highlight) {
-    final prefixLen = _mentionPrefixLength;
-    if (prefixLen == null || prefixLen <= 0) {
-      return [TextSpan(text: display, style: base)];
-    }
-    final spans = <InlineSpan>[];
-    if (prefixLen > 0) {
-      spans.add(TextSpan(
-        text: display.substring(0, prefixLen),
-        style: base.copyWith(color: highlight, fontWeight: FontWeight.w600),
-      ));
-    }
-    if (prefixLen < display.length) {
-      spans.add(TextSpan(text: display.substring(prefixLen), style: base));
-    }
-    return spans;
+  Widget buildField(BuildContext context) {
+    final baseStyle = widget.style ?? DefaultTextStyle.of(context).style;
+    final fieldDecoration = (widget.decoration ?? const InputDecoration()).copyWith(
+      hintText: widget.hint,
+    );
+
+    return ManagedKeyboardTextField(
+      controller: widget.controller,
+      focusNode: _focusNode,
+      hint: widget.hint,
+      scene: widget.scene,
+      enabled: widget.enabled,
+      autofocus: widget.autofocus,
+      onConfirm: widget.onConfirm,
+      anchorKey: widget.anchorKey,
+      textInputAction: widget.textInputAction ?? TextInputAction.newline,
+      onSubmitted: widget.onSubmitted,
+      blurPolicy: BlurWithoutConfirmPolicy.softSyncDraft,
+      style: baseStyle,
+      decoration: fieldDecoration,
+      inputFormatters: [_atomicDeleteFormatter],
+      maxLines: null,
+      minLines: 1,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final baseStyle = widget.style ?? DefaultTextStyle.of(context).style;
-    final display = widget.controller.text;
-
-    final fieldDecoration = (widget.decoration ?? const InputDecoration()).copyWith(
-      hintText: '',
-      contentPadding: _fieldPadding,
-    );
-
-    return Stack(
-      alignment: Alignment.centerLeft,
-      children: [
-        if (display.isEmpty)
-          Padding(
-            padding: _fieldPadding,
-            child: Text(
-              widget.hint,
-              style: baseStyle.copyWith(color: baseStyle.color?.withValues(alpha: 0.45)),
-            ),
-          )
-        else
-          IgnorePointer(
-            child: Padding(
-              padding: _fieldPadding,
-              child: Text.rich(
-                TextSpan(children: _buildHighlightSpans(display, baseStyle, primary)),
-                maxLines: null,
-              ),
-            ),
-          ),
-        ManagedKeyboardTextField(
-          controller: widget.controller,
-          hint: widget.hint,
-          scene: widget.scene,
-          enabled: widget.enabled,
-          autofocus: widget.autofocus,
-          onConfirm: widget.onConfirm,
-          style: baseStyle.copyWith(color: Colors.transparent),
-          decoration: fieldDecoration,
-          textInputAction: widget.textInputAction,
-          onSubmitted: widget.onSubmitted,
-          maxLines: null,
-          minLines: 1,
-          inputFormatters: [_atomicDeleteFormatter],
-        ),
-      ],
-    );
+    return buildField(context);
   }
 }
 

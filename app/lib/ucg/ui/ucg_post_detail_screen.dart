@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -39,9 +40,12 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   var _authorFollowing = false;
   var _loading = true;
   String? _error;
+  final _scrollController = ScrollController();
   final _commentLayerLinks = <String, LayerLink>{};
+  final _commentItemKeys = <String, GlobalKey>{};
   OverlayEntry? _commentDeleteOverlay;
   UcgComment? _commentDeleteTarget;
+  String? _pendingScrollToCommentId;
 
   @override
   void initState() {
@@ -53,7 +57,61 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   @override
   void dispose() {
     _removeCommentDeleteOverlay();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _applyCommentsAfterSend(UcgComment added) async {
+    final comments = await ref.read(ucgRepositoryProvider).fetchComments(widget.postId);
+    if (!mounted) return;
+    setState(() {
+      _comments = comments;
+      final post = _post;
+      if (post != null) {
+        _post = post.copyWith(commentCount: comments.length);
+      }
+      _pendingScrollToCommentId = added.id.isNotEmpty
+          ? added.id
+          : (comments.isNotEmpty ? comments.last.id : null);
+    });
+    _scheduleScrollToPendingComment();
+  }
+
+  void _scheduleScrollToPendingComment() {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToPendingComment();
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToPendingComment();
+      });
+    });
+  }
+
+  void _scrollToPendingComment() {
+    final id = _pendingScrollToCommentId;
+    if (id == null) return;
+
+    final key = _commentItemKeys[id];
+    final itemContext = key?.currentContext;
+    if (itemContext != null) {
+      Scrollable.ensureVisible(
+        itemContext,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        alignment: 1.0,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+      _pendingScrollToCommentId = null;
+      return;
+    }
+
+    if (_scrollController.hasClients) {
+      final max = _scrollController.position.maxScrollExtent;
+      if (max.isFinite) {
+        _scrollController.jumpTo(max);
+      }
+    }
   }
 
   bool _isOwnComment(UcgComment comment) {
@@ -111,10 +169,28 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                 child: InkWell(
                   onTap: () => unawaited(_deleteCommentNow(comment)),
                   borderRadius: BorderRadius.circular(8),
-                  child: const SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Icon(Icons.delete_outline_rounded, size: 22),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                          color: fg.withValues(alpha: 0.75),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '删除',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: fg.withValues(alpha: 0.75),
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -277,17 +353,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
           child: _DetailCommentSheet(
             postId: widget.postId,
             initialText: initialText,
-            onCommentAdded: () async {
-              final comments = await ref.read(ucgRepositoryProvider).fetchComments(widget.postId);
-              if (!mounted) return;
-              setState(() {
-                _comments = comments;
-                final post = _post;
-                if (post != null) {
-                  _post = post.copyWith(commentCount: comments.length);
-                }
-              });
-            },
+            onCommentAdded: _applyCommentsAfterSend,
           ),
         );
       },
@@ -388,6 +454,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       IconButton(
                         icon: Icon(Icons.arrow_back_ios_new_rounded, color: fg, size: 20),
@@ -406,11 +473,33 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                       Expanded(
                         child: GestureDetector(
                           onTap: () => _openUserProfile(post.authorId),
-                          child: Text(
-                            post.authorNickname.isEmpty ? '用户' : post.authorNickname,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontWeight: FontWeight.w600, color: fg, fontSize: 15),
+                          behavior: HitTestBehavior.opaque,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                post.authorNickname.isEmpty ? '用户' : post.authorNickname,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: fg,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              if (bio.isNotEmpty)
+                                Text(
+                                  bio,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    height: 1.3,
+                                    color: fg.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
@@ -426,19 +515,19 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                   child: RefreshIndicator(
                     onRefresh: _refresh,
                     child: ListView(
+                      controller: _scrollController,
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       physics: const AlwaysScrollableScrollPhysics(),
                       children: [
-                        if (bio.isNotEmpty)
-                          Text(
-                            bio,
-                            style: TextStyle(color: fg.withValues(alpha: 0.75), height: 1.45, fontSize: 14),
-                          ),
-                        if (bio.isNotEmpty) const SizedBox(height: 12),
                         if (post.text.isNotEmpty)
-                          Text(
-                            post.text,
-                            style: TextStyle(color: fg.withValues(alpha: 0.92), height: 1.5, fontSize: 16),
+                          _DetailExpandablePostText(
+                            text: post.text,
+                            style: TextStyle(
+                              color: fg.withValues(alpha: 0.92),
+                              height: 1.5,
+                              fontSize: 16,
+                            ),
+                            linkColor: fg.withValues(alpha: 0.45),
                           ),
                         UcgPostMediaSection(
                           post: post,
@@ -511,7 +600,12 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                                 comment.id,
                                 LayerLink.new,
                               ),
-                              child: GestureDetector(
+                              child: KeyedSubtree(
+                                key: _commentItemKeys.putIfAbsent(
+                                  comment.id,
+                                  GlobalKey.new,
+                                ),
+                                child: GestureDetector(
                                 onLongPress: () => unawaited(
                                   _onCommentLongPress(
                                     comment,
@@ -557,7 +651,8 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                                 ),
                               ),
                             ),
-                          ),
+                              ),
+                            ),
                         ],
                       ],
                     ),
@@ -568,6 +663,71 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 详情正文：默认最多 5 行，超出显示「展开」（无折叠）。
+class _DetailExpandablePostText extends StatefulWidget {
+  const _DetailExpandablePostText({
+    required this.text,
+    required this.style,
+    required this.linkColor,
+  });
+
+  static const _collapsedMaxLines = 5;
+
+  final String text;
+  final TextStyle style;
+  final Color linkColor;
+
+  @override
+  State<_DetailExpandablePostText> createState() => _DetailExpandablePostTextState();
+}
+
+class _DetailExpandablePostTextState extends State<_DetailExpandablePostText> {
+  var _expanded = false;
+
+  bool _exceedsCollapsedLines(double width) {
+    final painter = TextPainter(
+      text: TextSpan(text: widget.text, style: widget.style),
+      maxLines: _DetailExpandablePostText._collapsedMaxLines,
+      textDirection: Directionality.of(context),
+    )..layout(maxWidth: width);
+    return painter.didExceedMaxLines;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showExpand =
+            !_expanded && _exceedsCollapsedLines(constraints.maxWidth);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.text,
+              style: widget.style,
+              maxLines: _expanded ? null : _DetailExpandablePostText._collapsedMaxLines,
+              overflow: _expanded ? null : TextOverflow.ellipsis,
+            ),
+            if (showExpand)
+              GestureDetector(
+                onTap: () => setState(() => _expanded = true),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '展开',
+                    style: TextStyle(fontSize: 13, color: widget.linkColor),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -612,7 +772,7 @@ class _DetailCommentSheet extends ConsumerStatefulWidget {
 
   final String postId;
   final String? initialText;
-  final VoidCallback? onCommentAdded;
+  final Future<void> Function(UcgComment added)? onCommentAdded;
 
   @override
   ConsumerState<_DetailCommentSheet> createState() => _DetailCommentSheetState();
@@ -620,6 +780,7 @@ class _DetailCommentSheet extends ConsumerStatefulWidget {
 
 class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
   final _composerKey = GlobalKey<UcgMentionComposerFieldWithHighlightState>();
+  final _commentPreviewAnchorKey = GlobalKey();
   late final TextEditingController _controller;
   var _sending = false;
 
@@ -640,9 +801,10 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
-      await ref.read(ucgRepositoryProvider).addComment(widget.postId, text);
+      final added = await ref.read(ucgRepositoryProvider).addComment(widget.postId, text);
       if (!mounted) return;
-      widget.onCommentAdded?.call();
+      await widget.onCommentAdded?.call(added);
+      if (!mounted) return;
       Navigator.of(context).pop();
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -651,8 +813,8 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ?? scheme.onSurface;
+    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
+        Theme.of(context).colorScheme.onSurface;
     final isReply = widget.initialText != null && widget.initialText!.trim().isNotEmpty;
     final hint = isReply ? '回复…' : '写评论…';
 
@@ -665,38 +827,28 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
           style: Theme.of(context).textTheme.titleMedium?.copyWith(color: fg),
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: UcgMentionComposerFieldWithHighlight(
-                key: _composerKey,
-                controller: _controller,
-                initialWireText: widget.initialText,
-                selfWxId: ref.watch(ucgCurrentUserIdProvider),
-                autofocus: true,
-                enabled: !_sending,
-                hint: hint,
-                scene: 'ucg.post.comment',
-                onConfirm: _sending ? null : () => unawaited(_send()),
-                style: TextStyle(color: fg),
-                textInputAction: TextInputAction.send,
-                onSubmitted: _sending ? null : (_) => unawaited(_send()),
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            IconButton(
-              onPressed: _sending ? null : () => unawaited(_send()),
-              icon: _sending
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
-                    )
-                  : Icon(Icons.send_rounded, color: scheme.primary),
-            ),
-          ],
+        UcgPageComposerChrome(
+          controller: _controller,
+          enabled: !_sending,
+          busy: _sending,
+          confirmLabel: '发送',
+          onConfirm: _sending ? null : () => unawaited(_send()),
+          padding: EdgeInsets.zero,
+          field: UcgMentionComposerFieldWithHighlight(
+            key: _composerKey,
+            controller: _controller,
+            initialWireText: widget.initialText,
+            selfWxId: ref.watch(ucgCurrentUserIdProvider),
+            autofocus: true,
+            enabled: !_sending,
+            hint: hint,
+            scene: 'ucg.post.comment',
+            anchorKey: _commentPreviewAnchorKey,
+            onConfirm: _sending ? null : () => unawaited(_send()),
+            style: TextStyle(color: fg),
+            textInputAction: TextInputAction.newline,
+            decoration: ucgComposerFieldDecoration(context, hint: hint),
+          ),
         ),
       ],
     );

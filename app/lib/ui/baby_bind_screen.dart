@@ -17,7 +17,8 @@ import '../session/session_device_token_sync.dart';
 import '../theme/app_visual_tokens.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/baby_birth_picker_sheet.dart';
-import 'widgets/keyboard_input_bridge.dart';
+import 'auth/auth_field_scroll.dart';
+import 'widgets/keyboard_lift.dart';
 
 DateTime _bindDefaultBirth() {
   final now = DateTime.now();
@@ -50,6 +51,9 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   final _nicknameCtrl = TextEditingController();
   final _deviceFocusNode = FocusNode();
   final _nicknameFocusNode = FocusNode();
+  final _deviceFieldKey = GlobalKey();
+  final _nicknameFieldKey = GlobalKey();
+  final _scrollCtrl = ScrollController();
   final _birth = ValueNotifier<DateTime>(_bindDefaultBirth());
   BabySex _sex = BabySex.male;
   var _busy = false;
@@ -58,48 +62,53 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   @override
   void initState() {
     super.initState();
-    _deviceFocusNode.addListener(_onDeviceFocusChange);
-    _nicknameFocusNode.addListener(_onNicknameFocusChange);
+    _deviceFocusNode.addListener(_scrollDeviceIntoView);
+    _nicknameFocusNode.addListener(_scrollNicknameIntoView);
+  }
+
+  void _scrollDeviceIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _deviceFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _deviceFieldKey,
+    );
+  }
+
+  void _scrollNicknameIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _nicknameFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _nicknameFieldKey,
+    );
+  }
+
+  GlobalKey? get _focusedAuthAnchor {
+    if (_deviceFocusNode.hasFocus) return _deviceFieldKey;
+    if (_nicknameFocusNode.hasFocus) return _nicknameFieldKey;
+    return null;
+  }
+
+  FocusNode? get _focusedAuthField {
+    if (_deviceFocusNode.hasFocus) return _deviceFocusNode;
+    if (_nicknameFocusNode.hasFocus) return _nicknameFocusNode;
+    return null;
   }
 
   @override
   void dispose() {
-    _deviceFocusNode.removeListener(_onDeviceFocusChange);
-    _nicknameFocusNode.removeListener(_onNicknameFocusChange);
+    _deviceFocusNode.removeListener(_scrollDeviceIntoView);
+    _nicknameFocusNode.removeListener(_scrollNicknameIntoView);
     _deviceFocusNode.dispose();
     _nicknameFocusNode.dispose();
     _deviceCtrl.dispose();
     _nicknameCtrl.dispose();
+    _scrollCtrl.dispose();
     _birth.dispose();
     super.dispose();
-  }
-
-  void _onDeviceFocusChange() {
-    if (_deviceFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _deviceCtrl,
-        focusNode: _deviceFocusNode,
-        onConfirm: () => _deviceFocusNode.unfocus(),
-        scene: 'baby-bind.device-id',
-        hint: '请输入宝宝ID',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _deviceCtrl);
-  }
-
-  void _onNicknameFocusChange() {
-    if (_nicknameFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _nicknameCtrl,
-        focusNode: _nicknameFocusNode,
-        onConfirm: () => _nicknameFocusNode.unfocus(),
-        scene: 'baby-bind.nickname',
-        hint: '请输入宝宝昵称',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _nicknameCtrl);
   }
 
   Future<void> _bind() async {
@@ -221,11 +230,22 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
               _buildModeSwitcher(scheme, isDark),
               const SizedBox(height: 32),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _mode == _BabyBindMode.bind
-                      ? _buildBindCard(context, scheme, isDark)
-                      : _buildCreateCard(context, scheme, isDark),
+                child: Builder(
+                  builder: (context) {
+                    scheduleInlineAuthScrollOnInset(
+                      context,
+                      focusedNode: _focusedAuthField,
+                      scrollController: _scrollCtrl,
+                      anchorKey: _focusedAuthAnchor,
+                    );
+                    return SingleChildScrollView(
+                      controller: _scrollCtrl,
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.viewInsetsOf(context).bottom),
+                      child: _mode == _BabyBindMode.bind
+                          ? _buildBindCard(context, scheme, isDark)
+                          : _buildCreateCard(context, scheme, isDark),
+                    );
+                  },
                 ),
               ),
               _buildFooterButtons(scheme, isDark),
@@ -279,20 +299,23 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: _deviceCtrl,
+          keyboardLiftTarget(
             focusNode: _deviceFocusNode,
-            onTap: _onDeviceFocusChange,
-            onChanged: keyboardInputBridgeController.updateDraft,
-            decoration: InputDecoration(
-              hintText: '请输入宝宝ID',
-              filled: true,
-              fillColor: scheme.surface.withValues(alpha: 0.4),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+            anchorKey: _deviceFieldKey,
+            child: TextField(
+              controller: _deviceCtrl,
+              focusNode: _deviceFocusNode,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                hintText: '请输入宝宝ID',
+                filled: true,
+                fillColor: scheme.surface.withValues(alpha: 0.4),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
           ),
           const SizedBox(height: 8),
@@ -324,20 +347,23 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           ),
           const SizedBox(height: 20),
           _buildLabel('宝宝昵称'),
-          TextField(
-            controller: _nicknameCtrl,
+          keyboardLiftTarget(
             focusNode: _nicknameFocusNode,
-            onTap: _onNicknameFocusChange,
-            onChanged: keyboardInputBridgeController.updateDraft,
-            decoration: InputDecoration(
-              hintText: '请输入宝宝昵称',
-              filled: true,
-              fillColor: scheme.surface.withValues(alpha: 0.4),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+            anchorKey: _nicknameFieldKey,
+            child: TextField(
+              controller: _nicknameCtrl,
+              focusNode: _nicknameFocusNode,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                hintText: '请输入宝宝昵称',
+                filled: true,
+                fillColor: scheme.surface.withValues(alpha: 0.4),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
           ),
           const SizedBox(height: 20),

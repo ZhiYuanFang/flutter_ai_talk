@@ -104,3 +104,5 @@
 - [x] 9.1 长按他人评论 → @ 回复；长按本人评论 → 评论上方删除图标（点图标即删，无二次确认）— `ucg-interactions`
 - [x] 9.2 `DELETE /comments/{id}` 删除后本地列表与 commentCount 更新 — `ucg-interactions`
 - [x] 9.3 发送评论时 strip 对当前 wxId 的 @ mention（不允许 @ 自己）— `ucg-interactions`
+- [x] 9.4 发送评论后滚动定位至新评论；`fetchComments` 分页拉全量 — `ucg-interactions`
+- [x] 9.5 长按本人评论删除浮层：图标右侧展示「删除」标签（对齐 ··· 菜单 _ActionIcon 样式）— `ucg-interactions`

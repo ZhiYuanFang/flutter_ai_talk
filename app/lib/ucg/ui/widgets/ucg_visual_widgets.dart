@@ -1,10 +1,69 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/ucg_feature_flags.dart';
 import '../../../theme/app_theme_scope.dart';
 import '../../../theme/app_visual_tokens.dart';
+import '../../../ui/widgets/keyboard_dismiss_scope.dart';
+import '../../../ui/widgets/keyboard_input_bridge.dart';
+import '../../../ui/widgets/keyboard_lift.dart';
 import '../../../ui/widgets/managed_keyboard_text_field.dart';
 const _kHeaderContentSpacing = 10.0;
+
+/// composer 行内控件间距与左右边距（px）。
+const kUcgComposerGap = 5.0;
+const kUcgComposerHorizontalPad = 5.0;
+const kUcgComposerFieldPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 10);
+
+InputDecoration ucgComposerFieldDecoration(
+  BuildContext context, {
+  required String hint,
+}) {
+  final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
+      Theme.of(context).colorScheme.onSurface;
+  return InputDecoration(
+    hintText: hint,
+    isDense: true,
+    filled: true,
+    fillColor: UcgSurfaceCard.surfaceFillColor(context),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+    contentPadding: kUcgComposerFieldPadding,
+    hintStyle: TextStyle(color: fg.withValues(alpha: 0.42)),
+  );
+}
+
+class _UcgComposerIconButton extends StatelessWidget {
+  const _UcgComposerIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    required this.color,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, color: color),
+      ),
+    );
+  }
+}
 
 /// UCG 页面脚手架：shell 背景 + 安全区，无 AppBar 色块。
 class UcgScaffold extends StatelessWidget {
@@ -583,8 +642,228 @@ class _DockItem extends StatelessWidget {
   }
 }
 
+/// 页面内 composer：输入行 + 可选 emoji 面板（与聊天 dock 同布局，无全局浮层）。
+class UcgPageComposerChrome extends StatelessWidget {
+  const UcgPageComposerChrome({
+    super.key,
+    required this.controller,
+    required this.field,
+    this.onConfirm,
+    this.confirmIcon = Icons.send_rounded,
+    this.confirmLabel,
+    this.leading,
+    this.enabled = true,
+    this.busy = false,
+    this.padding = const EdgeInsets.fromLTRB(
+      kUcgComposerHorizontalPad,
+      8,
+      kUcgComposerHorizontalPad,
+      8,
+    ),
+    this.applyKeyboardInset = true,
+  });
+
+  final TextEditingController controller;
+  final Widget field;
+  final VoidCallback? onConfirm;
+  final IconData confirmIcon;
+  final String? confirmLabel;
+  final Widget? leading;
+  final bool enabled;
+  final bool busy;
+  final EdgeInsets padding;
+  final bool applyKeyboardInset;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final primary = Theme.of(context).colorScheme.primary;
+    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    final fieldEnabled = enabled && !busy;
+    final bridge = keyboardInputBridgeController;
+
+    Widget chrome = AnimatedBuilder(
+      animation: bridge,
+      builder: (context, _) {
+        final rawKeyboardBottom = readRawViewInsetBottom(context);
+        bridge.noteKeyboardInset(rawKeyboardBottom);
+        final active = bridge.binding?.controller == controller;
+        final emojiPanelDisplayed =
+            active && bridge.isEmojiPanelDisplayed(rawKeyboardBottom);
+        final showKeyboardIcon =
+            active && bridge.accessoryShowsKeyboardIcon(rawKeyboardBottom);
+        final panelHeight = bridge.lastKeyboardInset > 0
+            ? KeyboardOverlayMetrics.emojiPanelHeight(bridge.lastKeyboardInset)
+            : KeyboardOverlayMetrics.emojiPanelMinHeight;
+
+        return Padding(
+          padding: padding.copyWith(bottom: padding.bottom + bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (leading != null) ...[leading!, const SizedBox(width: kUcgComposerGap)],
+                  _UcgComposerIconButton(
+                    tooltip: showKeyboardIcon ? '键盘' : '表情',
+                    onPressed: fieldEnabled
+                        ? () => bridge.onAccessoryIconPressed(rawKeyboardBottom)
+                        : null,
+                    icon: showKeyboardIcon ? Icons.keyboard_rounded : Icons.emoji_emotions_outlined,
+                    color: fg.withValues(alpha: 0.55),
+                  ),
+                  const SizedBox(width: kUcgComposerGap),
+                  Expanded(child: field),
+                  const SizedBox(width: kUcgComposerGap),
+                  if (confirmLabel != null)
+                    FilledButton(
+                      onPressed: fieldEnabled ? onConfirm : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(52, 40),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(confirmLabel!),
+                    )
+                  else
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: busy
+                          ? Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                              ),
+                            )
+                          : _UcgComposerIconButton(
+                              tooltip: '发送',
+                              onPressed: fieldEnabled ? onConfirm : null,
+                              icon: confirmIcon,
+                              color: primary,
+                            ),
+                    ),
+                ],
+              ),
+              if (emojiPanelDisplayed)
+                UcgEmojiPanelGrid(
+                  height: panelHeight,
+                  onEmojiSelected: bridge.insertAtCursor,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (applyKeyboardInset) {
+      chrome = keyboardDockBottomInset(controller: controller, child: chrome);
+    }
+    return KeyboardDismissExclude(child: chrome);
+  }
+}
+
+/// 资料页字段编辑 Sheet 内容：标题固定 + 底部 composer（与评论同布局）。
+class UcgProfileFieldEditSheet extends StatefulWidget {
+  const UcgProfileFieldEditSheet({
+    super.key,
+    required this.title,
+    required this.hint,
+    required this.scene,
+    required this.initialText,
+    this.maxLines = 1,
+    this.inputFormatters,
+    this.busy = false,
+  });
+
+  final String title;
+  final String hint;
+  final String scene;
+  final String initialText;
+  final int maxLines;
+  final List<TextInputFormatter>? inputFormatters;
+  final bool busy;
+
+  @override
+  State<UcgProfileFieldEditSheet> createState() => _UcgProfileFieldEditSheetState();
+}
+
+class _UcgProfileFieldEditSheetState extends State<UcgProfileFieldEditSheet> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    _focusNode = FocusNode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (widget.busy) return;
+    Navigator.of(context).pop(_controller.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
+        Theme.of(context).colorScheme.onSurface;
+    final multiline = widget.maxLines != 1;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: fg),
+        ),
+        const SizedBox(height: 12),
+        UcgPageComposerChrome(
+          controller: _controller,
+          enabled: !widget.busy,
+          busy: widget.busy,
+          confirmLabel: '确定',
+          onConfirm: widget.busy ? null : _submit,
+          padding: EdgeInsets.zero,
+          field: ManagedKeyboardTextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            hint: widget.hint,
+            scene: widget.scene,
+            enabled: !widget.busy,
+            autofocus: true,
+            maxLines: widget.maxLines,
+            minLines: 1,
+            textInputAction: multiline ? TextInputAction.newline : TextInputAction.done,
+            inputFormatters: widget.inputFormatters,
+            blurPolicy: BlurWithoutConfirmPolicy.discardRestoreSnapshot,
+            onConfirm: widget.busy ? null : _submit,
+            onSubmitted: multiline || widget.busy ? null : (_) => _submit(),
+            decoration: ucgComposerFieldDecoration(context, hint: widget.hint),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 底部扁平输入条（聊天等）。
-class UcgInputDock extends StatelessWidget {
+class UcgInputDock extends StatefulWidget {
   const UcgInputDock({
     super.key,
     required this.controller,
@@ -603,58 +882,37 @@ class UcgInputDock extends StatelessWidget {
   final bool busy;
 
   @override
+  State<UcgInputDock> createState() => _UcgInputDockState();
+}
+
+class _UcgInputDockState extends State<UcgInputDock> {
+  @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final primary = Theme.of(context).colorScheme.primary;
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    final fieldEnabled = enabled && !busy;
+    final fieldEnabled = widget.enabled && !widget.busy;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 8),
-      child: Row(
-        children: [
-          if (onAttach != null) ...[
-            IconButton(
-              onPressed: fieldEnabled ? onAttach : null,
-              icon: Icon(Icons.add_circle_outline_rounded, color: fg.withValues(alpha: 0.55)),
+    return UcgPageComposerChrome(
+      controller: widget.controller,
+      enabled: widget.enabled,
+      busy: widget.busy,
+      onConfirm: widget.onSend,
+      leading: widget.onAttach != null
+          ? _UcgComposerIconButton(
               tooltip: '添加图片或视频',
-            ),
-          ],
-          Expanded(
-            child: ManagedKeyboardTextField(
-              controller: controller,
-              hint: hintText,
-              scene: 'ucg.chat',
-              onConfirm: fieldEnabled ? onSend : null,
-              enabled: fieldEnabled,
-              textInputAction: TextInputAction.send,
-              onSubmitted: fieldEnabled ? (_) => onSend() : null,
-              decoration: InputDecoration(
-                hintText: hintText,
-                filled: true,
-                fillColor: UcgSurfaceCard.surfaceFillColor(context),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                hintStyle: TextStyle(color: fg.withValues(alpha: 0.42)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            onPressed: fieldEnabled ? onSend : null,
-            icon: busy
-                ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: primary),
-                  )
-                : Icon(Icons.send_rounded, color: primary),
-          ),
-        ],
+              onPressed: fieldEnabled ? widget.onAttach : null,
+              icon: Icons.add_circle_outline_rounded,
+              color: fg.withValues(alpha: 0.55),
+            )
+          : null,
+      field: ManagedKeyboardTextField(
+        controller: widget.controller,
+        hint: widget.hintText,
+        scene: 'ucg.chat',
+        enabled: fieldEnabled,
+        textInputAction: TextInputAction.send,
+        onSubmitted: fieldEnabled ? (_) => widget.onSend() : null,
+        decoration: ucgComposerFieldDecoration(context, hint: widget.hintText),
       ),
     );
   }

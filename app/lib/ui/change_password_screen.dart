@@ -11,8 +11,9 @@ import '../providers/toast_bus.dart';
 import '../providers/user_profile_provider.dart';
 import '../session/credential_history_store.dart';
 import '../theme/app_visual_tokens.dart';
+import 'auth/auth_field_scroll.dart';
 import 'auth/auth_ui.dart';
-import 'widgets/keyboard_input_bridge.dart';
+import 'widgets/keyboard_lift.dart';
 
 class ChangePasswordScreen extends ConsumerStatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -26,6 +27,9 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
   final _newCtrl = TextEditingController();
   final _oldFocus = FocusNode();
   final _newFocus = FocusNode();
+  final _oldFieldKey = GlobalKey();
+  final _newFieldKey = GlobalKey();
+  final _scrollCtrl = ScrollController();
   var _busy = false;
   var _obscureOld = true;
   var _obscureNew = true;
@@ -33,49 +37,52 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
   @override
   void initState() {
     super.initState();
-    _oldFocus.addListener(_onOldFocusChange);
-    _newFocus.addListener(_onNewFocusChange);
+    _oldFocus.addListener(_scrollOldIntoView);
+    _newFocus.addListener(_scrollNewIntoView);
+  }
+
+  void _scrollOldIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _oldFocus,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _oldFieldKey,
+    );
+  }
+
+  void _scrollNewIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _newFocus,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _newFieldKey,
+    );
+  }
+
+  GlobalKey? get _focusedAuthAnchor {
+    if (_oldFocus.hasFocus) return _oldFieldKey;
+    if (_newFocus.hasFocus) return _newFieldKey;
+    return null;
+  }
+
+  FocusNode? get _focusedAuthField {
+    if (_oldFocus.hasFocus) return _oldFocus;
+    if (_newFocus.hasFocus) return _newFocus;
+    return null;
   }
 
   @override
   void dispose() {
-    _oldFocus.removeListener(_onOldFocusChange);
-    _newFocus.removeListener(_onNewFocusChange);
+    _oldFocus.removeListener(_scrollOldIntoView);
+    _newFocus.removeListener(_scrollNewIntoView);
     _oldFocus.dispose();
     _newFocus.dispose();
     _oldCtrl.dispose();
     _newCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
-  }
-
-  void _onOldFocusChange() {
-    if (_oldFocus.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _oldCtrl,
-        focusNode: _oldFocus,
-        onConfirm: () => _newFocus.requestFocus(),
-        scene: 'change-password.old',
-        obscureText: true,
-        hint: '旧密码',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _oldCtrl);
-  }
-
-  void _onNewFocusChange() {
-    if (_newFocus.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _newCtrl,
-        focusNode: _newFocus,
-        onConfirm: _submit,
-        scene: 'change-password.new',
-        obscureText: true,
-        hint: '新密码',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _newCtrl);
   }
 
   Future<void> _submit() async {
@@ -129,6 +136,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
     final onShell = tokens?.onShell ?? scheme.onSurface;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('修改密码'),
@@ -157,8 +165,15 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
                   child: Text('当前账号不支持修改密码', style: TextStyle(color: onShell)),
                 );
               }
+              scheduleInlineAuthScrollOnInset(
+                context,
+                focusedNode: _focusedAuthField,
+                scrollController: _scrollCtrl,
+                anchorKey: _focusedAuthAnchor,
+              );
               return ListView(
-                padding: const EdgeInsets.all(16),
+                controller: _scrollCtrl,
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
                 children: [
                   _ChangePasswordGlassPanel(
                     child: Column(
@@ -181,36 +196,43 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
                           ),
                         ),
                         const SizedBox(height: 20),
-                        TextField(
-                          controller: _oldCtrl,
+                        keyboardLiftTarget(
                           focusNode: _oldFocus,
-                          enabled: !_busy,
-                          obscureText: _obscureOld,
-                          onTap: _onOldFocusChange,
-                          onChanged: keyboardInputBridgeController.updateDraft,
-                          decoration: buildAuthInputDecoration(
-                            labelText: '旧密码',
-                            suffixIcon: IconButton(
-                              onPressed: _busy ? null : () => setState(() => _obscureOld = !_obscureOld),
-                              icon: Icon(_obscureOld ? Icons.visibility_off : Icons.visibility),
+                          anchorKey: _oldFieldKey,
+                          child: TextField(
+                            controller: _oldCtrl,
+                            focusNode: _oldFocus,
+                            enabled: !_busy,
+                            obscureText: _obscureOld,
+                            textInputAction: TextInputAction.next,
+                            onSubmitted: (_) => _newFocus.requestFocus(),
+                            decoration: buildAuthInputDecoration(
+                              labelText: '旧密码',
+                              suffixIcon: IconButton(
+                                onPressed: _busy ? null : () => setState(() => _obscureOld = !_obscureOld),
+                                icon: Icon(_obscureOld ? Icons.visibility_off : Icons.visibility),
+                              ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: _newCtrl,
+                        keyboardLiftTarget(
                           focusNode: _newFocus,
-                          enabled: !_busy,
-                          obscureText: _obscureNew,
-                          onTap: _onNewFocusChange,
-                          onChanged: keyboardInputBridgeController.updateDraft,
-                          onSubmitted: (_) => _submit(),
-                          decoration: buildAuthInputDecoration(
-                            labelText: '新密码',
-                            hintText: '6-64 位',
-                            suffixIcon: IconButton(
-                              onPressed: _busy ? null : () => setState(() => _obscureNew = !_obscureNew),
-                              icon: Icon(_obscureNew ? Icons.visibility_off : Icons.visibility),
+                          anchorKey: _newFieldKey,
+                          child: TextField(
+                            controller: _newCtrl,
+                            focusNode: _newFocus,
+                            enabled: !_busy,
+                            obscureText: _obscureNew,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _submit(),
+                            decoration: buildAuthInputDecoration(
+                              labelText: '新密码',
+                              hintText: '6-64 位',
+                              suffixIcon: IconButton(
+                                onPressed: _busy ? null : () => setState(() => _obscureNew = !_obscureNew),
+                                icon: Icon(_obscureNew ? Icons.visibility_off : Icons.visibility),
+                              ),
                             ),
                           ),
                         ),

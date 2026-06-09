@@ -10,7 +10,6 @@ import '../theme/theme_bootstrap_cache.dart';
 import 'baby_profile_clay_theme.dart';
 import 'clay_form_widgets.dart';
 import 'widgets/app_toast.dart';
-import 'widgets/keyboard_input_bridge.dart';
 
 /// 宝宝资料表单：加载 [initialBaby]，保存后刷新 [settingsBabyProvider] 与主题性别。
 /// [onSaved] 在保存成功且 SnackBar 展示前调用（例如返回上一级）。
@@ -27,7 +26,6 @@ class BabyProfileEditor extends ConsumerStatefulWidget {
 class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nicknameCtrl;
-  final _nicknameFocusNode = FocusNode();
   late BabySex _sex;
   late DateTime _birth;
 
@@ -52,7 +50,6 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
   void initState() {
     super.initState();
     _nicknameCtrl = TextEditingController(text: widget.initialBaby.nickname);
-    _nicknameFocusNode.addListener(_onNicknameFocusChange);
     _sex = widget.initialBaby.sex;
     _birth = _clampBirthToValidRange(widget.initialBaby.birthDate);
   }
@@ -71,24 +68,8 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
 
   @override
   void dispose() {
-    _nicknameFocusNode.removeListener(_onNicknameFocusChange);
-    _nicknameFocusNode.dispose();
     _nicknameCtrl.dispose();
     super.dispose();
-  }
-
-  void _onNicknameFocusChange() {
-    if (_nicknameFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _nicknameCtrl,
-        focusNode: _nicknameFocusNode,
-        onConfirm: () => _nicknameFocusNode.unfocus(),
-        scene: 'baby-profile.nickname',
-        hint: '宝宝昵称',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _nicknameCtrl);
   }
 
   void _onBirthChanged(DateTime raw) {
@@ -158,9 +139,6 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
               ),
               child: TextFormField(
                 controller: _nicknameCtrl,
-                focusNode: _nicknameFocusNode,
-                onTap: _onNicknameFocusChange,
-                onChanged: keyboardInputBridgeController.updateDraft,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,

@@ -14,8 +14,9 @@ import '../providers/toast_bus.dart';
 import '../session/credential_history_store.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/theme_bootstrap_cache.dart';
+import 'auth/auth_field_scroll.dart';
 import 'auth/auth_ui.dart';
-import 'widgets/keyboard_input_bridge.dart';
+import 'widgets/keyboard_lift.dart';
 import '../wechat/wechat_web_redirect.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -33,6 +34,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordCtrl = TextEditingController();
   final _accountFocusNode = FocusNode();
   final _passwordFocusNode = FocusNode();
+  final _passwordFieldKey = GlobalKey();
+  final _scrollCtrl = ScrollController();
 
   var _loading = false;
   var _resumedPendingWebLogin = false;
@@ -45,8 +48,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _accountFocusNode.addListener(_onAccountFocusChange);
-    _passwordFocusNode.addListener(_onPasswordFocusChange);
+    _accountFocusNode.addListener(_scrollAccountIntoView);
+    _passwordFocusNode.addListener(_scrollPasswordIntoView);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _applyPrefillAccountFromRoute();
@@ -84,44 +87,48 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _accountError = null;
   }
 
+  void _scrollAccountIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _accountFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _accountFieldKey,
+    );
+  }
+
+  void _scrollPasswordIntoView() {
+    if (!mounted) return;
+    scrollInlineAuthFieldIntoView(
+      _passwordFocusNode,
+      context: context,
+      scrollController: _scrollCtrl,
+      anchorKey: _passwordFieldKey,
+    );
+  }
+
+  GlobalKey? get _focusedAuthAnchor {
+    if (_accountFocusNode.hasFocus) return _accountFieldKey;
+    if (_passwordFocusNode.hasFocus) return _passwordFieldKey;
+    return null;
+  }
+
+  FocusNode? get _focusedAuthField {
+    if (_accountFocusNode.hasFocus) return _accountFocusNode;
+    if (_passwordFocusNode.hasFocus) return _passwordFocusNode;
+    return null;
+  }
+
   @override
   void dispose() {
-    _accountFocusNode.removeListener(_onAccountFocusChange);
-    _passwordFocusNode.removeListener(_onPasswordFocusChange);
+    _accountFocusNode.removeListener(_scrollAccountIntoView);
+    _passwordFocusNode.removeListener(_scrollPasswordIntoView);
     _accountFocusNode.dispose();
     _passwordFocusNode.dispose();
     _accountCtrl.dispose();
     _passwordCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
-  }
-
-  void _onAccountFocusChange() {
-    if (_accountFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _accountCtrl,
-        focusNode: _accountFocusNode,
-        onConfirm: () => _passwordFocusNode.requestFocus(),
-        scene: 'login.account',
-        hint: '账号',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _accountCtrl);
-  }
-
-  void _onPasswordFocusChange() {
-    if (_passwordFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _passwordCtrl,
-        focusNode: _passwordFocusNode,
-        onConfirm: _onUsernameLogin,
-        scene: 'login.password',
-        obscureText: true,
-        hint: '密码',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _passwordCtrl);
   }
 
   String _normalizeAccount(String raw) => raw.trim().toLowerCase();
@@ -151,13 +158,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _accountError = null;
       _passwordError = null;
     });
-    final binding = keyboardInputBridgeController.binding;
-    if (binding == null) return;
-    if (binding.controller == _accountCtrl) {
-      keyboardInputBridgeController.updateDraft(entry.account);
-    } else if (binding.controller == _passwordCtrl) {
-      keyboardInputBridgeController.updateDraft(entry.password ?? '');
-    }
   }
 
   Future<void> _showCredentialPicker() async {
@@ -363,135 +363,159 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           color: Color(0xFFFBF8F3), // 浅米色/大理石底色
         ),
         child: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+              scheduleInlineAuthScrollOnInset(
+                context,
+                focusedNode: _focusedAuthField,
+                scrollController: _scrollCtrl,
+                anchorKey: _focusedAuthAnchor,
+              );
+              return SingleChildScrollView(
+                controller: _scrollCtrl,
+                padding: EdgeInsets.fromLTRB(0, 0, 0, 16 + bottomInset),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: inlineAuthScrollMinHeight(
+                      viewportHeight: constraints.maxHeight,
+                      keyboardInset: bottomInset,
+                    ),
+                  ),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      const Spacer(flex: 2),
-                      buildAuthBrandHeader(context),
-                      const SizedBox(height: 20),
-                      TextField(
-                        key: _accountFieldKey,
-                        controller: _accountCtrl,
-                        focusNode: _accountFocusNode,
-                        enabled: !_loading,
-                        autocorrect: false,
-                        textInputAction: TextInputAction.next,
-                        onTap: _onAccountFocusChange,
-                        onChanged: keyboardInputBridgeController.updateDraft,
-                        decoration: buildAuthInputDecoration(
-                          labelText: '账号',
-                          hintText: '4-32 位，仅 a-z0-9_',
-                          errorText: _accountError,
-                          suffixIcon: _credentialEntries.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: _loading ? null : _showCredentialPicker,
-                                  icon: const Icon(Icons.arrow_drop_down),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _passwordCtrl,
-                        focusNode: _passwordFocusNode,
-                        enabled: !_loading,
-                        obscureText: _obscurePassword,
-                        onTap: _onPasswordFocusChange,
-                        onChanged: keyboardInputBridgeController.updateDraft,
-                        onSubmitted: (_) => _onUsernameLogin(),
-                        decoration: buildAuthInputDecoration(
-                          labelText: '密码',
-                          hintText: '6-64 位',
-                          errorText: _passwordError,
-                          suffixIcon: IconButton(
-                            onPressed: _loading
-                                ? null
-                                : () => setState(() => _obscurePassword = !_obscurePassword),
-                            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: _loading ? null : _onUsernameLogin,
-                          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Text('账号密码登录'),
-                        ),
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: _loading ? null : _openRegisterScreen,
-                          child: const Text('注册账号'),
-                        ),
-                      ),
                       Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
+                        padding: const EdgeInsets.fromLTRB(40, 0, 40, 24),
+                        child: Column(
                           children: [
-                            const Expanded(child: Divider()),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                              child: Text('或', style: Theme.of(context).textTheme.bodySmall),
+                            buildAuthBrandHeader(context),
+                            const SizedBox(height: 20),
+                            keyboardLiftTarget(
+                              focusNode: _accountFocusNode,
+                              anchorKey: _accountFieldKey,
+                              child: TextField(
+                                controller: _accountCtrl,
+                                focusNode: _accountFocusNode,
+                                enabled: !_loading,
+                                autocorrect: false,
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                                decoration: buildAuthInputDecoration(
+                                  labelText: '账号',
+                                  hintText: '4-32 位，仅 a-z0-9_',
+                                  errorText: _accountError,
+                                  suffixIcon: _credentialEntries.isEmpty
+                                      ? null
+                                      : IconButton(
+                                          onPressed: _loading ? null : _showCredentialPicker,
+                                          icon: const Icon(Icons.arrow_drop_down),
+                                        ),
+                                ),
+                              ),
                             ),
-                            const Expanded(child: Divider()),
+                            const SizedBox(height: 12),
+                            keyboardLiftTarget(
+                              focusNode: _passwordFocusNode,
+                              anchorKey: _passwordFieldKey,
+                              child: TextField(
+                                controller: _passwordCtrl,
+                                focusNode: _passwordFocusNode,
+                                enabled: !_loading,
+                                obscureText: _obscurePassword,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _onUsernameLogin(),
+                                decoration: buildAuthInputDecoration(
+                                  labelText: '密码',
+                                  hintText: '6-64 位',
+                                  errorText: _passwordError,
+                                  suffixIcon: IconButton(
+                                    onPressed: _loading
+                                        ? null
+                                        : () => setState(() => _obscurePassword = !_obscurePassword),
+                                    icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: _loading ? null : _onUsernameLogin,
+                                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                                child: _loading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Text('账号密码登录'),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _loading ? null : _openRegisterScreen,
+                                child: const Text('注册账号'),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Row(
+                                children: [
+                                  const Expanded(child: Divider()),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    child: Text('或', style: Theme.of(context).textTheme.bodySmall),
+                                  ),
+                                  const Expanded(child: Divider()),
+                                ],
+                              ),
+                            ),
+                            if (_showAppleLoginButton) ...[
+                              OutlinedButton.icon(
+                                onPressed: _loading ? null : _onAppleLogin,
+                                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                                icon: const Icon(Icons.apple),
+                                label: const Text('通过 Apple 登录'),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            if (_showWeChatLoginButton)
+                              OutlinedButton.icon(
+                                onPressed: _loading ? null : _onWeChatLogin,
+                                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                                icon: const Icon(Icons.chat_bubble_outline),
+                                label: const Text('微信登录'),
+                              ),
+                            if (_showWeChatLoginButton) const SizedBox(height: 12),
+                            buildAuthPrivacyAgreement(
+                              context,
+                              leadText: '登录即代表您已阅读并同意',
+                              onTapUserAgreement: () => context.push(
+                                Uri(path: '/policy', queryParameters: {'url': AppEnv.userAgreementUrl}).toString(),
+                              ),
+                              onTapPrivacyPolicy: () => context.push(
+                                Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
+                              ),
+                            ),
+                            if (AppEnv.wxLoginCode.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: Text(
+                                  '开发模式已开启',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange),
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                      if (_showAppleLoginButton) ...[
-                        OutlinedButton.icon(
-                          onPressed: _loading ? null : _onAppleLogin,
-                          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                          icon: const Icon(Icons.apple),
-                          label: const Text('通过 Apple 登录'),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (_showWeChatLoginButton)
-                        OutlinedButton.icon(
-                          onPressed: _loading ? null : _onWeChatLogin,
-                          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                          icon: const Icon(Icons.chat_bubble_outline),
-                          label: const Text('微信登录'),
-                        ),
-                      if (_showWeChatLoginButton) const SizedBox(height: 12),
-                      buildAuthPrivacyAgreement(
-                        context,
-                        leadText: '登录即代表您已阅读并同意',
-                        onTapUserAgreement: () => context.push(
-                          Uri(path: '/policy', queryParameters: {'url': AppEnv.userAgreementUrl}).toString(),
-                        ),
-                        onTapPrivacyPolicy: () => context.push(
-                          Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
-                        ),
-                      ),
-                      const Spacer(),
-                      if (AppEnv.wxLoginCode.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: Text(
-                            '开发模式已开启',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange),
-                          ),
-                        ),
                     ],
                   ),
                 ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),

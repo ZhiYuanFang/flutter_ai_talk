@@ -13,7 +13,9 @@ import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/event_remark_quick_tags.dart';
+import 'widgets/keyboard_dismiss_scope.dart';
 import 'widgets/keyboard_input_bridge.dart';
+import 'widgets/keyboard_lift.dart';
 
 /// number 类型事件二级页确认结果。
 class HomeNumberEventResult {
@@ -41,6 +43,7 @@ Future<HomeNumberEventResult?> showHomeNumberEventSheet(
     maxHeightFraction: 4 / 5,
     enableDrag: false,
     wrapInGlassPanel: false,
+    respectKeyboardInset: true,
     bodyBuilder: (ctx) => _HomeNumberEventSheet(
       event: event,
       initialUsage: initialUsage,
@@ -66,6 +69,7 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
   late FixedExtentScrollController _usagePickerCtrl;
   final _remarkCtrl = TextEditingController();
   final _remarkFocusNode = FocusNode();
+  final _remarkAnchorKey = GlobalKey();
 
   @override
   void initState() {
@@ -98,17 +102,15 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
   }
 
   void _onRemarkFocusChange() {
-    if (_remarkFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _remarkCtrl,
-        focusNode: _remarkFocusNode,
-        onConfirm: () => _remarkFocusNode.unfocus(),
-        scene: 'home.number.remark',
-        hint: '备注（可选）',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _remarkCtrl);
+    handleBridgeFocusChange(
+      context: context,
+      focusNode: _remarkFocusNode,
+      controller: _remarkCtrl,
+      scene: 'home.number.remark',
+      onConfirm: () => _remarkFocusNode.unfocus(),
+      hint: '备注（可选）',
+      anchorKey: _remarkAnchorKey,
+    );
   }
 
   void _dismiss() {
@@ -220,21 +222,26 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
             ),
           ),
           const SizedBox(height: 14),
-          TextField(
-            controller: _remarkCtrl,
+          keyboardLiftTarget(
             focusNode: _remarkFocusNode,
-            style: TextStyle(color: glassText, fontSize: 15),
-            cursorColor: accent,
-            decoration: historyEditGlassInputDecoration(context, labelText: '备注（可选）'),
-            textInputAction: TextInputAction.done,
-            maxLines: 2,
-            onTap: _onRemarkFocusChange,
-            onChanged: keyboardInputBridgeController.updateDraft,
-            onSubmitted: (_) => FocusScope.of(context).unfocus(),
+            anchorKey: _remarkAnchorKey,
+            child: TextField(
+              controller: _remarkCtrl,
+              focusNode: _remarkFocusNode,
+              style: TextStyle(color: glassText, fontSize: 15),
+              cursorColor: accent,
+              decoration: historyEditGlassInputDecoration(context, labelText: '备注（可选）'),
+              textInputAction: TextInputAction.done,
+              maxLines: 2,
+              onChanged: keyboardInputBridgeController.updateDraft,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
+            ),
           ),
-          EventRemarkQuickTags(
-            eventId: widget.event.id,
-            onSelect: _onRemarkTagSelected,
+          KeyboardDismissExclude(
+            child: EventRemarkQuickTags(
+              eventId: widget.event.id,
+              onSelect: _onRemarkTagSelected,
+            ),
           ),
           const SizedBox(height: 16),
           Align(

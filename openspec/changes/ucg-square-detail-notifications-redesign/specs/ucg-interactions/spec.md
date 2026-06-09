@@ -72,8 +72,8 @@ On detail page, long-pressing a comment SHALL open the comment composer with wir
 
 #### Scenario: 长按本人评论删除
 - **WHEN** 用户在详情页长按**本人**评论
-- **THEN** App SHALL 在评论上方展示删除图标且 SHALL NOT 预填 @ 回复
-- **AND WHEN** 用户点击删除图标
+- **THEN** App SHALL 在评论上方展示删除操作（图标 +「删除」标签，与详情 ··· 菜单项样式一致）且 SHALL NOT 预填 @ 回复
+- **AND WHEN** 用户点击该删除操作
 - **THEN** App SHALL 立即调用 `DELETE /comments/{commentId}` 且无二次确认弹窗
 
 #### Scenario: 禁止 @ 自己

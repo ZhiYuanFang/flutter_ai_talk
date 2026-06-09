@@ -60,7 +60,8 @@ import '../data/repositories.dart' show readPackageVersion;
 import '../providers/toast_bus.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
-import 'widgets/keyboard_input_bridge.dart';
+import 'widgets/managed_keyboard_text_field.dart';
+import '../ucg/ui/widgets/ucg_visual_widgets.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import '../theme/theme_bootstrap_cache.dart';
@@ -113,6 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   final _webController = TextEditingController();
   final _webFocusNode = FocusNode();
+  final _webInputAnchorKey = GlobalKey();
   String? _chatReply;
 
   late final ValueNotifier<double> _voiceLevelNotifier;
@@ -153,7 +155,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       unawaited(ref.read(deviceNoNotifierProvider.notifier).refresh());
       unawaited(ref.read(signInChannelProvider.notifier).restoreFromPrefs());
     }
-    _webFocusNode.addListener(_onWebFocusChange);
     unawaited(_restoreSavedInputChannel());
     unawaited(_loadEventUsageAndButtonOrder());
     HomeHistoryLog.d(
@@ -1111,20 +1112,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _applyChatReply(reply);
   }
 
-  void _onWebFocusChange() {
-    if (_webFocusNode.hasFocus) {
-      keyboardInputBridgeController.attach(
-        controller: _webController,
-        focusNode: _webFocusNode,
-        onConfirm: _onTextSubmit,
-        scene: 'home.text',
-        hint: kIsWeb ? '输入后按 Enter 或点按钮提交' : '输入后点按钮提交',
-      );
-      return;
-    }
-    keyboardInputBridgeController.detach(controller: _webController);
-  }
-
   Future<void> _openHistory(HistoryRecord record) async {
     if (!await _ensureRemoteGate()) return;
     if (!mounted) return;
@@ -1144,7 +1131,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _wsReadySub?.cancel();
     _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();
-    _webFocusNode.removeListener(_onWebFocusChange);
     _webFocusNode.dispose();
     _webController.dispose();
     _voiceLevelNotifier.dispose();
@@ -1518,31 +1504,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Widget _buildTextInput(BuildContext context) {
+    final hint = kIsWeb ? '输入后按 Enter 或点发送' : '输入后点发送';
     return Padding(
+      key: _webInputAnchorKey,
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          TextField(
-            controller: _webController,
-            focusNode: _webFocusNode,
-            maxLines: 1,
-            textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: kIsWeb ? '输入后按 Enter 或点按钮提交' : '输入后点按钮提交',
-            ),
-            onTap: _onWebFocusChange,
-            onChanged: keyboardInputBridgeController.updateDraft,
-            onSubmitted: (_) => _onTextSubmit(),
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _onTextSubmit,
-            icon: const Icon(Icons.send),
-            label: const Text('提交到服务端'),
-          ),
-        ],
+      child: UcgPageComposerChrome(
+        controller: _webController,
+        confirmLabel: '发送',
+        onConfirm: _onTextSubmit,
+        padding: EdgeInsets.zero,
+        applyKeyboardInset: false,
+        field: ManagedKeyboardTextField(
+          controller: _webController,
+          focusNode: _webFocusNode,
+          hint: hint,
+          scene: 'home.text',
+          anchorKey: _webInputAnchorKey,
+          textInputAction: TextInputAction.send,
+          onConfirm: _onTextSubmit,
+          onSubmitted: (_) => _onTextSubmit(),
+          decoration: ucgComposerFieldDecoration(context, hint: hint),
+        ),
       ),
     );
   }

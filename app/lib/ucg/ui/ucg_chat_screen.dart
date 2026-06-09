@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/session_provider.dart';
+import '../../ui/widgets/keyboard_input_bridge.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../theme/ucg_theme.dart';
 import '../data/ucg_media_picker.dart';
@@ -31,11 +33,30 @@ class UcgChatScreen extends ConsumerStatefulWidget {
   ConsumerState<UcgChatScreen> createState() => _UcgChatScreenState();
 }
 
+class _PendingChatMedia {
+  const _PendingChatMedia({
+    required this.objectKey,
+    required this.isVideo,
+    this.cdnUrl,
+  });
+
+  final String objectKey;
+  final bool isVideo;
+  final String? cdnUrl;
+}
+
 class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
+  static const _followBottomThreshold = 80.0;
+  static const _viewportScrollDuration = Duration(milliseconds: 200);
+
   final _controller = TextEditingController();
+  final _scrollController = ScrollController();
   final _messages = <UcgChatMessage>[];
   var _loading = true;
+  var _followLatest = true;
+  double? _lastListViewportHeight;
   var _uploadingMedia = false;
+  _PendingChatMedia? _pendingMedia;
   var _isFollowing = false;
   var _followLoaded = false;
   var _followBusy = false;
@@ -46,6 +67,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onMessageListScroll);
     ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
     unawaited(_loadHistory());
     unawaited(_ensurePeerProfile());
@@ -120,9 +142,86 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
       if (msg.conversationId != widget.conversation.id) return;
       if (!mounted) return;
       setState(() => _messages.add(msg));
+      if (_followLatest) {
+        _scheduleScrollToLatest();
+      }
       if (!msg.isMine) {
         unawaited(_markAsRead(lastMsgId: msg.id));
       }
+    });
+  }
+
+  bool get _isNearBottom {
+    if (!_scrollController.hasClients) return _followLatest;
+    final pos = _scrollController.position;
+    if (!pos.maxScrollExtent.isFinite) return _followLatest;
+    // reverse ListView: offset 0 is the visual bottom (latest messages).
+    return pos.pixels <= _followBottomThreshold;
+  }
+
+  void _onMessageListScroll() {
+    if (!_scrollController.hasClients) return;
+    final nearBottom = _isNearBottom;
+    if (_followLatest != nearBottom) {
+      setState(() => _followLatest = nearBottom);
+    }
+  }
+
+  void _scheduleScrollToLatest({bool animate = true}) {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToLatest(animate: animate);
+    });
+  }
+
+  void _scrollToLatest({bool animate = true}) {
+    void tryScroll({bool withAnimation = false}) {
+      if (!_scrollController.hasClients) return;
+      const target = 0.0;
+      final pos = _scrollController.position;
+      if ((pos.pixels - target).abs() < 1) return;
+      if (withAnimation) {
+        _scrollController.animateTo(
+          target,
+          duration: _viewportScrollDuration,
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+    }
+
+    tryScroll(withAnimation: animate);
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      tryScroll(withAnimation: animate);
+    });
+  }
+
+  void _onListViewportHeight(double height) {
+    final previous = _lastListViewportHeight;
+    _lastListViewportHeight = height;
+    if (previous == null) {
+      if (_followLatest) {
+        _scheduleScrollToLatest(animate: false);
+      }
+      return;
+    }
+    final delta = previous - height;
+    if (delta.abs() < 0.5) return;
+
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      if (_followLatest) {
+        _scrollToLatest();
+        return;
+      }
+      final pos = _scrollController.position;
+      final next = (pos.pixels + delta).clamp(0.0, pos.maxScrollExtent);
+      _scrollController.animateTo(
+        next,
+        duration: _viewportScrollDuration,
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -146,7 +245,10 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
     try {
       final list =
           await ref.read(ucgRepositoryProvider).fetchChatHistory(widget.conversation.id);
-      if (mounted) setState(() => _messages.addAll(list));
+      if (mounted) {
+        setState(() => _messages.addAll(list));
+        _scheduleScrollToLatest(animate: false);
+      }
       final lastId = list.isNotEmpty ? list.last.id : null;
       await _markAsRead(lastMsgId: lastId);
     } finally {
@@ -157,6 +259,8 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   @override
   void dispose() {
     bumpUcgConversationsRefresh(ref);
+    _scrollController.removeListener(_onMessageListScroll);
+    _scrollController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -204,14 +308,33 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    if (text.isEmpty || _uploadingMedia) return;
-    _controller.clear();
+    final pending = _pendingMedia;
+    if ((text.isEmpty && pending == null) || _uploadingMedia) return;
+
     final id = 'local-${DateTime.now().millisecondsSinceEpoch}';
-    setState(() => _messages.add(_localPending(id: id, text: text)));
+    final imageKey = pending != null && !pending.isVideo ? pending.objectKey : null;
+    final videoKey = pending != null && pending.isVideo ? pending.objectKey : null;
+    final mediaCdnUrl = pending?.cdnUrl;
+
+    _controller.clear();
+    setState(() {
+      _pendingMedia = null;
+      _followLatest = true;
+      _messages.add(_localPending(
+        id: id,
+        text: text,
+        imageKey: imageKey,
+        videoKey: videoKey,
+        mediaCdnUrl: mediaCdnUrl,
+      ));
+    });
+    _scheduleScrollToLatest();
     try {
       await ref.read(ucgRepositoryProvider).sendChatMessage(
             conversationId: widget.conversation.id,
             text: text,
+            imageKey: imageKey,
+            videoKey: videoKey,
           );
       if (!mounted) return;
       _markMessage(id, UcgChatMessageStatus.delivered);
@@ -244,49 +367,74 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
       ),
     );
     if (choice == null || !mounted) return;
-    await _sendMedia(isVideo: choice == 'video');
+    await _pickPendingMedia(isVideo: choice == 'video');
   }
 
-  Future<void> _sendMedia({required bool isVideo}) async {
+  Future<void> _pickPendingMedia({required bool isVideo}) async {
     setState(() => _uploadingMedia = true);
-    final id = 'local-${DateTime.now().millisecondsSinceEpoch}';
     try {
       final upload = await ucgPickAndUploadChatMedia(
         repo: ref.read(ucgRepositoryProvider),
         isVideo: isVideo,
       );
       if (upload == null || !mounted) return;
-
-      final caption = _controller.text.trim();
-      if (caption.isNotEmpty) _controller.clear();
-
       setState(() {
-        _messages.add(_localPending(
-          id: id,
-          text: caption,
-          imageKey: isVideo ? null : upload.objectKey,
-          videoKey: isVideo ? upload.objectKey : null,
-          mediaCdnUrl: upload.cdnUrl,
-        ));
+        _pendingMedia = _PendingChatMedia(
+          objectKey: upload.objectKey,
+          isVideo: isVideo,
+          cdnUrl: upload.cdnUrl,
+        );
       });
-
-      await ref.read(ucgRepositoryProvider).sendChatMessage(
-            conversationId: widget.conversation.id,
-            text: caption,
-            imageKey: isVideo ? null : upload.objectKey,
-            videoKey: isVideo ? upload.objectKey : null,
-          );
-      if (!mounted) return;
-      _markMessage(id, UcgChatMessageStatus.delivered);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e is StateError ? e.message : '媒体发送失败')),
+          SnackBar(content: Text(e is StateError ? e.message : '媒体选择失败')),
         );
       }
     } finally {
       if (mounted) setState(() => _uploadingMedia = false);
     }
+  }
+
+  void _clearPendingMedia() {
+    setState(() => _pendingMedia = null);
+  }
+
+  Widget _buildPendingMediaBar(Color fg) {
+    final pending = _pendingMedia;
+    if (pending == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          if (pending.isVideo)
+            Icon(Icons.videocam_rounded, color: fg.withValues(alpha: 0.7))
+          else
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: UcgNetworkImage(
+                url: pending.cdnUrl ?? '',
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+              ),
+            ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              pending.isVideo ? '待发送视频' : '待发送图片',
+              style: TextStyle(color: fg.withValues(alpha: 0.75), fontSize: 13),
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.close_rounded, size: 20, color: fg.withValues(alpha: 0.6)),
+            onPressed: _clearPendingMedia,
+            tooltip: '移除',
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -332,40 +480,65 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
                   ],
           ),
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : _messages.isEmpty
-                    ? const UcgEmptyState(
-                        icon: Icons.waving_hand_rounded,
-                        title: '打个招呼吧',
-                        subtitle: '发送第一条消息，开启温馨对话',
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                        itemCount: _messages.length,
-                        itemBuilder: (_, i) {
-                          final m = _messages[i];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment:
-                                  m.isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
-                              children: [
-                                if (!m.isMine) ...[
-                                  _ChatAvatar(url: peerAvatarThumbnailUrl, primary: primary),
-                                  const SizedBox(width: 8),
-                                ],
-                                _ChatBubble(message: m, primary: primary, fg: fg),
-                                if (m.isMine) ...[
-                                  const SizedBox(width: 8),
-                                  _ChatAvatar(url: myAvatarThumbnailUrl, primary: primary),
-                                ],
-                              ],
-                            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildPendingMediaBar(fg),
+                Expanded(
+                  child: AnimatedBuilder(
+                    animation: keyboardInputBridgeController,
+                    builder: (context, child) {
+                      // Re-measure when dock keyboard inset / emoji panel changes.
+                      readRawViewInsetBottom(context);
+                      return child!;
+                    },
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        _onListViewportHeight(constraints.maxHeight);
+                        if (_loading) {
+                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                        }
+                        if (_messages.isEmpty) {
+                          return const UcgEmptyState(
+                            icon: Icons.waving_hand_rounded,
+                            title: '打个招呼吧',
+                            subtitle: '发送第一条消息，开启温馨对话',
                           );
-                        },
-                      ),
+                        }
+                        return ListView.builder(
+                          controller: _scrollController,
+                          reverse: true,
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                          itemCount: _messages.length,
+                          itemBuilder: (_, i) {
+                            final m = _messages[_messages.length - 1 - i];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment:
+                                    m.isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+                                children: [
+                                  if (!m.isMine) ...[
+                                    _ChatAvatar(url: peerAvatarThumbnailUrl, primary: primary),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  _ChatBubble(message: m, primary: primary, fg: fg),
+                                  if (m.isMine) ...[
+                                    const SizedBox(width: 8),
+                                    _ChatAvatar(url: myAvatarThumbnailUrl, primary: primary),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           UcgInputDock(
             controller: _controller,
