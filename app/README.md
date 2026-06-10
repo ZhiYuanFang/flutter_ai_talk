@@ -315,8 +315,8 @@ flutter run --dart-define=MOCK_NEWER_VERSION=true --dart-define=PRIVACY_POLICY_U
 
 ### 网关相对资源路径（logo、APK 等）
 
-- 服务端可将 **`logo`**（事件目录）、**`downloadUrl`**（版本检查）等返回为**去掉域名的路径**，例如 `/ai_talk_images/event_1.png`、`/device/app/apk/foo.apk`。
-- 客户端通过 `lib/api/gateway_absolute_url.dart` 的 **`resolveGatewayAbsoluteUrl`**，与 HTTP 请求相同的基址 **`API_BASE_URL`**（`AppEnv.apiBaseUrl`）拼接为可下载/可展示的绝对 URL；若已是 `http://` 或 `https://` 则原样使用。
+- 事件 **`logo`**：`GET /device/history/api/event/options` 返回 **CDN 绝对 URL**（如 `https://resorce.cuplay.top/event/...`），客户端直接使用。
+- **`downloadUrl`**（版本检查）等仍可能为 path-only，经 `resolveGatewayAbsoluteUrl` 与 `API_BASE_URL` 拼接。
 
 ### 微信登录（fluwx + 网页 OAuth）
 

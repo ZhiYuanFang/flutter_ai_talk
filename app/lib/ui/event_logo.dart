@@ -53,6 +53,21 @@ class EventLogo extends StatelessWidget {
           ),
         );
       }
+    } else {
+      // 本地文件尚未下载完成时，先用 CDN URL 展示（冷启动缩短占位窗口）。
+      final url = definition?.logoUrl;
+      if (url != null && url.isNotEmpty && url.startsWith('http')) {
+        return ClipRRect(
+          borderRadius: radius,
+          child: Image.network(
+            url,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder(size, radius),
+          ),
+        );
+      }
     }
     return _placeholder(size, radius);
   }
