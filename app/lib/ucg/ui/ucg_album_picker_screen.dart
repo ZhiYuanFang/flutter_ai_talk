@@ -11,6 +11,7 @@ import '../data/ucg_album_selection.dart';
 import '../data/ucg_repository.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../../ui/history_event_media_picker.dart';
+import 'widgets/ucg_media_viewer.dart';
 
 /// 全屏自建相册（玻璃顶栏 + 选择侧互斥）。
 class UcgAlbumPickerScreen extends StatefulWidget {
@@ -309,87 +310,129 @@ class _AssetCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final disabled = selection.isDisabled(asset);
     final selected = selection.isSelected(asset);
-    final canTap = selection.canTap(asset) || selected;
+    final canSelect = selection.canTap(asset) || selected;
+    final scheme = Theme.of(context).colorScheme;
 
-    return GestureDetector(
-      onTap: canTap ? () => selection.toggle(asset) : null,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          FutureBuilder<Uint8List?>(
-            future: asset.thumbnailDataWithSize(
-              const ThumbnailSize.square(200),
-            ),
-            builder: (context, snap) {
-              if (snap.data != null) {
-                return ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(snap.data!, fit: BoxFit.cover),
-                );
-              }
-              return DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(12),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        GestureDetector(
+          onTap: () => unawaited(showUcgAssetPreview(context, asset)),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              FutureBuilder<Uint8List?>(
+                future: asset.thumbnailDataWithSize(
+                  const ThumbnailSize.square(200),
                 ),
-              );
-            },
-          ),
-          if (asset.type == AssetType.video)
-            Positioned(
-              right: 6,
-              bottom: 6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  ucgFormatAssetDuration(asset.duration),
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
-                ),
+                builder: (context, snap) {
+                  if (snap.data != null) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(snap.data!, fit: BoxFit.cover),
+                    );
+                  }
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  );
+                },
               ),
-            ),
-          if (selected)
-            Positioned(
-              top: 6,
-              right: 6,
-              child: Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
-                ),
-                child: asset.type == AssetType.video
-                    ? null
-                    : Center(
-                        child: Text(
-                          '${selection.selected.indexWhere((e) => e.id == asset.id) + 1}',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-              ),
-            ),
-          if (disabled)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(12),
+              if (asset.type == AssetType.video)
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      ucgFormatAssetDuration(asset.duration),
+                      style: const TextStyle(color: Colors.white, fontSize: 11),
+                    ),
                   ),
                 ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: GestureDetector(
+            onTap: canSelect ? () => selection.toggle(asset) : null,
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              width: 36,
+              height: 36,
+              child: Align(
+                alignment: Alignment.topRight,
+                child: _SelectionBadge(
+                  selected: selected,
+                  index: selected && asset.type != AssetType.video
+                      ? selection.selected.indexWhere((e) => e.id == asset.id) + 1
+                      : null,
+                  primary: scheme.primary,
+                  onPrimary: scheme.onPrimary,
+                ),
               ),
             ),
-        ],
+          ),
+        ),
+        if (disabled)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SelectionBadge extends StatelessWidget {
+  const _SelectionBadge({
+    required this.selected,
+    required this.primary,
+    required this.onPrimary,
+    this.index,
+  });
+
+  final bool selected;
+  final int? index;
+  final Color primary;
+  final Color onPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: selected ? primary : Colors.black.withValues(alpha: 0.35),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.5),
       ),
+      child: index != null
+          ? Center(
+              child: Text(
+                '$index',
+                style: TextStyle(
+                  color: onPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

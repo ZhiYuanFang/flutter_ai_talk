@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../theme/ucg_theme.dart';
@@ -60,6 +62,383 @@ Future<void> showUcgPhotoLightbox(
           FadeTransition(opacity: animation, child: child),
     ),
   );
+}
+
+/// Fullscreen pinch-zoom for a single local/remote image.
+Future<void> showUcgLocalImageLightbox(
+  BuildContext context, {
+  String? filePath,
+  Uint8List? bytes,
+  String? url,
+}) {
+  if ((filePath == null || filePath.isEmpty) &&
+      (bytes == null || bytes.isEmpty) &&
+      (url == null || url.isEmpty)) {
+    return Future.value();
+  }
+  return Navigator.of(context).push<void>(
+    PageRouteBuilder<void>(
+      opaque: false,
+      barrierColor: Colors.black.withValues(alpha: 0.92),
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (context, animation, secondaryAnimation) => _UcgLocalImageLightbox(
+        filePath: filePath,
+        bytes: bytes,
+        url: url,
+      ),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          FadeTransition(opacity: animation, child: child),
+    ),
+  );
+}
+
+/// Fullscreen video player for network URL or local file path.
+Future<void> showUcgVideoFullscreen(
+  BuildContext context, {
+  String? videoUrl,
+  String? filePath,
+  Duration initialPosition = Duration.zero,
+  bool autoPlay = true,
+}) {
+  final hasUrl = videoUrl != null && videoUrl.isNotEmpty;
+  final hasFile = filePath != null && filePath.isNotEmpty;
+  if (!hasUrl && !hasFile) return Future.value();
+
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (context) => _UcgVideoFullscreenPage(
+        videoUrl: hasUrl ? videoUrl : null,
+        filePath: hasFile ? filePath : null,
+        initialPosition: initialPosition,
+        autoPlay: autoPlay,
+      ),
+    ),
+  );
+}
+
+/// Album asset fullscreen preview without changing selection.
+Future<void> showUcgAssetPreview(BuildContext context, AssetEntity asset) async {
+  if (asset.type == AssetType.video) {
+    final file = await asset.file;
+    if (file == null || !context.mounted) return;
+    await showUcgVideoFullscreen(context, filePath: file.path);
+    return;
+  }
+
+  final file = await asset.file;
+  if (file != null && context.mounted) {
+    await showUcgLocalImageLightbox(context, filePath: file.path);
+    return;
+  }
+
+  final bytes = await asset.thumbnailDataWithSize(const ThumbnailSize.square(1080));
+  if (bytes != null && context.mounted) {
+    await showUcgLocalImageLightbox(context, bytes: bytes);
+  }
+}
+
+class _UcgLocalImageLightbox extends StatelessWidget {
+  const _UcgLocalImageLightbox({
+    this.filePath,
+    this.bytes,
+    this.url,
+  });
+
+  final String? filePath;
+  final Uint8List? bytes;
+  final String? url;
+
+  @override
+  Widget build(BuildContext context) {
+    final onScrim = Colors.white.withValues(alpha: 0.92);
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: _UcgFullscreenDismissLayer(
+                onDismiss: () => Navigator.of(context).pop(),
+                child: _ResetZoomLocalImage(
+                  filePath: filePath,
+                  bytes: bytes,
+                  url: url,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: Icon(Icons.close_rounded, color: onScrim),
+                tooltip: '关闭',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResetZoomLocalImage extends StatefulWidget {
+  const _ResetZoomLocalImage({
+    this.filePath,
+    this.bytes,
+    this.url,
+  });
+
+  final String? filePath;
+  final Uint8List? bytes;
+  final String? url;
+
+  @override
+  State<_ResetZoomLocalImage> createState() => _ResetZoomLocalImageState();
+}
+
+class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
+    with SingleTickerProviderStateMixin {
+  final _controller = TransformationController();
+  AnimationController? _resetAnim;
+
+  @override
+  void dispose() {
+    _resetAnim?.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _animateToIdentity() async {
+    if (_controller.value.isIdentity()) return;
+    _resetAnim?.dispose();
+    _resetAnim = AnimationController(vsync: this, duration: _kPinchResetDuration);
+    final begin = Matrix4.copy(_controller.value);
+    final anim = _resetAnim!;
+    void tick() {
+      _controller.value = Matrix4Tween(begin: begin, end: Matrix4.identity()).evaluate(
+        CurvedAnimation(parent: anim, curve: Curves.easeOut),
+      );
+    }
+
+    anim.addListener(tick);
+    await anim.forward();
+    anim.removeListener(tick);
+    anim.dispose();
+    _resetAnim = null;
+  }
+
+  Widget _buildImage() {
+    final bytes = widget.bytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return Image.memory(bytes, fit: BoxFit.contain);
+    }
+    final url = widget.url;
+    if (url != null && url.isNotEmpty) {
+      return Image.network(url, fit: BoxFit.contain);
+    }
+    final path = widget.filePath;
+    if (!kIsWeb && path != null && path.isNotEmpty && File(path).existsSync()) {
+      return Image.file(File(path), fit: BoxFit.contain);
+    }
+    return Icon(Icons.broken_image_outlined, color: Colors.white.withValues(alpha: 0.5), size: 48);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InteractiveViewer(
+      transformationController: _controller,
+      minScale: 1,
+      maxScale: 4,
+      onInteractionEnd: (_) => unawaited(_animateToIdentity()),
+      child: Center(child: _buildImage()),
+    );
+  }
+}
+
+/// Local or network video first-frame thumbnail with optional play icon overlay.
+class UcgLocalVideoThumb extends StatefulWidget {
+  const UcgLocalVideoThumb({
+    super.key,
+    this.filePath,
+    this.videoUrl,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.showPlayIcon = true,
+  });
+
+  final String? filePath;
+  final String? videoUrl;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final bool showPlayIcon;
+
+  @override
+  State<UcgLocalVideoThumb> createState() => _UcgLocalVideoThumbState();
+}
+
+class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
+  VideoPlayerController? _controller;
+  var _ready = false;
+  var _failed = false;
+  var _initializing = false;
+  var _disposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadPoster());
+  }
+
+  @override
+  void didUpdateWidget(covariant UcgLocalVideoThumb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.filePath != widget.filePath || oldWidget.videoUrl != widget.videoUrl) {
+      unawaited(_reload());
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    final c = _controller;
+    _controller = null;
+    unawaited(c?.dispose());
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    await _controller?.dispose();
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _ready = false;
+        _failed = false;
+      });
+    }
+    await _loadPoster();
+  }
+
+  VideoPlayerController? _buildController() {
+    final path = widget.filePath;
+    if (path != null && path.isNotEmpty) {
+      if (kIsWeb && (path.startsWith('blob:') || path.startsWith('http'))) {
+        return VideoPlayerController.networkUrl(Uri.parse(path));
+      }
+      if (!kIsWeb) return VideoPlayerController.file(File(path));
+      return null;
+    }
+    final url = widget.videoUrl;
+    if (url != null && url.isNotEmpty) {
+      return VideoPlayerController.networkUrl(Uri.parse(url));
+    }
+    return null;
+  }
+
+  Future<void> _loadPoster() async {
+    if (_disposed || _initializing || _ready) return;
+    final controller = _buildController();
+    if (controller == null) {
+      if (mounted) setState(() => _failed = true);
+      return;
+    }
+
+    setState(() => _initializing = true);
+    await _UcgVideoInitLimiter.acquire();
+    if (_disposed) {
+      _UcgVideoInitLimiter.release();
+      await controller.dispose();
+      return;
+    }
+
+    try {
+      await controller.initialize();
+      await controller.setVolume(0);
+      await controller.pause();
+      if (_disposed || !mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+        _ready = true;
+        _initializing = false;
+      });
+    } catch (_) {
+      await controller.dispose();
+      if (!_disposed && mounted) {
+        setState(() {
+          _failed = true;
+          _initializing = false;
+        });
+      }
+    } finally {
+      _UcgVideoInitLimiter.release();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget.width;
+    final h = widget.height;
+    Widget child;
+    if (_ready && _controller != null) {
+      child = FittedBox(
+        fit: widget.fit,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(
+          width: _controller!.value.size.width,
+          height: _controller!.value.size.height,
+          child: IgnorePointer(child: VideoPlayer(_controller!)),
+        ),
+      );
+    } else if (_initializing) {
+      child = Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+          ),
+        ),
+      );
+    } else {
+      child = ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Center(
+          child: Icon(
+            _failed ? Icons.videocam_off_outlined : Icons.videocam_rounded,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+        ),
+      );
+    }
+
+    if (widget.showPlayIcon) {
+      child = Stack(
+        fit: StackFit.expand,
+        children: [
+          child,
+          Center(
+            child: Icon(
+              Icons.play_circle_fill,
+              color: Colors.white.withValues(alpha: 0.92),
+              size: (w != null && w < 64) ? 24 : 32,
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (w != null || h != null) {
+      return SizedBox(width: w, height: h, child: child);
+    }
+    return child;
+  }
 }
 
 class _UcgPhotoLightbox extends StatefulWidget {
@@ -919,13 +1298,17 @@ class _VideoControlsBarState extends State<_VideoControlsBar> {
 }
 
 class _UcgVideoFullscreenPage extends StatefulWidget {
-  const _UcgVideoFullscreenPage({
-    required this.videoUrl,
+  _UcgVideoFullscreenPage({
+    this.videoUrl,
+    this.filePath,
     required this.initialPosition,
     required this.autoPlay,
-  });
+  }) : assert(
+          (videoUrl != null && videoUrl.isNotEmpty) || (filePath != null && filePath.isNotEmpty),
+        );
 
-  final String videoUrl;
+  final String? videoUrl;
+  final String? filePath;
   final Duration initialPosition;
   final bool autoPlay;
 
@@ -959,6 +1342,22 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
     unawaited(_init());
   }
 
+  VideoPlayerController? _createVideoController() {
+    final path = widget.filePath;
+    if (path != null && path.isNotEmpty) {
+      if (kIsWeb && (path.startsWith('blob:') || path.startsWith('http'))) {
+        return VideoPlayerController.networkUrl(Uri.parse(path));
+      }
+      if (!kIsWeb) return VideoPlayerController.file(File(path));
+      return null;
+    }
+    final url = widget.videoUrl;
+    if (url != null && url.isNotEmpty) {
+      return VideoPlayerController.networkUrl(Uri.parse(url));
+    }
+    return null;
+  }
+
   Future<void> _init() async {
     await _UcgVideoInitLimiter.acquire();
     if (_disposed) {
@@ -966,7 +1365,12 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
       return;
     }
 
-    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    final controller = _createVideoController();
+    if (controller == null) {
+      _UcgVideoInitLimiter.release();
+      if (!_disposed && mounted) setState(() => _failed = true);
+      return;
+    }
     try {
       await controller.initialize();
       await controller.seekTo(widget.initialPosition);

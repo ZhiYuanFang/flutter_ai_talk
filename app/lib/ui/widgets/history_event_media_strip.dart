@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../data/history_edit_media_item.dart';
+import '../../ucg/ui/widgets/ucg_media_viewer.dart';
 import '../../ucg/ui/widgets/ucg_network_image.dart';
 
 const _kStripHeight = 72.0;
@@ -149,7 +151,11 @@ class _HistoryEventMediaStripState extends State<HistoryEventMediaStrip> {
 
     final thumb = _HistoryMediaThumb(item: item, size: _kThumbSize);
 
-    Widget cell = thumb;
+    Widget cell = GestureDetector(
+      onTap: () => unawaited(_openPreview(context, item)),
+      behavior: HitTestBehavior.opaque,
+      child: thumb,
+    );
     if (isDragging) {
       cell = Opacity(opacity: 0.35, child: thumb);
     }
@@ -209,6 +215,23 @@ class _HistoryEventMediaStripState extends State<HistoryEventMediaStrip> {
       ),
     );
   }
+
+  Future<void> _openPreview(BuildContext context, HistoryEditMediaItem item) async {
+    switch (item) {
+      case HistoryEditRemoteImage(:final displayUrl):
+        await showUcgPhotoLightbox(context, urls: [displayUrl]);
+      case HistoryEditRemoteVideo(:final displayUrl):
+        await showUcgVideoFullscreen(context, videoUrl: displayUrl);
+      case HistoryEditLocalFile(:final path, :final isVideo):
+        if (isVideo) {
+          await showUcgVideoFullscreen(context, filePath: path);
+        } else if (kIsWeb) {
+          await showUcgLocalImageLightbox(context, url: path);
+        } else {
+          await showUcgLocalImageLightbox(context, filePath: path);
+        }
+    }
+  }
 }
 
 class _HistoryMediaThumb extends StatelessWidget {
@@ -237,19 +260,15 @@ class _HistoryMediaThumb extends StatelessWidget {
       case HistoryEditLocalFile(:final path, :final isVideo):
         if (kIsWeb) {
           child = Icon(isVideo ? Icons.videocam : Icons.image, size: 32);
+        } else if (isVideo) {
+          child = UcgLocalVideoThumb(
+            filePath: path,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+          );
         } else {
           child = Image.file(File(path), width: size, height: size, fit: BoxFit.cover);
-          if (isVideo) {
-            child = Stack(
-              fit: StackFit.expand,
-              children: [
-                child,
-                Center(
-                  child: Icon(Icons.play_circle_fill, color: Colors.white.withValues(alpha: 0.92), size: 28),
-                ),
-              ],
-            );
-          }
         }
     }
     return DecoratedBox(

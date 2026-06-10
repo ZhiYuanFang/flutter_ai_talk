@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/ucg_media_url.dart';
 import 'ucg_network_image.dart';
+import 'ucg_media_viewer.dart';
 
 /// 发布页本地媒体缩略图：原生 [Image.file]；Web [Image.memory] / blob [Image.network]。
 class UcgComposeLocalPreview extends StatelessWidget {
@@ -28,24 +29,18 @@ class UcgComposeLocalPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = _buildImage(context);
-    if (!isVideo) return child;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        child,
-        Center(
-          child: Icon(
-            Icons.play_circle_fill,
-            color: Colors.white.withValues(alpha: 0.92),
-            size: (width != null && width! < 64) ? 24 : 28,
-          ),
-        ),
-      ],
-    );
+    return _buildImage(context);
   }
 
   Widget _buildImage(BuildContext context) {
+    if (isVideo) {
+      return UcgLocalVideoThumb(
+        filePath: localPath,
+        width: width,
+        height: height,
+        fit: fit,
+      );
+    }
     if (kIsWeb) {
       if (localBytes != null && localBytes!.isNotEmpty) {
         return Image.memory(

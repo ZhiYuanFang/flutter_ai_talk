@@ -20,6 +20,7 @@ import 'widgets/ucg_compose_local_preview.dart';
 import 'widgets/ucg_compose_entry_sheet.dart';
 import 'widgets/ucg_compose_light_glass_panel.dart';
 import 'widgets/ucg_compose_media_grid.dart';
+import 'widgets/ucg_media_viewer.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
@@ -536,25 +537,34 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                               ],
                               if (_hasVideo && videoSlot != null) ...[
                                 const SizedBox(height: 12),
-                                Row(
+                                Stack(
+                                  clipBehavior: Clip.none,
                                   children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: _buildVideoThumb(videoSlot, secondaryColor),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Icon(Icons.videocam_rounded, color: secondaryColor),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        _videoLabel(videoSlot),
-                                        style: TextStyle(color: secondaryColor, fontSize: 13),
-                                        overflow: TextOverflow.ellipsis,
+                                    GestureDetector(
+                                      onTap: _busy ? null : () => unawaited(_openVideoPreview(videoSlot)),
+                                      child: AspectRatio(
+                                        aspectRatio: 16 / 9,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: _buildVideoPreview(videoSlot),
+                                        ),
                                       ),
                                     ),
-                                    IconButton(
-                                      onPressed: _busy ? null : () => unawaited(_removeVideo()),
-                                      icon: Icon(Icons.close_rounded, color: secondaryColor),
+                                    Positioned(
+                                      top: 6,
+                                      right: 6,
+                                      child: Material(
+                                        color: Colors.black.withValues(alpha: 0.55),
+                                        shape: const CircleBorder(),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                          onPressed: _busy ? null : () => unawaited(_removeVideo()),
+                                          icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -627,35 +637,43 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     );
   }
 
-  Widget _buildVideoThumb(UcgComposeMediaSlot slot, Color secondaryColor) {
+  Widget _buildVideoPreview(UcgComposeMediaSlot slot) {
     if (slot.objectKey != null && slot.objectKey!.isNotEmpty) {
-      return UcgNetworkImage(
-        url: UcgMediaUrl.resolveUrl(objectKey: slot.objectKey!, cdnUrl: slot.cdnUrl),
-        width: 56,
-        height: 56,
-        fit: BoxFit.cover,
+      final url = UcgMediaUrl.resolveUrl(objectKey: slot.objectKey!, cdnUrl: slot.cdnUrl);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          UcgNetworkImage(url: url, fit: BoxFit.cover),
+          Center(
+            child: Icon(
+              Icons.play_circle_fill,
+              color: Colors.white.withValues(alpha: 0.92),
+              size: 48,
+            ),
+          ),
+        ],
       );
     }
-    return SizedBox(
-      width: 56,
-      height: 56,
-      child: UcgComposeLocalPreview(
-        localPath: slot.localPath,
-        localBytes: slot.localBytes,
-        width: 56,
-        height: 56,
-        fit: BoxFit.cover,
-        isVideo: true,
-      ),
+    return UcgComposeLocalPreview(
+      localPath: slot.localPath,
+      localBytes: slot.localBytes,
+      fit: BoxFit.cover,
+      isVideo: true,
     );
   }
 
-  String _videoLabel(UcgComposeMediaSlot slot) {
-    final local = slot.localPath;
-    if (local != null && local.isNotEmpty) {
-      final parts = local.split(RegExp(r'[/\\]'));
-      return parts.isNotEmpty ? parts.last : '视频';
+  Future<void> _openVideoPreview(UcgComposeMediaSlot slot) async {
+    final key = slot.objectKey;
+    if (key != null && key.isNotEmpty) {
+      await showUcgVideoFullscreen(
+        context,
+        videoUrl: UcgMediaUrl.resolveUrl(objectKey: key, cdnUrl: slot.cdnUrl),
+      );
+      return;
     }
-    return slot.objectKey?.split('/').last ?? '视频';
+    final path = slot.localPath;
+    if (path != null && path.isNotEmpty) {
+      await showUcgVideoFullscreen(context, filePath: path);
+    }
   }
 }
