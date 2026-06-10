@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
-"""Merge all openspec/specs/**/spec.md into a single baseline file."""
+"""Merge all openspec/specs/**/spec.md into a single baseline file.
+
+Prefer scripts/sync_specs_to_version.py for absorbing change deltas into vX.Y.Z.
+"""
 from __future__ import annotations
 
+import argparse
 from datetime import date
 from pathlib import Path
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Merge per-capability spec.md files into one baseline.")
+    parser.add_argument("version", nargs="?", default="v1.0.1", help="Target version label, e.g. v2.0.0")
+    args = parser.parse_args()
+    version = args.version if args.version.startswith("v") else f"v{args.version}"
+
     root = Path(__file__).resolve().parents[1] / "openspec" / "specs"
-    out = root / "v1.0.1.md"
+    out = root / f"{version}.md"
     specs = sorted({p.resolve() for p in root.rglob("spec.md") if p.name == "spec.md"})
 
     lines: list[str] = [
-        "# 胖宝 OpenSpec 基线 v1.0.1",
+        f"# 胖宝 OpenSpec 基线 {version}",
         "",
         f"> 由 `openspec/specs/**/spec.md` 共 **{len(specs)}** 个 capability 合并生成。",
         f"> 生成日期：{date.today().isoformat()}",
