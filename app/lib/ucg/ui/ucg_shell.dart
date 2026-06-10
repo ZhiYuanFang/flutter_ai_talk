@@ -123,9 +123,13 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     final draft = await ref.read(ucgComposeDraftStoreProvider).load();
     if (!mounted) return;
     if (draft != null && !draft.isEmpty) {
-      await Navigator.of(context).push<void>(
+      final result = await Navigator.of(context).push<UcgComposePopResult>(
         MaterialPageRoute(builder: (_) => const UcgComposeScreen()),
       );
+      if (!mounted) return;
+      if (result?.publishedNewPost == true) {
+        setState(() => _tabIndex = 4);
+      }
       return;
     }
 
@@ -135,14 +139,15 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     if (!mounted) return;
     if (initial == null || initial.isEmpty) return;
 
-    await Navigator.of(context).push<void>(
+    final result = await Navigator.of(context).push<UcgComposePopResult>(
       MaterialPageRoute(
-        builder: (_) => UcgComposeScreen(
-          initialImageKeys: initial.imageKeys.isEmpty ? null : initial.imageKeys,
-          initialVideoKey: initial.videoKey,
-        ),
+        builder: (_) => UcgComposeScreen(initialMedia: initial),
       ),
     );
+    if (!mounted) return;
+    if (result?.publishedNewPost == true) {
+      setState(() => _tabIndex = 4);
+    }
   }
 
   @override

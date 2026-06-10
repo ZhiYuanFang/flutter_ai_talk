@@ -18,10 +18,14 @@ class ColdStartBackgroundSync {
   }
 
   static Future<void> _run(WidgetRef ref) async {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
+    final loggedIn = ref.read(sessionProvider).isLoggedIn;
+    if (!loggedIn) {
+      await ref.read(eventCatalogProvider.notifier).bootstrap();
+      return;
+    }
     await ref.read(deviceNoNotifierProvider.notifier).refresh();
     await Future.wait<void>([
-      ref.read(eventCatalogProvider.notifier).refreshFromRemote(),
+      ref.read(eventCatalogProvider.notifier).bootstrap(),
       ref.read(homeHistoryProvider.notifier).refreshFromRemote(),
     ]);
     ref.read(homeHistoryProvider.notifier).markInitialLoadComplete();

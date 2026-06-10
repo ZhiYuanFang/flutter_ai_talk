@@ -171,6 +171,7 @@ class UcgPost {
     required this.status,
     this.rejectReason,
     required this.createdAt,
+    this.publishedAt,
     this.likeCount = 0,
     this.commentCount = 0,
     this.likedByMe = false,
@@ -198,6 +199,7 @@ class UcgPost {
   final UcgPostStatus status;
   final String? rejectReason;
   final DateTime createdAt;
+  final DateTime? publishedAt;
   final int likeCount;
   final int commentCount;
   final bool likedByMe;
@@ -252,6 +254,12 @@ class UcgPost {
 
   bool get isVisibleInPublicFeed => status == UcgPostStatus.published;
 
+  /// 已发布帖子展示发布时间，其余状态展示创建时间。
+  DateTime get displayAt =>
+      (status == UcgPostStatus.published && publishedAt != null)
+          ? publishedAt!
+          : createdAt;
+
   UcgPost copyWith({
     int? likeCount,
     int? commentCount,
@@ -281,6 +289,7 @@ class UcgPost {
       status: status,
       rejectReason: rejectReason,
       createdAt: createdAt,
+      publishedAt: publishedAt,
       likeCount: likeCount ?? this.likeCount,
       commentCount: commentCount ?? this.commentCount,
       likedByMe: likedByMe ?? this.likedByMe,
@@ -375,6 +384,7 @@ class UcgPost {
       status: UcgPostStatus.fromApi(json['status']),
       rejectReason: json['rejectReason'] as String? ?? json['reason'] as String?,
       createdAt: _date(json['createdAt']),
+      publishedAt: _dateOrNull(json['publishedAt']),
       likeCount: _int(json['likeCount']),
       commentCount: _int(json['commentCount']),
       likedByMe: json['likedByMe'] == true || json['liked'] == true,
@@ -802,11 +812,29 @@ int? _intOrNull(dynamic v) {
 }
 
 DateTime _date(dynamic v) {
-  if (v is String && v.isNotEmpty) {
-    return DateTime.tryParse(v) ?? DateTime.fromMillisecondsSinceEpoch(0);
+  final parsed = _dateOrNull(v);
+  return parsed ?? DateTime.fromMillisecondsSinceEpoch(0);
+}
+
+/// 解析 Unix 秒或 ISO 字符串；`0` / 空视为未设置。
+DateTime? _dateOrNull(dynamic v) {
+  if (v == null) return null;
+  if (v is String) {
+    final s = v.trim();
+    if (s.isEmpty || s == '0') return null;
+    final normalized = s.contains('T') ? s : s.replaceFirst(' ', 'T');
+    return DateTime.tryParse(normalized)?.toLocal();
   }
-  if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
-  return DateTime.fromMillisecondsSinceEpoch(0);
+  if (v is int) {
+    if (v == 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(v * 1000, isUtc: true).toLocal();
+  }
+  if (v is num) {
+    final sec = v.toInt();
+    if (sec == 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(sec * 1000, isUtc: true).toLocal();
+  }
+  return null;
 }
 
 List<UcgPost> parsePostList(dynamic raw, {bool publicFeedOnly = false}) {

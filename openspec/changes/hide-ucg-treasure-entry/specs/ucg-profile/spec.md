@@ -20,6 +20,18 @@ Profile pages (owner **我的** tab and viewer `UcgUserProfileScreen`) MUST shar
 - **THEN** UI SHALL 仅展示动态帖子列表
 - **AND** UI SHALL NOT 展示「宝藏」Tab
 
+#### Scenario: 宝藏关闭时资料头与动态列表无额外间距
+- **WHEN** `kUcgTreasureEnabled` 为 `false` 且用户位于资料页顶部
+- **THEN** 资料卡片与动态列表之间 SHALL NOT 为原 TabBar 预留额外空白高度
+- **AND** `NestedScrollView.body` SHALL 直接挂载动态列表（非单 Tab `TabBarView`）
+- **AND** `NestedScrollView.floatHeaderSlivers` SHALL 为 `false`
+- **AND** 动态列表 SHALL NOT 遮挡资料卡操作区（关注/私信等）
+
+#### Scenario: 他人主页关注按钮可点击
+- **WHEN** 用户打开他人 `UcgUserProfileScreen` 且 `kUcgTreasureEnabled` 为 `false`
+- **THEN** 展开态关注与私信按钮 SHALL 不被动态列表遮挡
+- **AND** 资料头 `expandedHeight` SHALL 容纳含操作行的资料卡（含简介时增高）
+
 #### Scenario: 编辑资料
 - **WHEN** 已登录用户在**主人态**修改昵称/头像/简介并保存
 - **THEN** App SHALL 调用 `PUT /ucg/app/api/profile/me` 并展示审核中或成功状态

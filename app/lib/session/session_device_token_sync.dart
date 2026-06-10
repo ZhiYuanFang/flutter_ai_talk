@@ -5,7 +5,7 @@ import '../providers/session_provider.dart';
 import '../session/session_controller.dart';
 import 'token_expiry.dart';
 
-/// 本地已有宝宝 ID 但 JWT 缺少 `device_no` 时强制 refresh，使 WS 鉴权可用。
+/// 本地已有宝宝 ID 时，确保 JWT `device_no` 与本地一致（缺失或不一致则 refresh）。
 Future<bool> ensureAccessTokenHasDeviceNoForSession({
   required SessionController session,
   required String? localDeviceNo,
@@ -16,13 +16,13 @@ Future<bool> ensureAccessTokenHasDeviceNoForSession({
   if (dn == null || dn.isEmpty) return true;
 
   final jwtDn = readJwtDeviceNo(session.accessToken);
-  if (jwtDn != null && jwtDn.isNotEmpty) return true;
+  if (jwtDn != null && jwtDn.isNotEmpty && jwtDn == dn) return true;
 
   final ok = await session.refreshSessionForDeviceBind();
   if (!ok) return false;
 
   final after = readJwtDeviceNo(session.accessToken);
-  return after != null && after.isNotEmpty;
+  return after != null && after.isNotEmpty && after == dn;
 }
 
 Future<bool> ensureAccessTokenHasDeviceNo(

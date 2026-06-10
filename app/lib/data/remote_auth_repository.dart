@@ -13,6 +13,7 @@ import '../wechat/wechat_auth_client.dart';
 import '../wechat/wechat_auth_exception.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../session/credential_history_store.dart';
+import '../session/session_device_token_sync.dart';
 import 'user_account_profile.dart';
 import 'repositories.dart' show AuthRepository;
 
@@ -182,9 +183,13 @@ class RemoteAuthRepository implements AuthRepository {
       withAuthorization: true,
     );
     final normalized = deviceNo.trim();
-    if (normalized.isNotEmpty) {
-      await _ref.read(deviceNoNotifierProvider.notifier).setLocal(normalized);
+    if (normalized.isEmpty) return;
+
+    final synced = await ensureAccessTokenHasDeviceNo(_ref, localDeviceNo: normalized);
+    if (!synced) {
+      throw ApiBusinessException(-1, '会话刷新失败，请重新登录后再试');
     }
+    await _ref.read(deviceNoNotifierProvider.notifier).setLocal(normalized);
   }
 
   @override

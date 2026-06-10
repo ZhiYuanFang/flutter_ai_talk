@@ -306,7 +306,7 @@ class UcgFeedCard extends StatelessWidget {
     final primary = Theme.of(context).colorScheme.primary;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
-    final time = DateFormat('MM-dd HH:mm').format(post.createdAt.toLocal());
+    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
     final ipLoc = post.ipLocationDisplay;
     final bio = post.authorBio.trim();
 

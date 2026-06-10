@@ -20,13 +20,18 @@ class UcgRepository {
     required UcgApiClient api,
     required UcgUserIdGetter userIdGetter,
     required String? Function() accessTokenGetter,
+    required bool Function() isLoggedInGetter,
   })  : _api = api,
         _userIdGetter = userIdGetter,
-        _accessTokenGetter = accessTokenGetter;
+        _accessTokenGetter = accessTokenGetter,
+        _isLoggedInGetter = isLoggedInGetter;
 
   final UcgApiClient _api;
   final UcgUserIdGetter _userIdGetter;
   final String? Function() _accessTokenGetter;
+  final bool Function() _isLoggedInGetter;
+
+  bool get _withAuthForPublicRead => _isLoggedInGetter();
 
   WebSocketChannel? _ws;
   StreamSubscription<dynamic>? _wsSub;
@@ -153,11 +158,11 @@ class UcgRepository {
 
   Future<UcgProfile?> fetchProfile(
     String userId, {
-    bool withAuthorization = true,
+    bool? withAuthorization,
   }) async {
     final data = await _api.get(
       '/profile/$userId',
-      withAuthorization: withAuthorization,
+      withAuthorization: withAuthorization ?? _withAuthForPublicRead,
     );
     return data == null ? null : UcgProfile.fromJson(data);
   }
@@ -171,6 +176,7 @@ class UcgRepository {
     final data = await _api.get(
       '/feed/recommend',
       query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+      withAuthorization: _withAuthForPublicRead,
     );
     return parsePagedPosts(data, publicFeedOnly: true);
   }
@@ -198,12 +204,16 @@ class UcgRepository {
     final data = await _api.get(
       '/posts/user/$wxId',
       query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+      withAuthorization: _withAuthForPublicRead,
     );
     return parsePagedPosts(data, publicFeedOnly: true);
   }
 
   Future<UcgPost> fetchPost(String postId) async {
-    final data = await _api.get('/posts/$postId');
+    final data = await _api.get(
+      '/posts/$postId',
+      withAuthorization: _withAuthForPublicRead,
+    );
     if (data == null) {
       throw StateError('帖子不存在');
     }

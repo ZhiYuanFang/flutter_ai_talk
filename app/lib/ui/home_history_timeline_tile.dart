@@ -89,8 +89,8 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = resolveEventColor(context, event);
-    final fontSize = (13 - fromBottom * 0.25).clamp(11.0, 13.0);
-    final emphasis = (1.0 - fromBottom * 0.08).clamp(0.55, 1.0);
+    final fontSize = (13 - fromBottom * 0.35).clamp(9.0, 13.0);
+    final emphasis = (1.0 - fromBottom * 0.10).clamp(0.45, 1.0);
     final isNewest = fromBottom == 0;
 
     final timeStyle = TextStyle(

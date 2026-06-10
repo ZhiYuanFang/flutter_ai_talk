@@ -14,10 +14,13 @@ final authorizedApiClientProvider = Provider<ApiClient>((ref) {
     accessTokenProvider: () => ref.read(sessionProvider).accessToken,
     onUnauthorizedRefresh: () => ref.read(sessionProvider).trySilentRefresh(),
     onUnauthorizedFailed: () async {
+      final wasLoggedIn = ref.read(sessionProvider).isLoggedIn;
       await ref.read(sessionProvider).signOut();
       await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await ref.read(signInChannelProvider.notifier).clear();
-      ref.showApiToastError('登录已过期，请重新登录');
+      if (wasLoggedIn) {
+        ref.showApiToastError('登录已过期，请重新登录');
+      }
     },
   );
 });

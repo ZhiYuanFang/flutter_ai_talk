@@ -8,9 +8,16 @@ import 'theme_preset.dart';
 /// 登录后由业务写入，用于全局主题默认色。
 final babySexProvider = StateProvider<BabySex>((ref) => BabySex.unknown);
 
+/// 用户在设置页保存的主题基线（持久化来源）。
 final customBackgroundProvider = StateProvider<Color?>((ref) => null);
 
 final themePresetProvider = StateProvider<ThemePreset?>((ref) => null);
+
+/// 是否启用 19:00–05:00 自动夜空（默认 true）。
+final themeScheduleEnabledProvider = StateProvider<bool>((ref) => true);
+
+/// 定时主题 tick；变更后 [effectiveThemeProvider] 重算展示主题。
+final themeScheduleTickProvider = StateProvider<int>((ref) => 0);
 
 /// 经典浅色 preset 用性别主色；其它 preset / 自定义背景从 bundle 种子推导 accent。
 Color _resolveSchemeSeed(VisualBundle bundle, BabySex sex) {

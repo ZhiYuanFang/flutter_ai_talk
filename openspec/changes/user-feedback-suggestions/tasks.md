@@ -11,6 +11,7 @@
 - [x] 2.2 实现 `GET /device/app/api/feedback/list`：JWT 鉴权、`wx_id` 作用域、时间倒序
 - [x] 2.3 实现 `POST /device/app/api/feedback/submit`：非空与 2000 字校验、插入 `status=0`
 - [x] 2.4 注册 controller 路由；确认不在 `gateway_app_auth_exempt` 白名单内
+- [x] 2.5 在 `device_route_proxy.go` 增加 `/device/app/api/feedback/*` 反代前缀（gateway-app → device-service）
 
 ## 3. [go_ai_talk] Admin API 与页面（feedback-admin）
 
@@ -42,8 +43,8 @@
 
 ## 7. 联调与验收
 
-- [ ] 7.1 [go_ai_talk] 本地验证 Admin 列表、仅未回复筛选、单次回复与二次回复拒绝
-- [ ] 7.2 [flutter_ai_talk] 已登录：设置入口 → 列表 → 提交 → 展示待回复态
-- [ ] 7.3 端到端：Admin 回复后 App 列表展示官方回复
-- [ ] 7.4 未登录：设置无入口、直达路由被门禁
+- [ ] 7.1 [go_ai_talk] 本地验证 Admin 列表、仅未回复筛选、单次回复与二次回复拒绝（需部署含 2.5 反代修复后的 gateway-app）
+- [ ] 7.2 [flutter_ai_talk] 已登录：设置入口 → 列表 → 提交 → 展示待回复态（需 test/prod 部署后联调）
+- [ ] 7.3 端到端：Admin 回复后 App 列表展示官方回复（需 test/prod 部署后联调）
+- [x] 7.4 未登录：设置无入口、直达路由被门禁（`settings_screen` 仅 `loggedIn` 展示入口；`app_router` redirect 拦截 `/settings/feedback`）
 - [x] 7.5 `openspec validate user-feedback-suggestions` 通过

@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
 
+import '../api/ai_quota_errors.dart';
+import '../api/api_exceptions.dart';
 import '../audio/voice_level_smoother.dart';
 import '../asr/home_speech_factory.dart';
 import '../asr/home_speech_recognizer.dart';
@@ -20,6 +22,7 @@ import '../config/speech_engine_store.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../data/event_branding.dart';
 import '../bootstrap/cold_start_background_sync.dart';
+import '../data/event_catalog_state.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
@@ -53,11 +56,13 @@ import '../providers/device_no_notifier.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/ai_quota_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_baby.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../providers/toast_bus.dart';
+import 'widgets/ai_quota_remaining_hint.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/managed_keyboard_text_field.dart';
@@ -449,7 +454,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Future<void> _onEventGridTap(EventDefinition event) async {
-    final catalog = ref.read(eventCatalogProvider);
+    final catalog = ref.read(eventCatalogProvider).items;
     if (hasChildren(catalog, event.id)) {
       if (!mounted) return;
       final leaf = await showEventCatalogPickerSheet(
@@ -559,7 +564,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   void _onWsNewHistoryRecord(HistoryRecord record) {
-    final event = lookupEventForRecord(ref.read(eventCatalogProvider), record);
+    final event = lookupEventForRecord(ref.read(eventCatalogProvider).items, record);
     _scheduleFlyForRecord(record.id, event);
   }
 
@@ -630,7 +635,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       await showHomeActiveTimingReminderDialog(
         context: context,
         candidates: candidates,
-        eventCatalog: ref.read(eventCatalogProvider),
+        eventCatalog: ref.read(eventCatalogProvider).items,
         onStop: _stopActiveTimer,
         isRecordActivelyTiming: _isRecordActivelyTiming,
         onToast: (msg) => ref.showApiToast(msg),
@@ -719,10 +724,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final counts = await EventButtonUsageStore.loadAll();
     if (!mounted) return;
 
-    var catalog = ref.read(eventCatalogProvider);
+    var catalog = ref.read(eventCatalogProvider).items;
     if (catalog.isEmpty) {
       await ref.read(eventCatalogProvider.notifier).loadFromDisk();
-      catalog = ref.read(eventCatalogProvider);
+      catalog = ref.read(eventCatalogProvider).items;
     }
 
     List<EventDefinition>? order;
@@ -745,19 +750,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   Future<void> _retryEventCatalogIfEmpty() async {
     if (_eventCatalogRetryDone) return;
-    if (!ref.read(sessionProvider).isLoggedIn) return;
-    if (ref.read(eventCatalogProvider).isNotEmpty) return;
+    if (ref.read(eventCatalogProvider).items.isNotEmpty) return;
     _eventCatalogRetryDone = true;
     await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
-    if (ref.read(eventCatalogProvider).isNotEmpty) return;
-    await ColdStartBackgroundSync.run(ref);
+    if (ref.read(eventCatalogProvider).items.isNotEmpty) return;
+    await ref.read(eventCatalogProvider.notifier).bootstrap();
   }
 
   /// 事件目录 + 历史：Splash 已 hydrate；此处触发后台远端 sync。
   Future<void> _bootstrapHomeData() async {
     await ColdStartBackgroundSync.run(ref);
-    if (ref.read(eventCatalogProvider).isEmpty) {
+    if (ref.read(eventCatalogProvider).items.isEmpty) {
       unawaited(_retryEventCatalogIfEmpty());
     }
   }
@@ -934,9 +938,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (text.isEmpty) return;
     if (!await _ensureRemoteGate()) return;
     if (!_ensureHistoryWsForSend()) return;
-    final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
-    if (!mounted) return;
-    _applyChatReply(reply);
+    try {
+      final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
+      if (!mounted) return;
+      ref.invalidate(aiQuotaStatusProvider);
+      _applyChatReply(reply);
+    } on ApiBusinessException catch (e) {
+      if (!mounted) return;
+      if (!await handleAiQuotaException(context, e)) {
+        ref.showApiToastError(e.message);
+      }
+    }
   }
 
   void _releaseVoiceHold() {
@@ -1109,10 +1121,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!await _ensureRemoteGate()) return;
     if (!_ensureHistoryWsForSend()) return;
     if (!await _ensureAiChatDataConsent()) return;
-    final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
-    _webController.clear();
-    if (!mounted) return;
-    _applyChatReply(reply);
+    try {
+      final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
+      _webController.clear();
+      if (!mounted) return;
+      ref.invalidate(aiQuotaStatusProvider);
+      _applyChatReply(reply);
+    } on ApiBusinessException catch (e) {
+      if (!mounted) return;
+      if (!await handleAiQuotaException(context, e)) {
+        ref.showApiToastError(e.message);
+      }
+    }
   }
 
   Future<void> _openHistory(HistoryRecord record) async {
@@ -1121,7 +1141,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     await showHomeHistoryEditSheet(
       context,
       record: record,
-      eventCatalog: ref.read(eventCatalogProvider),
+      eventCatalog: ref.read(eventCatalogProvider).items,
       history: _history,
     );
   }
@@ -1188,15 +1208,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         _scheduleVoiceAsrConnectIfNeeded();
       });
     });
-    ref.listen<List<EventDefinition>>(eventCatalogProvider, (prev, next) {
-      if (prev != null && prev.isEmpty && next.isNotEmpty) {
+    ref.listen<EventCatalogState>(eventCatalogProvider, (prev, next) {
+      if (prev != null && prev.items.isEmpty && next.items.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           unawaited(_loadEventUsageAndButtonOrder());
         });
       }
-      if (next.isNotEmpty) return;
-      if (!ref.read(sessionProvider).isLoggedIn) return;
+      if (next.items.isNotEmpty) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_retryEventCatalogIfEmpty());
@@ -1212,7 +1231,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final historyItems = homeHistory.items;
     final historyInitialLoadDone = homeHistory.initialLoadDone;
     final todayTotals = aggregateTodayTotals(historyItems);
-    final eventCatalog = ref.watch(eventCatalogProvider);
+    final catalogState = ref.watch(eventCatalogProvider);
+    final eventCatalogItems = catalogState.items;
     // 仅当已登录且本地未缓存 deviceNo 时提示绑定；游客见下方登录引导空态。
     final dnAsync = ref.watch(deviceNoNotifierProvider);
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
@@ -1345,7 +1365,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                     child: HomeHistoryScroll(
                                       key: _historyScrollKey,
                                       itemsAsc: historyItems,
-                                      eventCatalog: eventCatalog,
+                                      eventCatalog: eventCatalogItems,
                                       flyingRecordId: _flyTargetRecordId,
                                       flyAnimationInProgress: _flyTargetRecordId != null,
                                       onRecordTap: _openHistory,
@@ -1387,7 +1407,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       duration: _kInputPanelAnimationDuration,
                       curve: Curves.easeOutCubic,
                       height: _bottomInputPanelHeight,
-                      child: _buildBottomInputPanel(context, eventCatalog),
+                      child: _buildBottomInputPanel(context, catalogState),
                     ),
                   ],
                 ),
@@ -1423,7 +1443,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildBottomInputPanel(BuildContext context, List<EventDefinition> eventCatalog) {
+  Widget _buildBottomInputPanel(BuildContext context, EventCatalogState catalogState) {
     final inputAlign = _inputChannel == HomeInputChannel.buttons
         ? Alignment.topCenter
         : Alignment.center;
@@ -1432,8 +1452,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       children: [
         Align(
           alignment: inputAlign,
-          child: _buildPrimaryHomeInput(context, eventCatalog),
+          child: _buildPrimaryHomeInput(context, catalogState),
         ),
+        if (_inputChannel == HomeInputChannel.voice ||
+            _inputChannel == HomeInputChannel.text)
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: AiQuotaRemainingHint(
+                feature: AiQuotaRemainingHintFeature.voiceAi,
+                padding: EdgeInsets.only(bottom: 4),
+              ),
+            ),
+          ),
         if (_inputChannel == HomeInputChannel.voice)
           Positioned.fill(
             child: Listener(
@@ -1490,7 +1523,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildPrimaryHomeInput(BuildContext context, List<EventDefinition> eventCatalog) {
+  Widget _buildPrimaryHomeInput(BuildContext context, EventCatalogState catalogState) {
     switch (_inputChannel) {
       case HomeInputChannel.voice:
         return _buildVoiceOrb(context);
@@ -1498,9 +1531,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         assert(kIsWeb);
         return _buildTextInput(context);
       case HomeInputChannel.buttons:
+        final showCatalogLoading = catalogState.isRefreshing ||
+            (!catalogState.remoteLoadAttempted && catalogState.items.isEmpty);
         return HomeButtonEventGrid(
-          catalog: eventCatalog,
+          catalog: catalogState.items,
           rootEvents: _buttonGridOrder,
+          isLoading: showCatalogLoading,
           onEventTap: (e) => unawaited(_onEventGridTap(e)),
         );
     }

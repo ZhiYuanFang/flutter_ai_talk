@@ -35,6 +35,7 @@ class HomeButtonEventGrid extends StatelessWidget {
     required this.catalog,
     required this.onEventTap,
     this.rootEvents,
+    this.isLoading = false,
   });
 
   final List<EventDefinition> catalog;
@@ -43,14 +44,18 @@ class HomeButtonEventGrid extends StatelessWidget {
   /// initState 缓存的排序根列表；null 时暂用 API 序。
   final List<EventDefinition>? rootEvents;
 
+  /// 远端目录加载中（避免误显示「暂无可用」）。
+  final bool isLoading;
+
   List<EventDefinition> _resolveEvents() {
     final sorted = rootEvents;
     if (sorted != null && sorted.isNotEmpty) {
       final byId = {for (final e in catalog) e.id: e};
-      return [
+      final resolved = [
         for (final e in sorted)
           if (byId.containsKey(e.id)) byId[e.id]!,
       ];
+      if (resolved.isNotEmpty) return resolved;
     }
     return buttonGridRowEvents(catalog);
   }
@@ -62,12 +67,18 @@ class HomeButtonEventGrid extends StatelessWidget {
       return SizedBox(
         height: kHomeEventButtonGridHeight,
         child: Center(
-          child: Text(
-            '暂无可用事件按钮',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+          child: isLoading
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(
+                  '暂无可用事件按钮',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
-          ),
         ),
       );
     }

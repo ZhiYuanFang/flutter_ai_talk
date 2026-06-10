@@ -445,7 +445,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
     final backdropUrl = post.imageUrls.isNotEmpty
         ? post.imageUrls.first
         : post.authorAvatarUrl;
-    final time = DateFormat('MM-dd HH:mm').format(post.createdAt.toLocal());
+    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
     final bio = post.authorBio.trim();
 
     return Scaffold(

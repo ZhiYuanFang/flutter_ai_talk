@@ -50,12 +50,25 @@ const kThemeSoftSwatchColors = <Color>[
 
 const _darkLuminanceThreshold = 0.25;
 
+/// 历史 soft 预设（设置页已移除，加载时迁移为自定义 seed）。
+bool isSoftSwatchThemePreset(ThemePreset preset) {
+  return switch (preset) {
+    ThemePreset.softBlue ||
+    ThemePreset.softPink ||
+    ThemePreset.softGreen ||
+    ThemePreset.softYellow ||
+    ThemePreset.softGrey ||
+    ThemePreset.softPurple =>
+      true,
+    _ => false,
+  };
+}
 Color sexPrimary(BabySex sex) {
   switch (sex) {
     case BabySex.male:
       return const Color(0xFF0D47A1);
     case BabySex.female:
-      return const Color(0xFFC62828);
+      return const Color(0xFFE91E63);
     case BabySex.unknown:
       return const Color(0xFF455A64);
   }
@@ -87,6 +100,7 @@ class VisualBundle {
       shellColor: shellColor,
       isDarkShell: isDarkShell,
     );
+    final onRecordsCard = _readableOn(recordsCard);
     return AppVisualTokens(
       shellColor: shellColor,
       surfaceColor: surfaceColor,
@@ -94,6 +108,7 @@ class VisualBundle {
       pillBackground: pillBg,
       pillBorder: pillBorder.withValues(alpha: isDarkShell ? 0.45 : 0.35),
       recordsCardColor: recordsCard,
+      onRecordsCard: onRecordsCard,
       onShell: onShell,
       onSurface: onSurface,
       panelShadow: isDarkShell
@@ -194,6 +209,8 @@ VisualBundle lightSwatchBundle(ThemePreset preset) {
     preset: preset,
   );
 }
+
+Color swatchColorForThemePreset(ThemePreset preset) => _swatchColorForPreset(preset);
 
 Color _swatchColorForPreset(ThemePreset preset) {
   return switch (preset) {

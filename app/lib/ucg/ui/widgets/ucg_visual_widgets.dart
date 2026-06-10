@@ -277,7 +277,7 @@ class UcgSurfaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final fg = tokens?.onRecordsCard ?? Theme.of(context).colorScheme.onSurface;
     final radius = borderRadius ?? (tokens?.surfaceRadius ?? 14).toDouble();
 
     Widget card = DecoratedBox(

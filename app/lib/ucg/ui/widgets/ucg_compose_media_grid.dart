@@ -1,12 +1,13 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../../data/ucg_media_url.dart';
 import '../../../theme/app_theme_scope.dart';
 import '../../../theme/app_visual_tokens.dart';
+import 'ucg_compose_local_preview.dart';
 import 'ucg_media_viewer.dart';
-import 'ucg_network_image.dart';
 
 const _kGridGap = 4.0;
 const _kCellRadius = 13.0;
@@ -65,27 +66,39 @@ class UcgComposeDeleteOverlay extends StatelessWidget {
   }
 }
 
+/// 九宫格单格：本地 path 或远程 objectKey 预览。
+class UcgComposeGridCell {
+  const UcgComposeGridCell({
+    required this.id,
+    this.localPath,
+    this.localBytes,
+    this.objectKey,
+    this.cdnUrl,
+  });
+
+  final String id;
+  final String? localPath;
+  final Uint8List? localBytes;
+  final String? objectKey;
+  final String? cdnUrl;
+}
+
 /// 3×3 图片九宫格（微信式拖拽实时让位；「+」占位添加；无常驻删除区）。
 class UcgComposeImageGrid extends StatefulWidget {
   const UcgComposeImageGrid({
     super.key,
-    required this.imageKeys,
-    required this.cdnUrls,
+    required this.cells,
     required this.busy,
     required this.canAddMore,
     required this.onReorder,
-    this.addBusy = false,
     this.onAddTap,
     this.onDragStarted,
     this.onDragEnded,
   });
 
-  final List<String> imageKeys;
-  final Map<String, String> cdnUrls;
+  final List<UcgComposeGridCell> cells;
   /// 禁用拖拽（发布中 / 润笔中）。
   final bool busy;
-  /// 「+」格 loading（选图上传中），不影响拖拽结构。
-  final bool addBusy;
   final bool canAddMore;
   final void Function(int from, int to) onReorder;
   final VoidCallback? onAddTap;
@@ -101,21 +114,21 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
   int? _hoverIndex;
   var _reorderCommitted = false;
 
-  int get _itemCount => widget.imageKeys.length + (widget.canAddMore ? 1 : 0);
+  int get _itemCount => widget.cells.length + (widget.canAddMore ? 1 : 0);
 
-  List<String> get _displayKeys {
-    final keys = widget.imageKeys;
+  List<UcgComposeGridCell> get _displayCells {
+    final cells = widget.cells;
     final from = _dragFromIndex;
     final to = _hoverIndex;
-    if (from == null || to == null || from == to) return keys;
-    final next = List<String>.from(keys);
+    if (from == null || to == null || from == to) return cells;
+    final next = List<UcgComposeGridCell>.from(cells);
     final item = next.removeAt(from);
     next.insert(to.clamp(0, next.length), item);
     return next;
   }
 
-  int _slotOf(String objectKey) {
-    final slot = _displayKeys.indexOf(objectKey);
+  int _slotOf(String cellId) {
+    final slot = _displayCells.indexWhere((c) => c.id == cellId);
     return slot < 0 ? 0 : slot;
   }
 
@@ -159,11 +172,13 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
   }
 
   void _openLightbox(BuildContext context, int index) {
-    if (index < 0 || index >= widget.imageKeys.length) return;
-    final urls = widget.imageKeys
-        .map((k) => UcgMediaUrl.resolveUrl(objectKey: k, cdnUrl: widget.cdnUrls[k]))
+    if (index < 0 || index >= widget.cells.length) return;
+    final urls = widget.cells
+        .map((c) => UcgMediaUrl.resolveUrl(objectKey: c.objectKey ?? '', cdnUrl: c.cdnUrl))
+        .where((u) => u.isNotEmpty)
         .toList(growable: false);
-    unawaited(showUcgPhotoLightbox(context, urls: urls, initialIndex: index));
+    if (urls.isEmpty) return;
+    unawaited(showUcgPhotoLightbox(context, urls: urls, initialIndex: index.clamp(0, urls.length - 1)));
   }
 
   Offset _cellOrigin(int slot, double cellSize) {
@@ -190,11 +205,11 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              for (var i = 0; i < widget.imageKeys.length; i++)
+              for (var i = 0; i < widget.cells.length; i++)
                 _buildImageCell(context, i, cellSize),
               if (widget.canAddMore) _buildAddCell(cellSize),
               if (dragging)
-                for (var slot = 0; slot < widget.imageKeys.length; slot++)
+                for (var slot = 0; slot < widget.cells.length; slot++)
                   Positioned(
                     left: _cellOrigin(slot, cellSize).dx,
                     top: _cellOrigin(slot, cellSize).dy,
@@ -218,23 +233,22 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
   }
 
   Widget _buildImageCell(BuildContext context, int originalIndex, double cellSize) {
-    final objectKey = widget.imageKeys[originalIndex];
-    final slot = _slotOf(objectKey);
+    final gridCell = widget.cells[originalIndex];
+    final slot = _slotOf(gridCell.id);
     final origin = _cellOrigin(slot, cellSize);
     final isDragging = _dragFromIndex == originalIndex;
 
     final tile = _ImageTile(
-      key: ValueKey('tile-$objectKey'),
-      objectKey: objectKey,
-      cdnUrl: widget.cdnUrls[objectKey],
+      key: ValueKey('tile-${gridCell.id}'),
+      cell: gridCell,
       size: cellSize,
     );
 
-    Widget cell = tile;
+    Widget child = tile;
     if (isDragging) {
-      cell = Opacity(opacity: 0.35, child: tile);
+      child = Opacity(opacity: 0.35, child: tile);
     } else if (!widget.busy) {
-      cell = GestureDetector(
+      child = GestureDetector(
         onTap: () => _openLightbox(context, originalIndex),
         behavior: HitTestBehavior.opaque,
         child: tile,
@@ -243,19 +257,19 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
 
     if (widget.busy) {
       return AnimatedPositioned(
-        key: ValueKey(objectKey),
+        key: ValueKey(gridCell.id),
         duration: _kReorderAnimDuration,
         curve: Curves.easeOutCubic,
         left: origin.dx,
         top: origin.dy,
         width: cellSize,
         height: cellSize,
-        child: cell,
+        child: child,
       );
     }
 
     return AnimatedPositioned(
-      key: ValueKey(objectKey),
+      key: ValueKey(gridCell.id),
       duration: _kReorderAnimDuration,
       curve: Curves.easeOutCubic,
       left: origin.dx,
@@ -267,18 +281,17 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
         onDragStarted: () => _onDragStarted(originalIndex),
         onDragEnd: _onDragEnd,
         feedback: _DragLiftFeedback(
-          objectKey: objectKey,
-          cdnUrl: widget.cdnUrls[objectKey],
+          cell: gridCell,
           cellSize: cellSize,
         ),
         childWhenDragging: Opacity(opacity: 0.28, child: tile),
-        child: cell,
+        child: child,
       ),
     );
   }
 
   Widget _buildAddCell(double cellSize) {
-    final slot = widget.imageKeys.length;
+    final slot = widget.cells.length;
     final origin = _cellOrigin(slot, cellSize);
 
     return AnimatedPositioned(
@@ -289,7 +302,7 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
       top: origin.dy,
       width: cellSize,
       height: cellSize,
-      child: _AddTile(size: cellSize, busy: widget.addBusy, onTap: widget.onAddTap),
+      child: _AddTile(size: cellSize, onTap: widget.onAddTap),
     );
   }
 }
@@ -297,14 +310,12 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
 /// 拖拽浮层：原位略放大 + 阴影，随手势移动时以按压点为锚。
 class _DragLiftFeedback extends StatelessWidget {
   const _DragLiftFeedback({
-    required this.objectKey,
+    required this.cell,
     required this.cellSize,
-    this.cdnUrl,
   });
 
-  final String objectKey;
+  final UcgComposeGridCell cell;
   final double cellSize;
-  final String? cdnUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -319,8 +330,7 @@ class _DragLiftFeedback extends StatelessWidget {
         child: Transform.scale(
           scale: _kDragFeedbackScale,
           child: _ImageTile(
-            objectKey: objectKey,
-            cdnUrl: cdnUrl,
+            cell: cell,
             size: cellSize,
           ),
         ),
@@ -363,17 +373,16 @@ class _ComposeDraggableCell extends StatelessWidget {
 }
 
 class _AddTile extends StatelessWidget {
-  const _AddTile({required this.size, required this.busy, this.onTap});
+  const _AddTile({required this.size, this.onTap});
 
   final double size;
-  final bool busy;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final scheme = Theme.of(context).colorScheme;
-    final fg = tokens?.onShell ?? scheme.onSurface;
+    final fg = tokens?.onRecordsCard ?? scheme.onSurface;
     final fill = tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.06);
 
     return Material(
@@ -384,22 +393,13 @@ class _AddTile extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: busy ? null : onTap,
+        onTap: onTap,
         child: Center(
-          child: busy
-              ? SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: fg.withValues(alpha: 0.35),
-                  ),
-                )
-              : Icon(
-                  Icons.add,
-                  size: 36,
-                  color: fg.withValues(alpha: 0.35),
-                ),
+          child: Icon(
+            Icons.add,
+            size: 36,
+            color: fg.withValues(alpha: 0.35),
+          ),
         ),
       ),
     );
@@ -409,18 +409,15 @@ class _AddTile extends StatelessWidget {
 class _ImageTile extends StatelessWidget {
   const _ImageTile({
     super.key,
-    required this.objectKey,
-    this.cdnUrl,
+    required this.cell,
     this.size,
   });
 
-  final String objectKey;
-  final String? cdnUrl;
+  final UcgComposeGridCell cell;
   final double? size;
 
   @override
   Widget build(BuildContext context) {
-    final url = UcgMediaUrl.resolveUrl(objectKey: objectKey, cdnUrl: cdnUrl);
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_kCellRadius),
@@ -428,9 +425,12 @@ class _ImageTile extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(_kCellRadius),
-        child: UcgNetworkImage(
-          key: ValueKey(url),
-          url: url,
+        child: UcgComposeMediaPreview(
+          key: ValueKey('preview-${cell.id}-${cell.objectKey ?? cell.localPath}'),
+          localPath: cell.localPath,
+          localBytes: cell.localBytes,
+          objectKey: cell.objectKey,
+          cdnUrl: cell.cdnUrl,
           width: size,
           height: size,
           fit: BoxFit.cover,

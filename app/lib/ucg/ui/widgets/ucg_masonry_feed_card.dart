@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../data/ucg_models.dart';
 import '../../theme/ucg_theme.dart';
+import 'ucg_media_viewer.dart';
 import 'ucg_network_image.dart';
 import 'ucg_visual_widgets.dart';
 
@@ -21,9 +22,9 @@ class UcgMasonryFeedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = UcgTheme.onShell(context);
+    final fg = UcgTheme.onRecordsCard(context);
     final primary = Theme.of(context).colorScheme.primary;
-    final time = DateFormat('MM-dd HH:mm').format(post.createdAt.toLocal());
+    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
     final timeStyle = TextStyle(fontSize: 10, color: fg.withValues(alpha: 0.42));
     final bio = post.authorBio.trim();
 
@@ -151,34 +152,14 @@ class _MasonryMedia extends StatelessWidget {
       );
     }
     if (post.videoUrl != null) {
-      return const _MasonryVideoCover();
+      return UcgInlineVideoPlayer(
+        videoUrl: post.videoUrl!,
+        aspectRatio: 3 / 4,
+        borderRadius: 8,
+        posterOnly: true,
+      );
     }
     return const SizedBox.shrink();
-  }
-}
-
-/// Feed 视频封面：静态占位 + 播放图标，点击由外层 card 进详情。
-class _MasonryVideoCover extends StatelessWidget {
-  const _MasonryVideoCover();
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: AspectRatio(
-        aspectRatio: 3 / 4,
-        child: ColoredBox(
-          color: Colors.black.withValues(alpha: 0.08),
-          child: Center(
-            child: Icon(
-              Icons.play_circle_outline_rounded,
-              size: 40,
-              color: UcgTheme.onShell(context).withValues(alpha: 0.45),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 

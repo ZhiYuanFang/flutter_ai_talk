@@ -49,6 +49,23 @@ Future<UcgUploadResult?> ucgPickAndUploadSingleImage({
   );
 }
 
+/// 仅拍照返回本地 path，不上传。
+Future<String?> ucgCapturePhotoLocalPath() async {
+  if (kIsWeb) return null;
+  final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+  return picked?.path;
+}
+
+/// 仅录像返回本地 path，不上传。
+Future<String?> ucgCaptureVideoLocalPath() async {
+  if (kIsWeb) return null;
+  final file = await _picker.pickVideo(
+    source: ImageSource.camera,
+    maxDuration: UcgMediaLimits.videoMaxDuration,
+  );
+  return file?.path;
+}
+
 Future<UcgUploadResult?> ucgCaptureAndUploadPhoto({
   required UcgRepository repo,
 }) async {

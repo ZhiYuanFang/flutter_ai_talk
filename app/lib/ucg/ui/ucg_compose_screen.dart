@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../api/ai_quota_errors.dart';
+import '../../api/api_exceptions.dart';
+import '../../providers/ai_quota_provider.dart';
+import '../../ui/widgets/ai_quota_remaining_hint.dart';
+import '../data/ucg_compose_media_slot.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
@@ -10,25 +16,31 @@ import '../../config/ucg_ai_polish_consent_store.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../../ui/widgets/app_glass_overlay.dart';
 import '../../ui/widgets/managed_keyboard_text_field.dart';
+import 'widgets/ucg_compose_local_preview.dart';
 import 'widgets/ucg_compose_entry_sheet.dart';
 import 'widgets/ucg_compose_light_glass_panel.dart';
 import 'widgets/ucg_compose_media_grid.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
-/// 发布页：玻璃 panel + 9 宫格；支持 textOnly 与入口预填。
+/// compose 关闭结果：新帖发表成功时 shell 切「我的」。
+class UcgComposePopResult {
+  const UcgComposePopResult({this.publishedNewPost = false});
+
+  final bool publishedNewPost;
+}
+
+/// 发布页：玻璃 panel + 9 宫格；本地预览 + 后台上传。
 class UcgComposeScreen extends ConsumerStatefulWidget {
   const UcgComposeScreen({
     super.key,
     this.editingPost,
-    this.initialImageKeys,
-    this.initialVideoKey,
+    this.initialMedia,
     this.textOnly = false,
   });
 
   final UcgPost? editingPost;
-  final List<String>? initialImageKeys;
-  final String? initialVideoKey;
+  final UcgComposeInitialMedia? initialMedia;
   final bool textOnly;
 
   @override
@@ -40,31 +52,38 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   static const _bodyHint = '这一刻的想法…';
 
   late final TextEditingController _text;
-  final _imageKeys = <String>[];
-  final _imageCdnUrls = <String, String>{};
+  final _imageSlots = <UcgComposeMediaSlot>[];
+  UcgComposeMediaSlot? _videoSlot;
   final _sessionUploadedKeys = <String>{};
-  String? _videoKey;
   var _publishing = false;
-  var _uploadingMedia = false;
   var _polishing = false;
   var _draggingImage = false;
 
+  bool get _hasVideo => _videoSlot != null && !_videoSlot!.removed;
+
   bool get _hasContent =>
-      _text.text.trim().isNotEmpty ||
-      _imageKeys.isNotEmpty ||
-      (_videoKey != null && _videoKey!.isNotEmpty);
+      _text.text.trim().isNotEmpty || _imageSlots.isNotEmpty || _hasVideo;
 
-  bool get _showAiPolish =>
-      _imageKeys.isNotEmpty && (_videoKey == null || _videoKey!.isEmpty) && !_uploadingMedia;
+  bool get _showAiPolish => _imageSlots.isNotEmpty && !_hasVideo;
 
-  bool get _busy => _publishing || _uploadingMedia || _polishing;
+  bool get _busy => _publishing || _polishing;
 
   bool get _canAddImages =>
-      !widget.textOnly &&
-      (_videoKey == null || _videoKey!.isEmpty) &&
-      _imageKeys.length < maxImages;
+      !widget.textOnly && !_hasVideo && _imageSlots.length < maxImages;
 
-  bool get _showImageGrid => _imageKeys.isNotEmpty || _canAddImages;
+  bool get _showImageGrid => _imageSlots.isNotEmpty || _canAddImages;
+
+  List<UcgComposeGridCell> get _gridCells => _imageSlots
+      .map(
+        (s) => UcgComposeGridCell(
+          id: s.id,
+          localPath: s.localPath,
+          localBytes: s.localBytes,
+          objectKey: s.objectKey,
+          cdnUrl: s.cdnUrl,
+        ),
+      )
+      .toList(growable: false);
 
   @override
   void initState() {
@@ -72,26 +91,86 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final post = widget.editingPost;
     _text = TextEditingController(text: post?.text ?? '');
     if (post != null) {
-      _imageKeys.addAll(post.imageKeys);
       for (var i = 0; i < post.imageKeys.length; i++) {
-        if (i < post.imageCdnUrls.length && post.imageCdnUrls[i].isNotEmpty) {
-          _imageCdnUrls[post.imageKeys[i]] = post.imageCdnUrls[i];
-        }
+        final key = post.imageKeys[i];
+        final cdn = i < post.imageCdnUrls.length ? post.imageCdnUrls[i] : null;
+        _imageSlots.add(UcgComposeMediaSlot.remoteImage(objectKey: key, cdnUrl: cdn));
+        _sessionUploadedKeys.add(key);
       }
-      _videoKey = post.videoKey;
-      _sessionUploadedKeys.addAll(post.imageKeys);
       if (post.videoKey != null && post.videoKey!.isNotEmpty) {
+        _videoSlot = UcgComposeMediaSlot.remoteVideo(objectKey: post.videoKey!);
         _sessionUploadedKeys.add(post.videoKey!);
       }
-    } else if (widget.initialImageKeys != null && widget.initialImageKeys!.isNotEmpty) {
-      _imageKeys.addAll(widget.initialImageKeys!);
-      _sessionUploadedKeys.addAll(widget.initialImageKeys!);
-    } else if (widget.initialVideoKey != null && widget.initialVideoKey!.isNotEmpty) {
-      _videoKey = widget.initialVideoKey;
-      _sessionUploadedKeys.add(widget.initialVideoKey!);
     } else {
-      unawaited(_restoreDraft());
+      final initial = widget.initialMedia;
+      if (initial != null && !initial.isEmpty) {
+        _applyInitialMedia(initial);
+      } else {
+        unawaited(_restoreDraft());
+      }
     }
+  }
+
+  void _applyInitialMedia(UcgComposeInitialMedia initial) {
+    for (var i = 0; i < initial.imageLocalPaths.length; i++) {
+      if (_imageSlots.length >= maxImages) break;
+      final bytes = i < initial.imageLocalBytes.length ? initial.imageLocalBytes[i] : null;
+      _addLocalSlot(
+        path: initial.imageLocalPaths[i],
+        isVideo: false,
+        bytes: bytes,
+      );
+    }
+    if (initial.videoLocalPath != null && initial.videoLocalPath!.isNotEmpty) {
+      _addLocalSlot(
+        path: initial.videoLocalPath!,
+        isVideo: true,
+        bytes: initial.videoLocalBytes,
+      );
+    }
+    for (final key in initial.imageKeys) {
+      if (_imageSlots.length >= maxImages) break;
+      _imageSlots.add(UcgComposeMediaSlot.remoteImage(objectKey: key));
+      _sessionUploadedKeys.add(key);
+    }
+    if (initial.videoKey != null && initial.videoKey!.isNotEmpty) {
+      _videoSlot = UcgComposeMediaSlot.remoteVideo(objectKey: initial.videoKey!);
+      _sessionUploadedKeys.add(initial.videoKey!);
+    }
+  }
+
+  UcgComposeMediaSlot _addLocalSlot({
+    required String path,
+    required bool isVideo,
+    Uint8List? bytes,
+  }) {
+    final slot = UcgComposeMediaSlot.localFile(
+      id: nextComposeSlotId(),
+      path: path,
+      isVideo: isVideo,
+      bytes: bytes,
+    );
+    if (isVideo) {
+      _videoSlot = slot;
+    } else {
+      _imageSlots.add(slot);
+    }
+    _enqueueSlotUpload(slot);
+    return slot;
+  }
+
+  void _enqueueSlotUpload(UcgComposeMediaSlot slot) {
+    startComposeSlotBackgroundUpload(
+      repo: ref.read(ucgRepositoryProvider),
+      slot: slot,
+      onUpdated: () {
+        if (!mounted) return;
+        if (slot.isDone && slot.objectKey != null) {
+          _sessionUploadedKeys.add(slot.objectKey!);
+        }
+        setState(() {});
+      },
+    );
   }
 
   Future<void> _restoreDraft() async {
@@ -99,10 +178,12 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     if (draft == null || draft.isEmpty || !mounted) return;
     _text.text = draft.text;
     setState(() {
-      _imageKeys
+      _imageSlots
         ..clear()
-        ..addAll(draft.imageKeys);
-      _videoKey = draft.videoKey;
+        ..addAll(draft.imageKeys.map((k) => UcgComposeMediaSlot.remoteImage(objectKey: k)));
+      _videoSlot = draft.videoKey != null && draft.videoKey!.isNotEmpty
+          ? UcgComposeMediaSlot.remoteVideo(objectKey: draft.videoKey!)
+          : null;
       _sessionUploadedKeys
         ..clear()
         ..addAll(draft.imageKeys);
@@ -113,17 +194,28 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   }
 
   Future<void> _persistDraft() async {
+    final uploaded = await ensureComposeMediaUploaded(
+      repo: ref.read(ucgRepositoryProvider),
+      imageSlots: _imageSlots,
+      videoSlot: _videoSlot,
+      onUpdated: () {
+        if (mounted) setState(() {});
+      },
+    );
     await ref.read(ucgComposeDraftStoreProvider).save(
           UcgComposeDraft(
             text: _text.text,
-            imageKeys: List.unmodifiable(_imageKeys),
-            videoKey: _videoKey,
+            imageKeys: uploaded.imageKeys,
+            videoKey: uploaded.videoKey,
             editingPostId: widget.editingPost?.id,
           ),
         );
   }
 
   Future<void> _discardSession() async {
+    for (final slot in [..._imageSlots, if (_videoSlot != null) _videoSlot!]) {
+      slot.removed = true;
+    }
     final keys = _sessionUploadedKeys.toList(growable: false);
     await ref.read(ucgComposeDraftStoreProvider).clear();
     if (keys.isNotEmpty) {
@@ -134,43 +226,52 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     _sessionUploadedKeys.clear();
   }
 
-  void _trackUpload(String objectKey) {
-    if (objectKey.isNotEmpty) _sessionUploadedKeys.add(objectKey);
-  }
-
   Future<void> _removeImageAt(int index) async {
-    if (index < 0 || index >= _imageKeys.length) return;
-    final key = _imageKeys[index];
-    setState(() {
-      _imageKeys.removeAt(index);
-      _imageCdnUrls.remove(key);
-    });
-    try {
-      await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: [key]);
-      _sessionUploadedKeys.remove(key);
-    } catch (_) {
-      _toast('删除媒体失败');
+    if (index < 0 || index >= _imageSlots.length) return;
+    final slot = _imageSlots[index];
+    slot.removed = true;
+    setState(() => _imageSlots.removeAt(index));
+    if (slot.isDone && slot.objectKey != null) {
+      try {
+        await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: [slot.objectKey!]);
+        _sessionUploadedKeys.remove(slot.objectKey);
+      } catch (_) {
+        _toast('删除媒体失败');
+      }
     }
   }
 
   Future<void> _removeVideo() async {
-    final key = _videoKey;
-    if (key == null || key.isEmpty) return;
-    setState(() => _videoKey = null);
-    try {
-      await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: [key]);
-      _sessionUploadedKeys.remove(key);
-    } catch (_) {
-      _toast('删除视频失败');
+    final slot = _videoSlot;
+    if (slot == null) return;
+    slot.removed = true;
+    setState(() => _videoSlot = null);
+    if (slot.isDone && slot.objectKey != null) {
+      try {
+        await ref.read(ucgRepositoryProvider).deleteMedia(objectKeys: [slot.objectKey!]);
+        _sessionUploadedKeys.remove(slot.objectKey);
+      } catch (_) {
+        _toast('删除视频失败');
+      }
     }
   }
 
   Future<bool> _onCloseRequested() async {
     if (!_hasContent) return true;
-    final action = await showGlassComposeExitDialog(context);
+    final action = await showGlassComposeExitDialog(
+      context,
+      onSaveDraft: () async {
+        try {
+          await _persistDraft();
+          return true;
+        } catch (_) {
+          _toast('保存草稿失败');
+          return false;
+        }
+      },
+    );
     switch (action) {
       case GlassComposeExitAction.saveDraft:
-        await _persistDraft();
         return true;
       case GlassComposeExitAction.discard:
         await _discardSession();
@@ -183,16 +284,15 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   Future<void> _pickImages() async {
     if (widget.textOnly) return;
-    if (_videoKey != null && _videoKey!.isNotEmpty) {
+    if (_hasVideo) {
       _toast('已选择视频，不能再添加图片');
       return;
     }
-    final remaining = maxImages - _imageKeys.length;
+    final remaining = maxImages - _imageSlots.length;
     if (remaining <= 0) {
       _toast('最多选择 $maxImages 张图片');
       return;
     }
-    setState(() => _uploadingMedia = true);
     try {
       final initial = await ucgPickMoreImagesForCompose(
         context,
@@ -200,17 +300,9 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         remainingSlots: remaining,
       );
       if (!mounted || initial == null || initial.isEmpty) return;
-      setState(() {
-        for (final key in initial.imageKeys) {
-          if (_imageKeys.length >= maxImages) break;
-          _imageKeys.add(key);
-          _trackUpload(key);
-        }
-      });
+      setState(() => _applyInitialMedia(initial));
     } catch (_) {
-      _toast('图片上传失败');
-    } finally {
-      if (mounted) setState(() => _uploadingMedia = false);
+      _toast('选择图片失败');
     }
   }
 
@@ -234,13 +326,27 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     if (!await _ensureUcgAiPolishConsent()) return;
     setState(() => _polishing = true);
     try {
+      final uploaded = await ensureComposeMediaUploaded(
+        repo: ref.read(ucgRepositoryProvider),
+        imageSlots: _imageSlots,
+        videoSlot: null,
+        onUpdated: () {
+          if (mounted) setState(() {});
+        },
+      );
       final polished = await ref.read(ucgRepositoryProvider).polishPost(
-            imageKeys: List.unmodifiable(_imageKeys),
+            imageKeys: uploaded.imageKeys,
             text: _text.text,
           );
       if (!mounted) return;
       _text.text = polished;
+      ref.invalidate(aiQuotaStatusProvider);
       _toast('已润笔，可继续编辑');
+    } on ApiBusinessException catch (e) {
+      if (!mounted) return;
+      if (!await handleAiQuotaException(context, e)) {
+        _toast(e.message.isNotEmpty ? e.message : 'AI 润笔失败');
+      }
     } catch (_) {
       _toast('AI 润笔失败');
     } finally {
@@ -254,7 +360,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   Future<void> _publish() async {
     final text = _text.text.trim();
-    if (text.isEmpty && _imageKeys.isEmpty && (_videoKey == null || _videoKey!.isEmpty)) {
+    if (text.isEmpty && _imageSlots.isEmpty && !_hasVideo) {
       _toast('请输入内容或添加媒体');
       return;
     }
@@ -264,24 +370,37 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     }
     setState(() => _publishing = true);
     try {
+      final uploaded = await ensureComposeMediaUploaded(
+        repo: ref.read(ucgRepositoryProvider),
+        imageSlots: _imageSlots,
+        videoSlot: _videoSlot,
+        onUpdated: () {
+          if (mounted) setState(() {});
+        },
+      );
       if (widget.editingPost != null) {
         await ref.read(ucgRepositoryProvider).updatePost(
               postId: widget.editingPost!.id,
               text: text,
-              imageKeys: _imageKeys,
-              videoKey: _videoKey,
+              imageKeys: uploaded.imageKeys,
+              videoKey: uploaded.videoKey,
             );
       } else {
         await ref.read(ucgRepositoryProvider).createPost(
               text: text,
-              imageKeys: _imageKeys,
-              videoKey: _videoKey,
+              imageKeys: uploaded.imageKeys,
+              videoKey: uploaded.videoKey,
             );
       }
       await ref.read(ucgComposeDraftStoreProvider).clear();
       ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
       ref.invalidate(ucgMyProfileProvider);
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      if (widget.editingPost != null) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pop(context, const UcgComposePopResult(publishedNewPost: true));
+      }
     } catch (_) {
       _toast('发布失败');
     } finally {
@@ -290,12 +409,12 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   }
 
   void _reorderImages(int from, int to) {
-    if (from == to || from < 0 || to < 0 || from >= _imageKeys.length || to >= _imageKeys.length) {
+    if (from == to || from < 0 || to < 0 || from >= _imageSlots.length || to >= _imageSlots.length) {
       return;
     }
     setState(() {
-      final item = _imageKeys.removeAt(from);
-      _imageKeys.insert(to, item);
+      final item = _imageSlots.removeAt(from);
+      _imageSlots.insert(to, item);
     });
   }
 
@@ -313,6 +432,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final shellFg = tokens?.onShell ?? scheme.onSurface;
     final hintColor = ucgComposeLightHintColor(context);
     final secondaryColor = ucgComposeLightSecondaryColor(context);
+    final videoSlot = _videoSlot;
 
     return PopScope(
       canPop: false,
@@ -405,10 +525,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                               if (_showImageGrid) ...[
                                 const SizedBox(height: 12),
                                 UcgComposeImageGrid(
-                                  imageKeys: _imageKeys,
-                                  cdnUrls: _imageCdnUrls,
+                                  cells: _gridCells,
                                   busy: _publishing || _polishing,
-                                  addBusy: _uploadingMedia,
                                   canAddMore: _canAddImages,
                                   onAddTap: () => unawaited(_pickImages()),
                                   onReorder: _reorderImages,
@@ -416,25 +534,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                   onDragEnded: () => setState(() => _draggingImage = false),
                                 ),
                               ],
-                              if (_videoKey != null && _videoKey!.isNotEmpty) ...[
+                              if (_hasVideo && videoSlot != null) ...[
                                 const SizedBox(height: 12),
                                 Row(
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
-                                      child: UcgNetworkImage(
-                                        url: UcgMediaUrl.resolveUrl(objectKey: _videoKey!),
-                                        width: 56,
-                                        height: 56,
-                                        fit: BoxFit.cover,
-                                      ),
+                                      child: _buildVideoThumb(videoSlot, secondaryColor),
                                     ),
                                     const SizedBox(width: 8),
                                     Icon(Icons.videocam_rounded, color: secondaryColor),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        _videoKey!.split('/').last,
+                                        _videoLabel(videoSlot),
                                         style: TextStyle(color: secondaryColor, fontSize: 13),
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -459,6 +572,13 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                               ],
                               if (_showAiPolish) ...[
                                 const SizedBox(height: 8),
+                                const Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: AiQuotaRemainingHint(
+                                    feature: AiQuotaRemainingHintFeature.polish,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
                                 Align(
                                   alignment: Alignment.centerLeft,
                                   child: TextButton.icon(
@@ -480,14 +600,6 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                   ),
                                 ),
                               ],
-                              if (_uploadingMedia)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    '上传中…',
-                                    style: TextStyle(fontSize: 12, color: secondaryColor.withValues(alpha: 0.85)),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -513,5 +625,37 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildVideoThumb(UcgComposeMediaSlot slot, Color secondaryColor) {
+    if (slot.objectKey != null && slot.objectKey!.isNotEmpty) {
+      return UcgNetworkImage(
+        url: UcgMediaUrl.resolveUrl(objectKey: slot.objectKey!, cdnUrl: slot.cdnUrl),
+        width: 56,
+        height: 56,
+        fit: BoxFit.cover,
+      );
+    }
+    return SizedBox(
+      width: 56,
+      height: 56,
+      child: UcgComposeLocalPreview(
+        localPath: slot.localPath,
+        localBytes: slot.localBytes,
+        width: 56,
+        height: 56,
+        fit: BoxFit.cover,
+        isVideo: true,
+      ),
+    );
+  }
+
+  String _videoLabel(UcgComposeMediaSlot slot) {
+    final local = slot.localPath;
+    if (local != null && local.isNotEmpty) {
+      final parts = local.split(RegExp(r'[/\\]'));
+      return parts.isNotEmpty ? parts.last : '视频';
+    }
+    return slot.objectKey?.split('/').last ?? '视频';
   }
 }

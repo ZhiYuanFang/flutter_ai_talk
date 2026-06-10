@@ -18,7 +18,7 @@ const kUcgTreasureEnabled = false; // vNext: 宝藏上线时改回 true
 
 ## 资料页
 
-- `UcgProfileShell`：flag 为 false 时不展示 `TabBar`；资料头 `expandedHeight` 增加 48px（原 TabBar 高度），`body` 为单 Tab `TabBarView`（仅动态）。不使用额外 pinned gap sliver（会与 `floatHeaderSlivers` 触发 SliverGeometry 异常）
+- `UcgProfileShell`：flag 为 false 时不展示 `TabBar`；`floatHeaderSlivers` 置 `false`（防内层列表浮入资料卡）；主人 `expandedHeight` 268；访客无操作行 248；访客含关注/私信行时按资料卡实际内容高度计算（**不得**为 TabBar 统一 +48）；`body` **直接**为 `UcgProfilePostsTab`（勿用单 Tab `TabBarView`）。不使用额外 pinned gap sliver（会与 `floatHeaderSlivers` 触发 SliverGeometry 异常）
 - 主人态与 `UcgUserProfileScreen` 访客态共用同一 flag，行为一致
 - `UcgProfileTreasureTab`、`UcgTreasurePlaceholder` 保留，flag 为 true 时复用
 

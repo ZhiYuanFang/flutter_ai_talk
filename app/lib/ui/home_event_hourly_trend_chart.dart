@@ -124,14 +124,14 @@ class HomeEventHourlyTrendChart extends StatelessWidget {
               lineBarsData: [
                 LineChartBarData(
                   spots: _spots(series.yesterday),
-                  isCurved: true,
+                  isCurved: false,
                   color: yesterdaySeriesColor(accentColor),
                   barWidth: yesterdayLineWidth,
                   dotData: const FlDotData(show: false),
                 ),
                 LineChartBarData(
                   spots: _spots(series.today),
-                  isCurved: true,
+                  isCurved: false,
                   color: accentColor,
                   barWidth: 2.5,
                   dotData: const FlDotData(show: false),

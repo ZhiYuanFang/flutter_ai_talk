@@ -9,6 +9,7 @@ class AppVisualTokens extends ThemeExtension<AppVisualTokens> {
     required this.pillBackground,
     required this.pillBorder,
     required this.recordsCardColor,
+    required this.onRecordsCard,
     required this.onShell,
     required this.onSurface,
     required this.panelShadow,
@@ -23,6 +24,8 @@ class AppVisualTokens extends ThemeExtension<AppVisualTokens> {
   final Color pillBorder;
   /// 主页历史按日记录卡片背景（主题浅色）。
   final Color recordsCardColor;
+  /// 浅色 records 卡 / 浅 surface 上的正文色。
+  final Color onRecordsCard;
   final Color onShell;
   final Color onSurface;
   final List<BoxShadow> panelShadow;
@@ -37,6 +40,7 @@ class AppVisualTokens extends ThemeExtension<AppVisualTokens> {
     Color? pillBackground,
     Color? pillBorder,
     Color? recordsCardColor,
+    Color? onRecordsCard,
     Color? onShell,
     Color? onSurface,
     List<BoxShadow>? panelShadow,
@@ -50,6 +54,7 @@ class AppVisualTokens extends ThemeExtension<AppVisualTokens> {
       pillBackground: pillBackground ?? this.pillBackground,
       pillBorder: pillBorder ?? this.pillBorder,
       recordsCardColor: recordsCardColor ?? this.recordsCardColor,
+      onRecordsCard: onRecordsCard ?? this.onRecordsCard,
       onShell: onShell ?? this.onShell,
       onSurface: onSurface ?? this.onSurface,
       panelShadow: panelShadow ?? this.panelShadow,
@@ -68,6 +73,7 @@ class AppVisualTokens extends ThemeExtension<AppVisualTokens> {
       pillBackground: Color.lerp(pillBackground, other.pillBackground, t)!,
       pillBorder: Color.lerp(pillBorder, other.pillBorder, t)!,
       recordsCardColor: Color.lerp(recordsCardColor, other.recordsCardColor, t)!,
+      onRecordsCard: Color.lerp(onRecordsCard, other.onRecordsCard, t)!,
       onShell: Color.lerp(onShell, other.onShell, t)!,
       onSurface: Color.lerp(onSurface, other.onSurface, t)!,
       panelShadow: t < 0.5 ? panelShadow : other.panelShadow,

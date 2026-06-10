@@ -50,6 +50,7 @@ class EventLogo extends StatelessWidget {
             height: size,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => _placeholder(size, radius),
+            webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
           ),
         );
       }
@@ -65,6 +66,7 @@ class EventLogo extends StatelessWidget {
             height: size,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => _placeholder(size, radius),
+            webHtmlElementStrategy: WebHtmlElementStrategy.never,
           ),
         );
       }

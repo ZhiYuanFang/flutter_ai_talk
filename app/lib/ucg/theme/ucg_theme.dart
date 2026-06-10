@@ -37,6 +37,9 @@ abstract final class UcgTheme {
   static Color pillBackground(BuildContext context) =>
       tokens(context)?.pillBackground ?? themePrimaryBlend(context, alpha: 0.08);
 
+  static Color onRecordsCard(BuildContext context) =>
+      tokens(context)?.onRecordsCard ?? onShell(context);
+
   static Color surfaceBorder(BuildContext context) =>
       tokens(context)?.surfaceBorderColor ?? onShell(context).withValues(alpha: 0.22);
 }

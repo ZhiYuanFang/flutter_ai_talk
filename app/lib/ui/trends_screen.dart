@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../config/trends_date_range_store.dart';
 import '../config/trends_selected_event_store.dart';
+import '../data/event_catalog_state.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
@@ -76,7 +77,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
       _holdIntroBarsAtZero = true;
       _suppressIntroEmptyState = true;
       if (mounted) setState(() {});
-      final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider));
+      final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider).items);
       await _loadSeriesWithIntroAnimation(selectedEvent);
       unawaited(ref.read(eventCatalogProvider.notifier).refreshFromRemote());
     });
@@ -84,7 +85,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
 
   /// 随目录更新选中项；仅当选中 [eventId] 变化时由调用方触发拉数。
   void _syncSelection({String? preferredKey}) {
-    final catalog = ref.read(eventCatalogProvider);
+    final catalog = ref.read(eventCatalogProvider).items;
     final leaves = leafEvents(catalog, requireValidEventType: true);
     if (leaves.isEmpty) {
       _selectedKey = null;
@@ -180,7 +181,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final start = _startDate;
     final end = _endDate;
     if (start == null || end == null) return;
-    final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider));
+    final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider).items);
     final accent = resolveEventColor(context, selectedEvent);
     final picked = await showTrendsDateRangeGlassSheet(
       context,
@@ -318,8 +319,9 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
   @override
   Widget build(BuildContext context) {
     final needLoginMask = !ref.watch(sessionProvider.select((s) => s.isLoggedIn));
-    final catalog = ref.watch(eventCatalogProvider);
-    ref.listen<List<EventDefinition>>(eventCatalogProvider, (prev, next) {
+    final catalogState = ref.watch(eventCatalogProvider);
+    final catalog = catalogState.items;
+    ref.listen<EventCatalogState>(eventCatalogProvider, (prev, next) {
       if (prev == next) return;
       if (!_selectionReady) return;
       final before = _selectedKey;
@@ -335,6 +337,8 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final selectedEvent = _selectedEvent(catalog);
     final accent = resolveEventColor(context, selectedEvent);
     final rangeReady = _startDate != null && _endDate != null;
+    final catalogLoading = catalogState.isRefreshing ||
+        (!catalogState.remoteLoadAttempted && catalog.isEmpty);
 
     return Scaffold(
       body: Stack(
@@ -342,13 +346,19 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
         children: [
           catalog.isEmpty
               ? Center(
-                  child: Text(
-                    '暂无事件目录，请稍后再试或检查网络',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.error,
+                  child: catalogLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(
+                          '暂无事件目录，请稍后再试或检查网络',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                          textAlign: TextAlign.center,
                         ),
-                    textAlign: TextAlign.center,
-                  ),
                 )
               : !rangeReady
                   ? const Center(child: CircularProgressIndicator())

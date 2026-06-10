@@ -29,7 +29,6 @@ const _kProfileExpandedAvatarOuter = 86.0;
 const _kProfileExpandedAvatarRadius = 43.0;
 const _kProfileCollapsedAvatarRadius = 16.0;
 const _kProfileToolbarHeight = 44.0;
-const _kProfileTabBarHeight = 48.0;
 
 /// 统一资料壳层：折叠顶栏；[`kUcgTreasureEnabled`] 时含「动态」「宝藏」Tab，否则仅动态列表。
 class UcgProfileShell extends ConsumerStatefulWidget {
@@ -65,10 +64,25 @@ class UcgProfileShell extends ConsumerStatefulWidget {
 }
 
 class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
-  static double _headerExpandedHeight(bool showOwnerActions) {
-    final base = showOwnerActions ? 268.0 : 248.0;
-    // 宝藏隐藏时无 TabBar sliver，将原 TabBar 高度并入资料头，避免列表遮挡操作区。
-    return kUcgTreasureEnabled ? base : base + _kProfileTabBarHeight;
+  /// 资料卡内边距（[UcgSurfaceCard] 默认 16×2）。
+  static const _kProfileCardPadding = 32.0;
+  static const _kProfileCardRowHeight = 86.0;
+  static const _kProfileCardActionsBlock = 34.0;
+  static const _kProfileCardBioBlock = 46.0;
+
+  static double _headerExpandedHeight({
+    required bool showOwnerActions,
+    required double flexibleTopPad,
+    required bool hasViewerActions,
+    required bool hasBio,
+  }) {
+    if (showOwnerActions) return 268.0;
+    if (!hasViewerActions) return 248.0;
+    final cardHeight = _kProfileCardPadding +
+        _kProfileCardRowHeight +
+        (hasBio ? _kProfileCardBioBlock : 0) +
+        _kProfileCardActionsBlock;
+    return _kProfileToolbarHeight + flexibleTopPad + cardHeight;
   }
 
   @override
@@ -81,7 +95,14 @@ class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
     final leading = widget.leading;
     final showOwnerActions = widget.showOwnerActions;
     final flexibleTopPad = leading != null ? 48.0 : 8.0;
-    final headerExpandedHeight = _headerExpandedHeight(showOwnerActions);
+    final hasViewerActions = !showOwnerActions && widget.onFollow != null;
+    final hasBio = profile.bio.trim().isNotEmpty;
+    final headerExpandedHeight = _headerExpandedHeight(
+      showOwnerActions: showOwnerActions,
+      flexibleTopPad: flexibleTopPad,
+      hasViewerActions: hasViewerActions,
+      hasBio: hasBio,
+    );
 
     final postsTab = UcgProfilePostsTab(
       postsSource: widget.postsSource,
@@ -157,22 +178,25 @@ class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
       ];
     }
 
-    // TabBarView 为 NestedScrollView 标准 body，直接放 postsTab 会导致列表与资料头重叠。
-    final tabCount = kUcgTreasureEnabled ? 2 : 1;
-    return DefaultTabController(
-      length: tabCount,
-      child: NestedScrollView(
-        floatHeaderSlivers: true,
-        headerSliverBuilder: (context, innerBoxIsScrolled) => headerSlivers(context),
-        body: TabBarView(
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            postsTab,
-            if (kUcgTreasureEnabled) const UcgProfileTreasureTab(),
-          ],
-        ),
-      ),
+    final nestedScroll = NestedScrollView(
+      // 宝藏关闭时勿 float，避免内层列表浮入资料卡遮挡关注/私信按钮。
+      floatHeaderSlivers: kUcgTreasureEnabled,
+      headerSliverBuilder: (context, innerBoxIsScrolled) => headerSlivers(context),
+      body: kUcgTreasureEnabled
+          ? TabBarView(
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                postsTab,
+                const UcgProfileTreasureTab(),
+              ],
+            )
+          : postsTab,
     );
+
+    if (!kUcgTreasureEnabled) return nestedScroll;
+
+    // 双 Tab 需 DefaultTabController 与 header TabBar 联动。
+    return DefaultTabController(length: 2, child: nestedScroll);
   }
 }
 
@@ -455,8 +479,8 @@ class _UcgProfilePostsTabState extends ConsumerState<UcgProfilePostsTab> {
       post: posts[i],
       showDateColumn: i == 0 ||
           !UcgMyPostTimelineItem.isSameCalendarDay(
-            posts[i].createdAt.toLocal(),
-            posts[i - 1].createdAt.toLocal(),
+            posts[i].displayAt.toLocal(),
+            posts[i - 1].displayAt.toLocal(),
           ),
       showDivider: i < posts.length - 1,
       onTap: () {

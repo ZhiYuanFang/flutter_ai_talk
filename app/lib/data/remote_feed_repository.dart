@@ -5,9 +5,12 @@ import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../api/ai_quota_codes.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../providers/ai_quota_dialog_bus.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/home_history_notifier.dart';
 import '../providers/session_provider.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
@@ -179,7 +182,9 @@ class RemoteFeedRepository implements FeedRepository {
       _logWs('session refresh failed, signed out');
       await _ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await _ref.read(signInChannelProvider.notifier).clear();
-      _ref.showApiToastError('登录已过期，请重新登录');
+      if (_ref.read(homeHistoryProvider).initialLoadDone) {
+        _ref.showApiToastError('登录已过期，请重新登录');
+      }
       return null;
     }
     final dn = _deviceNoGetter();
@@ -338,6 +343,13 @@ class RemoteFeedRepository implements FeedRepository {
       if (decoded is! Map<String, dynamic>) return;
       final type = _frameType(decoded['type']);
       if (type == 'error') {
+        final bizCode = parseWsErrorBusinessCode(decoded);
+        if (bizCode != null && isAiQuotaBusinessCode(bizCode)) {
+          // 喂养 AI WS 额度/登录错误：专用弹框，非连接故障不重连。
+          _ref.requestAiQuotaDialog(bizCode);
+          _failCurrentAttempt(scheduleReconnect: false);
+          return;
+        }
         _toast(decoded['message'] as String? ?? '连接异常');
         _failCurrentAttempt(scheduleReconnect: true);
         return;
@@ -796,6 +808,8 @@ class RemoteFeedRepository implements FeedRepository {
       );
       return data?['reply'] as String?;
     } on ApiBusinessException catch (e) {
+      // 喂养 AI 额度/登录错误交由 UI 层弹框（与 WS error 帧一致）。
+      if (isAiQuotaBusinessCode(e.code)) rethrow;
       _toast(e.message);
       return null;
     }

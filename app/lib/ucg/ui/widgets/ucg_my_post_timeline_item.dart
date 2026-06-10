@@ -51,7 +51,7 @@ class UcgMyPostTimelineItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final date = post.createdAt.toLocal();
+    final date = post.displayAt.toLocal();
     final monthLabel = chineseMonthName(date.month);
     final dayLabel = formatDay(date);
     final fg = UcgTheme.onShell(context);

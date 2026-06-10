@@ -187,64 +187,112 @@ Future<bool?> showGlassConfirmDialog(
 /// 发布页退出三选玻璃对话框：保存草稿 / 放弃 / 取消。
 enum GlassComposeExitAction { saveDraft, discard, cancel }
 
-Future<GlassComposeExitAction?> showGlassComposeExitDialog(BuildContext context) {
+Future<GlassComposeExitAction?> showGlassComposeExitDialog(
+  BuildContext context, {
+  Future<bool> Function()? onSaveDraft,
+}) {
   return showGlassDialog<GlassComposeExitAction>(
     context: context,
     useLightGlass: true,
     contentBuilder: (ctx) {
-      final textColor = ucgComposeLightTextColor(ctx);
-      final secondaryColor = ucgComposeLightSecondaryColor(ctx);
-      final scheme = Theme.of(ctx).colorScheme;
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            '退出编辑',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 20,
-              height: 1.25,
-              fontWeight: FontWeight.w600,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '是否保存草稿？',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, height: 1.4, color: secondaryColor),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, GlassComposeExitAction.discard),
-                style: TextButton.styleFrom(foregroundColor: secondaryColor),
-                child: const Text('放弃'),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, GlassComposeExitAction.cancel),
-                style: TextButton.styleFrom(foregroundColor: secondaryColor),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, GlassComposeExitAction.saveDraft),
-                style: FilledButton.styleFrom(
-                  backgroundColor: scheme.primary,
-                  foregroundColor: scheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  shape: const StadiumBorder(),
-                ),
-                child: const Text('保存草稿'),
-              ),
-            ],
-          ),
-        ],
-      );
+      return _ComposeExitDialogBody(onSaveDraft: onSaveDraft);
     },
   );
+}
+
+class _ComposeExitDialogBody extends StatefulWidget {
+  const _ComposeExitDialogBody({this.onSaveDraft});
+
+  final Future<bool> Function()? onSaveDraft;
+
+  @override
+  State<_ComposeExitDialogBody> createState() => _ComposeExitDialogBodyState();
+}
+
+class _ComposeExitDialogBodyState extends State<_ComposeExitDialogBody> {
+  var _saving = false;
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final save = widget.onSaveDraft;
+    if (save == null) {
+      if (mounted) Navigator.pop(context, GlassComposeExitAction.saveDraft);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final ok = await save();
+      if (ok && mounted) {
+        Navigator.pop(context, GlassComposeExitAction.saveDraft);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = ucgComposeLightTextColor(context);
+    final secondaryColor = ucgComposeLightSecondaryColor(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '退出编辑',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 20,
+            height: 1.25,
+            fontWeight: FontWeight.w600,
+            color: textColor,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '是否保存草稿？',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, height: 1.4, color: secondaryColor),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            TextButton(
+              onPressed: _saving ? null : () => Navigator.pop(context, GlassComposeExitAction.discard),
+              style: TextButton.styleFrom(foregroundColor: secondaryColor),
+              child: const Text('放弃'),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: _saving ? null : () => Navigator.pop(context, GlassComposeExitAction.cancel),
+              style: TextButton.styleFrom(foregroundColor: secondaryColor),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              style: FilledButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: const StadiumBorder(),
+              ),
+              child: _saving
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: scheme.onPrimary,
+                      ),
+                    )
+                  : const Text('保存草稿'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 /// 玻璃文本验证对话框（标题 + 正文 + 验证输入 + 取消/确认）。

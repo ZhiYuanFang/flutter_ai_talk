@@ -29,6 +29,7 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
     api: ref.watch(ucgApiClientProvider),
     userIdGetter: () => ref.read(ucgCurrentUserIdProvider),
     accessTokenGetter: () => ref.read(sessionProvider).accessToken,
+    isLoggedInGetter: () => ref.read(sessionProvider).isLoggedIn,
   );
   ref.onDispose(repo.dispose);
   return repo;

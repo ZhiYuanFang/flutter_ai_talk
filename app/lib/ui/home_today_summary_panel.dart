@@ -80,7 +80,7 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
     }
 
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final catalog = ref.watch(eventCatalogProvider);
+    final catalog = ref.watch(eventCatalogProvider).items;
     final chips = _buildChips(catalog);
     final visibleChips = _expanded
         ? chips

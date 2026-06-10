@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -53,6 +55,46 @@ Future<UcgComposeInitialMedia?> ucgUploadAlbumAssets({
   }
   if (keys.isEmpty) return null;
   return UcgComposeInitialMedia(imageKeys: keys);
+}
+
+/// Web 降级：仅选本地文件，不上传 OSS。
+Future<UcgComposeInitialMedia?> ucgPickMediaWebLocalFallback({
+  int maxImages = 9,
+}) async {
+  final picked = await _imagePicker.pickMultipleMedia(limit: maxImages);
+  if (picked.isEmpty) return null;
+
+  var hasImage = false;
+  var hasVideo = false;
+  for (final f in picked) {
+    final mime = f.mimeType ?? '';
+    if (mime.startsWith('video/')) {
+      hasVideo = true;
+    } else {
+      hasImage = true;
+    }
+  }
+  if (hasImage && hasVideo) {
+    throw UcgAlbumMixedMediaException();
+  }
+
+  if (hasVideo) {
+    if (picked.length > 1) throw UcgAlbumMixedMediaException();
+    final file = picked.first;
+    final bytes = await file.readAsBytes();
+    return UcgComposeInitialMedia(
+      videoLocalPath: file.path,
+      videoLocalBytes: bytes,
+    );
+  }
+
+  final paths = <String>[];
+  final bytesList = <Uint8List>[];
+  for (final file in picked) {
+    paths.add(file.path);
+    bytesList.add(await file.readAsBytes());
+  }
+  return UcgComposeInitialMedia(imageLocalPaths: paths, imageLocalBytes: bytesList);
 }
 
 /// Web 降级：系统多选 + 混选拒绝。

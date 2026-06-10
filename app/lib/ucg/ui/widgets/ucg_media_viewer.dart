@@ -508,11 +508,14 @@ class UcgInlineVideoPlayer extends StatefulWidget {
     required this.videoUrl,
     required this.aspectRatio,
     this.borderRadius = 4,
+    this.posterOnly = false,
   });
 
   final String videoUrl;
   final double aspectRatio;
   final double borderRadius;
+  /// When true, only loads and displays the first-frame poster; no tap-to-play.
+  final bool posterOnly;
 
   @override
   State<UcgInlineVideoPlayer> createState() => _UcgInlineVideoPlayerState();
@@ -655,10 +658,75 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     }
   }
 
+  Widget _buildPosterStack(BuildContext context, {required bool showPlayIcon}) {
+    final primary = UcgTheme.primary(context);
+    return Stack(
+      alignment: Alignment.center,
+      fit: StackFit.expand,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                primary.withValues(alpha: 0.14),
+                primary.withValues(alpha: 0.04),
+              ],
+            ),
+          ),
+        ),
+        if (_posterReady && _controller != null)
+          Positioned.fill(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: _controller!.value.size.width,
+                height: _controller!.value.size.height,
+                child: IgnorePointer(child: VideoPlayer(_controller!)),
+              ),
+            ),
+          ),
+        if (_initializingPoster || _initializingPlayback)
+          Center(
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: primary.withValues(alpha: 0.85),
+              ),
+            ),
+          )
+        else if (!widget.posterOnly && (_posterFailed || _playbackFailed))
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              kIsWeb ? 'Web 端暂无法播放该视频' : '视频加载失败，点击重试',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: primary.withValues(alpha: 0.85)),
+            ),
+          )
+        else if (showPlayIcon)
+          Icon(Icons.play_circle_filled_rounded, color: primary.withValues(alpha: 0.55), size: 44),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final primary = UcgTheme.primary(context);
     final onScrim = UcgTheme.onPrimary(context);
+
+    if (widget.posterOnly) {
+      return IgnorePointer(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(widget.borderRadius),
+          child: AspectRatio(
+            aspectRatio: widget.aspectRatio,
+            child: _buildPosterStack(context, showPlayIcon: true),
+          ),
+        ),
+      );
+    }
 
     if (!_playing) {
       return GestureDetector(
@@ -668,55 +736,9 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
           borderRadius: BorderRadius.circular(widget.borderRadius),
           child: AspectRatio(
             aspectRatio: widget.aspectRatio,
-            child: Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
-              children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        primary.withValues(alpha: 0.14),
-                        primary.withValues(alpha: 0.04),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_posterReady && _controller != null)
-                  Positioned.fill(
-                    child: FittedBox(
-                      fit: BoxFit.cover,
-                      clipBehavior: Clip.hardEdge,
-                      child: SizedBox(
-                        width: _controller!.value.size.width,
-                        height: _controller!.value.size.height,
-                        child: IgnorePointer(child: VideoPlayer(_controller!)),
-                      ),
-                    ),
-                  ),
-                if (_initializingPoster || _initializingPlayback)
-                  Center(
-                    child: SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: primary.withValues(alpha: 0.85),
-                      ),
-                    ),
-                  )
-                else if (_posterFailed || _playbackFailed)
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      kIsWeb ? 'Web 端暂无法播放该视频' : '视频加载失败，点击重试',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: primary.withValues(alpha: 0.85)),
-                    ),
-                  )
-                else
-                  Icon(Icons.play_circle_filled_rounded, color: primary.withValues(alpha: 0.55), size: 44),
-              ],
+            child: _buildPosterStack(
+              context,
+              showPlayIcon: !_initializingPoster && !_initializingPlayback && !_posterFailed && !_playbackFailed,
             ),
           ),
         ),

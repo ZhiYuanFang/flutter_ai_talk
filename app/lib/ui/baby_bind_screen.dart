@@ -118,12 +118,15 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     try {
       final api = ref.read(authorizedApiClientProvider);
       await api.postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
+      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
+      if (!synced) {
+        if (mounted) {
+          ref.showApiToastError('会话刷新失败，请重新登录后再试');
+        }
+        return;
+      }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(no);
       ref.invalidate(settingsBabyProvider);
-      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
-      if (!synced && mounted) {
-        ref.showApiToastError('会话刷新失败，请重新登录后再试');
-      }
       unawaited(
         ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
       );
@@ -174,12 +177,15 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         ref.showApiToastError('创建成功但未返回宝宝ID');
         return;
       }
+      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: dn);
+      if (!synced) {
+        if (mounted) {
+          ref.showApiToastError('会话刷新失败，请重新登录后再试');
+        }
+        return;
+      }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(dn);
       ref.invalidate(settingsBabyProvider);
-      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: dn);
-      if (!synced && mounted) {
-        ref.showApiToastError('会话刷新失败，请重新登录后再试');
-      }
       unawaited(
         ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
       );

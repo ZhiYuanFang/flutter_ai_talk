@@ -79,17 +79,15 @@ class UcgComposeLightGlassPanel extends StatelessWidget {
 
 Color ucgComposeLightTextColor(BuildContext context) {
   final tokens = Theme.of(context).extension<AppVisualTokens>();
-  return tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+  return tokens?.onRecordsCard ?? Theme.of(context).colorScheme.onSurface;
 }
 
 Color ucgComposeLightHintColor(BuildContext context) {
-  final tokens = Theme.of(context).extension<AppVisualTokens>();
-  final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+  final fg = ucgComposeLightTextColor(context);
   return fg.withValues(alpha: 0.42);
 }
 
 Color ucgComposeLightSecondaryColor(BuildContext context) {
-  final tokens = Theme.of(context).extension<AppVisualTokens>();
-  final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+  final fg = ucgComposeLightTextColor(context);
   return fg.withValues(alpha: 0.62);
 }
