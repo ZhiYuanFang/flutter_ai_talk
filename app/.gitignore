@@ -25,3 +25,21 @@ build/
 
 # assets/models/*.zip
 
+# Local environment (secrets; keep .env.example)
+.env
+!.env.example
+
+# Android signing
+/android/key.properties
+/android/*.jks
+/android/*.keystore
+
+# iOS signing & App Store Connect
+/ios/*.p12
+/ios/*.pem
+/ios/*.mobileprovision
+/ios/AuthKey_*.p8
+
+# Native build cache (local machine paths)
+/android/app/.cxx/
+

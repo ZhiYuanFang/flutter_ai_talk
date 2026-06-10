@@ -1,0 +1,7 @@
+# Local environment (secrets)
+.env
+**/.env
+!**/.env.example
+
+# Internal signing documentation (passwords, certificates, PII)
+docs/app-signing-info.md

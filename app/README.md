@@ -61,7 +61,7 @@ flutter build appbundle --release
 # 产物：build/app/outputs/bundle/release/app-release.aab
 ```
 
-**签名**：正式发布需在 `android/app/build.gradle` 中配置 `signingConfigs`（密钥库 `.jks` / `.keystore` 勿提交仓库）。细则见 [官方文档：为应用签名](https://docs.flutter.dev/deployment/android#signing-the-app)。
+**签名**：在 `app/android/` 下复制 `key.properties.example` 为 `key.properties`，填入 keystore 路径与密码；将 `.jks` 放在 `app/android/`（二者均已在 `.gitignore` 中）。`build.gradle.kts` 在存在 `key.properties` 时自动启用 release 签名；未配置时使用默认 debug 签名。细则见 [官方文档：为应用签名](https://docs.flutter.dev/deployment/android#signing-the-app)。
 
 ### iOS
 

@@ -249,15 +249,15 @@ PowerShell：
 填：
 
 ```text
-com.fzy.pangbao
+com.example.yourapp
 ```
 
 #### 必填 2. `IOS_TEAM_ID`
 
-填：
+填 Apple Developer 团队 ID（10 位字母数字，在 Membership 页面查看）：
 
 ```text
-395D9NUCNF
+XXXXXXXXXX
 ```
 
 #### 3. `IOS_CERTIFICATE_P12_BASE64`
@@ -268,10 +268,12 @@ com.fzy.pangbao
 
 #### 4. `IOS_CERTIFICATE_PASSWORD`
 
-填：p12导出base64
+填：导出 `.p12` 时设置的密码（**不是** Base64 文本）。
 
-```bash
- [Convert]::ToBase64String([IO.File]::ReadAllBytes('d:\work\flutter_ai_talk\app\ios\证书.p12'))
+`.p12` 转 Base64 示例：
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\certs\your-cert.p12'))
 ```
 
 #### 5. `IOS_MOBILEPROVISION_APPSTORE_BASE64`
@@ -363,7 +365,7 @@ com.fzy.pangbao
 示例：
 
 ```text
-wxe713de83c921f341
+wxYOUR_WECHAT_APP_ID
 ```
 
 #### 15. `WECHAT_UNIVERSAL_LINK`
@@ -371,7 +373,7 @@ wxe713de83c921f341
 示例：
 
 ```text
-https://www.pangbao.cuplay.top/wx/ulink/
+https://your.domain/wx/ulink/
 ```
 
 > 要求：必须是完整 `https://` 前缀路径，不得包含 `*`。
@@ -381,7 +383,7 @@ https://www.pangbao.cuplay.top/wx/ulink/
 示例：
 
 ```text
-applinks:www.pangbao.cuplay.top
+applinks:your.domain
 ```
 
 > 要求：`IOS_ASSOCIATED_DOMAIN` 的域名必须与 `WECHAT_UNIVERSAL_LINK` 域名一致。
@@ -390,32 +392,26 @@ applinks:www.pangbao.cuplay.top
 
 #### 15. `APP_STORE_CONNECT_ISSUER_ID`
 
-示例：
+在 App Store Connect → Users and Access → Integrations → App Store Connect API 页面复制 Issuer ID：
 
 ```text
-aef3e1e8-a07c-4577-9aba-d39f514e059a
+xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 #### 16. `APP_STORE_CONNECT_KEY_ID`
 
-示例：
+填 API Key 的 Key ID（如 `AuthKey_ABC123XYZ.p8` 文件名中的 `ABC123XYZ`）：
 
 ```text
-DY56P86YR8
+YOUR_KEY_ID
 ```
 
 #### 17. `APP_STORE_CONNECT_API_KEY_P8_BASE64`
 
-填：
+填：把 `.p8` 私钥文件转成 Base64 后的**完整**文本（单行或多行均可）。**勿将真实 `.p8` 或 Base64 提交到公开仓库。**
 
-- 你把 `.p8` 文件转出来的那一长串 Base64 文本
-示例：
-
-```text
-MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQgIDfmIqb0Nbln+pRX
-EdlxkFqPOvpw5DBCSjjcpJSfuVKgCgYIKoZIzj0DAQehRANCAAScDD38RlgmjbDT
-M+QXZxe64oCA57aK6y9VXWmS3OMGiR+Ad0BnHtJjH0hRh/5+CU3o3YCDOZrA7QVJ
-FIIU9h8G
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\certs\AuthKey_YOUR_KEY_ID.p8'))
 ```
 
 ---

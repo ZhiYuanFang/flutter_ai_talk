@@ -1,2 +1,0 @@
-D:/work/flutter_ai_talk/app/android/app/.cxx/release/5y1d4y63/x86_64/CMakeFiles/edit_cache.dir
-D:/work/flutter_ai_talk/app/android/app/.cxx/release/5y1d4y63/x86_64/CMakeFiles/rebuild_cache.dir
