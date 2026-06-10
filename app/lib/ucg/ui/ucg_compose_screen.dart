@@ -432,7 +432,6 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     final shellFg = tokens?.onShell ?? scheme.onSurface;
     final hintColor = ucgComposeLightHintColor(context);
-    final secondaryColor = ucgComposeLightSecondaryColor(context);
     final videoSlot = _videoSlot;
 
     return PopScope(
@@ -568,17 +567,6 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                     ),
                                   ],
                                 ),
-                                if (!widget.textOnly)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      '更换视频请关闭并重新从发布入口选择',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: secondaryColor.withValues(alpha: 0.85),
-                                      ),
-                                    ),
-                                  ),
                               ],
                               if (_showAiPolish) ...[
                                 const SizedBox(height: 8),
@@ -638,6 +626,27 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   }
 
   Widget _buildVideoPreview(UcgComposeMediaSlot slot) {
+    final localPath = slot.localPath;
+    if (localPath != null && localPath.isNotEmpty) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          UcgComposeLocalPreview(
+            localPath: localPath,
+            localBytes: slot.localBytes,
+            fit: BoxFit.cover,
+            isVideo: true,
+          ),
+          Center(
+            child: Icon(
+              Icons.play_circle_fill,
+              color: Colors.white.withValues(alpha: 0.92),
+              size: 48,
+            ),
+          ),
+        ],
+      );
+    }
     if (slot.objectKey != null && slot.objectKey!.isNotEmpty) {
       final url = UcgMediaUrl.resolveUrl(objectKey: slot.objectKey!, cdnUrl: slot.cdnUrl);
       return Stack(

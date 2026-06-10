@@ -119,6 +119,8 @@ class UcgMyPostTimelineItem extends StatelessWidget {
                     const SizedBox(height: 8),
                   Text(
                     post.text,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: fg.withValues(alpha: 0.9),
                       height: 1.45,

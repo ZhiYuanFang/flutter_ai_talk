@@ -46,7 +46,7 @@ class _KeyboardDismissScopeState extends State<KeyboardDismissScope> {
         if (startedInside) return;
         if (keyboardInputBridgeController.shouldSuppressOutsideDismiss) return;
         if (!_shouldDismissKeyboardAt(event.position)) return;
-        keyboardInputBridgeController.dismiss();
+        keyboardInputBridgeController.collapseInputChrome();
         FocusManager.instance.primaryFocus?.unfocus();
       },
       child: widget.child,

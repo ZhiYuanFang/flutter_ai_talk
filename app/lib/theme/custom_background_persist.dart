@@ -11,7 +11,7 @@ class ThemePreferences {
   const ThemePreferences({
     this.seed,
     this.preset,
-    this.scheduleEnabled = true,
+    this.scheduleEnabled = false,
   });
 
   final Color? seed;
@@ -31,7 +31,7 @@ Future<Color?> loadCustomBackground() async {
 
 Future<ThemePreferences> loadThemePreferences() async {
   final sp = await SharedPreferences.getInstance();
-  final scheduleEnabled = sp.getBool(_kThemeScheduleEnabledKey) ?? true;
+  final scheduleEnabled = sp.getBool(_kThemeScheduleEnabledKey) ?? false;
   var preset = ThemePreset.fromId(sp.getString(_kThemePresetIdKey));
   final raw = sp.getInt(_kCustomBgColorKey);
   if (preset != null && isSoftSwatchThemePreset(preset)) {
@@ -83,6 +83,6 @@ Future<void> persistThemePreferences({
 
 Future<void> clearThemePreferences() async {
   final sp = await SharedPreferences.getInstance();
-  final scheduleEnabled = sp.getBool(_kThemeScheduleEnabledKey) ?? true;
+  final scheduleEnabled = sp.getBool(_kThemeScheduleEnabledKey) ?? false;
   await persistThemePreferences(seed: null, preset: null, scheduleEnabled: scheduleEnabled);
 }

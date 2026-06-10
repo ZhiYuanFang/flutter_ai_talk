@@ -13,8 +13,8 @@ final customBackgroundProvider = StateProvider<Color?>((ref) => null);
 
 final themePresetProvider = StateProvider<ThemePreset?>((ref) => null);
 
-/// 是否启用 19:00–05:00 自动夜空（默认 true）。
-final themeScheduleEnabledProvider = StateProvider<bool>((ref) => true);
+/// 是否启用 19:00–05:00 自动夜空（默认 false，未持久化时视为关闭）。
+final themeScheduleEnabledProvider = StateProvider<bool>((ref) => false);
 
 /// 定时主题 tick；变更后 [effectiveThemeProvider] 重算展示主题。
 final themeScheduleTickProvider = StateProvider<int>((ref) => 0);

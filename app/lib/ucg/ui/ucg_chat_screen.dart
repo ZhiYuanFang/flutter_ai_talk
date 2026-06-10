@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,8 @@ import '../data/ucg_media_picker.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_login_gate.dart';
+import 'ucg_profile_screens.dart';
+import 'widgets/ucg_compose_local_preview.dart';
 import 'widgets/ucg_media_viewer.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
@@ -33,16 +36,27 @@ class UcgChatScreen extends ConsumerStatefulWidget {
   ConsumerState<UcgChatScreen> createState() => _UcgChatScreenState();
 }
 
+enum _ChatPendingMediaStatus { pending, uploading, done, failed }
+
 class _PendingChatMedia {
-  const _PendingChatMedia({
-    required this.objectKey,
+  _PendingChatMedia({
+    required this.localPath,
     required this.isVideo,
-    this.cdnUrl,
+    this.localBytes,
   });
 
-  final String objectKey;
+  final String localPath;
+  final Uint8List? localBytes;
   final bool isVideo;
-  final String? cdnUrl;
+  String? objectKey;
+  String? cdnUrl;
+  _ChatPendingMediaStatus status = _ChatPendingMediaStatus.pending;
+  Future<void>? uploadFuture;
+
+  bool get isDone =>
+      status == _ChatPendingMediaStatus.done &&
+      objectKey != null &&
+      objectKey!.isNotEmpty;
 }
 
 class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
@@ -55,7 +69,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   var _loading = true;
   var _followLatest = true;
   double? _lastListViewportHeight;
-  var _uploadingMedia = false;
+  var _sending = false;
   _PendingChatMedia? _pendingMedia;
   var _isFollowing = false;
   var _followLoaded = false;
@@ -307,29 +321,43 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   }
 
   Future<void> _send() async {
+    if (_sending) return;
     final text = _controller.text.trim();
     final pending = _pendingMedia;
-    if ((text.isEmpty && pending == null) || _uploadingMedia) return;
+    if (text.isEmpty && pending == null) return;
 
-    final id = 'local-${DateTime.now().millisecondsSinceEpoch}';
-    final imageKey = pending != null && !pending.isVideo ? pending.objectKey : null;
-    final videoKey = pending != null && pending.isVideo ? pending.objectKey : null;
-    final mediaCdnUrl = pending?.cdnUrl;
-
-    _controller.clear();
-    setState(() {
-      _pendingMedia = null;
-      _followLatest = true;
-      _messages.add(_localPending(
-        id: id,
-        text: text,
-        imageKey: imageKey,
-        videoKey: videoKey,
-        mediaCdnUrl: mediaCdnUrl,
-      ));
-    });
-    _scheduleScrollToLatest();
+    setState(() => _sending = true);
+    String? outboundId;
     try {
+      if (pending != null) {
+        await _ensurePendingUpload(pending);
+        if (!mounted) return;
+        if (!pending.isDone) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('媒体上传失败，请移除后重试')),
+          );
+          return;
+        }
+      }
+
+      outboundId = 'local-${DateTime.now().millisecondsSinceEpoch}';
+      final imageKey = pending != null && !pending.isVideo ? pending.objectKey : null;
+      final videoKey = pending != null && pending.isVideo ? pending.objectKey : null;
+      final mediaCdnUrl = pending?.cdnUrl;
+
+      _controller.clear();
+      setState(() {
+        _pendingMedia = null;
+        _followLatest = true;
+        _messages.add(_localPending(
+          id: outboundId!,
+          text: text,
+          imageKey: imageKey,
+          videoKey: videoKey,
+          mediaCdnUrl: mediaCdnUrl,
+        ));
+      });
+      _scheduleScrollToLatest();
       await ref.read(ucgRepositoryProvider).sendChatMessage(
             conversationId: widget.conversation.id,
             text: text,
@@ -337,15 +365,19 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
             videoKey: videoKey,
           );
       if (!mounted) return;
-      _markMessage(id, UcgChatMessageStatus.delivered);
+      _markMessage(outboundId, UcgChatMessageStatus.delivered);
     } catch (_) {
       if (!mounted) return;
-      _markMessage(id, UcgChatMessageStatus.failed);
+      if (outboundId != null) {
+        _markMessage(outboundId, UcgChatMessageStatus.failed);
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
   Future<void> _showAttachMenu() async {
-    if (_uploadingMedia) return;
+    if (_sending) return;
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -371,29 +403,75 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   }
 
   Future<void> _pickPendingMedia({required bool isVideo}) async {
-    setState(() => _uploadingMedia = true);
     try {
-      final upload = await ucgPickAndUploadChatMedia(
-        repo: ref.read(ucgRepositoryProvider),
-        isVideo: isVideo,
+      final picked = await ucgPickChatMediaLocal(isVideo: isVideo);
+      if (picked == null || !mounted) return;
+      final pending = _PendingChatMedia(
+        localPath: picked.localPath,
+        localBytes: picked.localBytes,
+        isVideo: picked.isVideo,
       );
-      if (upload == null || !mounted) return;
-      setState(() {
-        _pendingMedia = _PendingChatMedia(
-          objectKey: upload.objectKey,
-          isVideo: isVideo,
-          cdnUrl: upload.cdnUrl,
-        );
-      });
+      setState(() => _pendingMedia = pending);
+      _startPendingUpload(pending);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e is StateError ? e.message : '媒体选择失败')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _uploadingMedia = false);
     }
+  }
+
+  void _startPendingUpload(_PendingChatMedia pending) {
+    pending.uploadFuture = _uploadPendingMedia(pending);
+  }
+
+  Future<void> _uploadPendingMedia(_PendingChatMedia pending) async {
+    pending.status = _ChatPendingMediaStatus.uploading;
+    if (mounted) setState(() {});
+    try {
+      final uploaded = await ucgUploadChatLocalMedia(
+        repo: ref.read(ucgRepositoryProvider),
+        localPath: pending.localPath,
+        isVideo: pending.isVideo,
+        localBytes: pending.localBytes,
+      );
+      if (!mounted || _pendingMedia != pending) return;
+      pending.objectKey = uploaded.objectKey;
+      pending.cdnUrl = uploaded.cdnUrl;
+      pending.status = _ChatPendingMediaStatus.done;
+    } catch (_) {
+      if (_pendingMedia == pending) {
+        pending.status = _ChatPendingMediaStatus.failed;
+      }
+    } finally {
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _ensurePendingUpload(_PendingChatMedia pending) async {
+    if (pending.isDone) return;
+    if (pending.status == _ChatPendingMediaStatus.failed) {
+      pending.status = _ChatPendingMediaStatus.pending;
+      _startPendingUpload(pending);
+    }
+    final future = pending.uploadFuture;
+    if (future != null) {
+      await future;
+      return;
+    }
+    await _uploadPendingMedia(pending);
+  }
+
+  void _openProfile(String userId) {
+    if (userId.isEmpty) return;
+    unawaited(
+      Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => UcgUserProfileScreen(userId: userId),
+        ),
+      ),
+    );
   }
 
   void _clearPendingMedia() {
@@ -408,18 +486,19 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: Row(
         children: [
-          if (pending.isVideo)
-            Icon(Icons.videocam_rounded, color: fg.withValues(alpha: 0.7))
-          else
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: UcgNetworkImage(
-                url: pending.cdnUrl ?? '',
-                width: 48,
-                height: 48,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: UcgComposeLocalPreview(
+                localPath: pending.localPath,
+                localBytes: pending.localBytes,
                 fit: BoxFit.cover,
+                isVideo: pending.isVideo,
               ),
             ),
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -427,9 +506,21 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
               style: TextStyle(color: fg.withValues(alpha: 0.75), fontSize: 13),
             ),
           ),
+          if (pending.status == _ChatPendingMediaStatus.uploading)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: fg.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
           IconButton(
             icon: Icon(Icons.close_rounded, size: 20, color: fg.withValues(alpha: 0.6)),
-            onPressed: _clearPendingMedia,
+            onPressed: _sending ? null : _clearPendingMedia,
             tooltip: '移除',
           ),
         ],
@@ -461,6 +552,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
               avatarUrl: peerAvatarThumbnailUrl,
               primary: primary,
               fg: fg,
+              onTap: () => _openProfile(conv.peerId),
             ),
             leading: IconButton(
               icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: fg.withValues(alpha: 0.75)),
@@ -480,72 +572,72 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
                   ],
           ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildPendingMediaBar(fg),
-                Expanded(
-                  child: AnimatedBuilder(
-                    animation: keyboardInputBridgeController,
-                    builder: (context, child) {
-                      // Re-measure when dock keyboard inset / emoji panel changes.
-                      readRawViewInsetBottom(context);
-                      return child!;
-                    },
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        _onListViewportHeight(constraints.maxHeight);
-                        if (_loading) {
-                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                        }
-                        if (_messages.isEmpty) {
-                          return const UcgEmptyState(
-                            icon: Icons.waving_hand_rounded,
-                            title: '打个招呼吧',
-                            subtitle: '发送第一条消息，开启温馨对话',
-                          );
-                        }
-                        return ListView.builder(
-                          controller: _scrollController,
-                          reverse: true,
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                          itemCount: _messages.length,
-                          itemBuilder: (_, i) {
-                            final m = _messages[_messages.length - 1 - i];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment:
-                                    m.isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
-                                children: [
-                                  if (!m.isMine) ...[
-                                    _ChatAvatar(url: peerAvatarThumbnailUrl, primary: primary),
-                                    const SizedBox(width: 8),
-                                  ],
-                                  _ChatBubble(message: m, primary: primary, fg: fg),
-                                  if (m.isMine) ...[
-                                    const SizedBox(width: 8),
-                                    _ChatAvatar(url: myAvatarThumbnailUrl, primary: primary),
-                                  ],
-                                ],
+            child: AnimatedBuilder(
+              animation: keyboardInputBridgeController,
+              builder: (context, child) {
+                readRawViewInsetBottom(context);
+                return child!;
+              },
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  _onListViewportHeight(constraints.maxHeight);
+                  if (_loading) {
+                    return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                  }
+                  if (_messages.isEmpty) {
+                    return const UcgEmptyState(
+                      icon: Icons.waving_hand_rounded,
+                      title: '打个招呼吧',
+                      subtitle: '发送第一条消息，开启温馨对话',
+                    );
+                  }
+                  return ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                    itemCount: _messages.length,
+                    itemBuilder: (_, i) {
+                      final m = _messages[_messages.length - 1 - i];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment:
+                              m.isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          children: [
+                            if (!m.isMine) ...[
+                              _ChatAvatar(
+                                url: peerAvatarThumbnailUrl,
+                                primary: primary,
+                                onTap: () => _openProfile(conv.peerId),
                               ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ],
+                              const SizedBox(width: 8),
+                            ],
+                            _ChatBubble(message: m, primary: primary, fg: fg),
+                            if (m.isMine) ...[
+                              const SizedBox(width: 8),
+                              _ChatAvatar(
+                                url: myAvatarThumbnailUrl,
+                                primary: primary,
+                                onTap: myId != null ? () => _openProfile(myId) : null,
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
           ),
+          _buildPendingMediaBar(fg),
           UcgInputDock(
             controller: _controller,
-            hintText: _uploadingMedia ? '正在处理媒体…' : '发消息…',
+            hintText: '发消息…',
             onSend: _send,
             onAttach: _showAttachMenu,
-            busy: _uploadingMedia,
+            busy: _sending,
           ),
         ],
       ),
@@ -619,12 +711,14 @@ class _ChatPeerHeaderTitle extends StatelessWidget {
     required this.avatarUrl,
     required this.primary,
     required this.fg,
+    this.onTap,
   });
 
   final String nickname;
   final String? avatarUrl;
   final Color primary;
   final Color fg;
+  final VoidCallback? onTap;
 
   static const _avatarRadius = 16.0;
 
@@ -638,7 +732,7 @@ class _ChatPeerHeaderTitle extends StatelessWidget {
             ) ??
         TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 17, height: 1.2);
 
-    return Row(
+    final row = Row(
       children: [
         const SizedBox(width: 4),
         UcgAvatar(
@@ -658,24 +752,34 @@ class _ChatPeerHeaderTitle extends StatelessWidget {
         ),
       ],
     );
+
+    if (onTap == null) return row;
+    return GestureDetector(onTap: onTap, behavior: HitTestBehavior.opaque, child: row);
   }
 }
 
 class _ChatAvatar extends StatelessWidget {
-  const _ChatAvatar({required this.url, required this.primary});
+  const _ChatAvatar({
+    required this.url,
+    required this.primary,
+    this.onTap,
+  });
 
   final String? url;
   final Color primary;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return UcgAvatar(
+    final avatar = UcgAvatar(
       radius: 18,
       url: url,
       backgroundColor: primary.withValues(alpha: 0.1),
       foregroundColor: primary,
       placeholderIconSize: 20,
     );
+    if (onTap == null) return avatar;
+    return GestureDetector(onTap: onTap, child: avatar);
   }
 }
 
@@ -690,9 +794,81 @@ class _ChatBubble extends StatelessWidget {
   final Color primary;
   final Color fg;
 
+  bool _hasMedia(UcgChatMessage m) =>
+      (m.hasImage && m.imageUrl != null) || (m.hasVideo && m.videoUrl != null);
+
+  bool _isPureMedia(UcgChatMessage m) => m.text.trim().isEmpty && _hasMedia(m);
+
+  Widget _mediaSection(UcgChatMessage m) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (m.hasImage && m.imageUrl != null)
+          _MediaImage(previewUrl: m.imageThumbnailUrl ?? m.imageUrl!, fullUrl: m.imageUrl!),
+        if (m.hasVideo && m.videoUrl != null) _MediaVideo(url: m.videoUrl!),
+      ],
+    );
+  }
+
+  Widget _textBubble(BuildContext context, UcgChatMessage m, {EdgeInsets? padding}) {
+    final bubblePadding = padding ?? const EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+    final text = Text(
+      m.text,
+      style: TextStyle(
+        color: m.isMine ? UcgTheme.onPrimary(context) : fg,
+        height: 1.35,
+        fontSize: 15,
+      ),
+    );
+
+    if (m.isMine) {
+      return ClipRRect(
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
+          bottomLeft: Radius.circular(18),
+          bottomRight: Radius.circular(6),
+        ),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  primary.withValues(alpha: 0.88),
+                  Color.lerp(primary, UcgTheme.surface(context), 0.12)!.withValues(alpha: 0.92),
+                ],
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(18),
+                topRight: Radius.circular(18),
+                bottomLeft: Radius.circular(18),
+                bottomRight: Radius.circular(6),
+              ),
+              boxShadow: [
+                BoxShadow(color: primary.withValues(alpha: 0.22), blurRadius: 12, offset: const Offset(0, 4)),
+              ],
+            ),
+            child: Padding(padding: bubblePadding, child: text),
+          ),
+        ),
+      );
+    }
+
+    return UcgSurfaceCard(
+      padding: bubblePadding,
+      borderRadius: 18,
+      child: text,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = message;
+    final maxWidth = MediaQuery.sizeOf(context).width * 0.72;
     final statusIcon = switch (m.status) {
       UcgChatMessageStatus.pending => Icons.schedule_rounded,
       UcgChatMessageStatus.failed => Icons.error_outline_rounded,
@@ -702,82 +878,66 @@ class _ChatBubble extends StatelessWidget {
         ? Theme.of(context).colorScheme.error
         : primary.withValues(alpha: 0.65);
 
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (m.hasImage && m.imageUrl != null)
-          _MediaImage(previewUrl: m.imageThumbnailUrl ?? m.imageUrl!, fullUrl: m.imageUrl!),
-        if (m.hasVideo && m.videoUrl != null) _MediaVideo(url: m.videoUrl!),
-        if (m.text.isNotEmpty)
-          Text(
-            m.text,
-            style: TextStyle(
-              color: m.isMine ? UcgTheme.onPrimary(context) : fg,
-              height: 1.35,
-              fontSize: 15,
-            ),
-          ),
-      ],
-    );
+    if (_isPureMedia(m)) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Flexible(child: _mediaSection(m)),
+            if (m.isMine) ...[
+              const SizedBox(width: 6),
+              Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
+            ],
+          ],
+        ),
+      );
+    }
+
+    if (_hasMedia(m) && m.text.trim().isNotEmpty) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Column(
+          crossAxisAlignment: m.isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _mediaSection(m),
+            const SizedBox(height: 4),
+            m.isMine
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Flexible(child: _textBubble(context, m)),
+                      const SizedBox(width: 6),
+                      Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
+                    ],
+                  )
+                : _textBubble(context, m),
+          ],
+        ),
+      );
+    }
 
     if (m.isMine) {
       return ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(18),
-            topRight: Radius.circular(18),
-            bottomLeft: Radius.circular(18),
-            bottomRight: Radius.circular(6),
-          ),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    primary.withValues(alpha: 0.88),
-                    Color.lerp(primary, UcgTheme.surface(context), 0.12)!.withValues(alpha: 0.92),
-                  ],
-                ),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(18),
-                  topRight: Radius.circular(18),
-                  bottomLeft: Radius.circular(18),
-                  bottomRight: Radius.circular(6),
-                ),
-                boxShadow: [
-                  BoxShadow(color: primary.withValues(alpha: 0.22), blurRadius: 12, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Flexible(child: content),
-                    const SizedBox(width: 6),
-                    Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Flexible(child: _textBubble(context, m)),
+            const SizedBox(width: 6),
+            Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
+          ],
         ),
       );
     }
 
     return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
-      child: UcgSurfaceCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        borderRadius: 18,
-        child: content,
-      ),
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: _textBubble(context, m),
     );
   }
 }

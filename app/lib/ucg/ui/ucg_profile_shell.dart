@@ -76,8 +76,8 @@ class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
     required bool hasViewerActions,
     required bool hasBio,
   }) {
-    if (showOwnerActions) return 268.0;
-    if (!hasViewerActions) return 248.0;
+    if (showOwnerActions) return 248.0;
+    if (!hasViewerActions) return 228.0;
     final cardHeight = _kProfileCardPadding +
         _kProfileCardRowHeight +
         (hasBio ? _kProfileCardBioBlock : 0) +
@@ -94,7 +94,7 @@ class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
     final profile = widget.profile;
     final leading = widget.leading;
     final showOwnerActions = widget.showOwnerActions;
-    final flexibleTopPad = leading != null ? 48.0 : 8.0;
+    final flexibleTopPad = leading != null ? 32.0 : 4.0;
     final hasViewerActions = !showOwnerActions && widget.onFollow != null;
     final hasBio = profile.bio.trim().isNotEmpty;
     final headerExpandedHeight = _headerExpandedHeight(

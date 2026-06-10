@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -141,6 +142,67 @@ Future<UcgUploadResult?> ucgPickAndUploadVideo({
     fileName: name,
     contentType: ucgContentTypeForFileName(name),
     isVideo: true,
+  );
+}
+
+/// 聊天本地选图/选视频结果（不上传）。
+class UcgChatLocalPick {
+  const UcgChatLocalPick({
+    required this.localPath,
+    required this.isVideo,
+    this.localBytes,
+  });
+
+  final String localPath;
+  final bool isVideo;
+  final Uint8List? localBytes;
+}
+
+/// 聊天附件：仅选择本地文件，不上传 OSS。
+Future<UcgChatLocalPick?> ucgPickChatMediaLocal({required bool isVideo}) async {
+  if (isVideo) {
+    final file = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: UcgMediaLimits.videoMaxDuration,
+    );
+    if (file == null) return null;
+    return UcgChatLocalPick(localPath: file.path, isVideo: true);
+  }
+  final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+  if (picked == null) return null;
+  final bytes = await picked.readAsBytes();
+  return UcgChatLocalPick(localPath: picked.path, isVideo: false, localBytes: bytes);
+}
+
+/// 上传聊天已选本地媒体。
+Future<UcgUploadResult> ucgUploadChatLocalMedia({
+  required UcgRepository repo,
+  required String localPath,
+  required bool isVideo,
+  Uint8List? localBytes,
+}) async {
+  final Uint8List bytes;
+  if (localBytes != null && localBytes.isNotEmpty) {
+    bytes = localBytes;
+  } else if (kIsWeb) {
+    throw StateError('web local bytes missing');
+  } else {
+    final file = File(localPath);
+    if (!await file.exists()) {
+      throw StateError('local file missing');
+    }
+    bytes = await file.readAsBytes();
+  }
+  final name = ucgFallbackFileName(isVideo: isVideo, path: localPath);
+  final prepared = isVideo
+      ? await ucgPrepareVideoBytes(bytes: bytes, sourcePath: localPath)
+      : bytes;
+  return ucgUploadBytes(
+    repo: repo,
+    bytes: Uint8List.fromList(prepared),
+    fileName: name,
+    contentType: ucgContentTypeForFileName(name),
+    isVideo: isVideo,
   );
 }
 

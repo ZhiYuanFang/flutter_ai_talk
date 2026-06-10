@@ -117,6 +117,17 @@ class UcgComposeMediaPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final path = localPath;
+    if (isVideo && path != null && path.isNotEmpty) {
+      return UcgComposeLocalPreview(
+        localPath: path,
+        localBytes: localBytes,
+        width: width,
+        height: height,
+        fit: fit,
+        isVideo: true,
+      );
+    }
     if (objectKey != null && objectKey!.isNotEmpty) {
       return UcgNetworkImage(
         url: UcgMediaUrl.resolveUrl(objectKey: objectKey!, cdnUrl: cdnUrl),

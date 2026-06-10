@@ -656,6 +656,25 @@ class KeyboardInputBridgeController extends ChangeNotifier {
     detach(controller: controller, force: true);
   }
 
+  /// 收起 emoji 面板或键盘，保留 binding 与 controller 草稿（页面内 composer）。
+  void collapseInputChrome({TextEditingController? controller}) {
+    final binding = _binding;
+    if (binding == null) return;
+    if (controller != null && binding.controller != controller) return;
+
+    if (_target == InputTarget.emoji) {
+      _target = InputTarget.keyboard;
+      _releaseInputFocus(binding);
+      notifyListeners();
+      return;
+    }
+
+    if (binding.focusNode.hasFocus) {
+      _releaseInputFocus(binding);
+      notifyListeners();
+    }
+  }
+
   void confirm() {
     final binding = _binding;
     if (binding == null) return;
