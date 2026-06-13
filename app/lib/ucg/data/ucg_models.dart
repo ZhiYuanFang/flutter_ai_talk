@@ -499,6 +499,19 @@ class UcgPagedCommentNotifications {
   bool get hasMore => page * pageSize < total;
 }
 
+/// 帖子评论全量列表（服务端单次 GET，非分页）。
+class UcgCommentsList {
+  const UcgCommentsList({
+    required this.items,
+    required this.total,
+    this.truncated = false,
+  });
+
+  final List<UcgComment> items;
+  final int total;
+  final bool truncated;
+}
+
 class UcgComment {
   const UcgComment({
     required this.id,

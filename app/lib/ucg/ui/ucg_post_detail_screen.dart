@@ -38,6 +38,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   UcgPost? _post;
   List<UcgLiker> _likers = const [];
   List<UcgComment> _comments = const [];
+  var _commentsTruncated = false;
   var _authorFollowing = false;
   var _loading = true;
   String? _error;
@@ -63,17 +64,19 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   }
 
   Future<void> _applyCommentsAfterSend(UcgComment added) async {
-    final comments = await ref.read(ucgRepositoryProvider).fetchComments(widget.postId);
     if (!mounted) return;
     setState(() {
-      _comments = comments;
+      final alreadyListed = added.id.isNotEmpty && _comments.any((c) => c.id == added.id);
+      if (!alreadyListed) {
+        _comments = [..._comments, added];
+      }
       final post = _post;
       if (post != null) {
-        _post = post.copyWith(commentCount: comments.length);
+        _post = post.copyWith(commentCount: post.commentCount + 1);
       }
       _pendingScrollToCommentId = added.id.isNotEmpty
           ? added.id
-          : (comments.isNotEmpty ? comments.last.id : null);
+          : (_comments.isNotEmpty ? _comments.last.id : null);
     });
     _scheduleScrollToPendingComment();
   }
@@ -256,7 +259,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
       final repo = ref.read(ucgRepositoryProvider);
       final post = await repo.fetchPost(widget.postId);
       final likers = await repo.fetchPostLikes(widget.postId);
-      final comments = await repo.fetchComments(widget.postId);
+      final commentsResult = await repo.fetchComments(widget.postId);
       var following = false;
       final selfId = ref.read(ucgCurrentUserIdProvider);
       if (selfId != null &&
@@ -270,7 +273,8 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
       setState(() {
         _post = post;
         _likers = likers;
-        _comments = comments;
+        _comments = commentsResult.items;
+        _commentsTruncated = commentsResult.truncated;
         _authorFollowing = following;
         _loading = false;
       });
@@ -669,6 +673,16 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                             ),
                               ),
                             ),
+                        ],
+                        if (_commentsTruncated) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '仅显示前 500 条评论',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: fg.withValues(alpha: 0.45),
+                            ),
+                          ),
                         ],
                       ],
                     ),

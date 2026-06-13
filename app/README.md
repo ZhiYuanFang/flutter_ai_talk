@@ -280,11 +280,13 @@ flutter run -d chrome --dart-define=MOCK_NEWER_VERSION=true --web-browser-flag "
 | `REFRESH_TOKEN_PATH` | 静默刷新 access token 的 POST path（相对 [apiBaseUrl]）；请求体字段 **`refreshToken`**；设为空字符串可关闭 |
 | `IOS_APP_STORE_ID` | App Store 数字 ID（占位） |
 | `MOCK_NEWER_VERSION` | `true` 时强制出现「发现新版本」提示（联调 UI） |
+| `FORCE_IPV4` | `true` 时 Android/iOS 原生端 HTTP/WebSocket 仅走 IPv4（部分双栈网络连通性止血）；默认 `false` |
 
 示例：
 
 ```bash
 flutter run --dart-define=MOCK_NEWER_VERSION=true --dart-define=PRIVACY_POLICY_URL=https://example.com/privacy
+flutter run -d android --dart-define=FORCE_IPV4=true
 ```
 
 ### 登录（微信 + 账号密码）

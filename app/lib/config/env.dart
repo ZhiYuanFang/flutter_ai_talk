@@ -150,4 +150,10 @@ abstract final class AppEnv {
     'MOCK_NEWER_VERSION',
     defaultValue: false,
   );
+
+  /// 为 `true` 时原生端 HTTP/WebSocket 仅使用 IPv4（`HttpOverrides`）；默认双栈。
+  static const forceIpv4 = bool.fromEnvironment(
+    'FORCE_IPV4',
+    defaultValue: true,
+  );
 }

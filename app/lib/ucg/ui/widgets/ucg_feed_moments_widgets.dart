@@ -666,10 +666,10 @@ class _UcgMomentsEngagementBlockState extends ConsumerState<UcgMomentsEngagement
       if (force) _commentsLoaded = false;
     });
     try {
-      final list = await ref.read(ucgRepositoryProvider).fetchComments(widget.post.id);
+      final result = await ref.read(ucgRepositoryProvider).fetchComments(widget.post.id);
       if (!mounted) return;
       setState(() {
-        _comments = list;
+        _comments = result.items;
         _commentsLoaded = true;
         _loadCommentsFailed = false;
       });
