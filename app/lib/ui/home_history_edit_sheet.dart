@@ -170,6 +170,38 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
 
   bool get _pending => _record != null && isPendingHistoryId(_record!.id);
 
+  /// `eventNumber == 0`：改开始日期时若日历日晚于结束，仅同步结束日期（保留结束时/分）。
+  void _onStartDateChanged(DateTime v) {
+    setState(() {
+      _startEdit = v;
+      final end = _endEdit;
+      if (end != null) {
+        final startDay = homeHistoryDateOnly(v);
+        final endDay = homeHistoryDateOnly(end);
+        if (startDay.isAfter(endDay)) {
+          _endEdit = DateTime(
+            startDay.year,
+            startDay.month,
+            startDay.day,
+            end.hour,
+            end.minute,
+          );
+        }
+      }
+    });
+  }
+
+  /// `eventNumber == 0`：改开始时分后若整体晚于结束，将结束同步为开始时刻。
+  void _onStartTimeChanged(DateTime v) {
+    setState(() {
+      _startEdit = v;
+      final end = _endEdit;
+      if (end != null && v.isAfter(end)) {
+        _endEdit = v;
+      }
+    });
+  }
+
   String _displayEventName(HistoryRecord r) {
     final e = r.eventName.trim();
     return e.isEmpty ? '未知事件' : e;
@@ -478,6 +510,13 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
 
     final startAnchor = parseHistoryInstant(p['startTime']) ?? r.createdAt;
     final endAnchor = _endEdit ?? parseHistoryInstant(p['endTime']) ?? startAnchor;
+    final now = DateTime.now();
+    final pickerMaxDate = homeHistoryDateOnly(now);
+    final babyAsync = ref.watch(settingsBabyProvider);
+    final pickerMinDate = babyAsync.maybeWhen(
+      data: (baby) => homeHistoryDateOnly(baby.birthDate),
+      orElse: () => DateTime(2000, 1, 1),
+    );
 
     return PopScope(
       canPop: false,
@@ -525,21 +564,24 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                     ),
                     const SizedBox(height: 20),
                     if (n == 0) ...[
-                      HomeHistoryTimeField(
+                      HomeHistoryDateTimeRow(
                         label: '开始时间',
+                        minimumDate: pickerMinDate,
+                        maximumDate: pickerMaxDate,
                         anchorDate: startAnchor,
                         value: _startEdit,
                         enabled: !readOnly,
-                        glassStyle: true,
-                        onChanged: (v) => setState(() => _startEdit = v),
+                        onDateChanged: _onStartDateChanged,
+                        onTimeChanged: _onStartTimeChanged,
                       ),
                       const SizedBox(height: 14),
-                      HomeHistoryTimeField(
+                      HomeHistoryDateTimeRow(
                         label: '结束时间',
+                        minimumDate: pickerMinDate,
+                        maximumDate: pickerMaxDate,
                         anchorDate: endAnchor,
                         value: _endEdit,
                         enabled: !readOnly,
-                        glassStyle: true,
                         onChanged: (v) => setState(() => _endEdit = v),
                       ),
                       if (!readOnly && _endEdit != null)
@@ -555,12 +597,13 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                           ),
                         ),
                     ] else ...[
-                      HomeHistoryTimeField(
+                      HomeHistoryDateTimeRow(
                         label: '结束时间',
+                        minimumDate: pickerMinDate,
+                        maximumDate: pickerMaxDate,
                         anchorDate: endAnchor,
                         value: _endEdit,
                         enabled: !readOnly,
-                        glassStyle: true,
                         onChanged: (v) => setState(() => _endEdit = v),
                       ),
                     ],

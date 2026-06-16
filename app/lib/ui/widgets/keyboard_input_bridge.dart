@@ -88,6 +88,7 @@ KeyboardOverlayConfig resolveOverlayConfig(String scene) {
       return const KeyboardOverlayConfig(showEmoji: true);
     case 'ucg.post.comment':
     case 'home.text':
+    case 'pangbao.text':
     case 'ucg.profile.nickname':
     case 'ucg.profile.bio':
       return KeyboardOverlayConfig.none;

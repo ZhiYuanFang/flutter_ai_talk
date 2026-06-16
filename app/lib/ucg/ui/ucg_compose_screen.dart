@@ -341,7 +341,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
           );
       if (!mounted) return;
       _text.text = polished;
-      ref.invalidate(aiQuotaStatusProvider);
+      ref.invalidate(polishAiQuotaProvider);
       _toast('已润笔，可继续编辑');
     } on ApiBusinessException catch (e) {
       if (!mounted) return;

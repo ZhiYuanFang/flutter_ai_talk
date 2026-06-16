@@ -941,7 +941,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     try {
       final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
       if (!mounted) return;
-      ref.invalidate(aiQuotaStatusProvider);
+      ref.invalidate(voiceAiQuotaProvider);
       _applyChatReply(reply);
     } on ApiBusinessException catch (e) {
       if (!mounted) return;
@@ -1125,7 +1125,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
       _webController.clear();
       if (!mounted) return;
-      ref.invalidate(aiQuotaStatusProvider);
+      ref.invalidate(voiceAiQuotaProvider);
       _applyChatReply(reply);
     } on ApiBusinessException catch (e) {
       if (!mounted) return;
@@ -1276,6 +1276,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     HomeImmersiveHeader(
                       title: '胖宝',
                       onTrendsTap: () => context.push('/trends'),
+                      onPangbaoTap: () => context.push('/pangbao'),
                       onSettingsTap: () => context.push('/settings'),
                     ),
                     const SizedBox(height: _kImmersiveHeaderContentSpacing),

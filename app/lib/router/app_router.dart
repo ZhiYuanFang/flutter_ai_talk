@@ -16,6 +16,7 @@ import '../ui/feedback_list_screen.dart';
 import '../ui/settings_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
+import '../ui/pangbao_ai_screen.dart';
 
 /// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
 /// 若此处 watch 会在 Splash 等异步流程中途销毁整个路由树，导致白屏与
@@ -45,6 +46,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           loc == '/policy' ||
           loc == '/home' ||
           loc == '/trends' ||
+          loc == '/pangbao' ||
           loc == '/settings';
       if (guestAllowed) {
         if (session.isLoggedIn && (loggingIn || registering)) return '/home';
@@ -80,6 +82,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/trends',
         builder: (context, state) => const TrendsScreen(),
+      ),
+      GoRoute(
+        path: '/pangbao',
+        builder: (context, state) => const PangbaoAiScreen(),
       ),
       GoRoute(
         path: '/settings',

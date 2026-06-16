@@ -85,6 +85,33 @@ abstract final class AppEnv {
     ).toString();
   }
 
+  /// 胖宝诊疗 WebSocket **完整 URL**；为空时由 [wsClinicUrlEffective] 根据 [apiBaseUrl] 推导 `/voice/clinic/ws`。
+  static const wsClinicUrl = String.fromEnvironment(
+    'WS_CLINIC_URL',
+    defaultValue: '',
+  );
+
+  /// 与网关约定一致：未配置时由 HTTP 基址推导 `ws(s)://host[:port]/voice/clinic/ws`（MUST NOT 指向 voice-service 内网）。
+  static String get wsClinicUrlEffective {
+    if (wsClinicUrl.isNotEmpty) return wsClinicUrl;
+    final u = Uri.parse(apiBaseUrl);
+    if (!u.hasScheme || u.host.isEmpty) return '';
+    final scheme = u.scheme == 'https' ? 'wss' : 'ws';
+    var p = u.path;
+    if (p == '/') {
+      p = '';
+    } else if (p.endsWith('/')) {
+      p = p.substring(0, p.length - 1);
+    }
+    final path = (p.isEmpty ? '/voice/clinic/ws' : '$p/voice/clinic/ws').replaceAll('//', '/');
+    return Uri(
+      scheme: scheme,
+      host: u.host,
+      port: u.hasPort ? u.port : null,
+      path: path.startsWith('/') ? path : '/$path',
+    ).toString();
+  }
+
   /// UCG 聊天 WebSocket **完整 URL**；为空时由 [wsUcgChatUrlEffective] 根据 [apiBaseUrl] 推导为 `/ucg/app/ws/chat`。
   static const wsUcgChatUrl = String.fromEnvironment(
     'WS_UCG_CHAT_URL',

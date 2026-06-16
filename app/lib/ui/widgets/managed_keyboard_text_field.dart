@@ -187,6 +187,19 @@ class ManagedKeyboardTextFieldState extends State<ManagedKeyboardTextField> {
     keyboardInputBridgeController.revealSystemKeyboardFromFieldTap();
   }
 
+  Widget _overlayEditorTapTarget(BoxConstraints constraints) {
+    if (constraints.hasBoundedWidth && constraints.hasBoundedHeight) {
+      return SizedBox(
+        width: constraints.maxWidth,
+        height: constraints.maxHeight,
+      );
+    }
+    return SizedBox(
+      width: constraints.hasBoundedWidth ? constraints.maxWidth : double.infinity,
+      height: constraints.hasBoundedHeight ? constraints.maxHeight : kMinInteractiveDimension,
+    );
+  }
+
   Widget _buildOverlayEditorAttachHost() {
     final tapTarget = Listener(
       onPointerDown: (event) {
@@ -197,7 +210,7 @@ class ManagedKeyboardTextFieldState extends State<ManagedKeyboardTextField> {
           ? const ExcludeSemantics(
               child: SizedBox(width: 1, height: 1),
             )
-          : const SizedBox.expand(),
+          : LayoutBuilder(builder: (context, constraints) => _overlayEditorTapTarget(constraints)),
     );
 
     if (widget.anchorKey != null) {
