@@ -156,6 +156,8 @@ class KeyboardInputBridgeController extends ChangeNotifier {
   bool _confirmed = false;
   /// 当前 binding 内见过的最大键盘高度，切换 emoji 时作占位，不在动画中回落。
   double _peakKeyboardInset = 0;
+  /// 上次已通过 [notifyListeners] 广播的原始键盘 inset，避免 IME 微调引发重建风暴。
+  double _lastNotifiedKeyboardInset = -1;
 
   KeyboardInputBinding? get binding => _binding;
   bool get hasBinding => _binding != null;
@@ -387,6 +389,7 @@ class KeyboardInputBridgeController extends ChangeNotifier {
     _draftText = controller.text;
     _target = InputTarget.keyboard;
     _peakKeyboardInset = 0;
+    _lastNotifiedKeyboardInset = -1;
     _confirmed = false;
     notifyListeners();
   }
@@ -472,7 +475,8 @@ class KeyboardInputBridgeController extends ChangeNotifier {
         selection: TextSelection.collapsed(offset: text.length),
       );
     }
-    notifyListeners();
+    // 页面内 TextField 已展示草稿；全局浮层编辑器亦直接绑定 controller。
+    // 勿 notifyListeners，否则 config.none（如胖宝诊疗）每次按键会重建整棵路由树。
   }
 
   /// 点输入框：切 keyboard 并弹出系统键盘。
@@ -569,16 +573,15 @@ class KeyboardInputBridgeController extends ChangeNotifier {
   }
 
   /// 窗口 inset 变化时同步峰值并刷新浮层（overlay 可能尚未读到键盘高度）。
-  void onWindowInsetsChanged() {
-    if (!hasBinding) return;
+  /// 返回 true 表示已 [notifyListeners]（inset 相对上次广播有变化）。
+  bool onWindowInsetsChanged() {
+    if (!hasBinding) return false;
     final bottom = readRawViewInsetBottom(null);
-    final prevPeak = _peakKeyboardInset;
     noteKeyboardInset(bottom);
-    if (bottom != prevPeak ||
-        bottom > 0 ||
-        bottomSurface(bottom) != BottomSurface.none) {
-      notifyListeners();
-    }
+    if ((bottom - _lastNotifiedKeyboardInset).abs() <= 0.5) return false;
+    _lastNotifiedKeyboardInset = bottom;
+    notifyListeners();
+    return true;
   }
 
   void insertAtCursor(String text) {
@@ -646,6 +649,7 @@ class KeyboardInputBridgeController extends ChangeNotifier {
     _snapshotText = '';
     _target = InputTarget.keyboard;
     _peakKeyboardInset = 0;
+    _lastNotifiedKeyboardInset = -1;
     _confirmed = false;
     notifyListeners();
   }
@@ -988,8 +992,8 @@ class _KeyboardOverlayInsetSyncState extends State<KeyboardOverlayInsetSync> wit
 
   @override
   void didChangeMetrics() {
+    // inset 变化时由 onWindowInsetsChanged → notifyListeners → _onBridgeChange 触发 setState。
     keyboardInputBridgeController.onWindowInsetsChanged();
-    if (mounted) setState(() {});
   }
 
   @override
