@@ -16,6 +16,11 @@ project = Xcodeproj::Project.open(project_path)
 runner_target = project.targets.find { |target| target.name == 'Runner' }
 abort('未找到 iOS Runner target') unless runner_target
 
+root_object = project.root_object
+root_object.development_region = 'zh-Hans'
+known_regions = root_object.known_regions
+known_regions << 'zh-Hans' unless known_regions.include?('zh-Hans')
+
 runner_target.build_configurations.each do |config|
   settings = config.build_settings
   settings['IPHONEOS_DEPLOYMENT_TARGET'] = deployment_target

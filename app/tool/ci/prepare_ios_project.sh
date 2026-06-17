@@ -119,12 +119,31 @@ info['NSCameraUsageDescription'] = usage_description(
 uses_non_exempt = os.getenv('IOS_USES_NON_EXEMPT_ENCRYPTION', 'false').strip().lower()
 info['ITSAppUsesNonExemptEncryption'] = uses_non_exempt in {'1', 'true', 'yes', 'y', 'on'}
 
+DEFAULT_BUNDLE_DISPLAY_NAME = '胖宝'
 display_name = os.getenv('IOS_APP_DISPLAY_NAME', '').strip()
+bundle_display_name = display_name or DEFAULT_BUNDLE_DISPLAY_NAME
 if display_name:
     info['CFBundleDisplayName'] = display_name
 
+# App Store「语言」标签来自 IPA bundle 本地化声明（非 ASC 商品描述语言）。
+info['CFBundleDevelopmentRegion'] = 'zh-Hans'
+info['CFBundleLocalizations'] = ['zh-Hans']
+
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
+
+lproj_dir = Path('ios/Runner/zh-Hans.lproj')
+lproj_dir.mkdir(parents=True, exist_ok=True)
+escaped_display = bundle_display_name.replace('\\', '\\\\').replace('"', '\\"')
+strings_path = lproj_dir / 'InfoPlist.strings'
+strings_path.write_text(
+    f'"CFBundleDisplayName" = "{escaped_display}";\n'
+    f'"CFBundleName" = "{escaped_display}";\n',
+    encoding='utf-8',
+)
+print(f'InfoPlist.strings zh-Hans: ok ({bundle_display_name})')
+print('Info.plist CFBundleDevelopmentRegion: zh-Hans')
+print('Info.plist CFBundleLocalizations: [zh-Hans]')
 
 for key in (
     'NSMicrophoneUsageDescription',

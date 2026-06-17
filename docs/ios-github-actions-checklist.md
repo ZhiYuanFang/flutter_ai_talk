@@ -538,6 +538,14 @@ GitHub Actions 只能帮你：
 - **GitHub Actions = 打包 + 上传**
 - **App Store Connect 网页 = 提审 + 上架**
 
+### 提审前必检：App Store 商品页语言为中文
+
+- [ ] 已使用含 `zh-Hans` 本地化声明的新 build（由 `prepare_ios_project.sh` 注入，见 `ios-app-bundle-localization` 能力）
+- [ ] App Store Connect 中该 build 的 **Included Localizations** 含 **Chinese (Simplified)**
+- [ ] build 处理完成后，[App Store 商品页](https://apps.apple.com/cn/app/%E8%83%96%E5%AE%9D/id6774418472)「信息 → 语言」为 **中文**（非仅「英语」）
+
+说明：商品页「语言」来自 IPA bundle，不是 ASC 描述文案语言；须上传新 build 后才会更新。
+
 ---
 
 ## 十二、你当前最小可行执行方案

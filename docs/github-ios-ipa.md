@@ -463,6 +463,14 @@ PowerShell：
 - **GitHub Actions 负责“打包 + 上传到 App Store Connect”**
 - **你在网页里负责“填写元数据 + 提交审核 + 正式发布”**
 
+### App Store 商品页「语言」字段
+
+App Store 商品页「信息 → 语言」（例如显示「英语」或「中文」）来自 **IPA 二进制** 所声明的 iOS 本地化（`CFBundleLocalizations`、`zh-Hans.lproj` 等），**不是** App Store Connect 里商品描述的语言。
+
+CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修改后须 **重新上传新 build** 并等待 App Store Connect 处理完成，商品页语言标签才会更新；仅改 ASC 文案无法单独修复该字段。
+
+上传后在 ASC 打开对应 build，确认 **Included Localizations** 含 **Chinese (Simplified)**，再核对 [App Store 商品页](https://apps.apple.com/cn/app/%E8%83%96%E5%AE%9D/id6774418472) 的「语言」是否为中文。
+
 ## 常见问题
 
 ### 1. 证书应该提供到哪里？
