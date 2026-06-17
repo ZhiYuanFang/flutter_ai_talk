@@ -78,7 +78,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       final ok = await showGlassConfirmDialog(
             context,
             title: '使用胖宝诊疗前请知悉',
-            message: '您的问题及近 7 天喂养聚合摘要将发送至 DeepSeek；回答过程可能展示 AI 思考过程。',
+            message: '您的问题及近 7 天喂养聚合摘要将发送至 AI 诊疗；回答过程可能展示 AI 思考过程。',
             confirmLabel: '同意并继续',
           ) ??
           false;
