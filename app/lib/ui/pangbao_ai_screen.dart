@@ -16,7 +16,7 @@ import '../ucg/ui/widgets/ucg_visual_widgets.dart';
 import '../ui/widgets/app_glass_overlay.dart';
 import '../ui/widgets/clinic_answer_body.dart';
 import 'home_history_scroll_to_bottom_button.dart';
-import '../ui/widgets/managed_keyboard_text_field.dart';
+import '../ui/widgets/keyboard_dismiss_scope.dart';
 import '../voice/clinic_ws_client.dart';
 
 /// 胖宝诊疗：文本问答 + 流式 thinking/answer + 免责声明；支持流式中断/改问。
@@ -51,6 +51,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
 
   final _items = <_ChatItem>[];
   final _input = TextEditingController();
+  final _inputFocusNode = FocusNode();
   final _scroll = ScrollController();
   ClinicWsClient? _client;
   StreamSubscription<Map<String, dynamic>>? _frameSub;
@@ -325,6 +326,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     _frameSub?.cancel();
     _client?.dispose();
     _input.dispose();
+    _inputFocusNode.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -400,17 +402,17 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
             child: Row(
               children: [
                 Expanded(
-                  child: ManagedKeyboardTextField(
-                    controller: _input,
-                    hint: _consented ? '问问胖宝诊疗…' : '请先同意告知',
-                    scene: 'pangbao.text',
-                    enabled: _consented,
-                    textInputAction: TextInputAction.send,
-                    onConfirm: _send,
-                    onSubmitted: (_) => _send(),
-                    decoration: ucgComposerFieldDecoration(
-                      context,
-                      hint: _consented ? '问问胖宝诊疗…' : '请先同意告知',
+                  child: KeyboardDismissExclude(
+                    child: TextField(
+                      controller: _input,
+                      focusNode: _inputFocusNode,
+                      enabled: _consented,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: _consented ? (_) => unawaited(_send()) : null,
+                      decoration: ucgComposerFieldDecoration(
+                        context,
+                        hint: _consented ? '问问胖宝诊疗…' : '请先同意告知',
+                      ),
                     ),
                   ),
                 ),
