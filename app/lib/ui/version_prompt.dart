@@ -75,7 +75,7 @@ Future<void> maybeShowVersionPrompt({
               if (defaultTargetPlatform == TargetPlatform.iOS)
                 FilledButton(
                   onPressed: () async {
-                    final uri = Uri.parse('https://apps.apple.com/app/id${AppEnv.iosAppStoreId}');
+                    final uri = Uri.parse('https://apps.apple.com/cn/app/id${AppEnv.iosAppStoreId}');
                     if (await canLaunchUrl(uri)) {
                       await launchUrl(uri, mode: LaunchMode.externalApplication);
                     }

@@ -169,7 +169,7 @@ abstract final class AppEnv {
   /// iOS App Store 数字 ID（占位）；真上架后替换。
   static const iosAppStoreId = String.fromEnvironment(
     'IOS_APP_STORE_ID',
-    defaultValue: '0000000000',
+    defaultValue: '6774418472',
   );
 
   /// 为 `true` 时跳过版本接口、强制出现「发现新版本」（仅联调 UI）。
