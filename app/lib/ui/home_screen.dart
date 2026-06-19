@@ -161,6 +161,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _recordingDiagnosticsNotifier =
         ValueNotifier(const RecordingDiagnosticsSnapshot());
     if (ref.read(sessionProvider).isLoggedIn) {
+      ref.read(ucgRepositoryProvider);
       unawaited(ref.read(deviceNoNotifierProvider.notifier).refresh());
       unawaited(ref.read(signInChannelProvider.notifier).restoreFromPrefs());
     }
@@ -857,6 +858,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (state == AppLifecycleState.resumed) {
       ref.read(feedRepositoryProvider).onAppLifecycleResumed();
       ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
+      unawaited(ref.read(ucgUnreadSyncProvider)());
     }
   }
 
@@ -1180,6 +1182,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
+    // 登录后停留喂养页即初始化 UCG repo 与未读同步，无需先进入广场。
+    ref.watch(ucgRepositoryProvider);
+
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
       if (!loggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {

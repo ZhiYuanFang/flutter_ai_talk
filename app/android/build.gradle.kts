@@ -5,6 +5,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://developer.huawei.com/repo/") }
     }
     configurations.configureEach {
         resolutionStrategy {
@@ -28,9 +29,25 @@ rootProject.layout.buildDirectory.set(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.set(newSubprojectBuildDir)
+    plugins.withId("com.android.library") {
+        extensions.configure<BaseExtension>("android") {
+            if (namespace.isNullOrBlank()) {
+                val manifestFile = project.file("src/main/AndroidManifest.xml")
+                if (manifestFile.exists()) {
+                    val pkg = Regex("""package="([^"]+)"""")
+                        .find(manifestFile.readText())
+                        ?.groupValues
+                        ?.get(1)
+                    if (!pkg.isNullOrBlank()) {
+                        namespace = pkg
+                    }
+                }
+            }
+            ndkVersion = "29.0.14206865"
+        }
+    }
     afterEvaluate {
-        extensions.findByType(BaseExtension::class.java)?.ndkVersion =
-            "29.0.14206865"
+        extensions.findByType(BaseExtension::class.java)?.ndkVersion = "29.0.14206865"
     }
 }
 

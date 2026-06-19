@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/authorized_api_client_provider.dart';
@@ -10,6 +12,62 @@ import '../data/ucg_api_client.dart';
 import '../data/ucg_compose_draft_store.dart';
 import '../data/ucg_models.dart';
 import '../data/ucg_repository.dart';
+import '../push/ucg_push_registration_service.dart';
+
+final ucgPushRegistrationServiceProvider = Provider<UcgPushRegistrationService>((ref) {
+  final service = UcgPushRegistrationService(api: ref.watch(ucgApiClientProvider));
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// HTTP 校准未读（会话 + 互动 OR），与 resume / WS 事件共用。
+Future<void> syncUcgUnreadFromServer(Ref ref) async {
+  if (!ref.read(sessionProvider).isLoggedIn) return;
+  if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+  try {
+    final ok = await ref.read(sessionProvider).ensureFreshSession();
+    if (!ok) return;
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+    final repo = ref.read(ucgRepositoryProvider);
+    final notifPage = await repo.fetchCommentNotifications(page: 1);
+    final convPage = await repo.fetchConversations(page: 1);
+    final chatUnread = convPage.items.fold<int>(0, (s, c) => s + c.unreadCount);
+    ref.read(ucgUnreadCountProvider.notifier).state = chatUnread + notifPage.unreadCount;
+  } catch (_) {}
+}
+
+Future<void> syncUcgLauncherBadgeFromUnread(Ref ref) async {
+  if (kIsWeb) return;
+  final count = ref.read(ucgUnreadCountProvider);
+  try {
+    if (count <= 0) {
+      await FlutterAppBadger.removeBadge();
+    } else {
+      await FlutterAppBadger.updateBadgeCount(count);
+    }
+  } catch (_) {}
+}
+
+Future<void> _syncUcgPushRegistration(Ref ref) async {
+  if (kIsWeb) return;
+  final session = ref.read(sessionProvider);
+  final wxId = ref.read(ucgCurrentUserIdProvider);
+  final push = ref.read(ucgPushRegistrationServiceProvider);
+  if (!session.isLoggedIn || !isUcgWxAccountBound(wxId)) {
+    await push.unregister();
+    return;
+  }
+  await push.registerIfEligible(isLoggedIn: true, wxBound: true);
+}
+
+/// Resume / 前台恢复时 HTTP 校准未读并同步启动器角标。
+final ucgUnreadSyncProvider = Provider<Future<void> Function()>((ref) {
+  return () async {
+    await syncUcgUnreadFromServer(ref);
+    await syncUcgLauncherBadgeFromUnread(ref);
+  };
+});
 
 final ucgApiClientProvider = Provider<UcgApiClient>((ref) {
   return UcgApiClient(ref.watch(authorizedApiClientProvider));
@@ -53,31 +111,40 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
   }
 
   Future<void> syncUnreadFromWs() async {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
-    if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
-    try {
-      final notifPage = await repo.fetchCommentNotifications(page: 1);
-      final convPage = await repo.fetchConversations(page: 1);
-      final chatUnread = convPage.items.fold<int>(0, (s, c) => s + c.unreadCount);
-      ref.read(ucgUnreadCountProvider.notifier).state =
-          chatUnread + notifPage.unreadCount;
-    } catch (_) {}
+    await syncUcgUnreadFromServer(ref);
+    await syncUcgLauncherBadgeFromUnread(ref);
   }
+
+  ref.listen<int>(ucgUnreadCountProvider, (_, __) {
+    unawaited(syncUcgLauncherBadgeFromUnread(ref));
+  });
+
+  final push = ref.read(ucgPushRegistrationServiceProvider);
+  unawaited(push.bindTokenRefreshListener(() => _syncUcgPushRegistration(ref)));
 
   ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
     syncUcgWsDesired();
     if (loggedIn) {
       unawaited(syncUnreadFromWs());
+      unawaited(_syncUcgPushRegistration(ref));
     } else {
       ref.read(ucgUnreadCountProvider.notifier).state = 0;
+      unawaited(push.unregister());
     }
   });
   ref.listen<String?>(ucgCurrentUserIdProvider, (_, __) {
     syncUcgWsDesired();
     unawaited(syncUnreadFromWs());
+    unawaited(_syncUcgPushRegistration(ref));
+  });
+  ref.listen<String?>(sessionProvider.select((s) => s.accessToken), (prev, next) {
+    if (next == null || next.isEmpty) return;
+    unawaited(syncUnreadFromWs());
   });
   syncUcgWsDesired();
   unawaited(syncUnreadFromWs());
+  unawaited(_syncUcgPushRegistration(ref));
+  scheduleMicrotask(() => unawaited(syncUnreadFromWs()));
 
   final notifSub = repo.notificationEvents.listen((_) {
     ref.read(ucgNotificationsChangedProvider.notifier).state++;

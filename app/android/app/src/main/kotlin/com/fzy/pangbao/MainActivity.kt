@@ -17,11 +17,13 @@ class MainActivity : FlutterActivity() {
     private val installerChannel = "com.fzy.pangbao/installer"
     private val nativeSplashChannel = "com.fzy.pangbao/native_splash"
     private val localVideoChannel = "com.fzy.pangbao/local_video"
+    private val ucgPushChannel = "com.fzy.pangbao/ucg_push"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { KeepNativeSplash.visible }
         super.onCreate(savedInstanceState)
+        UcgPushInitializer.start(applicationContext)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -125,6 +127,11 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+        val pushChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ucgPushChannel)
+        UcgPushBridge.tokenSink = pushChannel
+        pushChannel.setMethodCallHandler { call, result ->
+            UcgPushBridge.handle(call, result, this)
         }
     }
 

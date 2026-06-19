@@ -31,8 +31,11 @@ build/
 
 # Android signing
 /android/key.properties
+/android/push.properties
 /android/*.jks
 /android/*.keystore
+# HMS AppGallery Connect（含 app_id 等，勿提交）
+/android/app/agconnect-services.json
 
 # iOS signing & App Store Connect
 /ios/*.p12

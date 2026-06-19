@@ -22,7 +22,6 @@ import 'widgets/ucg_compose_entry_sheet.dart';
 import 'widgets/ucg_compose_light_glass_panel.dart';
 import 'widgets/ucg_compose_media_grid.dart';
 import 'widgets/ucg_media_viewer.dart';
-import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 /// compose 关闭结果：新帖发表成功时 shell 切「我的」。
@@ -667,28 +666,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   Widget _buildVideoPreview(UcgComposeMediaSlot slot) {
     final localPath = slot.localPath;
     if (localPath != null && localPath.isNotEmpty) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          UcgComposeLocalPreview(
-            localPath: localPath,
-            localBytes: slot.localBytes,
-            fit: BoxFit.cover,
-            isVideo: true,
-            showPlayIcon: false,
-          ),
-          const Center(child: UcgVideoPlayOverlayIcon()),
-        ],
+      return UcgLocalVideoThumb(
+        filePath: localPath,
+        posterBytes: slot.localBytes,
+        fit: BoxFit.cover,
+        showPlayIcon: true,
       );
     }
-    if (slot.objectKey != null && slot.objectKey!.isNotEmpty) {
-      final url = UcgMediaUrl.resolveUrl(objectKey: slot.objectKey!, cdnUrl: slot.cdnUrl);
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          UcgNetworkImage(url: url, fit: BoxFit.cover),
-          const Center(child: UcgVideoPlayOverlayIcon()),
-        ],
+    final key = slot.objectKey;
+    if (key != null && key.isNotEmpty) {
+      return UcgInlineVideoPlayer(
+        videoUrl: UcgMediaUrl.resolveUrl(objectKey: key, cdnUrl: slot.cdnUrl),
+        aspectRatio: 16 / 9,
+        borderRadius: 0,
+        posterOnly: true,
       );
     }
     return UcgComposeLocalPreview(

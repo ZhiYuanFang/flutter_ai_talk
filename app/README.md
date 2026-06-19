@@ -63,6 +63,114 @@ flutter build appbundle --release
 
 **签名**：在 `app/android/` 下复制 `key.properties.example` 为 `key.properties`，填入 keystore 路径与密码；将 `.jks` 放在 `app/android/`（二者均已在 `.gitignore` 中）。`build.gradle.kts` 在存在 `key.properties` 时自动启用 release 签名；未配置时使用默认 debug 签名。细则见 [官方文档：为应用签名](https://docs.flutter.dev/deployment/android#signing-the-app)。
 
+#### UCG 启动器角标推送（HMS / MiPush）
+
+社交 UCG 在 **应用被杀进程** 后，通过厂商推送更新启动器数字角标（私信/评论未读）。客户端凭证由 Gradle 在编译期写入 `BuildConfig`（见 `app/android/app/build.gradle.kts`），**勿**用 `--dart-define` 传递。
+
+**范围说明**：仅 **iOS（APNs）**、**华为/荣耀 HMS**、**小米/红米 MiPush** 会注册 push token 并尽量保证杀进程后角标；**其它 Android 厂商**不注册 token，**不保证**启动器数字角标。服务端推送凭证见 `go_ai_talk` 仓库 `manifest/docker/.env.example` 中 `UCG_APNS_*` / `UCG_HMS_*` / `UCG_MIPUSH_*`。
+
+##### 配置 `push.properties`（分步）
+
+**第一步：创建本地配置文件**
+
+在 `app/android/` 目录下复制示例文件：
+
+```bash
+cd app/android
+cp push.properties.example push.properties
+```
+
+（Windows 资源管理器复制粘贴亦可。）`push.properties` 已在 `.gitignore`，**不要提交到 git**。
+
+**第二步：逐项填写字段**
+
+打开 `app/android/push.properties`，按需填写（华为机填 HMS 相关，小米机填 MiPush 相关；可同时填写以便打通用包）：
+
+| 字段 | 含义 | 从哪里获取 |
+|------|------|------------|
+| `ucg.hms.app_id` | 华为 Push Kit **应用 ID** | [AppGallery Connect](https://developer.huawei.com/consumer/cn/service/josp/agc/index.html) → 我的项目 → 选择应用 → **项目设置 → 常规 → 应用 ID**（纯数字）。若已放置 `agconnect-services.json`（见第四步），此项可留空。 |
+| `ucg.mipush.app_id` | 小米推送 **AppId** | [小米推送控制台](https://admin.xmpush.xiaomi.com/) → 应用详情页顶部 **AppId** |
+| `ucg.mipush.app_key` | 小米推送 **AppKey** | 同上应用详情页 **AppKey** |
+| `ucg.mipush.region` | MiPush 服务区域 | 国内应用填 `China`（默认）；海外分发按控制台说明选 `Global` \| `Europe` \| `Russia` \| `India` |
+
+**示例（占位符，请替换为你的真实值）：**
+
+```properties
+# 华为 AppGallery Connect 应用 ID
+ucg.hms.app_id=123456789012345678
+# 小米推送
+ucg.mipush.app_id=2882303761512345678
+ucg.mipush.app_key=5xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ucg.mipush.region=China
+```
+
+Gradle 读取逻辑：`build.gradle.kts` 在构建时加载 `app/android/push.properties`，将值注入 `BuildConfig.UCG_HMS_APP_ID`、`UCG_MIPUSH_APP_ID`、`UCG_MIPUSH_APP_KEY`、`UCG_MIPUSH_REGION`。
+
+**第三步：小米还需放置 MiPush SDK（AAR）**
+
+小米推送 SDK **不在 Maven 中央仓库**，须手动下载并放入本地目录：
+
+1. 登录 [小米推送控制台](https://admin.xmpush.xiaomi.com/) → 进入应用 → **SDK 下载**（或文档中的「Android SDK」链接）。
+2. 解压后找到 **`MiPush_SDK_Client_*.aar`**（例如 `MiPush_SDK_Client_7_9_2-C_3rd.aar`）。
+3. 将该 AAR **复制到** `app/android/app/libs/`（目录内已有 `.gitkeep`；AAR 体积较大，**勿提交 git**）。
+
+Gradle 检测规则（`build.gradle.kts`）：扫描 `app/android/app/libs/` 下文件名 **以 `MiPush_SDK_Client` 开头、以 `.aar` 结尾** 的文件。若 **未检测到** 任何匹配 AAR：
+
+- `BuildConfig.UCG_MIPUSH_ENABLED = false`
+- 编译走 `src/nomipush/` 桩代码，MiPush **不会**初始化
+
+检测到 AAR 后才会启用 `src/mipush/` 源码、合并 MiPush `AndroidManifest` 并把 AAR 加入依赖。
+
+**第四步：华为可选 `agconnect-services.json`**
+
+华为 **应用 ID** 有两种填法（二选一即可）：
+
+| 方式 | 操作 |
+|------|------|
+| A. 仅 `push.properties` | 在 `ucg.hms.app_id=` 填入 AppGallery Connect 应用 ID |
+| B. JSON 文件（推荐） | 在 AppGallery Connect **项目设置 → 常规 → 下载 agconnect-services.json**，放到 **`app/android/app/agconnect-services.json`** |
+
+**优先级**：若 `agconnect-services.json` 存在，Gradle 会 **优先** 从 JSON 中解析 `"app_id"` 字段；解析失败或文件不存在时，才回退到 `push.properties` 的 `ucg.hms.app_id`。无需安装 AGConnect Gradle 插件。
+
+`agconnect-services.json` 含项目密钥信息，已在 `.gitignore`，**不要提交到 git**。
+
+**第五步：重新编译**
+
+修改 `push.properties`、MiPush AAR 或 `agconnect-services.json` 后，旧 APK 内的 `BuildConfig` 不会自动更新。建议：
+
+```bash
+cd app
+flutter clean
+flutter run -d android
+# 或打 release 包：
+flutter build apk --release --target-platform android-arm64
+```
+
+**第六步：验证是否生效**
+
+1. **设备要求**：在 **华为/荣耀** 或 **小米/红米** 真机上测试（模拟器通常无法拿到厂商 token）。
+2. **登录与绑定**：须 **已登录** 且 UCG 账号 **已绑定微信**（`wxId` 有效）；否则客户端会跳过注册。
+3. **通知权限**：Android 13+ 首次启动会请求「通知」权限，需允许。
+4. **Logcat / 调试输出**（`flutter run` 终端或 `adb logcat`）：
+   - 成功拿到 token 后，Dart 侧会尝试注册；失败时可见：
+     - `[ucg-push] skip register: unsupported OEM` — 非华为/小米设备
+     - `[ucg-push] skip register: no token for hms` 或 `… for mipush` — 凭证或 SDK 未配好、token 尚未返回
+   - 华为：确认 `BuildConfig.UCG_HMS_APP_ID` 非空（app_id 未填则 HMS 不会启动）
+   - 小米：确认 `libs/` 内 AAR 存在且 `ucg.mipush.app_id` / `app_key` 已填
+5. **网络请求**：登录并绑定微信后，抓包或网关日志应出现 **`POST /ucg/app/api/push/register`**（经 UCG 客户端封装为 `POST /push/register`），请求体示例：
+
+```json
+{
+  "channel": "hms",
+  "token": "…",
+  "deviceKey": "…"
+}
+```
+
+`channel` 在华为/荣耀真机上为 **`hms`**，小米/红米真机上为 **`mipush`**。注册成功后，杀进程状态下服务端推送可更新启动器角标。
+
+**安全提醒**：`push.properties`、`agconnect-services.json`、MiPush AAR、Android 签名 `key.properties` 均为本地机密或二进制依赖，**均勿提交 git**（已在 `app/.gitignore`）。
+
 ### iOS
 
 在 **macOS + 已安装 Xcode** 的 `app/` 目录：

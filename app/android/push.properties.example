@@ -1,0 +1,7 @@
+# Copy to push.properties beside this file; push.properties must not be committed.
+# HMS app id is optional when app/agconnect-services.json is present (Gradle reads app_id from it).
+ucg.hms.app_id=
+ucg.mipush.app_id=
+ucg.mipush.app_key=
+# MiPush region: China | Global | Europe | Russia | India
+ucg.mipush.region=China

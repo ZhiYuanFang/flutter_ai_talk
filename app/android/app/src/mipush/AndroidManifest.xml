@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <meta-data
+            android:name="com.xiaomi.mipush.APP_ID"
+            android:value="${UCG_MIPUSH_APP_ID}" />
+        <meta-data
+            android:name="com.xiaomi.mipush.APP_KEY"
+            android:value="${UCG_MIPUSH_APP_KEY}" />
+        <receiver
+            android:name=".UcgMiPushReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.xiaomi.mipush.RECEIVE_MESSAGE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.xiaomi.mipush.MESSAGE_ARRIVED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.xiaomi.mipush.ERROR" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

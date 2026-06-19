@@ -14,6 +14,35 @@ if (keystorePropertiesFile.exists()) {
     FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
 
+val pushPropertiesFile = rootProject.file("push.properties")
+val pushProperties = Properties()
+if (pushPropertiesFile.exists()) {
+    FileInputStream(pushPropertiesFile).use { pushProperties.load(it) }
+}
+
+fun pushProp(key: String, default: String = ""): String =
+    pushProperties.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() } ?: default
+
+val agconnectServicesFile = file("agconnect-services.json")
+// Optional: copy agconnect-services.json from AppGallery Connect for HMS app_id auto-discovery.
+// AGConnect Gradle plugin is not required; app_id is read below or via push.properties.
+
+val hmsAppIdFromAgconnect = agconnectServicesFile.takeIf { it.exists() }?.readText()
+    ?.let { text -> Regex(""""app_id"\s*:\s*"([^"]+)"""").find(text)?.groupValues?.get(1) }
+    ?.trim()
+    ?: ""
+
+val hmsAppId = hmsAppIdFromAgconnect.ifEmpty { pushProp("ucg.hms.app_id") }
+val mipushAppId = pushProp("ucg.mipush.app_id")
+val mipushAppKey = pushProp("ucg.mipush.app_key")
+val mipushRegion = pushProp("ucg.mipush.region", "China")
+
+// MiPush SDK is distributed as a local AAR from https://admin.xmpush.xiaomi.com/
+val mipushAarFiles = file("libs").listFiles()
+    ?.filter { it.isFile && it.name.startsWith("MiPush_SDK_Client") && it.name.endsWith(".aar") }
+    ?: emptyList()
+val mipushEnabled = mipushAarFiles.isNotEmpty()
+
 android {
     namespace = "com.fzy.pangbao"
     compileSdk = flutter.compileSdkVersion
@@ -41,6 +70,30 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        buildConfigField("String", "UCG_HMS_APP_ID", "\"$hmsAppId\"")
+        buildConfigField("String", "UCG_MIPUSH_APP_ID", "\"$mipushAppId\"")
+        buildConfigField("String", "UCG_MIPUSH_APP_KEY", "\"$mipushAppKey\"")
+        buildConfigField("String", "UCG_MIPUSH_REGION", "\"$mipushRegion\"")
+        buildConfigField("boolean", "UCG_MIPUSH_ENABLED", mipushEnabled.toString())
+
+        manifestPlaceholders["UCG_MIPUSH_APP_ID"] = mipushAppId
+        manifestPlaceholders["UCG_MIPUSH_APP_KEY"] = mipushAppKey
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    sourceSets {
+        getByName("main") {
+            java.srcDir(
+                if (mipushEnabled) "src/mipush/kotlin" else "src/nomipush/kotlin",
+            )
+            if (mipushEnabled) {
+                manifest.srcFile("src/mipush/AndroidManifest.xml")
+            }
+        }
     }
 
     buildTypes {
@@ -74,4 +127,10 @@ flutter {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("com.huawei.hms:push:6.12.0.300")
+    if (mipushEnabled) {
+        mipushAarFiles.forEach { aar ->
+            implementation(files(aar))
+        }
+    }
 }
