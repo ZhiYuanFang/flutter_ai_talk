@@ -1,7 +1,8 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
-/// UCG CDN / 远程图片：Web 用 HTML `<img>` 规避跨域 fetch（statusCode 0），移动端走默认字节流。
+/// UCG CDN / 远程图片：Web 用 HTML `<img>` 规避跨域 fetch（statusCode 0），移动端走磁盘缓存。
 ///
 /// 勿用于 [CircleAvatar.backgroundImage]——Decoration 路径在 Web 仍会触发 Same-Origin 解码错误；
 /// 圆形头像请用 [UcgAvatar]。
@@ -11,6 +12,12 @@ ImageProvider ucgNetworkImageProvider(String url) {
     webHtmlElementStrategy:
         kIsWeb ? WebHtmlElementStrategy.prefer : WebHtmlElementStrategy.never,
   );
+}
+
+int? _memCacheDimension(double? logical, BuildContext context) {
+  if (logical == null) return null;
+  final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+  return (logical * dpr).round();
 }
 
 /// 圆形头像：ClipOval + [UcgNetworkImage]，规避 Web 上 CircleAvatar/DecorationImage 的 CORS 限制。
@@ -66,7 +73,7 @@ class UcgAvatar extends StatelessWidget {
   }
 }
 
-/// 与 [Image.network] 同参，Web 自动启用 [WebHtmlElementStrategy.prefer]。
+/// 与 [Image.network] 同参；原生端 [CachedNetworkImage] 磁盘缓存，Web 自动启用 [WebHtmlElementStrategy.prefer]。
 class UcgNetworkImage extends StatelessWidget {
   const UcgNetworkImage({
     super.key,
@@ -87,15 +94,30 @@ class UcgNetworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.network(
-      url,
+    if (kIsWeb) {
+      return Image.network(
+        url,
+        width: width,
+        height: height,
+        fit: fit,
+        alignment: alignment,
+        errorBuilder: errorBuilder,
+        webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+      );
+    }
+
+    return CachedNetworkImage(
+      imageUrl: url,
       width: width,
       height: height,
       fit: fit,
-      alignment: alignment,
-      errorBuilder: errorBuilder,
-      webHtmlElementStrategy:
-          kIsWeb ? WebHtmlElementStrategy.prefer : WebHtmlElementStrategy.never,
+      alignment: alignment.resolve(Directionality.of(context)),
+      memCacheWidth: _memCacheDimension(width, context),
+      memCacheHeight: _memCacheDimension(height, context),
+      errorWidget: errorBuilder == null
+          ? null
+          : (context, imageUrl, error) =>
+              errorBuilder!(context, error, StackTrace.current),
     );
   }
 }

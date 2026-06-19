@@ -108,6 +108,7 @@ class UcgPostMediaSection extends StatelessWidget {
           SizedBox(height: topSpacing),
           UcgMomentsVideoTile(
             videoUrl: post.videoUrl!,
+            posterUrl: post.videoThumbnailUrl,
             videoWidth: post.videoWidth,
             videoHeight: post.videoHeight,
           ),
@@ -208,28 +209,42 @@ class UcgMomentsMediaGrid extends StatelessWidget {
 }
 
 /// 视频缩略：竖屏 3/5 宽，横屏全宽；点击内联播放，控件含全屏展开。
-class UcgMomentsVideoTile extends StatelessWidget {
+class UcgMomentsVideoTile extends StatefulWidget {
   const UcgMomentsVideoTile({
     super.key,
     required this.videoUrl,
+    this.posterUrl,
     this.videoWidth,
     this.videoHeight,
   });
 
   final String videoUrl;
+  final String? posterUrl;
   final int? videoWidth;
   final int? videoHeight;
 
+  @override
+  State<UcgMomentsVideoTile> createState() => _UcgMomentsVideoTileState();
+}
+
+class _UcgMomentsVideoTileState extends State<UcgMomentsVideoTile> {
+  var _playing = false;
+
   bool get _isPortrait {
-    if (videoWidth != null && videoHeight != null && videoWidth! > 0) {
-      return videoHeight! > videoWidth!;
+    if (widget.videoWidth != null &&
+        widget.videoHeight != null &&
+        widget.videoWidth! > 0) {
+      return widget.videoHeight! > widget.videoWidth!;
     }
     return true;
   }
 
   double get _aspectRatio {
-    if (videoWidth != null && videoHeight != null && videoWidth! > 0 && videoHeight! > 0) {
-      return videoWidth! / videoHeight!;
+    if (widget.videoWidth != null &&
+        widget.videoHeight != null &&
+        widget.videoWidth! > 0 &&
+        widget.videoHeight! > 0) {
+      return widget.videoWidth! / widget.videoHeight!;
     }
     return _isPortrait ? 9 / 16 : 16 / 9;
   }
@@ -239,15 +254,34 @@ class UcgMomentsVideoTile extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final containerWidth = constraints.maxWidth;
-        final displayWidth = _isPortrait ? containerWidth * 3 / 5 : containerWidth;
+        final displayWidth =
+            _isPortrait ? containerWidth * 3 / 5 : containerWidth;
 
         return SizedBox(
           width: displayWidth,
-          child: UcgInlineVideoPlayer(
-            videoUrl: videoUrl,
-            aspectRatio: _aspectRatio,
-            borderRadius: _kMediaRadius,
-          ),
+          child: _playing
+              ? UcgInlineVideoPlayer(
+                  videoUrl: widget.videoUrl,
+                  posterUrl: widget.posterUrl,
+                  aspectRatio: _aspectRatio,
+                  borderRadius: _kMediaRadius,
+                )
+              : GestureDetector(
+                  onTap: () => setState(() => _playing = true),
+                  behavior: HitTestBehavior.opaque,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(_kMediaRadius),
+                    child: AspectRatio(
+                      aspectRatio: _aspectRatio,
+                      child: UcgVideoSnapshotPoster(
+                        posterUrl: widget.posterUrl,
+                        videoUrl: widget.videoUrl,
+                        aspectRatio: _aspectRatio,
+                        borderRadius: _kMediaRadius,
+                      ),
+                    ),
+                  ),
+                ),
         );
       },
     );

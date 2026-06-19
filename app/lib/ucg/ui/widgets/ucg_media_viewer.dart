@@ -75,6 +75,87 @@ class UcgVideoPlayOverlayIcon extends StatelessWidget {
   }
 }
 
+/// 列表表面视频封面：优先 API snapshot 静态图；CDN 未返回可解码图片时回退 VideoPlayer 首帧。
+class UcgVideoSnapshotPoster extends StatefulWidget {
+  const UcgVideoSnapshotPoster({
+    super.key,
+    this.posterUrl,
+    this.videoUrl,
+    this.aspectRatio = 16 / 9,
+    this.borderRadius = 4,
+    this.fit = BoxFit.cover,
+  });
+
+  final String? posterUrl;
+  final String? videoUrl;
+  final double aspectRatio;
+  final double borderRadius;
+  final BoxFit fit;
+
+  @override
+  State<UcgVideoSnapshotPoster> createState() => _UcgVideoSnapshotPosterState();
+}
+
+class _UcgVideoSnapshotPosterState extends State<UcgVideoSnapshotPoster> {
+  var _snapshotFailed = false;
+
+  void _onSnapshotFailed() {
+    if (_snapshotFailed || widget.videoUrl == null || widget.videoUrl!.isEmpty) {
+      return;
+    }
+    setState(() => _snapshotFailed = true);
+  }
+
+  Widget _gradientPlaceholder(Color primary) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary.withValues(alpha: 0.14),
+            primary.withValues(alpha: 0.04),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = UcgTheme.primary(context);
+    final hasPoster = widget.posterUrl != null && widget.posterUrl!.isNotEmpty;
+
+    if (_snapshotFailed && widget.videoUrl != null && widget.videoUrl!.isNotEmpty) {
+      return UcgInlineVideoPlayer(
+        videoUrl: widget.videoUrl!,
+        aspectRatio: widget.aspectRatio,
+        borderRadius: widget.borderRadius,
+        posterOnly: true,
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        if (hasPoster)
+          UcgNetworkImage(
+            url: widget.posterUrl!,
+            fit: widget.fit,
+            errorBuilder: (_, __, ___) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _onSnapshotFailed();
+              });
+              return _gradientPlaceholder(primary);
+            },
+          )
+        else
+          _gradientPlaceholder(primary),
+        const UcgVideoPlayOverlayIcon(),
+      ],
+    );
+  }
+}
+
 /// Opens a fullscreen photo lightbox with pinch-zoom ([InteractiveViewer]).
 Future<void> showUcgPhotoLightbox(
   BuildContext context, {
@@ -1064,6 +1145,7 @@ class UcgInlineVideoPlayer extends StatefulWidget {
     required this.aspectRatio,
     this.borderRadius = 4,
     this.posterOnly = false,
+    this.posterUrl,
   });
 
   final String videoUrl;
@@ -1071,6 +1153,8 @@ class UcgInlineVideoPlayer extends StatefulWidget {
   final double borderRadius;
   /// When true, only loads and displays the first-frame poster; no tap-to-play.
   final bool posterOnly;
+  /// 静态封面 URL（OSS snapshot）；传入时跳过网络视频首帧提取。
+  final String? posterUrl;
 
   @override
   State<UcgInlineVideoPlayer> createState() => _UcgInlineVideoPlayerState();
@@ -1085,11 +1169,19 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
   var _initializingPlayback = false;
   var _playbackFailed = false;
   var _disposed = false;
+  var _staticPosterFailed = false;
+
+  bool get _hasStaticPoster =>
+      !_staticPosterFailed &&
+      widget.posterUrl != null &&
+      widget.posterUrl!.trim().isNotEmpty;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadPoster());
+    if (!_hasStaticPoster) {
+      unawaited(_loadPoster());
+    }
   }
 
   @override
@@ -1099,6 +1191,12 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     _controller = null;
     unawaited(c?.dispose());
     super.dispose();
+  }
+
+  void _onStaticPosterFailed() {
+    if (_staticPosterFailed || _disposed) return;
+    setState(() => _staticPosterFailed = true);
+    unawaited(_loadPoster());
   }
 
   Uri get _videoUri => Uri.parse(widget.videoUrl);
@@ -1144,11 +1242,48 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     }
   }
 
+  Future<void> _initControllerForPlayback() async {
+    if (_disposed || _controller != null) return;
+    setState(() {
+      _initializingPlayback = true;
+      _playbackFailed = false;
+    });
+    await _UcgVideoInitLimiter.acquire();
+    if (_disposed || _controller != null) {
+      _UcgVideoInitLimiter.release();
+      if (mounted) setState(() => _initializingPlayback = false);
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(_videoUri);
+    try {
+      await controller.initialize();
+      if (_disposed || !mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+        _initializingPlayback = false;
+      });
+    } catch (_) {
+      await controller.dispose();
+      if (!_disposed && mounted) {
+        setState(() {
+          _initializingPlayback = false;
+          _playbackFailed = true;
+        });
+      }
+    } finally {
+      _UcgVideoInitLimiter.release();
+    }
+  }
+
   Future<void> _startPlayback() async {
     if (_disposed || _playing || _initializingPlayback) return;
-    if (!_posterReady || _controller == null) {
-      await _loadPoster();
-      if (!_posterReady || _controller == null) {
+    if (_controller == null) {
+      await _initControllerForPlayback();
+      if (_controller == null) {
         if (mounted) setState(() => _playbackFailed = true);
         return;
       }
@@ -1229,7 +1364,20 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
             ),
           ),
         ),
-        if (_posterReady && _controller != null)
+        if (_hasStaticPoster)
+          Positioned.fill(
+            child: UcgNetworkImage(
+              url: widget.posterUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _onStaticPosterFailed();
+                });
+                return const SizedBox.shrink();
+              },
+            ),
+          )
+        else if (_posterReady && _controller != null)
           Positioned.fill(
             child: FittedBox(
               fit: BoxFit.cover,

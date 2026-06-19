@@ -249,8 +249,17 @@ class UcgPost {
     return UcgMediaUrl.fullUrl(objectKey: videoKey!, cdnUrl: videoCdnUrl);
   }
 
-  /// 视频封面由客户端首帧提取，不读服务端 thumb。
-  String? get videoThumbnailUrl => null;
+  /// 列表封面：优先 API `videoThumbCdnUrl`（OSS snapshot）；无 thumb 时返回 null，不得回退 mp4。
+  String? get videoThumbnailUrl {
+    final fromApi = videoThumbCdnUrl?.trim();
+    if (fromApi != null && fromApi.isNotEmpty) return fromApi;
+    final thumbKey = videoThumbKey?.trim();
+    if (thumbKey != null && thumbKey.isNotEmpty) {
+      final url = UcgMediaUrl.objectKeyToCdn(thumbKey);
+      return url.isNotEmpty ? url : null;
+    }
+    return null;
+  }
 
   bool get isVisibleInPublicFeed => status == UcgPostStatus.published;
 

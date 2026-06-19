@@ -152,11 +152,17 @@ class _MasonryMedia extends StatelessWidget {
       );
     }
     if (post.videoUrl != null) {
-      return UcgInlineVideoPlayer(
-        videoUrl: post.videoUrl!,
-        aspectRatio: 3 / 4,
-        borderRadius: 8,
-        posterOnly: true,
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: AspectRatio(
+          aspectRatio: 3 / 4,
+          child: UcgVideoSnapshotPoster(
+            posterUrl: post.videoThumbnailUrl,
+            videoUrl: post.videoUrl,
+            aspectRatio: 3 / 4,
+            borderRadius: 8,
+          ),
+        ),
       );
     }
     return const SizedBox.shrink();
