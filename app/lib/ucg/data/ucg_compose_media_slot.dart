@@ -1,8 +1,9 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../ui/widgets/ucg_compose_local_preview.dart' show ucgReadLocalImageBytes;
+import 'ucg_video_playback.dart';
 import 'ucg_media_compress.dart';
 import 'ucg_media_picker.dart';
 import 'ucg_presign.dart';
@@ -16,6 +17,7 @@ class UcgComposeMediaSlot {
     required this.id,
     this.localPath,
     this.localBytes,
+    this.mediaUri,
     this.objectKey,
     this.cdnUrl,
     this.isVideo = false,
@@ -24,7 +26,8 @@ class UcgComposeMediaSlot {
 
   final String id;
   final String? localPath;
-  final Uint8List? localBytes;
+  Uint8List? localBytes;
+  String? mediaUri;
   String? objectKey;
   String? cdnUrl;
   final bool isVideo;
@@ -69,11 +72,13 @@ class UcgComposeMediaSlot {
     required String path,
     required bool isVideo,
     Uint8List? bytes,
+    String? mediaUri,
   }) {
     return UcgComposeMediaSlot(
       id: id,
       localPath: path,
       localBytes: bytes,
+      mediaUri: mediaUri,
       isVideo: isVideo,
       status: UcgComposeMediaSlotStatus.pending,
     );
@@ -106,11 +111,24 @@ Future<void> uploadComposeMediaSlot({
     } else if (kIsWeb) {
       throw StateError('web local bytes missing');
     } else {
-      final file = File(path);
-      if (!await file.exists()) {
+      var readPath = path;
+      var loaded = await ucgReadLocalImageBytes(readPath);
+      if ((loaded == null || loaded.isEmpty) && !kIsWeb) {
+        final cached = await ucgCacheMediaPath(readPath);
+        if (cached != null) {
+          readPath = cached;
+          loaded = await ucgReadLocalImageBytes(cached);
+        }
+      }
+      if (loaded != null && loaded.isNotEmpty) {
+        slot.localBytes = loaded;
+        bytes = loaded;
+      } else {
+        bytes = Uint8List(0);
+      }
+      if (bytes.isEmpty) {
         throw StateError('local file missing');
       }
-      bytes = await file.readAsBytes();
     }
 
     final name = ucgFallbackFileName(isVideo: slot.isVideo, path: path);

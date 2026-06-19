@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-
 import '../api/ai_quota_codes.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../network/resilient_websocket_client.dart';
+import '../network/ws_connection_config.dart';
+import '../network/ws_phase_mapping.dart';
 import '../providers/ai_quota_dialog_bus.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/home_history_notifier.dart';
@@ -33,7 +32,31 @@ class RemoteFeedRepository implements FeedRepository {
   })  : _api = api,
         _deviceNoGetter = deviceNoGetter,
         _wsUrl = wsUrl,
-        _ref = ref;
+        _ref = ref {
+    _wsClient = ResilientWebSocketClient(
+      WsConnectionConfig(
+        url: _wsUrl,
+        channelLabel: 'history',
+        requireSubscribeGate: true,
+        shouldConnect: () async {
+          if (_wsUrl.isEmpty) return false;
+          final dn = _deviceNoGetter();
+          return dn != null && dn.isNotEmpty;
+        },
+        prepareToken: _prepareWsConnectContext,
+        buildAuthFrame: (ctx) => {
+          'type': 'auth',
+          'accessToken': ctx.accessToken,
+          'deviceNo': ctx.deviceNo,
+        },
+        onApplicationFrame: _onHistoryApplicationFrame,
+        onErrorFrame: _onHistoryWsError,
+        log: _logWs,
+      ),
+    );
+    _wsClient.readyStream.listen(_emitWsReady);
+    _wsClient.phaseStream.listen((p) => _emitPhase(historyWsPhaseFromShared(p)));
+  }
 
   final ApiClient _api;
   final DeviceNoGetter _deviceNoGetter;
@@ -45,25 +68,9 @@ class RemoteFeedRepository implements FeedRepository {
   final StreamController<bool> _wsReadyController = StreamController<bool>.broadcast();
   final StreamController<HistoryWsPhase> _phaseController =
       StreamController<HistoryWsPhase>.broadcast();
-  final _rng = Random();
-
-  WebSocketChannel? _ws;
-  StreamSubscription<dynamic>? _wsSub;
-  Timer? _authTimeoutTimer;
-  Timer? _pingTimer;
-  Timer? _pongTimeoutTimer;
-  Timer? _reconnectTimer;
-  Completer<void>? _pongCompleter;
-  var _wsReady = false;
+  late final ResilientWebSocketClient _wsClient;
   HistoryWsPhase _phase = HistoryWsPhase.disconnected;
-  var _consecutiveFailedAttempts = 0;
-  var _backoffIndex = 0;
-  var _missedPongs = 0;
-  var _authOkReceived = false;
-  var _handshakeAttemptActive = false;
-  var _watchSubscribed = false;
-  var _attemptGeneration = 0;
-  Future<void>? _connectInFlight;
+  var _wsReady = false;
 
   void _toast(String m) {
     _ref.showApiToastError(m);
@@ -101,8 +108,7 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   void _resetStrike() {
-    _consecutiveFailedAttempts = 0;
-    _backoffIndex = 0;
+    _wsClient.resetStrike();
     if (_phase == HistoryWsPhase.gaveUp) {
       _emitPhase(HistoryWsPhase.disconnected);
     }
@@ -112,13 +118,7 @@ class RemoteFeedRepository implements FeedRepository {
   void resetHistoryWebSocketStrike() => _resetStrike();
 
   @override
-  void onAppLifecycleResumed() {
-    if (_phase == HistoryWsPhase.gaveUp) return;
-    if (_wsReady) return;
-    if (!_watchSubscribed) return;
-    if (_handshakeAttemptActive || _reconnectTimer != null) return;
-    _scheduleReconnect();
-  }
+  void onAppLifecycleResumed() => _wsClient.onAppLifecycleResumed();
 
   void _mergeInbound(HistoryRecord incoming) {
     final i = _cache.indexWhere((e) => e.id == incoming.id);
@@ -139,47 +139,16 @@ class RemoteFeedRepository implements FeedRepository {
     }
   }
 
-  void _cancelTimers() {
-    _authTimeoutTimer?.cancel();
-    _authTimeoutTimer = null;
-    _pingTimer?.cancel();
-    _pingTimer = null;
-    _pongTimeoutTimer?.cancel();
-    _pongTimeoutTimer = null;
-    _cancelPongWait();
-  }
-
-  void _cancelPongWait() {
-    final c = _pongCompleter;
-    if (c != null && !c.isCompleted) {
-      c.completeError(StateError('cancelled'));
-    }
-    _pongCompleter = null;
-  }
-
-  void _cancelReconnectTimer() {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-  }
-
-  void _invalidateInFlightAttempt() {
-    _attemptGeneration++;
-    _handshakeAttemptActive = false;
-  }
-
   void _logWs(String message) {
-    HomeHistoryLog.d('ws $message');
+    HomeHistoryLog.d(message);
   }
 
-  /// 建连前若 access 将过期/已过期则静默 refresh；本地有 deviceNo 时对齐 JWT claim。
-  Future<String?> _prepareAccessTokenForConnect() async {
+  Future<WsConnectContext?> _prepareWsConnectContext() async {
     final session = _ref.read(sessionProvider);
-    if (!session.isLoggedIn) {
-      return null;
-    }
+    if (!session.isLoggedIn) return null;
     final ok = await session.ensureFreshSession();
     if (!ok) {
-      _logWs('session refresh failed, signed out');
+      _logWs('ws session refresh failed, signed out');
       await _ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await _ref.read(signInChannelProvider.notifier).clear();
       if (_ref.read(homeHistoryProvider).initialLoadDone) {
@@ -191,386 +160,63 @@ class RemoteFeedRepository implements FeedRepository {
     if (dn != null && dn.isNotEmpty) {
       final synced = await ensureAccessTokenHasDeviceNo(_ref, localDeviceNo: dn);
       if (!synced) {
-        _logWs('token refresh for device_no failed');
+        _logWs('ws token refresh for device_no failed');
         _ref.showApiToastError('会话刷新失败，请重新登录后再试');
         return null;
       }
     }
-    return _ref.read(sessionProvider).accessToken;
+    return WsConnectContext(
+      accessToken: _ref.read(sessionProvider).accessToken,
+      deviceNo: dn,
+    );
   }
 
-  void _tearDownWs({bool scheduleReconnect = false}) {
-    _invalidateInFlightAttempt();
-    _authOkReceived = false;
-    _missedPongs = 0;
-    _cancelTimers();
-    _wsSub?.cancel();
-    _wsSub = null;
-    try {
-      _ws?.sink.close();
-    } catch (_) {}
-    _ws = null;
-    _emitWsReady(false);
-    if (_phase == HistoryWsPhase.ready || _phase == HistoryWsPhase.autoReconnecting) {
-      _emitPhase(HistoryWsPhase.disconnected);
+  Future<bool> _onHistoryWsError(Map<String, dynamic> decoded) async {
+    final bizCode = parseWsErrorBusinessCode(decoded);
+    if (bizCode != null && isAiQuotaBusinessCode(bizCode)) {
+      _ref.requestAiQuotaDialog(bizCode);
+      return false;
     }
-    if (scheduleReconnect && _phase != HistoryWsPhase.gaveUp) {
-      _scheduleReconnect();
+    _toast(decoded['message'] as String? ?? '连接异常');
+    return true;
+  }
+
+  void _onHistoryApplicationFrame(Map<String, dynamic> decoded) {
+    final action = decoded['action'] as String?;
+    if (action == 'delete') {
+      final p = decoded['payload'];
+      if (p is Map<String, dynamic>) {
+        final idRaw = p['id'];
+        final idStr = idRaw == null ? '' : idRaw.toString();
+        if (idStr.isEmpty) return;
+        _removeFromCache(idStr);
+      }
+      return;
     }
+    if (action == 'create' || action == 'update') {
+      final p = decoded['payload'];
+      if (p is Map<String, dynamic>) {
+        _mergeInbound(historyRecordFromServerMap(p));
+      }
+      return;
+    }
+    final map = decoded['data'] is Map<String, dynamic>
+        ? decoded['data'] as Map<String, dynamic>
+        : decoded['payload'] is Map<String, dynamic>
+            ? decoded['payload'] as Map<String, dynamic>
+            : decoded;
+    if (!map.containsKey('id')) return;
+    _mergeInbound(historyRecordFromServerMap(map));
   }
 
   void _ensureWs() {
-    if (_wsUrl.isEmpty) {
-      _emitWsReady(false);
-      _emitPhase(HistoryWsPhase.disconnected);
-      return;
-    }
-    final dn = _deviceNoGetter();
-    if (dn == null || dn.isEmpty) {
-      _emitWsReady(false);
-      _emitPhase(HistoryWsPhase.disconnected);
-      return;
-    }
-    if (_phase == HistoryWsPhase.gaveUp) return;
-    if (_wsReady) return;
-    if (_handshakeAttemptActive) return;
-    if (_reconnectTimer != null) return;
-    if (_connectInFlight != null) return;
-    unawaited(_beginAttempt());
-  }
-
-  Future<void> _beginAttempt() async {
-    if (_connectInFlight != null) {
-      await _connectInFlight;
-      return;
-    }
-    _connectInFlight = _beginAttemptOnce();
-    try {
-      await _connectInFlight;
-    } finally {
-      _connectInFlight = null;
-    }
-  }
-
-  Future<void> _beginAttemptOnce() async {
-    if (_phase == HistoryWsPhase.gaveUp) return;
-    if (_handshakeAttemptActive) return;
-    if (_wsUrl.isEmpty) return;
-    final dn = _deviceNoGetter();
-    if (dn == null || dn.isEmpty) {
-      _logWs('skip connect: deviceNo empty');
-      return;
-    }
-    final token = await _prepareAccessTokenForConnect();
-    if (token == null || token.isEmpty) {
-      _logWs('skip connect: accessToken unavailable');
-      return;
-    }
-
-    final gen = ++_attemptGeneration;
-    _handshakeAttemptActive = true;
-    _authOkReceived = false;
-    _missedPongs = 0;
-    _emitWsReady(false);
-    _emitPhase(HistoryWsPhase.autoReconnecting);
-    _cancelTimers();
-    _wsSub?.cancel();
-    _wsSub = null;
-    try {
-      await _ws?.sink.close();
-    } catch (_) {}
-    _ws = null;
-
-    _logWs('connect start gen=$gen url=$_wsUrl deviceNo=$dn');
-    try {
-      _ws = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      _wsSub = _ws!.stream.listen(
-        _onWsMessage,
-        onError: (e) {
-          _logWs('stream error gen=$gen: $e');
-          if (gen != _attemptGeneration) return;
-          if (_handshakeAttemptActive) {
-            _failCurrentAttempt(scheduleReconnect: true);
-          } else {
-            _tearDownWs(scheduleReconnect: true);
-          }
-        },
-        onDone: () {
-          _logWs('stream done gen=$gen');
-          if (gen != _attemptGeneration) return;
-          if (_handshakeAttemptActive) {
-            _failCurrentAttempt(scheduleReconnect: true);
-          } else {
-            _tearDownWs(scheduleReconnect: true);
-          }
-        },
-        cancelOnError: true,
-      );
-      // 与联调页 onopen 后再发 auth 一致；握手完成前 sink.add 可能丢帧。
-      await _ws!.ready.timeout(const Duration(seconds: 15));
-      if (gen != _attemptGeneration) return;
-      final first = jsonEncode({
-        'type': 'auth',
-        'accessToken': token,
-        'deviceNo': dn,
-      });
-      _ws!.sink.add(first);
-      _logWs('auth sent gen=$gen');
-      _authTimeoutTimer?.cancel();
-      _authTimeoutTimer = Timer(const Duration(seconds: 15), () {
-        if (gen != _attemptGeneration) return;
-        if (!_authOkReceived && _handshakeAttemptActive) {
-          _logWs('auth timeout gen=$gen');
-          _failCurrentAttempt(scheduleReconnect: true);
-        }
-      });
-    } catch (e) {
-      if (gen != _attemptGeneration) return;
-      _logWs('connect failed gen=$gen: $e');
-      _handshakeAttemptActive = false;
-      _ws = null;
-      _emitWsReady(false);
-      _recordAttemptFailure();
-      if (_phase != HistoryWsPhase.gaveUp) {
-        _scheduleReconnect();
-      }
-    }
-  }
-
-  void _onWsMessage(dynamic raw) {
-    try {
-      final decoded = _decodeWsMap(raw);
-      if (decoded is! Map<String, dynamic>) return;
-      final type = _frameType(decoded['type']);
-      if (type == 'error') {
-        final bizCode = parseWsErrorBusinessCode(decoded);
-        if (bizCode != null && isAiQuotaBusinessCode(bizCode)) {
-          // 喂养 AI WS 额度/登录错误：专用弹框，非连接故障不重连。
-          _ref.requestAiQuotaDialog(bizCode);
-          _failCurrentAttempt(scheduleReconnect: false);
-          return;
-        }
-        _toast(decoded['message'] as String? ?? '连接异常');
-        _failCurrentAttempt(scheduleReconnect: true);
-        return;
-      }
-      if (type == 'pong') {
-        _onPongReceived();
-        return;
-      }
-      if (type == 'auth_ok' || type == 'authok') {
-        _logWs('auth_ok');
-        _onAuthOk();
-        return;
-      }
-      if (!_wsReady) return;
-      final action = decoded['action'] as String?;
-      if (action == 'delete') {
-        final p = decoded['payload'];
-        if (p is Map<String, dynamic>) {
-          final idRaw = p['id'];
-          final idStr = idRaw == null ? '' : idRaw.toString();
-          if (idStr.isEmpty) return;
-          _removeFromCache(idStr);
-        }
-        return;
-      }
-      if (action == 'create' || action == 'update') {
-        final p = decoded['payload'];
-        if (p is Map<String, dynamic>) {
-          _mergeInbound(historyRecordFromServerMap(p));
-        }
-        return;
-      }
-      Map<String, dynamic>? map;
-      map = decoded['data'] is Map<String, dynamic>
-          ? decoded['data'] as Map<String, dynamic>
-          : decoded['payload'] is Map<String, dynamic>
-              ? decoded['payload'] as Map<String, dynamic>
-              : decoded;
-      if (!map.containsKey('id')) return;
-      _mergeInbound(historyRecordFromServerMap(map));
-    } catch (_) {}
-  }
-
-  void _onAuthOk() {
-    if (!_handshakeAttemptActive) return;
-    _authTimeoutTimer?.cancel();
-    _authTimeoutTimer = null;
-    _authOkReceived = true;
-    unawaited(_finishHandshakePingPong());
-  }
-
-  Future<void> _finishHandshakePingPong() async {
-    final gen = _attemptGeneration;
-    final ok = await _sendPing(expectResponse: true, isHandshake: true);
-    if (gen != _attemptGeneration) return;
-    if (!ok) {
-      _logWs('handshake pong failed gen=$gen');
-      _failCurrentAttempt(scheduleReconnect: true);
-    }
-  }
-
-  Future<bool> _sendPing({required bool expectResponse, bool isHandshake = false}) async {
-    if (_ws == null) {
-      if (isHandshake) _failCurrentAttempt(scheduleReconnect: true);
-      return false;
-    }
-    Completer<void>? waiter;
-    if (expectResponse) {
-      _cancelPongWait();
-      waiter = Completer<void>();
-      _pongCompleter = waiter;
-    }
-    try {
-      _ws!.sink.add(jsonEncode({'type': 'ping'}));
-    } catch (e) {
-      _logWs('ping send failed: $e');
-      if (isHandshake) {
-        _failCurrentAttempt(scheduleReconnect: true);
-      } else {
-        _onPongTimeout(isHandshake: false);
-      }
-      return false;
-    }
-    if (!expectResponse || waiter == null) return true;
-    try {
-      await waiter.future.timeout(const Duration(seconds: 8));
-      return true;
-    } on TimeoutException {
-      _onPongTimeout(isHandshake: isHandshake);
-      return false;
-    } catch (_) {
-      if (isHandshake) {
-        _failCurrentAttempt(scheduleReconnect: true);
-      }
-      return false;
-    }
-  }
-
-  void _onPongReceived() {
-    _pongTimeoutTimer?.cancel();
-    _pongTimeoutTimer = null;
-    final c = _pongCompleter;
-    if (c != null && !c.isCompleted) {
-      c.complete();
-    }
-    _pongCompleter = null;
-    _missedPongs = 0;
-
-    if (_handshakeAttemptActive && _authOkReceived && !_wsReady) {
-      _handshakeAttemptActive = false;
-      _consecutiveFailedAttempts = 0;
-      _backoffIndex = 0;
-      _emitWsReady(true);
-      _emitPhase(HistoryWsPhase.ready);
-      _logWs('ready (auth_ok + pong)');
-      _startPeriodicPing();
-      return;
-    }
-  }
-
-  void _onPongTimeout({required bool isHandshake}) {
-    _cancelPongWait();
-    if (isHandshake) {
-      _failCurrentAttempt(scheduleReconnect: true);
-      return;
-    }
-    _missedPongs++;
-    if (_missedPongs >= 2) {
-      _missedPongs = 0;
-      _tearDownWs(scheduleReconnect: true);
-    }
-  }
-
-  void _startPeriodicPing() {
-    _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
-      if (!_wsReady || _phase == HistoryWsPhase.gaveUp) return;
-      unawaited(_sendPing(expectResponse: true));
-    });
-  }
-
-  void _failCurrentAttempt({required bool scheduleReconnect}) {
-    final wasHandshake = _handshakeAttemptActive;
-    if (!wasHandshake && !scheduleReconnect) return;
-    _invalidateInFlightAttempt();
-    _authOkReceived = false;
-    _cancelTimers();
-    _wsSub?.cancel();
-    _wsSub = null;
-    try {
-      _ws?.sink.close();
-    } catch (_) {}
-    _ws = null;
-    _emitWsReady(false);
-    if (wasHandshake) {
-      _recordAttemptFailure();
-    }
-    if (scheduleReconnect && _phase != HistoryWsPhase.gaveUp) {
-      _emitPhase(HistoryWsPhase.disconnected);
-      _scheduleReconnect();
-    }
-  }
-
-  void _recordAttemptFailure() {
-    _consecutiveFailedAttempts++;
-    _logWs('attempt failed strike=$_consecutiveFailedAttempts/3');
-    if (_consecutiveFailedAttempts >= 3) {
-      _cancelReconnectTimer();
-      _emitPhase(HistoryWsPhase.gaveUp);
-      _logWs('gave up');
-    }
-  }
-
-  void _scheduleReconnect() {
-    if (_phase == HistoryWsPhase.gaveUp) return;
-    if (!_watchSubscribed) return;
-    if (_reconnectTimer != null) return;
-    _emitPhase(HistoryWsPhase.autoReconnecting);
-    final baseMs = min(1000 * (1 << _backoffIndex), 30000);
-    final jitterMs = _rng.nextInt(501);
-    final delay = Duration(milliseconds: baseMs + jitterMs);
-    _backoffIndex++;
-    _reconnectTimer = Timer(delay, () {
-      _reconnectTimer = null;
-      if (_phase == HistoryWsPhase.gaveUp) return;
-      unawaited(_beginAttempt());
-    });
-  }
-
-  String? _frameType(Object? raw) {
-    if (raw == null) return null;
-    if (raw is String) {
-      final t = raw.trim().toLowerCase();
-      return t.isEmpty ? null : t;
-    }
-    return raw.toString().trim().toLowerCase();
-  }
-
-  Map<String, dynamic>? _decodeWsMap(dynamic raw) {
-    if (raw is Map) return Map<String, dynamic>.from(raw);
-    Object? decoded;
-    if (raw is String) {
-      final s = raw.trim();
-      if (s.isEmpty) return null;
-      decoded = jsonDecode(s);
-    } else if (raw is List<int>) {
-      decoded = jsonDecode(utf8.decode(raw));
-    }
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    return null;
+    _wsClient.setConnectionDesired(true);
   }
 
   @override
   Future<void> reconnectHistoryWebSocket({bool resetStrike = false}) async {
-    if (resetStrike) _resetStrike();
-    _logWs('manual reconnect resetStrike=$resetStrike phase=$_phase');
-    _connectInFlight = null;
-    _cancelReconnectTimer();
-    _tearDownWs(scheduleReconnect: false);
-    if (_phase == HistoryWsPhase.gaveUp) return;
-    await _beginAttemptOnce();
+    _wsClient.setConnectionDesired(true);
+    await _wsClient.reconnect(resetStrike: resetStrike);
   }
 
   @override
@@ -817,15 +463,14 @@ class RemoteFeedRepository implements FeedRepository {
 
   @override
   Stream<SseHistoryPayload> watchLatest() {
-    _watchSubscribed = true;
+    _wsClient.setSubscribeActive(true);
     _ensureWs();
     return _controller.stream;
   }
 
   void dispose() {
-    _watchSubscribed = false;
-    _cancelReconnectTimer();
-    _tearDownWs(scheduleReconnect: false);
+    _wsClient.setSubscribeActive(false);
+    _wsClient.dispose();
     if (!_wsReadyController.isClosed) {
       _wsReadyController.close();
     }

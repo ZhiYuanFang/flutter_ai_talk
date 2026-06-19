@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -7,7 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../data/ucg_video_playback.dart';
 import '../../theme/ucg_theme.dart';
+import 'ucg_android_local_video.dart';
+import 'ucg_compose_local_preview.dart' show ucgReadLocalImageBytes;
 import 'ucg_network_image.dart';
 
 const _kDismissDistanceThreshold = 120.0;
@@ -16,6 +20,12 @@ const _kVerticalDragDominance = 1.2;
 const _kTapMovementThreshold = 10.0;
 const _kPinchResetDuration = Duration(milliseconds: 220);
 const _kMaxConcurrentVideoInits = 2;
+const _kAndroidCodecCooldown = Duration(milliseconds: 500);
+
+int _maxConcurrentVideoInits() {
+  if (kIsWeb) return _kMaxConcurrentVideoInits;
+  return Platform.isAndroid ? 1 : _kMaxConcurrentVideoInits;
+}
 
 /// Limits simultaneous [VideoPlayerController.initialize] calls in scrolling feeds.
 final class _UcgVideoInitLimiter {
@@ -25,7 +35,7 @@ final class _UcgVideoInitLimiter {
   static final _waiters = <Completer<void>>[];
 
   static Future<void> acquire() async {
-    if (_active < _kMaxConcurrentVideoInits) {
+    if (_active < _maxConcurrentVideoInits()) {
       _active++;
       return;
     }
@@ -35,11 +45,33 @@ final class _UcgVideoInitLimiter {
   }
 
   static void release() {
-    if (_waiters.isNotEmpty) {
-      _waiters.removeAt(0).complete();
-    } else if (_active > 0) {
-      _active--;
+    Future<void> finish() async {
+      if (!kIsWeb && Platform.isAndroid) {
+        await Future<void>.delayed(_kAndroidCodecCooldown);
+      }
+      if (_waiters.isNotEmpty) {
+        _waiters.removeAt(0).complete();
+      } else if (_active > 0) {
+        _active--;
+      }
     }
+    unawaited(finish());
+  }
+}
+
+/// 动态列表与 compose 视频封面统一的播放按钮样式。
+class UcgVideoPlayOverlayIcon extends StatelessWidget {
+  const UcgVideoPlayOverlayIcon({super.key, this.size = 44});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      Icons.play_circle_filled_rounded,
+      color: UcgTheme.primary(context).withValues(alpha: 0.55),
+      size: size,
+    );
   }
 }
 
@@ -97,12 +129,15 @@ Future<void> showUcgVideoFullscreen(
   BuildContext context, {
   String? videoUrl,
   String? filePath,
+  String? contentUri,
+  Uint8List? posterBytes,
   Duration initialPosition = Duration.zero,
   bool autoPlay = true,
 }) {
   final hasUrl = videoUrl != null && videoUrl.isNotEmpty;
   final hasFile = filePath != null && filePath.isNotEmpty;
-  if (!hasUrl && !hasFile) return Future.value();
+  final hasUri = contentUri != null && contentUri.isNotEmpty;
+  if (!hasUrl && !hasFile && !hasUri) return Future.value();
 
   return Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
@@ -110,6 +145,8 @@ Future<void> showUcgVideoFullscreen(
       builder: (context) => _UcgVideoFullscreenPage(
         videoUrl: hasUrl ? videoUrl : null,
         filePath: hasFile ? filePath : null,
+        contentUri: hasUri ? contentUri : null,
+        posterBytes: posterBytes,
         initialPosition: initialPosition,
         autoPlay: autoPlay,
       ),
@@ -117,24 +154,60 @@ Future<void> showUcgVideoFullscreen(
   );
 }
 
+Future<Uint8List?> _loadAssetImagePreviewBytes(AssetEntity asset) async {
+  final file = await asset.loadFile(isOrigin: true) ?? await asset.file;
+  if (file != null) {
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.isNotEmpty) return bytes;
+    } catch (_) {}
+  }
+  try {
+    final bytes = await asset.originBytes;
+    if (bytes != null && bytes.isNotEmpty) return bytes;
+  } catch (_) {}
+  try {
+    return await asset.thumbnailDataWithSize(const ThumbnailSize.square(2048));
+  } catch (_) {}
+  return null;
+}
+
 /// Album asset fullscreen preview without changing selection.
 Future<void> showUcgAssetPreview(BuildContext context, AssetEntity asset) async {
   if (asset.type == AssetType.video) {
-    final file = await asset.file;
-    if (file == null || !context.mounted) return;
-    await showUcgVideoFullscreen(context, filePath: file.path);
+    final mediaUri = await asset.getMediaUrl();
+    final file = await asset.loadFile(isOrigin: true) ?? await asset.file;
+    var path = file?.path;
+    if (path == null || path.isEmpty) {
+      path = mediaUri;
+    }
+    if ((path == null || path.isEmpty) && (mediaUri == null || mediaUri.isEmpty)) {
+      return;
+    }
+    if (!context.mounted) return;
+    Uint8List? thumb;
+    try {
+      thumb = await asset.thumbnailDataWithSize(const ThumbnailSize.square(1080));
+    } catch (_) {}
+    await showUcgVideoFullscreen(
+      context,
+      filePath: path,
+      contentUri: mediaUri,
+      posterBytes: thumb,
+    );
     return;
   }
 
-  final file = await asset.file;
+  final bytes = await _loadAssetImagePreviewBytes(asset);
+  if (!context.mounted) return;
+  if (bytes != null && bytes.isNotEmpty) {
+    await showUcgLocalImageLightbox(context, bytes: bytes);
+    return;
+  }
+
+  final file = await asset.loadFile(isOrigin: true) ?? await asset.file;
   if (file != null && context.mounted) {
     await showUcgLocalImageLightbox(context, filePath: file.path);
-    return;
-  }
-
-  final bytes = await asset.thumbnailDataWithSize(const ThumbnailSize.square(1080));
-  if (bytes != null && context.mounted) {
-    await showUcgLocalImageLightbox(context, bytes: bytes);
   }
 }
 
@@ -202,6 +275,38 @@ class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
     with SingleTickerProviderStateMixin {
   final _controller = TransformationController();
   AnimationController? _resetAnim;
+  Uint8List? _loadedBytes;
+  var _loadingPath = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_hydratePathBytes());
+  }
+
+  @override
+  void didUpdateWidget(covariant _ResetZoomLocalImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.filePath != widget.filePath ||
+        oldWidget.bytes != widget.bytes ||
+        oldWidget.url != widget.url) {
+      _loadedBytes = null;
+      unawaited(_hydratePathBytes());
+    }
+  }
+
+  Future<void> _hydratePathBytes() async {
+    if (widget.bytes != null && widget.bytes!.isNotEmpty) return;
+    final path = widget.filePath;
+    if (path == null || path.isEmpty || kIsWeb) return;
+    if (mounted) setState(() => _loadingPath = true);
+    final bytes = await ucgReadLocalImageBytes(path);
+    if (!mounted) return;
+    setState(() {
+      _loadedBytes = bytes;
+      _loadingPath = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -230,9 +335,13 @@ class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
   }
 
   Widget _buildImage() {
-    final bytes = widget.bytes;
-    if (bytes != null && bytes.isNotEmpty) {
-      return Image.memory(bytes, fit: BoxFit.contain);
+    final preset = widget.bytes;
+    if (preset != null && preset.isNotEmpty) {
+      return Image.memory(preset, fit: BoxFit.contain);
+    }
+    final loaded = _loadedBytes;
+    if (loaded != null && loaded.isNotEmpty) {
+      return Image.memory(loaded, fit: BoxFit.contain);
     }
     final url = widget.url;
     if (url != null && url.isNotEmpty) {
@@ -241,6 +350,13 @@ class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
     final path = widget.filePath;
     if (!kIsWeb && path != null && path.isNotEmpty && File(path).existsSync()) {
       return Image.file(File(path), fit: BoxFit.contain);
+    }
+    if (_loadingPath) {
+      return const SizedBox(
+        width: 28,
+        height: 28,
+        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+      );
     }
     return Icon(Icons.broken_image_outlined, color: Colors.white.withValues(alpha: 0.5), size: 48);
   }
@@ -262,6 +378,7 @@ class UcgLocalVideoThumb extends StatefulWidget {
   const UcgLocalVideoThumb({
     super.key,
     this.filePath,
+    this.posterBytes,
     this.videoUrl,
     this.width,
     this.height,
@@ -270,6 +387,7 @@ class UcgLocalVideoThumb extends StatefulWidget {
   });
 
   final String? filePath;
+  final Uint8List? posterBytes;
   final String? videoUrl;
   final double? width;
   final double? height;
@@ -281,10 +399,10 @@ class UcgLocalVideoThumb extends StatefulWidget {
 }
 
 class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
-  VideoPlayerController? _controller;
+  Uint8List? _thumbBytes;
   var _ready = false;
   var _failed = false;
-  var _initializing = false;
+  var _loading = false;
   var _disposed = false;
 
   @override
@@ -296,7 +414,9 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
   @override
   void didUpdateWidget(covariant UcgLocalVideoThumb oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.filePath != widget.filePath || oldWidget.videoUrl != widget.videoUrl) {
+    if (oldWidget.filePath != widget.filePath ||
+        oldWidget.videoUrl != widget.videoUrl ||
+        oldWidget.posterBytes != widget.posterBytes) {
       unawaited(_reload());
     }
   }
@@ -311,46 +431,88 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
   }
 
   Future<void> _reload() async {
-    await _controller?.dispose();
-    _controller = null;
     if (mounted) {
       setState(() {
+        _thumbBytes = null;
         _ready = false;
         _failed = false;
+        _usePlayerPoster = false;
       });
     }
+    final c = _controller;
+    _controller = null;
+    if (c != null) unawaited(c.dispose());
     await _loadPoster();
   }
 
-  VideoPlayerController? _buildController() {
-    final path = widget.filePath;
-    if (path != null && path.isNotEmpty) {
-      if (kIsWeb && (path.startsWith('blob:') || path.startsWith('http'))) {
-        return VideoPlayerController.networkUrl(Uri.parse(path));
+  Future<void> _loadPoster() async {
+    if (_disposed || _loading || _ready) return;
+
+    final preset = widget.posterBytes;
+    if (preset != null && preset.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _thumbBytes = preset;
+          _ready = true;
+          _loading = false;
+        });
       }
-      if (!kIsWeb) return VideoPlayerController.file(File(path));
-      return null;
+      return;
     }
+
     final url = widget.videoUrl;
     if (url != null && url.isNotEmpty) {
-      return VideoPlayerController.networkUrl(Uri.parse(url));
+      await _loadPosterViaPlayer(url: url);
+      return;
     }
-    return null;
-  }
-
-  Future<void> _loadPoster() async {
-    if (_disposed || _initializing || _ready) return;
-    final controller = _buildController();
-    if (controller == null) {
+    final path = widget.filePath;
+    if (path == null || path.isEmpty) {
       if (mounted) setState(() => _failed = true);
       return;
     }
 
-    setState(() => _initializing = true);
+    if (mounted) setState(() => _loading = true);
+    final bytes = await ucgLoadVideoThumbnailBytes(path);
+    if (_disposed || !mounted) return;
+    if (bytes != null && bytes.isNotEmpty) {
+      setState(() {
+        _thumbBytes = bytes;
+        _ready = true;
+        _loading = false;
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  /// 仅网络视频在抽帧不可用时回退 ExoPlayer 首帧。
+  Future<void> _loadPosterViaPlayer({String? url}) async {
+    if (_disposed) return;
+    if (mounted) setState(() => _loading = true);
     await _UcgVideoInitLimiter.acquire();
     if (_disposed) {
       _UcgVideoInitLimiter.release();
-      await controller.dispose();
+      return;
+    }
+
+    VideoPlayerController? controller;
+    if (url != null && url.isNotEmpty) {
+      controller = await ucgCreateVideoPlayerController(videoUrl: url);
+    }
+    if (controller == null) {
+      _UcgVideoInitLimiter.release();
+      if (!_disposed && mounted) {
+        setState(() {
+          _failed = true;
+          _loading = false;
+        });
+      }
       return;
     }
 
@@ -365,14 +527,15 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
       setState(() {
         _controller = controller;
         _ready = true;
-        _initializing = false;
+        _loading = false;
+        _usePlayerPoster = true;
       });
     } catch (_) {
       await controller.dispose();
       if (!_disposed && mounted) {
         setState(() {
           _failed = true;
-          _initializing = false;
+          _loading = false;
         });
       }
     } finally {
@@ -380,12 +543,23 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
     }
   }
 
+  VideoPlayerController? _controller;
+  var _usePlayerPoster = false;
+
   @override
   Widget build(BuildContext context) {
     final w = widget.width;
     final h = widget.height;
     Widget child;
-    if (_ready && _controller != null) {
+    if (_ready && !_usePlayerPoster && _thumbBytes != null) {
+      child = Image.memory(
+        _thumbBytes!,
+        width: w,
+        height: h,
+        fit: widget.fit,
+        errorBuilder: (_, __, ___) => _videoPlaceholder(context),
+      );
+    } else if (_ready && _usePlayerPoster && _controller != null) {
       child = FittedBox(
         fit: widget.fit,
         clipBehavior: Clip.hardEdge,
@@ -395,7 +569,7 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
           child: IgnorePointer(child: VideoPlayer(_controller!)),
         ),
       );
-    } else if (_initializing) {
+    } else if (_loading) {
       child = Center(
         child: SizedBox(
           width: 24,
@@ -407,15 +581,7 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
         ),
       );
     } else {
-      child = ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Center(
-          child: Icon(
-            _failed ? Icons.videocam_off_outlined : Icons.videocam_rounded,
-            color: Theme.of(context).colorScheme.outline,
-          ),
-        ),
-      );
+      child = _videoPlaceholder(context);
     }
 
     if (widget.showPlayIcon) {
@@ -424,10 +590,8 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
         children: [
           child,
           Center(
-            child: Icon(
-              Icons.play_circle_fill,
-              color: Colors.white.withValues(alpha: 0.92),
-              size: (w != null && w < 64) ? 24 : 32,
+            child: UcgVideoPlayOverlayIcon(
+              size: (w != null && w < 64) ? 24 : (w != null && w < 120) ? 32 : 44,
             ),
           ),
         ],
@@ -438,6 +602,18 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
       return SizedBox(width: w, height: h, child: child);
     }
     return child;
+  }
+
+  Widget _videoPlaceholder(BuildContext context) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(
+          _failed ? Icons.videocam_off_outlined : Icons.videocam_rounded,
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      ),
+    );
   }
 }
 
@@ -1086,7 +1262,7 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
             ),
           )
         else if (showPlayIcon)
-          Icon(Icons.play_circle_filled_rounded, color: primary.withValues(alpha: 0.55), size: 44),
+          UcgVideoPlayOverlayIcon(),
       ],
     );
   }
@@ -1301,14 +1477,20 @@ class _UcgVideoFullscreenPage extends StatefulWidget {
   _UcgVideoFullscreenPage({
     this.videoUrl,
     this.filePath,
+    this.contentUri,
+    this.posterBytes,
     required this.initialPosition,
     required this.autoPlay,
   }) : assert(
-          (videoUrl != null && videoUrl.isNotEmpty) || (filePath != null && filePath.isNotEmpty),
+          (videoUrl != null && videoUrl.isNotEmpty) ||
+              (filePath != null && filePath.isNotEmpty) ||
+              (contentUri != null && contentUri.isNotEmpty),
         );
 
   final String? videoUrl;
   final String? filePath;
+  final String? contentUri;
+  final Uint8List? posterBytes;
   final Duration initialPosition;
   final bool autoPlay;
 
@@ -1328,6 +1510,14 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
   double _basePinchScale = 1.0;
   AnimationController? _pinchResetAnim;
 
+  var _nativeAttempt = 0;
+
+  bool get _useAndroidNative => ucgUseAndroidNativeLocalVideo(
+        videoUrl: widget.videoUrl,
+        filePath: widget.filePath,
+        contentUri: widget.contentUri,
+      );
+
   @override
   void initState() {
     super.initState();
@@ -1339,23 +1529,71 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
         DeviceOrientation.portraitUp,
       ]));
     }
-    unawaited(_init());
+    if (!_useAndroidNative) {
+      unawaited(_init());
+    }
   }
 
-  VideoPlayerController? _createVideoController() {
-    final path = widget.filePath;
-    if (path != null && path.isNotEmpty) {
-      if (kIsWeb && (path.startsWith('blob:') || path.startsWith('http'))) {
-        return VideoPlayerController.networkUrl(Uri.parse(path));
-      }
-      if (!kIsWeb) return VideoPlayerController.file(File(path));
-      return null;
+  Future<VideoPlayerController?> _loadLocalController({required bool forceTranscodeOnly}) async {
+    final path = widget.filePath ?? '';
+    if (path.isEmpty && (widget.contentUri?.isEmpty ?? true)) return null;
+    return ucgInitializeLocalVideoPlayer(
+      path,
+      contentUri: widget.contentUri,
+      forceTranscodeOnly: forceTranscodeOnly,
+    );
+  }
+
+  var _playbackGuardAttached = false;
+
+  void _detachPlaybackGuard() {
+    final c = _controller;
+    if (c != null && _playbackGuardAttached) {
+      c.removeListener(_onPlaybackUpdate);
+      _playbackGuardAttached = false;
     }
-    final url = widget.videoUrl;
-    if (url != null && url.isNotEmpty) {
-      return VideoPlayerController.networkUrl(Uri.parse(url));
-    }
-    return null;
+  }
+
+  void _attachPlaybackGuard(VideoPlayerController controller) {
+    _detachPlaybackGuard();
+    controller.addListener(_onPlaybackUpdate);
+    _playbackGuardAttached = true;
+  }
+
+  void _onPlaybackUpdate() {
+    final c = _controller;
+    if (c == null || !mounted || _failed || !c.value.hasError) return;
+    unawaited(_handleRuntimePlaybackError());
+  }
+
+  Future<void> _handleRuntimePlaybackError() async {
+    if (_disposed || !mounted || _failed) return;
+    final failed = _controller;
+    if (failed == null) return;
+    _detachPlaybackGuard();
+    _controller = null;
+    await failed.dispose();
+    if (!mounted || _disposed) return;
+    setState(() {
+      _ready = false;
+      _failed = true;
+    });
+  }
+
+  Future<bool> _startPlayback(VideoPlayerController controller) async {
+    await controller.seekTo(widget.initialPosition);
+    if (widget.autoPlay) await controller.play();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    return !controller.value.hasError;
+  }
+
+  void _markReady(VideoPlayerController controller) {
+    _attachPlaybackGuard(controller);
+    setState(() {
+      _controller = controller;
+      _ready = true;
+      _failed = false;
+    });
   }
 
   Future<void> _init() async {
@@ -1365,26 +1603,52 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
       return;
     }
 
-    final controller = _createVideoController();
+    VideoPlayerController? controller;
+    final url = widget.videoUrl;
+    if (url != null && url.isNotEmpty) {
+      controller = await ucgCreateVideoPlayerController(videoUrl: url);
+      if (controller != null) {
+        try {
+          await controller.initialize();
+        } catch (_) {
+          await controller.dispose();
+          controller = null;
+        }
+      }
+    } else {
+      controller = await _loadLocalController(forceTranscodeOnly: false);
+    }
+
     if (controller == null) {
       _UcgVideoInitLimiter.release();
       if (!_disposed && mounted) setState(() => _failed = true);
       return;
     }
+
     try {
-      await controller.initialize();
-      await controller.seekTo(widget.initialPosition);
-      if (widget.autoPlay) await controller.play();
+      final ok = await _startPlayback(controller);
+      if (!ok) throw StateError('playback');
       if (_disposed || !mounted) {
         await controller.dispose();
         return;
       }
-      setState(() {
-        _controller = controller;
-        _ready = true;
-      });
+      _markReady(controller);
     } catch (_) {
       await controller.dispose();
+      controller = await _loadLocalController(forceTranscodeOnly: true);
+      if (controller != null) {
+        try {
+          final ok = await _startPlayback(controller);
+          if (ok && !_disposed && mounted) {
+            _markReady(controller);
+            _UcgVideoInitLimiter.release();
+            return;
+          }
+          await controller.dispose();
+        } catch (_) {
+          await controller.dispose();
+        }
+      }
       if (!_disposed && mounted) setState(() => _failed = true);
     } finally {
       _UcgVideoInitLimiter.release();
@@ -1402,6 +1666,7 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
     _disposed = true;
     _hintTimer?.cancel();
     _pinchResetAnim?.dispose();
+    _detachPlaybackGuard();
     final c = _controller;
     _controller = null;
     unawaited(c?.dispose());
@@ -1477,7 +1742,18 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (_ready && _controller != null)
+            if (_useAndroidNative && !_failed)
+              Positioned.fill(
+                child: UcgAndroidLocalVideoView(
+                  key: ValueKey('native-${widget.contentUri}-${widget.filePath}-$_nativeAttempt'),
+                  filePath: widget.filePath,
+                  contentUri: widget.contentUri,
+                  onFailed: () {
+                    if (mounted) setState(() => _failed = true);
+                  },
+                ),
+              )
+            else if (_ready && _controller != null)
               Positioned.fill(
                 child: _UcgFullscreenDismissLayer(
                   onDismiss: _exit,
@@ -1500,13 +1776,82 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
               )
             else if (_failed)
               Center(
-                child: Text(
-                  kIsWeb ? 'Web 端暂无法播放该视频' : '视频加载失败',
-                  style: TextStyle(color: fg.withValues(alpha: 0.75)),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.posterBytes != null && widget.posterBytes!.isNotEmpty)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            widget.posterBytes!,
+                            height: 200,
+                            fit: BoxFit.contain,
+                          ),
+                        )
+                      else
+                        Icon(Icons.videocam_off_outlined, color: fg.withValues(alpha: 0.5), size: 48),
+                      const SizedBox(height: 16),
+                      Text(
+                        kIsWeb ? 'Web 端暂无法播放该视频' : '视频无法在本机预览',
+                        style: TextStyle(color: fg.withValues(alpha: 0.85), fontSize: 15),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '仍可正常选择并上传',
+                        style: TextStyle(color: fg.withValues(alpha: 0.55), fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+                      if (!kIsWeb && Platform.isAndroid)
+                        TextButton(
+                          onPressed: () {
+                            unawaited(
+                              ucgOpenSystemVideoPlayer(
+                                filePath: widget.filePath,
+                                contentUri: widget.contentUri,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            '用系统播放器打开',
+                            style: TextStyle(color: UcgTheme.primary(context)),
+                          ),
+                        ),
+                      if (!kIsWeb && Platform.isAndroid) const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _failed = false;
+                            _ready = false;
+                            _nativeAttempt++;
+                          });
+                          if (!_useAndroidNative) unawaited(_init());
+                        },
+                        child: Text('重试', style: TextStyle(color: UcgTheme.primary(context))),
+                      ),
+                    ],
+                  ),
                 ),
               )
             else
-              Center(child: CircularProgressIndicator(color: UcgTheme.primary(context))),
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: UcgTheme.primary(context)),
+                    if (!kIsWeb && Platform.isAndroid) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        _useAndroidNative ? '正在加载视频…' : '正在转码预览，请稍候…',
+                        style: TextStyle(color: fg.withValues(alpha: 0.65), fontSize: 13),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             if (_ready && _controller != null)
               IgnorePointer(
                 child: Center(

@@ -20,6 +20,7 @@ import '../config/recording_diagnostics_store.dart';
 import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
 import '../providers/voice_asr_ws_provider.dart';
+import '../ucg/providers/ucg_providers.dart';
 import '../data/event_branding.dart';
 import '../bootstrap/cold_start_background_sync.dart';
 import '../data/event_catalog_state.dart';
@@ -82,7 +83,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-const _kVoiceInputPanelHeight = 148.0;
+const _kVoiceInputPanelHeight = 200.0;
 const _kVoiceTextInputPanelHeight = 220.0;
 const _kVoiceOrbVisualSize = 132.0;
 const _kInputPanelAnimationDuration = Duration(milliseconds: 220);
@@ -855,6 +856,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       ref.read(feedRepositoryProvider).onAppLifecycleResumed();
+      ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
     }
   }
 
@@ -1455,8 +1457,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           alignment: inputAlign,
           child: _buildPrimaryHomeInput(context, catalogState),
         ),
-        if (_inputChannel == HomeInputChannel.voice ||
-            _inputChannel == HomeInputChannel.text)
+        if (_inputChannel == HomeInputChannel.text)
           const Positioned(
             top: 0,
             left: 0,
@@ -1700,7 +1701,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
 
     if (!_listening) {
-      return orbCore;
+      return _wrapVoiceOrbWithQuota(orbCore);
     }
 
     return ListenableBuilder(
@@ -1711,18 +1712,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           cancelled: _slideToCancel,
           maxBarHeight: 52,
         );
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            bars,
-            const SizedBox(width: 12),
-            orbCore,
-            const SizedBox(width: 12),
-            bars,
-          ],
+        return _wrapVoiceOrbWithQuota(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              bars,
+              const SizedBox(width: 12),
+              orbCore,
+              const SizedBox(width: 12),
+              bars,
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _wrapVoiceOrbWithQuota(Widget orb) {
+    return SizedBox(
+      height: _kVoiceInputPanelHeight,
+      child: Column(
+        children: [
+          Expanded(child: Center(child: orb)),
+          const AiQuotaRemainingHint(
+            feature: AiQuotaRemainingHintFeature.voiceAi,
+            padding: EdgeInsets.only(bottom: 8),
+            glassStyle: true,
+          ),
+        ],
+      ),
     );
   }
 }

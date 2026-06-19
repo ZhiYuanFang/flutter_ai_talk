@@ -257,12 +257,13 @@ class _HistoryMediaThumb extends StatelessWidget {
             ),
           ],
         );
-      case HistoryEditLocalFile(:final path, :final isVideo):
+      case HistoryEditLocalFile(:final path, :final isVideo, :final bytes):
         if (kIsWeb) {
           child = Icon(isVideo ? Icons.videocam : Icons.image, size: 32);
         } else if (isVideo) {
           child = UcgLocalVideoThumb(
             filePath: path,
+            posterBytes: bytes,
             width: size,
             height: size,
             fit: BoxFit.cover,

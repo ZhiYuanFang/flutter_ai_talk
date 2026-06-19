@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,10 +12,12 @@ class AiQuotaRemainingHint extends ConsumerWidget {
     super.key,
     required this.feature,
     this.padding = EdgeInsets.zero,
+    this.glassStyle = false,
   });
 
   final AiQuotaRemainingHintFeature feature;
   final EdgeInsetsGeometry padding;
+  final bool glassStyle;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -45,11 +49,33 @@ class AiQuotaRemainingHint extends ConsumerWidget {
       AiQuotaRemainingHintFeature.voiceAi => '本月 AI 对话剩余 ${snap.remaining} 次',
     };
     final color = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
+    final text = Text(
+      label,
+      style: TextStyle(fontSize: 12, height: 1.3, color: color),
+    );
+    if (!glassStyle) {
+      return Padding(padding: padding, child: text);
+    }
     return Padding(
       padding: padding,
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 12, height: 1.3, color: color),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: text,
+            ),
+          ),
+        ),
       ),
     );
   }

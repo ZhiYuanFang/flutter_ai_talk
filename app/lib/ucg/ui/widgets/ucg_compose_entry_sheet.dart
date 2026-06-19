@@ -8,6 +8,7 @@ import '../../data/ucg_media_picker.dart';
 import '../../data/ucg_repository.dart';
 import '../../../ui/widgets/app_glass_overlay.dart';
 import 'ucg_compose_light_glass_panel.dart';
+import '../../data/ucg_album_selection.dart';
 import '../ucg_album_picker_screen.dart';
 
 export '../../data/ucg_compose_initial_media.dart';
@@ -146,6 +147,7 @@ Future<UcgComposeInitialMedia?> ucgPickMoreImagesForCompose(
         repo: repo,
         maxPhotos: remainingSlots,
         deferUpload: true,
+        lockedPickKind: UcgAlbumLockedPickKind.photos,
       ),
     ),
   );

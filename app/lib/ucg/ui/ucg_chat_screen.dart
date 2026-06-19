@@ -152,16 +152,21 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
       _resolvedPeerAvatarThumbnailUrl ?? widget.conversation.peerAvatarThumbnailUrl;
 
   void _listenWs() {
-    ref.read(ucgRepositoryProvider).incomingMessages.listen((msg) {
+    final repo = ref.read(ucgRepositoryProvider);
+    repo.incomingMessages.listen((msg) {
       if (msg.conversationId != widget.conversation.id) return;
       if (!mounted) return;
-      setState(() => _messages.add(msg));
+      setState(() => _upsertMessage(msg));
       if (_followLatest) {
         _scheduleScrollToLatest();
       }
       if (!msg.isMine) {
         unawaited(_markAsRead(lastMsgId: msg.id));
       }
+    });
+    repo.auditFailedClientIds.listen((clientMsgId) {
+      if (!mounted) return;
+      setState(() => _markMessageByClientId(clientMsgId, UcgChatMessageStatus.failed));
     });
   }
 
@@ -279,24 +284,70 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
     super.dispose();
   }
 
+  String _newClientMsgId() => 'client-${DateTime.now().millisecondsSinceEpoch}';
+
+  void _upsertMessage(UcgChatMessage incoming) {
+    final clientKey = incoming.clientMsgId?.trim() ?? '';
+    if (clientKey.isNotEmpty) {
+      final i = _messages.indexWhere(
+        (m) => m.clientMsgId == clientKey || m.id == clientKey,
+      );
+      if (i >= 0) {
+        _messages[i] = incoming;
+        return;
+      }
+    }
+    if (incoming.id.isNotEmpty) {
+      final i = _messages.indexWhere((m) => m.id == incoming.id);
+      if (i >= 0) {
+        _messages[i] = incoming;
+        return;
+      }
+    }
+    _messages.add(incoming);
+  }
+
   UcgChatMessage _localPending({
-    required String id,
+    required String clientMsgId,
     String text = '',
     String? imageKey,
     String? videoKey,
     String? mediaCdnUrl,
   }) {
     return UcgChatMessage(
-      id: id,
+      id: clientMsgId,
       conversationId: widget.conversation.id,
       senderId: ref.read(ucgCurrentUserIdProvider) ?? '',
       text: text,
+      clientMsgId: clientMsgId,
       imageKey: imageKey,
       videoKey: videoKey,
       mediaCdnUrl: mediaCdnUrl,
       createdAt: DateTime.now(),
       status: UcgChatMessageStatus.pending,
       isMine: true,
+    );
+  }
+
+  void _markMessageByClientId(String clientMsgId, UcgChatMessageStatus status) {
+    final i = _messages.indexWhere(
+      (m) => m.clientMsgId == clientMsgId || m.id == clientMsgId,
+    );
+    if (i < 0) return;
+    final m = _messages[i];
+    _messages[i] = UcgChatMessage(
+      id: m.id,
+      conversationId: m.conversationId,
+      senderId: m.senderId,
+      text: m.text,
+      clientMsgId: m.clientMsgId,
+      imageKey: m.imageKey,
+      videoKey: m.videoKey,
+      mediaCdnUrl: m.mediaCdnUrl,
+      mediaThumbnailUrl: m.mediaThumbnailUrl,
+      createdAt: m.createdAt,
+      status: status,
+      isMine: m.isMine,
     );
   }
 
@@ -310,9 +361,11 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
         conversationId: m.conversationId,
         senderId: m.senderId,
         text: m.text,
+        clientMsgId: m.clientMsgId,
         imageKey: m.imageKey,
         videoKey: m.videoKey,
         mediaCdnUrl: m.mediaCdnUrl,
+        mediaThumbnailUrl: m.mediaThumbnailUrl,
         createdAt: m.createdAt,
         status: status,
         isMine: m.isMine,
@@ -327,7 +380,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
     if (text.isEmpty && pending == null) return;
 
     setState(() => _sending = true);
-    String? outboundId;
+    String? clientMsgId;
     try {
       if (pending != null) {
         await _ensurePendingUpload(pending);
@@ -340,7 +393,8 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
         }
       }
 
-      outboundId = 'local-${DateTime.now().millisecondsSinceEpoch}';
+      final msgId = _newClientMsgId();
+      clientMsgId = msgId;
       final imageKey = pending != null && !pending.isVideo ? pending.objectKey : null;
       final videoKey = pending != null && pending.isVideo ? pending.objectKey : null;
       final mediaCdnUrl = pending?.cdnUrl;
@@ -350,7 +404,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
         _pendingMedia = null;
         _followLatest = true;
         _messages.add(_localPending(
-          id: outboundId!,
+          clientMsgId: msgId,
           text: text,
           imageKey: imageKey,
           videoKey: videoKey,
@@ -360,16 +414,15 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
       _scheduleScrollToLatest();
       await ref.read(ucgRepositoryProvider).sendChatMessage(
             conversationId: widget.conversation.id,
+            clientMsgId: msgId,
             text: text,
             imageKey: imageKey,
             videoKey: videoKey,
           );
-      if (!mounted) return;
-      _markMessage(outboundId, UcgChatMessageStatus.delivered);
     } catch (_) {
       if (!mounted) return;
-      if (outboundId != null) {
-        _markMessage(outboundId, UcgChatMessageStatus.failed);
+      if (clientMsgId != null) {
+        _markMessage(clientMsgId, UcgChatMessageStatus.failed);
       }
     } finally {
       if (mounted) setState(() => _sending = false);

@@ -9,6 +9,7 @@ class UcgComposeInitialMedia {
     this.imageLocalBytes = const [],
     this.videoLocalPath,
     this.videoLocalBytes,
+    this.videoMediaUri,
     this.imageKeys = const [],
     this.videoKey,
   });
@@ -18,6 +19,7 @@ class UcgComposeInitialMedia {
   final List<Uint8List> imageLocalBytes;
   final String? videoLocalPath;
   final Uint8List? videoLocalBytes;
+  final String? videoMediaUri;
   final List<String> imageKeys;
   final String? videoKey;
 
@@ -35,14 +37,22 @@ class UcgComposeInitialMedia {
     if (items.isEmpty) return const UcgComposeInitialMedia();
     final video = items.whereType<HistoryEditLocalFile>().where((e) => e.isVideo).firstOrNull;
     if (video != null) {
-      return UcgComposeInitialMedia(videoLocalPath: video.path);
+      return UcgComposeInitialMedia(
+        videoLocalPath: video.path,
+        videoLocalBytes: video.bytes,
+        videoMediaUri: video.mediaUri,
+      );
     }
-    final paths = items
-        .whereType<HistoryEditLocalFile>()
-        .where((e) => !e.isVideo)
-        .map((e) => e.path)
+    final imageFiles =
+        items.whereType<HistoryEditLocalFile>().where((e) => !e.isVideo).toList(growable: false);
+    final paths = imageFiles.map((e) => e.path).toList(growable: false);
+    final bytesList = imageFiles
+        .map((e) => e.bytes ?? Uint8List(0))
         .toList(growable: false);
-    return UcgComposeInitialMedia(imageLocalPaths: paths);
+    return UcgComposeInitialMedia(
+      imageLocalPaths: paths,
+      imageLocalBytes: bytesList,
+    );
   }
 }
 

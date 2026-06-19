@@ -705,6 +705,7 @@ class UcgChatMessage {
     required this.conversationId,
     required this.senderId,
     required this.text,
+    this.clientMsgId,
     this.imageKey,
     this.videoKey,
     this.mediaCdnUrl,
@@ -718,6 +719,7 @@ class UcgChatMessage {
   final String conversationId;
   final String senderId;
   final String text;
+  final String? clientMsgId;
   final String? imageKey;
   final String? videoKey;
   final String? mediaCdnUrl;
@@ -757,6 +759,7 @@ class UcgChatMessage {
       conversationId: json['conversationId']?.toString() ?? '',
       senderId: senderId,
       text: json['content'] as String? ?? json['text'] as String? ?? '',
+      clientMsgId: json['clientMsgId']?.toString(),
       imageKey: json['imageKey'] as String?,
       videoKey: json['videoKey'] as String?,
       mediaCdnUrl: json['mediaCdnUrl'] as String?,

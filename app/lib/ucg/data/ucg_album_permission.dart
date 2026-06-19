@@ -7,12 +7,21 @@ Future<bool> ucgEnsureAlbumPermission() async {
   if (kIsWeb) return true;
 
   final state = await PhotoManager.requestPermissionExtend();
-  if (state.isAuth || state.hasAccess) return true;
+  if (state.isAuth || state.hasAccess) {
+    PhotoManager.setIgnorePermissionCheck(true);
+    return true;
+  }
 
-  if (state.isLimited) return true;
+  if (state.isLimited) {
+    PhotoManager.setIgnorePermissionCheck(true);
+    return true;
+  }
 
   final photos = await Permission.photos.request();
-  if (photos.isGranted || photos.isLimited) return true;
+  if (photos.isGranted || photos.isLimited) {
+    PhotoManager.setIgnorePermissionCheck(true);
+    return true;
+  }
 
   return false;
 }

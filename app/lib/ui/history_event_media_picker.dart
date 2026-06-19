@@ -2,10 +2,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'dart:typed_data';
 
 import '../data/history_edit_media_item.dart';
 import '../ucg/data/ucg_album_picker.dart';
 import '../ucg/data/ucg_repository.dart';
+import '../ucg/data/ucg_album_selection.dart';
 import '../ucg/ui/ucg_album_picker_screen.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
@@ -54,6 +56,8 @@ Future<List<HistoryEditMediaItem>?> pickHistoryEventMedia({
         repo: repo,
         maxPhotos: remaining,
         deferUpload: true,
+        lockedPickKind:
+            imageCount > 0 ? UcgAlbumLockedPickKind.photos : UcgAlbumLockedPickKind.none,
       ),
     ),
   );
@@ -162,16 +166,46 @@ Future<List<HistoryEditMediaItem>> historyMediaItemsFromAssets(List<AssetEntity>
   final first = assets.first;
   if (first.type == AssetType.video) {
     if (assets.length > 1) return const [];
-    final file = await first.file;
-    if (file == null) return const [];
-    return [HistoryEditLocalFile(path: file.path, isVideo: true)];
+    final mediaUri = await first.getMediaUrl();
+    final file = await first.loadFile(isOrigin: true) ?? await first.file;
+    var path = file?.path;
+    if (path == null || path.isEmpty) {
+      path = mediaUri;
+    }
+    if (path == null || path.isEmpty) return const [];
+    Uint8List? thumb;
+    try {
+      thumb = await first.thumbnailDataWithSize(const ThumbnailSize.square(1080));
+    } catch (_) {}
+    return [
+      HistoryEditLocalFile(
+        path: path,
+        isVideo: true,
+        bytes: thumb,
+        mediaUri: mediaUri,
+      ),
+    ];
   }
   final out = <HistoryEditMediaItem>[];
   for (final asset in assets) {
     if (asset.type != AssetType.image) continue;
-    final file = await asset.file;
+    final file = await asset.loadFile(isOrigin: false) ?? await asset.file;
     if (file == null) continue;
-    out.add(HistoryEditLocalFile(path: file.path, isVideo: false));
+    Uint8List? bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {}
+    if (bytes == null || bytes.isEmpty) {
+      try {
+        bytes = await asset.originBytes;
+      } catch (_) {}
+    }
+    if (bytes == null || bytes.isEmpty) {
+      try {
+        bytes = await asset.thumbnailDataWithSize(const ThumbnailSize.square(1080));
+      } catch (_) {}
+    }
+    out.add(HistoryEditLocalFile(path: file.path, isVideo: false, bytes: bytes));
   }
   return out;
 }

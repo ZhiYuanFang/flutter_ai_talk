@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:http/http.dart' as http;
-import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../config/env.dart';
+import '../../network/resilient_websocket_client.dart';
+import '../../network/ws_connection_config.dart';
 import '../../session/token_expiry.dart';
 import 'ucg_api_client.dart';
 import 'ucg_models.dart';
@@ -21,134 +21,129 @@ class UcgRepository {
     required UcgUserIdGetter userIdGetter,
     required String? Function() accessTokenGetter,
     required bool Function() isLoggedInGetter,
+    required Future<String?> Function() prepareAccessToken,
   })  : _api = api,
         _userIdGetter = userIdGetter,
         _accessTokenGetter = accessTokenGetter,
-        _isLoggedInGetter = isLoggedInGetter;
+        _isLoggedInGetter = isLoggedInGetter,
+        _prepareAccessToken = prepareAccessToken {
+    _wsClient = ResilientWebSocketClient(
+      WsConnectionConfig(
+        url: AppEnv.wsUcgChatUrlEffective,
+        channelLabel: 'ucg-chat',
+        shouldConnect: () async {
+          if (AppEnv.wsUcgChatUrlEffective.isEmpty) return false;
+          if (!_isLoggedInGetter()) return false;
+          final token = _accessTokenGetter();
+          if (token == null || token.isEmpty) return false;
+          return isUcgWxAccountBound(readJwtWxId(token));
+        },
+        prepareToken: () async {
+          final token = await _prepareAccessToken();
+          if (token == null || token.isEmpty) return null;
+          return WsConnectContext(accessToken: token);
+        },
+        buildAuthFrame: (ctx) => {'type': 'auth', 'token': ctx.accessToken},
+        onApplicationFrame: _onChatApplicationFrame,
+        log: (m) => debugPrint(m),
+      ),
+    );
+    _wsClient.readyStream.listen((ready) {
+      _wsConnected = ready;
+      if (!_wsReadyController.isClosed) _wsReadyController.add(ready);
+    });
+  }
 
   final UcgApiClient _api;
   final UcgUserIdGetter _userIdGetter;
   final String? Function() _accessTokenGetter;
   final bool Function() _isLoggedInGetter;
+  final Future<String?> Function() _prepareAccessToken;
 
   bool get _withAuthForPublicRead => _isLoggedInGetter();
 
-  WebSocketChannel? _ws;
-  StreamSubscription<dynamic>? _wsSub;
-  Timer? _reconnectTimer;
+  late final ResilientWebSocketClient _wsClient;
   var _wsConnected = false;
-  var _shouldStayConnected = false;
   final _messageController = StreamController<UcgChatMessage>.broadcast();
   final _wsReadyController = StreamController<bool>.broadcast();
   final _notificationController = StreamController<void>.broadcast();
+  final _messageAckController = StreamController<String>.broadcast();
+  final _auditFailedController = StreamController<String>.broadcast();
 
   Stream<UcgChatMessage> get incomingMessages => _messageController.stream;
   Stream<bool> get wsReadyStream => _wsReadyController.stream;
   Stream<void> get notificationEvents => _notificationController.stream;
+  Stream<String> get messageAckClientIds => _messageAckController.stream;
+  Stream<String> get auditFailedClientIds => _auditFailedController.stream;
   bool get isWsConnected => _wsConnected;
 
   void dispose() {
-    _shouldStayConnected = false;
-    _reconnectTimer?.cancel();
-    _wsSub?.cancel();
-    _ws?.sink.close();
+    _wsClient.dispose();
     _messageController.close();
     _wsReadyController.close();
     _notificationController.close();
+    _messageAckController.close();
+    _auditFailedController.close();
   }
 
-  void setWsConnectionDesired(bool desired) {
-    _shouldStayConnected = desired;
-    if (desired) {
-      unawaited(connectChatWs());
-    } else {
-      _tearDownWs();
-    }
-  }
+  void setWsConnectionDesired(bool desired) => _wsClient.setConnectionDesired(desired);
+
+  void onAppLifecycleResumed() => _wsClient.onAppLifecycleResumed();
 
   Future<void> connectChatWs() async {
-    final url = AppEnv.wsUcgChatUrlEffective;
-    final token = _accessTokenGetter();
-    if (url.isEmpty || token == null || token.isEmpty) return;
-    if (!isUcgWxAccountBound(readJwtWxId(token))) return;
-    if (_wsConnected) return;
+    _wsClient.setConnectionDesired(true);
+  }
 
-    _wsSub?.cancel();
-    _ws?.sink.close();
-
-    try {
-      _ws = WebSocketChannel.connect(Uri.parse(url));
-      _wsSub = _ws!.stream.listen(
-        _onWsMessage,
-        onError: (_) => _scheduleReconnect(),
-        onDone: () => _scheduleReconnect(),
-      );
-      _ws!.sink.add(jsonEncode({'type': 'auth', 'token': token}));
-    } catch (_) {
-      _scheduleReconnect();
+  void _onChatApplicationFrame(Map<String, dynamic> decoded) {
+    final type = (decoded['type'] as String? ?? '').toLowerCase();
+    if (type == 'message_ack') {
+      final clientMsgId = decoded['clientMsgId']?.toString() ?? '';
+      if (clientMsgId.isNotEmpty && !_messageAckController.isClosed) {
+        _messageAckController.add(clientMsgId);
+      }
+      return;
     }
-  }
-
-  void _onWsMessage(dynamic raw) {
-    try {
-      final decoded = jsonDecode(raw as String);
-      if (decoded is! Map<String, dynamic>) return;
-      final type = (decoded['type'] as String? ?? '').toLowerCase();
-      if (type == 'auth_ok' || type == 'authok') {
-        _wsConnected = true;
-        if (!_wsReadyController.isClosed) _wsReadyController.add(true);
-        return;
+    if (type == 'audit_failed') {
+      final clientMsgId = decoded['clientMsgId']?.toString() ?? '';
+      if (clientMsgId.isNotEmpty && !_auditFailedController.isClosed) {
+        _auditFailedController.add(clientMsgId);
       }
-      if (type == 'message_delivered') {
-        final payload = decoded['message'];
-        if (payload is Map<String, dynamic>) {
-          final convId = decoded['conversationId']?.toString() ?? payload['conversationId']?.toString();
-          final msg = UcgChatMessage.fromJson(
-            {
-              ...payload,
-              if (convId != null && convId.isNotEmpty) 'conversationId': convId,
-            },
-            currentUserId: _userIdGetter(),
-          );
-          if (!_messageController.isClosed) _messageController.add(msg);
-        }
-        return;
+      return;
+    }
+    if (type == 'message_delivered') {
+      final payload = decoded['message'];
+      if (payload is Map<String, dynamic>) {
+        final convId =
+            decoded['conversationId']?.toString() ?? payload['conversationId']?.toString();
+        final msg = UcgChatMessage.fromJson(
+          {
+            ...payload,
+            if (convId != null && convId.isNotEmpty) 'conversationId': convId,
+          },
+          currentUserId: _userIdGetter(),
+        );
+        if (!_messageController.isClosed) _messageController.add(msg);
       }
-      if (type == 'message' || type == 'chat_message') {
-        final payload = decoded['data'] ?? decoded['message'] ?? decoded;
-        if (payload is Map<String, dynamic>) {
-          final msg = UcgChatMessage.fromJson(payload, currentUserId: _userIdGetter());
-          if (!_messageController.isClosed) _messageController.add(msg);
-        }
-        return;
+      return;
+    }
+    if (type == 'message' || type == 'chat_message') {
+      final payload = decoded['data'] ?? decoded['message'] ?? decoded;
+      if (payload is Map<String, dynamic>) {
+        final msg = UcgChatMessage.fromJson(payload, currentUserId: _userIdGetter());
+        if (!_messageController.isClosed) _messageController.add(msg);
       }
-      if (type == 'comment_notification') {
-        if (!_notificationController.isClosed) _notificationController.add(null);
-      }
-    } catch (_) {}
-  }
-
-  void _tearDownWs() {
-    _wsConnected = false;
-    if (!_wsReadyController.isClosed) _wsReadyController.add(false);
-    _wsSub?.cancel();
-    _wsSub = null;
-    _ws?.sink.close();
-    _ws = null;
-  }
-
-  void _scheduleReconnect() {
-    _tearDownWs();
-    if (!_shouldStayConnected) return;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      unawaited(connectChatWs());
-    });
+      return;
+    }
+    if (type == 'comment_notification') {
+      if (!_notificationController.isClosed) _notificationController.add(null);
+    }
   }
 
   Future<void> sendChatWs(Map<String, dynamic> payload) async {
-    if (_ws == null) await connectChatWs();
-    _ws?.sink.add(jsonEncode(payload));
+    if (!_wsClient.isReady) {
+      _wsClient.setConnectionDesired(true);
+    }
+    _wsClient.sendJson(payload);
   }
 
   Future<UcgProfile?> fetchMyProfile() async {
@@ -679,12 +674,14 @@ class UcgRepository {
   }) async {
     await sendChatMessage(
       conversationId: conversationId,
+      clientMsgId: 'client-${DateTime.now().millisecondsSinceEpoch}',
       text: text,
     );
   }
 
   Future<void> sendChatMessage({
     required String conversationId,
+    required String clientMsgId,
     String text = '',
     String? imageKey,
     String? videoKey,
@@ -696,7 +693,7 @@ class UcgRepository {
       'content': text,
       if (imageKey != null && imageKey.isNotEmpty) 'imageKey': imageKey,
       if (videoKey != null && videoKey.isNotEmpty) 'videoKey': videoKey,
-      'clientMsgId': 'client-${DateTime.now().millisecondsSinceEpoch}',
+      'clientMsgId': clientMsgId,
     });
   }
 

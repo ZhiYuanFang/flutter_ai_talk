@@ -661,6 +661,7 @@ class UcgPageComposerChrome extends StatelessWidget {
       8,
     ),
     this.applyKeyboardInset = true,
+    this.beforeEmojiToggle,
   });
 
   final TextEditingController controller;
@@ -673,6 +674,8 @@ class UcgPageComposerChrome extends StatelessWidget {
   final bool busy;
   final EdgeInsets padding;
   final bool applyKeyboardInset;
+  /// 点击表情图标前调用（用于无 binding 时先 attach）。
+  final VoidCallback? beforeEmojiToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -710,7 +713,12 @@ class UcgPageComposerChrome extends StatelessWidget {
                   _UcgComposerIconButton(
                     tooltip: showKeyboardIcon ? '键盘' : '表情',
                     onPressed: fieldEnabled
-                        ? () => bridge.onAccessoryIconPressed(rawKeyboardBottom)
+                        ? () {
+                            if (!showKeyboardIcon) {
+                              beforeEmojiToggle?.call();
+                            }
+                            bridge.onAccessoryIconPressed(rawKeyboardBottom);
+                          }
                         : null,
                     icon: showKeyboardIcon ? Icons.keyboard_rounded : Icons.emoji_emotions_outlined,
                     color: fg.withValues(alpha: 0.55),
@@ -886,6 +894,34 @@ class UcgInputDock extends StatefulWidget {
 }
 
 class _UcgInputDockState extends State<UcgInputDock> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _beforeEmojiToggle() {
+    final bridge = keyboardInputBridgeController;
+    if (bridge.binding?.controller == widget.controller) return;
+    // attach 即可；勿 requestFocus——否则会先弹系统键盘而非 emoji 面板。
+    bridge.attach(
+      controller: widget.controller,
+      focusNode: _focusNode,
+      onConfirm: widget.onSend,
+      scene: 'ucg.chat',
+      hint: widget.hintText,
+      textInputAction: TextInputAction.send,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
@@ -897,6 +933,7 @@ class _UcgInputDockState extends State<UcgInputDock> {
       enabled: widget.enabled,
       busy: widget.busy,
       onConfirm: widget.onSend,
+      beforeEmojiToggle: _beforeEmojiToggle,
       leading: widget.onAttach != null
           ? _UcgComposerIconButton(
               tooltip: '添加图片或视频',
@@ -907,6 +944,7 @@ class _UcgInputDockState extends State<UcgInputDock> {
           : null,
       field: ManagedKeyboardTextField(
         controller: widget.controller,
+        focusNode: _focusNode,
         hint: widget.hintText,
         scene: 'ucg.chat',
         enabled: fieldEnabled,

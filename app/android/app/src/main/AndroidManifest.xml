@@ -29,6 +29,10 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="vivomarket" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
         <package android:name="com.android.vending" />
         <package android:name="com.huawei.appmarket" />
         <package android:name="com.xiaomi.market" />

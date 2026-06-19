@@ -1,22 +1,25 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../theme/app_theme_scope.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../../theme/app_theme_scope.dart';
+import '../providers/ucg_providers.dart';
 import '../theme/ucg_theme.dart';
 
 /// 喂养页右侧「进入广场」可展开拉条。
-class UcgEnterSquareTab extends StatefulWidget {
+class UcgEnterSquareTab extends ConsumerStatefulWidget {
   const UcgEnterSquareTab({super.key, required this.onTap});
 
   final VoidCallback onTap;
 
   @override
-  State<UcgEnterSquareTab> createState() => _UcgEnterSquareTabState();
+  ConsumerState<UcgEnterSquareTab> createState() => _UcgEnterSquareTabState();
 }
 
-class _UcgEnterSquareTabState extends State<UcgEnterSquareTab> with SingleTickerProviderStateMixin {
+class _UcgEnterSquareTabState extends ConsumerState<UcgEnterSquareTab>
+    with SingleTickerProviderStateMixin {
   static const _collapsedWidth = 20.0;
   static const _expandedWidth = 96.0;
 
@@ -36,10 +39,13 @@ class _UcgEnterSquareTabState extends State<UcgEnterSquareTab> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
+    // 确保登录后未进广场也会初始化 UCG repo 与未读同步。
+    ref.watch(ucgRepositoryProvider);
     final scheme = Theme.of(context).colorScheme;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final primary = scheme.primary;
     final border = tokens?.surfaceBorderColor ?? UcgTheme.surfaceBorder(context);
+    final showUnread = ref.watch(ucgUnreadCountProvider) > 0;
 
     return Positioned(
       right: 0,
@@ -82,7 +88,26 @@ class _UcgEnterSquareTabState extends State<UcgEnterSquareTab> with SingleTicker
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.auto_awesome_rounded, size: 16, color: primary),
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(Icons.auto_awesome_rounded, size: 16, color: primary),
+                              if (showUnread)
+                                Positioned(
+                                  left: -2,
+                                  top: -2,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: scheme.error,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: scheme.surface, width: 1),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                           if (expanded) ...[
                             const SizedBox(height: 8),
                             RotatedBox(

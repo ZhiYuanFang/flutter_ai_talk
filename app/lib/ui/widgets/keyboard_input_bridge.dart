@@ -416,6 +416,10 @@ class KeyboardInputBridgeController extends ChangeNotifier {
 
   /// 键盘 pending 过渡期间，忽略外部点击 dismiss（配合 pointerDown 追踪）。
   bool shouldSuppressOutsideDismissFor(double rawKeyboardBottom) {
+    final binding = _binding;
+    if (binding != null && !binding.overlayConfig.showEmoji && _target == InputTarget.emoji) {
+      return false;
+    }
     if (_target == InputTarget.emoji) return true;
     return bottomSurface(rawKeyboardBottom) == BottomSurface.keyboardPending;
   }
@@ -503,24 +507,23 @@ class KeyboardInputBridgeController extends ChangeNotifier {
       if (bottomSurface(raw) == BottomSurface.emojiPanel) return;
     }
     _target = InputTarget.emoji;
+    final inlineComposer = !binding.overlayConfig.anyEnabled;
+    if (inlineComposer && binding.focusNode.hasFocus) {
+      binding.focusNode.unfocus();
+    }
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
     notifyListeners();
-    _scheduleLiftAfterModeChange(binding);
-    // 页面内 composer：收起键盘后保持 focus，避免 dismiss/detach 导致 emoji 面板不出现。
-    if (!binding.overlayConfig.anyEnabled) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_binding?.focusNode != binding.focusNode) return;
-        if (!binding.focusNode.hasFocus) {
-          binding.focusNode.requestFocus();
-        }
-        notifyListeners();
-      });
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_binding == null || _target != InputTarget.emoji) return;
-        notifyListeners();
-      });
+    if (!inlineComposer) {
+      _scheduleLiftAfterModeChange(binding);
     }
+    // 页面内 composer（如 ucg.chat）：不得 requestFocus，否则 Android 会弹 IME 并与 hide 打架。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_binding == null || _target != InputTarget.emoji) return;
+      if (inlineComposer) {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+      }
+      notifyListeners();
+    });
   }
 
   void requestKeyboard() {

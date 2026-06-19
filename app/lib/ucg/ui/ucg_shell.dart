@@ -53,7 +53,6 @@ class _UcgShellState extends ConsumerState<UcgShell> {
   @override
   void dispose() {
     _notifSub?.cancel();
-    _repo?.setWsConnectionDesired(false);
     super.dispose();
   }
 
@@ -62,11 +61,10 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     if (!isUcgWxAccountBound(wxId)) return;
     _repo = ref.read(ucgRepositoryProvider);
     final repo = _repo!;
-    repo.setWsConnectionDesired(true);
     _notifSub?.cancel();
     _notifSub = repo.notificationEvents.listen((_) {
       bumpUcgNotificationsRefresh(ref);
-      _syncShellUnreadBadge();
+      unawaited(_syncShellUnreadBadge());
     });
     unawaited(_syncShellUnreadBadge());
   }

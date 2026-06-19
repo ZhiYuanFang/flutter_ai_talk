@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -59,6 +60,18 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   var _publishing = false;
   var _polishing = false;
   var _draggingImage = false;
+  final _slotsRevision = ValueNotifier(0);
+
+  void _notifySlotsChanged() => _slotsRevision.value++;
+
+  Future<void> _hydrateSlotPreview(UcgComposeMediaSlot slot) async {
+    final path = slot.localPath;
+    if (path == null || path.isEmpty) return;
+    final bytes = await ucgReadLocalImageBytes(path);
+    if (!mounted || bytes == null || bytes.isEmpty) return;
+    slot.localBytes = bytes;
+    _notifySlotsChanged();
+  }
 
   bool get _hasVideo => _videoSlot != null && !_videoSlot!.removed;
 
@@ -71,6 +84,9 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   bool get _canAddImages =>
       !widget.textOnly && !_hasVideo && _imageSlots.length < maxImages;
+
+  /// 新发视频帖选定后不可移除（须退出重选）。
+  bool get _canRemoveVideo => widget.editingPost != null && _hasVideo;
 
   bool get _showImageGrid => _imageSlots.isNotEmpty || _canAddImages;
 
@@ -105,28 +121,43 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     } else {
       final initial = widget.initialMedia;
       if (initial != null && !initial.isEmpty) {
-        _applyInitialMedia(initial);
+        unawaited(_applyInitialMedia(initial));
       } else {
         unawaited(_restoreDraft());
       }
     }
   }
 
-  void _applyInitialMedia(UcgComposeInitialMedia initial) {
+  Future<void> _applyInitialMedia(UcgComposeInitialMedia initial) async {
     for (var i = 0; i < initial.imageLocalPaths.length; i++) {
       if (_imageSlots.length >= maxImages) break;
-      final bytes = i < initial.imageLocalBytes.length ? initial.imageLocalBytes[i] : null;
-      _addLocalSlot(
-        path: initial.imageLocalPaths[i],
+      var bytes = i < initial.imageLocalBytes.length ? initial.imageLocalBytes[i] : null;
+      if (bytes != null && bytes.isEmpty) bytes = null;
+      final path = initial.imageLocalPaths[i];
+      bytes ??= await ucgReadLocalImageBytes(path);
+      if (!mounted) return;
+      final slot = _addLocalSlot(
+        path: path,
         isVideo: false,
         bytes: bytes,
       );
+      if ((bytes == null || bytes.isEmpty) && !kIsWeb) {
+        unawaited(_hydrateSlotPreview(slot));
+      }
+      _notifySlotsChanged();
     }
     if (initial.videoLocalPath != null && initial.videoLocalPath!.isNotEmpty) {
+      if (_imageSlots.isNotEmpty) {
+        _toast('已选择图片，不能再添加视频');
+        if (mounted) _notifySlotsChanged();
+        return;
+      }
+      if (!mounted) return;
       _addLocalSlot(
         path: initial.videoLocalPath!,
         isVideo: true,
         bytes: initial.videoLocalBytes,
+        mediaUri: initial.videoMediaUri,
       );
     }
     for (final key in initial.imageKeys) {
@@ -138,18 +169,21 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       _videoSlot = UcgComposeMediaSlot.remoteVideo(objectKey: initial.videoKey!);
       _sessionUploadedKeys.add(initial.videoKey!);
     }
+    if (mounted) _notifySlotsChanged();
   }
 
   UcgComposeMediaSlot _addLocalSlot({
     required String path,
     required bool isVideo,
     Uint8List? bytes,
+    String? mediaUri,
   }) {
     final slot = UcgComposeMediaSlot.localFile(
       id: nextComposeSlotId(),
       path: path,
       isVideo: isVideo,
       bytes: bytes,
+      mediaUri: mediaUri,
     );
     if (isVideo) {
       _videoSlot = slot;
@@ -169,7 +203,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         if (slot.isDone && slot.objectKey != null) {
           _sessionUploadedKeys.add(slot.objectKey!);
         }
-        setState(() {});
+        _notifySlotsChanged();
       },
     );
   }
@@ -200,7 +234,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       imageSlots: _imageSlots,
       videoSlot: _videoSlot,
       onUpdated: () {
-        if (mounted) setState(() {});
+        if (mounted) _notifySlotsChanged();
       },
     );
     await ref.read(ucgComposeDraftStoreProvider).save(
@@ -301,7 +335,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         remainingSlots: remaining,
       );
       if (!mounted || initial == null || initial.isEmpty) return;
-      setState(() => _applyInitialMedia(initial));
+      await _applyInitialMedia(initial);
     } catch (_) {
       _toast('选择图片失败');
     }
@@ -421,6 +455,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   @override
   void dispose() {
+    _slotsRevision.dispose();
     _text.dispose();
     super.dispose();
   }
@@ -524,14 +559,17 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                               ),
                               if (_showImageGrid) ...[
                                 const SizedBox(height: 12),
-                                UcgComposeImageGrid(
-                                  cells: _gridCells,
-                                  busy: _publishing || _polishing,
-                                  canAddMore: _canAddImages,
-                                  onAddTap: () => unawaited(_pickImages()),
-                                  onReorder: _reorderImages,
-                                  onDragStarted: (_) => setState(() => _draggingImage = true),
-                                  onDragEnded: () => setState(() => _draggingImage = false),
+                                ValueListenableBuilder<int>(
+                                  valueListenable: _slotsRevision,
+                                  builder: (context, _, __) => UcgComposeImageGrid(
+                                    cells: _gridCells,
+                                    busy: _publishing || _polishing,
+                                    canAddMore: _canAddImages,
+                                    onAddTap: () => unawaited(_pickImages()),
+                                    onReorder: _reorderImages,
+                                    onDragStarted: (_) => setState(() => _draggingImage = true),
+                                    onDragEnded: () => setState(() => _draggingImage = false),
+                                  ),
                                 ),
                               ],
                               if (_hasVideo && videoSlot != null) ...[
@@ -549,22 +587,23 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                         ),
                                       ),
                                     ),
-                                    Positioned(
-                                      top: 6,
-                                      right: 6,
-                                      child: Material(
-                                        color: Colors.black.withValues(alpha: 0.55),
-                                        shape: const CircleBorder(),
-                                        clipBehavior: Clip.antiAlias,
-                                        child: IconButton(
-                                          visualDensity: VisualDensity.compact,
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                          onPressed: _busy ? null : () => unawaited(_removeVideo()),
-                                          icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                    if (_canRemoveVideo)
+                                      Positioned(
+                                        top: 6,
+                                        right: 6,
+                                        child: Material(
+                                          color: Colors.black.withValues(alpha: 0.55),
+                                          shape: const CircleBorder(),
+                                          clipBehavior: Clip.antiAlias,
+                                          child: IconButton(
+                                            visualDensity: VisualDensity.compact,
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                            onPressed: _busy ? null : () => unawaited(_removeVideo()),
+                                            icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                          ),
                                         ),
                                       ),
-                                    ),
                                   ],
                                 ),
                               ],
@@ -636,14 +675,9 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
             localBytes: slot.localBytes,
             fit: BoxFit.cover,
             isVideo: true,
+            showPlayIcon: false,
           ),
-          Center(
-            child: Icon(
-              Icons.play_circle_fill,
-              color: Colors.white.withValues(alpha: 0.92),
-              size: 48,
-            ),
-          ),
+          const Center(child: UcgVideoPlayOverlayIcon()),
         ],
       );
     }
@@ -653,13 +687,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         fit: StackFit.expand,
         children: [
           UcgNetworkImage(url: url, fit: BoxFit.cover),
-          Center(
-            child: Icon(
-              Icons.play_circle_fill,
-              color: Colors.white.withValues(alpha: 0.92),
-              size: 48,
-            ),
-          ),
+          const Center(child: UcgVideoPlayOverlayIcon()),
         ],
       );
     }
@@ -672,17 +700,27 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   }
 
   Future<void> _openVideoPreview(UcgComposeMediaSlot slot) async {
+    final path = slot.localPath;
+    final mediaUri = slot.mediaUri;
+    final hasLocalSource = (path != null && path.isNotEmpty) ||
+        (mediaUri != null && mediaUri.isNotEmpty);
+    if (hasLocalSource) {
+      if (!context.mounted) return;
+      await showUcgVideoFullscreen(
+        context,
+        filePath: path,
+        contentUri: mediaUri,
+        posterBytes: slot.localBytes,
+      );
+      return;
+    }
     final key = slot.objectKey;
     if (key != null && key.isNotEmpty) {
+      if (!context.mounted) return;
       await showUcgVideoFullscreen(
         context,
         videoUrl: UcgMediaUrl.resolveUrl(objectKey: key, cdnUrl: slot.cdnUrl),
       );
-      return;
-    }
-    final path = slot.localPath;
-    if (path != null && path.isNotEmpty) {
-      await showUcgVideoFullscreen(context, filePath: path);
     }
   }
 }

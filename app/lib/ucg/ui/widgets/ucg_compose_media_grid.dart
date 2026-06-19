@@ -426,7 +426,7 @@ class _ImageTile extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(_kCellRadius),
         child: UcgComposeMediaPreview(
-          key: ValueKey('preview-${cell.id}-${cell.objectKey ?? cell.localPath}'),
+          key: ValueKey('preview-${cell.id}'),
           localPath: cell.localPath,
           localBytes: cell.localBytes,
           objectKey: cell.objectKey,

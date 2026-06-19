@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../config/event_media_local_store.dart';
 import '../ucg/data/ucg_media_url.dart';
@@ -17,9 +18,17 @@ sealed class HistoryEditMediaItem {
 }
 
 class HistoryEditLocalFile extends HistoryEditMediaItem {
-  const HistoryEditLocalFile({required this.path, required this.isVideo});
+  const HistoryEditLocalFile({
+    required this.path,
+    required this.isVideo,
+    this.bytes,
+    this.mediaUri,
+  });
 
   final String path;
+  final Uint8List? bytes;
+  /// Android 相册 `content://` 播放 URI（与 [path] 沙箱副本配合预览）。
+  final String? mediaUri;
   @override
   final bool isVideo;
 }

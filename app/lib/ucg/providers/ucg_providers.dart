@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/authorized_api_client_provider.dart';
@@ -30,8 +32,65 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
     userIdGetter: () => ref.read(ucgCurrentUserIdProvider),
     accessTokenGetter: () => ref.read(sessionProvider).accessToken,
     isLoggedInGetter: () => ref.read(sessionProvider).isLoggedIn,
+    prepareAccessToken: () async {
+      final session = ref.read(sessionProvider);
+      if (!session.isLoggedIn) return null;
+      final ok = await session.ensureFreshSession();
+      if (!ok) return null;
+      return ref.read(sessionProvider).accessToken;
+    },
   );
   ref.onDispose(repo.dispose);
+
+  void syncUcgWsDesired() {
+    final loggedIn = ref.read(sessionProvider).isLoggedIn;
+    final wxId = ref.read(ucgCurrentUserIdProvider);
+    if (loggedIn && isUcgWxAccountBound(wxId)) {
+      repo.setWsConnectionDesired(true);
+    } else {
+      repo.setWsConnectionDesired(false);
+    }
+  }
+
+  Future<void> syncUnreadFromWs() async {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+    try {
+      final notifPage = await repo.fetchCommentNotifications(page: 1);
+      final convPage = await repo.fetchConversations(page: 1);
+      final chatUnread = convPage.items.fold<int>(0, (s, c) => s + c.unreadCount);
+      ref.read(ucgUnreadCountProvider.notifier).state =
+          chatUnread + notifPage.unreadCount;
+    } catch (_) {}
+  }
+
+  ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
+    syncUcgWsDesired();
+    if (loggedIn) {
+      unawaited(syncUnreadFromWs());
+    } else {
+      ref.read(ucgUnreadCountProvider.notifier).state = 0;
+    }
+  });
+  ref.listen<String?>(ucgCurrentUserIdProvider, (_, __) {
+    syncUcgWsDesired();
+    unawaited(syncUnreadFromWs());
+  });
+  syncUcgWsDesired();
+  unawaited(syncUnreadFromWs());
+
+  final notifSub = repo.notificationEvents.listen((_) {
+    ref.read(ucgNotificationsChangedProvider.notifier).state++;
+    unawaited(syncUnreadFromWs());
+  });
+  final msgSub = repo.incomingMessages.listen((_) {
+    unawaited(syncUnreadFromWs());
+  });
+  ref.onDispose(() {
+    notifSub.cancel();
+    msgSub.cancel();
+  });
+
   return repo;
 });
 

@@ -9,12 +9,14 @@ import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val installerChannel = "com.fzy.pangbao/installer"
     private val nativeSplashChannel = "com.fzy.pangbao/native_splash"
+    private val localVideoChannel = "com.fzy.pangbao/local_video"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -24,6 +26,47 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "$localVideoChannel/events")
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    UcgLocalVideoEvents.sink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    UcgLocalVideoEvents.sink = null
+                }
+            })
+        flutterEngine
+            .platformViewsController
+            .registry
+            .registerViewFactory(
+                "ucg-local-video",
+                UcgLocalVideoViewFactory(),
+            )
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, localVideoChannel).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "openSystemPlayer" -> {
+                    val filePath = call.argument<String>("filePath")
+                    val contentUri = call.argument<String>("contentUri")
+                    val uri = resolveVideoUri(filePath, contentUri)
+                    if (uri == null) {
+                        result.error("invalid_source", "missing video source", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "video/*")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(intent)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("open_failed", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, nativeSplashChannel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "hide" -> {
@@ -84,9 +127,25 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
+
+    private fun resolveVideoUri(filePath: String?, contentUri: String?): Uri? {
+        if (!contentUri.isNullOrEmpty()) return Uri.parse(contentUri)
+        if (filePath.isNullOrEmpty()) return null
+        if (filePath.startsWith("content://") || filePath.startsWith("file://")) {
+            return Uri.parse(filePath)
+        }
+        val file = File(filePath)
+        if (!file.exists()) return null
+        return FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+    }
 }
 
 private object KeepNativeSplash {
     @Volatile
     var visible: Boolean = true
+}
+
+object UcgLocalVideoEvents {
+    @Volatile
+    var sink: EventChannel.EventSink? = null
 }
