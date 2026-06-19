@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/history_line_format.dart';
 import '../../providers/session_provider.dart';
 import '../../ui/widgets/keyboard_input_bridge.dart';
 import '../../theme/app_visual_tokens.dart';
@@ -852,6 +853,33 @@ class _ChatBubble extends StatelessWidget {
 
   bool _isPureMedia(UcgChatMessage m) => m.text.trim().isEmpty && _hasMedia(m);
 
+  String? _chatTimeLabel(UcgChatMessage m) {
+    if (historyInstantUnset(m.createdAt)) return null;
+    return formatHistoryInstant(m.createdAt.toLocal(), DateTime.now());
+  }
+
+  Widget _wrapWithTime(Widget body, double maxWidth, bool isMine) {
+    final label = _chatTimeLabel(message);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Column(
+        crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          body,
+          if (label != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 10, color: fg.withValues(alpha: 0.45)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _mediaSection(UcgChatMessage m) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -931,67 +959,54 @@ class _ChatBubble extends StatelessWidget {
         ? Theme.of(context).colorScheme.error
         : primary.withValues(alpha: 0.65);
 
+    final Widget body;
     if (_isPureMedia(m)) {
-      return ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Flexible(child: _mediaSection(m)),
-            if (m.isMine) ...[
-              const SizedBox(width: 6),
-              Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
-            ],
-          ],
-        ),
-      );
-    }
-
-    if (_hasMedia(m) && m.text.trim().isNotEmpty) {
-      return ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Column(
-          crossAxisAlignment: m.isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _mediaSection(m),
-            const SizedBox(height: 4),
-            m.isMine
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Flexible(child: _textBubble(context, m)),
-                      const SizedBox(width: 6),
-                      Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
-                    ],
-                  )
-                : _textBubble(context, m),
-          ],
-        ),
-      );
-    }
-
-    if (m.isMine) {
-      return ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Flexible(child: _textBubble(context, m)),
+      body = Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Flexible(child: _mediaSection(m)),
+          if (m.isMine) ...[
             const SizedBox(width: 6),
             Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
           ],
-        ),
+        ],
       );
+    } else if (_hasMedia(m) && m.text.trim().isNotEmpty) {
+      body = Column(
+        crossAxisAlignment: m.isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _mediaSection(m),
+          const SizedBox(height: 4),
+          m.isMine
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Flexible(child: _textBubble(context, m)),
+                    const SizedBox(width: 6),
+                    Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
+                  ],
+                )
+              : _textBubble(context, m),
+        ],
+      );
+    } else if (m.isMine) {
+      body = Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Flexible(child: _textBubble(context, m)),
+          const SizedBox(width: 6),
+          Icon(statusIcon, size: 14, color: statusColor.withValues(alpha: 0.9)),
+        ],
+      );
+    } else {
+      body = _textBubble(context, m);
     }
 
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: _textBubble(context, m),
-    );
+    return _wrapWithTime(body, maxWidth, m.isMine);
   }
 }
 
