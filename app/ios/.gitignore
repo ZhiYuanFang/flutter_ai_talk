@@ -27,6 +27,10 @@ Flutter/flutter_export_environment.sh
 ServiceDefinitions.json
 Runner/GeneratedPluginRegistrant.*
 
+# WeChat OpenSDK vendor download artifacts (xcframework itself is committed).
+Vendor/OpenSDK*.zip
+Vendor/_extract/
+
 # Exceptions to above rules.
 !default.mode1v3
 !default.mode2v3

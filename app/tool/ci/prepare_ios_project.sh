@@ -3,6 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
+bash tool/ci/vendor_wechat_opensdk.sh
+
 python3 <<'PY'
 from pathlib import Path
 import os
@@ -223,6 +225,9 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
+  # Local vendored WeChat OpenSDK (fluwx); avoids CocoaPods downloading from dldir1.qq.com.
+  pod 'WechatOpenSDK-XCFramework', :path => 'Vendor/WechatOpenSDK-XCFramework'
+
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
@@ -269,6 +274,15 @@ if 'IPHONEOS_DEPLOYMENT_TARGET' not in text and 'post_install do |installer|' in
         'flutter_additional_ios_build_settings(target)\n' + deployment_snippet,
         1,
     )
+
+wechat_pod = "  pod 'WechatOpenSDK-XCFramework', :path => 'Vendor/WechatOpenSDK-XCFramework'"
+if 'WechatOpenSDK-XCFramework' not in text and "target 'Runner' do" in text:
+    text = text.replace(
+        "  use_frameworks!\n\n  flutter_install_all_ios_pods",
+        f"  use_frameworks!\n\n{wechat_pod}\n\n  flutter_install_all_ios_pods",
+        1,
+    )
+    print('Patched Podfile: local WechatOpenSDK-XCFramework vendor pod')
 
 if text != original:
     podfile.write_text(text, encoding='utf-8')

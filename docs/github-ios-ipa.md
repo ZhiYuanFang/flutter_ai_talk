@@ -527,6 +527,24 @@ CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修�
 
 本仓库依赖 `speech_to_text`（iOS 13+）。CI 会在 `prepare_ios_project.sh` 中把 `Podfile` 设为 `platform :ios, '13.0'`，并同步 Runner 与 Pods 的 `IPHONEOS_DEPLOYMENT_TARGET`。若本地自行生成 `ios/` 后遇到同样错误，请确认 `ios/Podfile` 已取消注释并设为 `platform :ios, '13.0'`，再执行 `pod install --repo-update`。
 
+### 7. `pod install` 报 `Error installing WechatOpenSDK-XCFramework`（curl dldir1.qq.com 失败）？
+
+`fluwx` 依赖的 `WechatOpenSDK-XCFramework` 默认从腾讯 CDN 下载，在 **Xcode Cloud、GitHub Actions、海外网络** 等环境常失败。
+
+本仓库已 **vendored** 到 `app/ios/Vendor/WechatOpenSDK-XCFramework/`，`prepare_ios_project.sh` 会在 `Podfile` 中注入本地 pod，不再走远程下载。
+
+**本地修复步骤：**
+
+```bash
+cd app
+bash tool/ci/prepare_ios_project.sh   # 确保 vendored SDK 存在并 patch Podfile
+cd ios
+rm -rf Pods Podfile.lock
+pod install --repo-update
+```
+
+若 `ios/Vendor/WechatOpenSDK-XCFramework/WechatOpenSDK.xcframework` 缺失，可手动执行 `bash tool/ci/vendor_wechat_opensdk.sh`（需能访问 `dldir1.qq.com`），或从已提交仓库拉取该目录。
+
 ## 注意事项
 
 - `IOS_BUNDLE_ID` 不要包含下划线 `_`
