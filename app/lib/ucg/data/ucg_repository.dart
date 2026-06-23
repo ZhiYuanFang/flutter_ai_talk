@@ -13,6 +13,7 @@ import 'ucg_models.dart';
 import 'ucg_presign.dart';
 
 typedef UcgUserIdGetter = String? Function();
+typedef UcgWsErrorToast = void Function(String message);
 
 /// UCG HTTP + 聊天 WebSocket（经 gateway `/ucg/app/ws/chat`）。
 class UcgRepository {
@@ -22,11 +23,13 @@ class UcgRepository {
     required String? Function() accessTokenGetter,
     required bool Function() isLoggedInGetter,
     required Future<String?> Function() prepareAccessToken,
+    UcgWsErrorToast? onWsErrorToast,
   })  : _api = api,
         _userIdGetter = userIdGetter,
         _accessTokenGetter = accessTokenGetter,
         _isLoggedInGetter = isLoggedInGetter,
-        _prepareAccessToken = prepareAccessToken {
+        _prepareAccessToken = prepareAccessToken,
+        _onWsErrorToast = onWsErrorToast {
     _wsClient = ResilientWebSocketClient(
       WsConnectionConfig(
         url: AppEnv.wsUcgChatUrlEffective,
@@ -45,6 +48,7 @@ class UcgRepository {
         },
         buildAuthFrame: (ctx) => {'type': 'auth', 'token': ctx.accessToken},
         onApplicationFrame: _onChatApplicationFrame,
+        onErrorFrame: _onChatWsError,
         log: (m) => debugPrint(m),
       ),
     );
@@ -59,6 +63,7 @@ class UcgRepository {
   final String? Function() _accessTokenGetter;
   final bool Function() _isLoggedInGetter;
   final Future<String?> Function() _prepareAccessToken;
+  final UcgWsErrorToast? _onWsErrorToast;
 
   bool get _withAuthForPublicRead => _isLoggedInGetter();
 
@@ -89,6 +94,13 @@ class UcgRepository {
   void setWsConnectionDesired(bool desired) => _wsClient.setConnectionDesired(desired);
 
   void onAppLifecycleResumed() => _wsClient.onAppLifecycleResumed();
+
+  Future<bool> _onChatWsError(Map<String, dynamic> decoded) async {
+    final message = decoded['message']?.toString().trim() ?? '';
+    _onWsErrorToast?.call(message.isNotEmpty ? message : '操作失败');
+    // 业务 error（如发送失败）不断连、不重连；已连接时 ResilientWebSocketClient 会保持通道。
+    return false;
+  }
 
   Future<void> connectChatWs() async {
     _wsClient.setConnectionDesired(true);
@@ -167,6 +179,7 @@ class UcgRepository {
     return UcgProfile.fromJson(data ?? profile.toJson());
   }
 
+  // 推荐广场帖子接口
   Future<UcgPagedPosts> fetchRecommendedFeed({required int page}) async {
     final data = await _api.get(
       '/feed/recommend',

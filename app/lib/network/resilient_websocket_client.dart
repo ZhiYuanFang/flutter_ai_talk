@@ -235,9 +235,16 @@ class ResilientWebSocketClient {
   void _onWsMessage(dynamic raw) {
     try {
       final decoded = _decodeWsMap(raw);
-      if (decoded is! Map<String, dynamic>) return;
+      if (decoded is! Map<String, dynamic>) {
+        _log('ws drop reason=decode_not_map rawType=${raw.runtimeType}');
+        return;
+      }
       final type = _frameType(decoded['type']);
       if (type == 'error') {
+        _log(
+          'ws error frame message=${decoded['message']} '
+          'code=${decoded['code']} keys=${decoded.keys.join(',')}',
+        );
         unawaited(_handleErrorFrame(decoded));
         return;
       }
@@ -250,9 +257,19 @@ class ResilientWebSocketClient {
         _onAuthOk();
         return;
       }
-      if (!_ready) return;
+      final action = decoded['action'];
+      _log(
+        'ws raw type=$type action=$action ready=$_ready '
+        'keys=${decoded.keys.join(',')}',
+      );
+      if (!_ready) {
+        _log('ws drop reason=not_ready type=$type action=$action');
+        return;
+      }
       _config.onApplicationFrame?.call(decoded);
-    } catch (_) {}
+    } catch (e) {
+      _log('ws drop reason=decode_error err=$e');
+    }
   }
 
   Future<void> _handleErrorFrame(Map<String, dynamic> decoded) async {

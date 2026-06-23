@@ -2,5 +2,6 @@
 <resources>
     <!-- 与 buildAppTheme 默认背景（unknown 性别 primary @ 8% on white）接近 -->
     <color name="launch_brand">#F0EEF2</color>
+    <color name="splash_icon_background">#F7F8FA</color>
 	<color name="ic_launcher_background">#B8DFF2</color>
 </resources>

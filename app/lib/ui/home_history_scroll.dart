@@ -69,7 +69,11 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
   Offset? _lastHistoryAreaCenterGlobal;
 
   static const double followBottomThreshold = 96;
+  static const double _bottomPullTriggerThreshold = 72;
   static const Duration _followScrollDuration = Duration(milliseconds: 220);
+
+  double _bottomPullExtent = 0;
+  bool _bottomRefreshing = false;
 
   bool get followLatest => _followLatest;
 
@@ -160,6 +164,92 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
   }
 
   static const double _loadMoreTopThreshold = 80;
+
+  bool _isNearBottomMetrics(ScrollMetrics metrics) {
+    if (!metrics.maxScrollExtent.isFinite) return false;
+    return metrics.maxScrollExtent - metrics.pixels <= followBottomThreshold;
+  }
+
+  void _resetBottomPull() {
+    if (_bottomPullExtent == 0) return;
+    setState(() => _bottomPullExtent = 0);
+  }
+
+  void _addBottomPullExtent(double delta) {
+    if (delta <= 0 || _bottomRefreshing) return;
+    final next = (_bottomPullExtent + delta).clamp(0.0, _bottomPullTriggerThreshold * 1.5);
+    if (next == _bottomPullExtent) return;
+    setState(() => _bottomPullExtent = next);
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (widget.onRefresh == null) return false;
+
+    if (notification is ScrollStartNotification) {
+      if (!_bottomRefreshing) {
+        setState(() => _bottomPullExtent = 0);
+      }
+      return false;
+    }
+
+    if (notification is ScrollUpdateNotification) {
+      if (_bottomRefreshing) return false;
+      final metrics = notification.metrics;
+      if (!_isNearBottomMetrics(metrics)) {
+        if (_bottomPullExtent > 0) _resetBottomPull();
+        return false;
+      }
+      if (notification.dragDetails == null) return false;
+      final delta = notification.scrollDelta ?? 0;
+      if (delta > 0) {
+        _addBottomPullExtent(delta);
+      }
+      return false;
+    }
+
+    if (notification is OverscrollNotification) {
+      if (_bottomRefreshing) return false;
+      if (!_isNearBottomMetrics(notification.metrics)) return false;
+      if (notification.overscroll < 0) {
+        _addBottomPullExtent(-notification.overscroll);
+      }
+      return false;
+    }
+
+    if (notification is ScrollEndNotification) {
+      if (_bottomRefreshing) return false;
+      final shouldRefresh = _bottomPullExtent >= _bottomPullTriggerThreshold &&
+          _isNearBottomMetrics(notification.metrics);
+      if (shouldRefresh) {
+        unawaited(_handleBottomPullRefresh());
+      } else {
+        _resetBottomPull();
+      }
+      return false;
+    }
+
+    return false;
+  }
+
+  Future<void> _handleBottomPullRefresh() async {
+    if (_bottomRefreshing || widget.onRefresh == null) return;
+    setState(() {
+      _bottomRefreshing = true;
+      _bottomPullExtent = _bottomPullTriggerThreshold;
+    });
+    try {
+      await widget.onRefresh!();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _bottomRefreshing = false;
+          _bottomPullExtent = 0;
+        });
+        _pendingFollowScroll = true;
+        scrollToBottom(force: true);
+      }
+    }
+  }
 
   Future<void> _handleRefresh() async {
     final atTop = !_controller.hasClients || _controller.offset <= _loadMoreTopThreshold;
@@ -578,6 +668,8 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
       recordIndex += g.recordsOldestFirst.length;
     }
 
+    final bottomPullFooter = _buildBottomPullFooter(context);
+
     return Stack(
       key: _historyAreaKey,
       fit: StackFit.expand,
@@ -585,31 +677,35 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
       children: [
         RefreshIndicator(
           onRefresh: _handleRefresh,
-          child: CustomScrollView(
-            controller: _controller,
-            cacheExtent: 360,
-            physics: const AlwaysScrollableScrollPhysics(
-              parent: ClampingScrollPhysics(),
-            ),
-            slivers: [
-              if (widget.loadingMore)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: CustomScrollView(
+              controller: _controller,
+              cacheExtent: 360,
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: ClampingScrollPhysics(),
+              ),
+              slivers: [
+                if (widget.loadingMore)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
                       ),
                     ),
                   ),
+                SliverPadding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 6),
+                  sliver: SliverMainAxisGroup(slivers: daySlivers),
                 ),
-              SliverPadding(
-                padding: const EdgeInsets.only(top: 2, bottom: 6),
-                sliver: SliverMainAxisGroup(slivers: daySlivers),
-              ),
-            ],
+                bottomPullFooter,
+              ],
+            ),
           ),
         ),
         ValueListenableBuilder<bool>(
@@ -636,6 +732,58 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildBottomPullFooter(BuildContext context) {
+    if (!_bottomRefreshing && _bottomPullExtent <= 0) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+
+    final tokens = Theme.of(context).extension<AppVisualTokens>();
+    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final height = _bottomRefreshing
+        ? 48.0
+        : _bottomPullExtent.clamp(28.0, _bottomPullTriggerThreshold * 1.2);
+
+    final String label;
+    if (_bottomRefreshing) {
+      label = '正在更新…';
+    } else if (_bottomPullExtent >= _bottomPullTriggerThreshold) {
+      label = '松开刷新';
+    } else {
+      label = '上拉刷新';
+    }
+
+    return SliverToBoxAdapter(
+      child: SizedBox(
+        height: height,
+        child: Center(
+          child: _bottomRefreshing
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: fg.withValues(alpha: 0.55),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: TextStyle(fontSize: 12, color: fg.withValues(alpha: 0.55)),
+                    ),
+                  ],
+                )
+              : Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: fg.withValues(alpha: 0.55)),
+                ),
+        ),
+      ),
     );
   }
 }

@@ -182,33 +182,26 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 scrollController: _scrollCtrl,
                 anchorKey: _focusedAuthAnchor,
               );
-              return SingleChildScrollView(
-                controller: _scrollCtrl,
-                padding: EdgeInsets.fromLTRB(0, 0, 0, 16 + bottomInset),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: inlineAuthScrollMinHeight(
-                      viewportHeight: constraints.maxHeight,
-                      keyboardInset: bottomInset,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: IconButton(
-                          onPressed: _loading ? null : () => context.pop(),
-                          icon: const Icon(Icons.arrow_back_ios_new),
-                          tooltip: '返回登录',
+              return Stack(
+                children: [
+                  SingleChildScrollView(
+                    controller: _scrollCtrl,
+                    padding: EdgeInsets.fromLTRB(0, 0, 0, 16 + bottomInset),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: inlineAuthScrollMinHeight(
+                          viewportHeight: constraints.maxHeight,
+                          keyboardInset: bottomInset,
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 40),
-                        child: Column(
-                          children: [
-                            const SizedBox(height: 8),
-                            buildAuthBrandHeader(context),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(40, 0, 40, 24),
+                            child: Column(
+                              children: [
+                                buildAuthBrandHeader(context),
                             const SizedBox(height: 20),
                             keyboardLiftTarget(
                               focusNode: _accountFocusNode,
@@ -310,12 +303,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
                               ),
                             ),
-                          ],
-                        ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: IconButton(
+                      onPressed: _loading ? null : () => context.pop(),
+                      icon: const Icon(Icons.arrow_back_ios_new),
+                      tooltip: '返回登录',
+                    ),
+                  ),
+                ],
               );
             },
           ),

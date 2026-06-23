@@ -314,7 +314,7 @@ class _UcgProfileHeaderDelegate extends SliverPersistentHeaderDelegate {
                       showCameraBadge: t < 0.25,
                     )
                   : _UcgProfileMorphAvatarRing(
-                      avatarUrl: profile.avatarUrl,
+                      avatarUrl: profile.avatarThumbnailCdnUrl,
                       primary: primary,
                       radius: innerRadius,
                       borderWidth: t > 0.5 ? 1.5 : 2,
@@ -826,7 +826,7 @@ class _UcgProfileAvatarPickerState extends ConsumerState<_UcgProfileAvatarPicker
               ),
               child: UcgAvatar(
                 radius: radius,
-                url: widget.profile.avatarUrl,
+                url: widget.profile.avatarThumbnailCdnUrl,
                 backgroundColor: widget.primary.withValues(alpha: 0.12),
                 foregroundColor: widget.primary,
                 placeholderIcon: Icons.face_retouching_natural_rounded,

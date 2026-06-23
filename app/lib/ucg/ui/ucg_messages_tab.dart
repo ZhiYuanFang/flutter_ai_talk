@@ -101,12 +101,11 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   }
 
   Future<void> _refreshAll() async {
-    bumpUcgConversationsRefresh(ref);
-    bumpUcgNotificationsRefresh(ref);
     await Future.wait([
       _loadConversationsFirst(),
-      ref.read(ucgCommentNotificationsProvider.future),
+      ref.refresh(ucgCommentNotificationsProvider.future),
     ]);
+    _syncUnreadBadge();
   }
 
   Future<void> _deleteConv(UcgConversation c) async {

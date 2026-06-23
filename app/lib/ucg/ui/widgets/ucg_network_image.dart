@@ -112,8 +112,9 @@ class UcgNetworkImage extends StatelessWidget {
       height: height,
       fit: fit,
       alignment: alignment.resolve(Directionality.of(context)),
-      memCacheWidth: _memCacheDimension(width, context),
-      memCacheHeight: _memCacheDimension(height, context),
+      // 不需要修改图片尺寸，url本身已经附带了尺寸
+      // memCacheWidth: _memCacheDimension(width, context),
+      // memCacheHeight: _memCacheDimension(height, context),
       errorWidget: errorBuilder == null
           ? null
           : (context, imageUrl, error) =>

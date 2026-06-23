@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/authorized_api_client_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/settings_baby.dart';
+import '../../providers/toast_bus.dart';
 import '../../session/token_expiry.dart';
 import '../data/ucg_api_client.dart';
 import '../data/ucg_compose_draft_store.dart';
@@ -20,8 +21,26 @@ final ucgPushRegistrationServiceProvider = Provider<UcgPushRegistrationService>(
   return service;
 });
 
-/// HTTP 校准未读（会话 + 互动 OR），与 resume / WS 事件共用。
+Future<void>? _syncUcgUnreadInFlight;
+
+/// HTTP 校准未读（会话 + 互动 OR），与 resume / WS 事件共用；并发调用合并为同一 in-flight。
 Future<void> syncUcgUnreadFromServer(Ref ref) async {
+  if (_syncUcgUnreadInFlight != null) {
+    await _syncUcgUnreadInFlight;
+    return;
+  }
+  final run = _syncUcgUnreadFromServerOnce(ref);
+  _syncUcgUnreadInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (identical(_syncUcgUnreadInFlight, run)) {
+      _syncUcgUnreadInFlight = null;
+    }
+  }
+}
+
+Future<void> _syncUcgUnreadFromServerOnce(Ref ref) async {
   if (!ref.read(sessionProvider).isLoggedIn) return;
   if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
   try {
@@ -97,6 +116,7 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
       if (!ok) return null;
       return ref.read(sessionProvider).accessToken;
     },
+    onWsErrorToast: (message) => ref.showApiToastError(message),
   );
   ref.onDispose(repo.dispose);
 
@@ -148,7 +168,6 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
 
   final notifSub = repo.notificationEvents.listen((_) {
     ref.read(ucgNotificationsChangedProvider.notifier).state++;
-    unawaited(syncUnreadFromWs());
   });
   final msgSub = repo.incomingMessages.listen((_) {
     unawaited(syncUnreadFromWs());

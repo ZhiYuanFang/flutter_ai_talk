@@ -7,7 +7,6 @@ import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
 import '../data/ucg_feature_flags.dart';
 import '../data/ucg_models.dart';
-import '../data/ucg_repository.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_compose_screen.dart';
 import 'ucg_login_gate.dart';
@@ -28,8 +27,6 @@ class UcgShell extends ConsumerStatefulWidget {
 
 class _UcgShellState extends ConsumerState<UcgShell> {
   var _tabIndex = 0;
-  StreamSubscription<void>? _notifSub;
-  UcgRepository? _repo;
 
   int get _stackIndex {
     if (!kUcgTreasureEnabled) {
@@ -50,39 +47,18 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShellWs());
   }
 
-  @override
-  void dispose() {
-    _notifSub?.cancel();
-    super.dispose();
-  }
-
   void _ensureShellWs() {
     final wxId = ref.read(ucgCurrentUserIdProvider);
     if (!isUcgWxAccountBound(wxId)) return;
-    _repo = ref.read(ucgRepositoryProvider);
-    final repo = _repo!;
-    _notifSub?.cancel();
-    _notifSub = repo.notificationEvents.listen((_) {
-      bumpUcgNotificationsRefresh(ref);
-      unawaited(_syncShellUnreadBadge());
-    });
-    unawaited(_syncShellUnreadBadge());
-  }
-
-  Future<void> _syncShellUnreadBadge() async {
-    final wxId = ref.read(ucgCurrentUserIdProvider);
-    if (!isUcgWxAccountBound(wxId)) return;
-    try {
-      final repo = ref.read(ucgRepositoryProvider);
-      final notifPage = await repo.fetchCommentNotifications(page: 1);
-      final convPage = await repo.fetchConversations(page: 1);
-      final chatUnread = convPage.items.fold<int>(0, (s, c) => s + c.unreadCount);
-      ref.read(ucgUnreadCountProvider.notifier).state = chatUnread + notifPage.unreadCount;
-    } catch (_) {}
+    unawaited(ref.read(ucgUnreadSyncProvider)());
   }
 
   void _onTabTap(int index) {
     if (!kUcgTreasureEnabled && index == 1) return;
+    if (index == 0 && _tabIndex == 0) {
+      widget.onBackToFeeding?.call();
+      return;
+    }
     if (index == 2) {
       unawaited(_openCompose());
       return;
@@ -154,9 +130,6 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       if (isUcgWxAccountBound(next)) {
         _ensureShellWs();
       }
-    });
-    ref.listen<int>(ucgNotificationsChangedProvider, (prev, next) {
-      unawaited(_syncShellUnreadBadge());
     });
 
     final unread = ref.watch(ucgUnreadCountProvider) > 0;

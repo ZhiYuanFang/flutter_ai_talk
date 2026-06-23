@@ -146,6 +146,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   String? _pendingReminderExcludeId;
   Map<String, int>? _eventUsageCounts;
   List<EventDefinition>? _buttonGridOrder;
+  var _voiceSendSeq = 0;
+  var _voiceSendWatchdogCorr = 0;
+  var _voiceSendWsSeen = false;
   bool get _showRecordingStatsPanel =>
       _showRecordingDiagnostics &&
       _speechEngine == SpeechEngine.cloudAsr &&
@@ -546,13 +549,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _sseSub = feed.watchLatest().listen((payload) {
       final removed = payload.removedRecordId;
       if (removed != null) {
+        HomeHistoryLog.d(
+          'wsListener remove recordId=$removed channel=$_inputChannel',
+        );
         _history.removeRecord(removed);
         return;
       }
       final r = payload.record!;
       final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
+      final flySuppressed = _shouldScheduleWsFly(r.id);
+      HomeHistoryLog.d(
+        'wsListener recordId=${r.id} event=${r.eventName} isNew=$isNew '
+        'flySuppressed=$flySuppressed channel=$_inputChannel',
+      );
+      if (_voiceSendWatchdogCorr > 0) {
+        _voiceSendWsSeen = true;
+        HomeHistoryLog.d(
+          'voiceSend#$_voiceSendWatchdogCorr wsListener matched recordId=${r.id}',
+        );
+      }
       _history.upsertRecord(r);
-      if (isNew && !_shouldScheduleWsFly(r.id)) {
+      if (isNew && !flySuppressed) {
         _onWsNewHistoryRecord(r);
         _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
       }
@@ -941,18 +958,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _stopRecordingDiagnosticsSession();
     if (text.isEmpty) return;
     if (!await _ensureRemoteGate()) return;
-    if (!_ensureHistoryWsForSend()) return;
+    final corr = ++_voiceSendSeq;
+    HomeHistoryLog.d(
+      'voiceSend#$corr start channel=voice textLen=${text.length} wsReady=$_wsReady',
+    );
+    if (!_ensureHistoryWsForSend()) {
+      HomeHistoryLog.d('voiceSend#$corr blocked: history ws not ready');
+      return;
+    }
+    final sw = Stopwatch()..start();
     try {
       final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
+      HomeHistoryLog.d(
+        'voiceSend#$corr sendCommand done elapsed=${sw.elapsedMilliseconds}ms '
+        'replyLen=${reply?.length ?? 0}',
+      );
+      _scheduleVoiceWsWatchdog(corr);
       if (!mounted) return;
       ref.invalidate(voiceAiQuotaProvider);
       _applyChatReply(reply);
     } on ApiBusinessException catch (e) {
+      HomeHistoryLog.d(
+        'voiceSend#$corr sendCommand failed elapsed=${sw.elapsedMilliseconds}ms '
+        'code=${e.code}',
+      );
       if (!mounted) return;
       if (!await handleAiQuotaException(context, e)) {
         ref.showApiToastError(e.message);
       }
     }
+  }
+
+  void _scheduleVoiceWsWatchdog(int corr) {
+    _voiceSendWatchdogCorr = corr;
+    _voiceSendWsSeen = false;
+    final itemsAtSend = ref.read(homeHistoryProvider).items.length;
+    unawaited(Future<void>.delayed(const Duration(seconds: 5), () {
+      if (!mounted || _voiceSendWatchdogCorr != corr) return;
+      final itemsNow = ref.read(homeHistoryProvider).items.length;
+      HomeHistoryLog.d(
+        'voiceSend#$corr watchdog: wsSeen=$_voiceSendWsSeen wsReady=$_wsReady '
+        'items=$itemsAtSend->$itemsNow',
+      );
+      if (_voiceSendWatchdogCorr == corr) {
+        _voiceSendWatchdogCorr = 0;
+      }
+    }));
   }
 
   void _releaseVoiceHold() {

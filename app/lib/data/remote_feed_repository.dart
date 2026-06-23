@@ -143,6 +143,11 @@ class RemoteFeedRepository implements FeedRepository {
     HomeHistoryLog.d(message);
   }
 
+  String _logDataKeys(Map<String, dynamic>? data) {
+    if (data == null) return 'null';
+    return data.keys.join(',');
+  }
+
   Future<WsConnectContext?> _prepareWsConnectContext() async {
     final session = _ref.read(sessionProvider);
     if (!session.isLoggedIn) return null;
@@ -183,20 +188,38 @@ class RemoteFeedRepository implements FeedRepository {
 
   void _onHistoryApplicationFrame(Map<String, dynamic> decoded) {
     final action = decoded['action'] as String?;
+    final frameType = decoded['type'];
+    _logWs(
+      'wsFrame recv action=$action type=$frameType keys=${decoded.keys.join(',')}',
+    );
     if (action == 'delete') {
       final p = decoded['payload'];
       if (p is Map<String, dynamic>) {
         final idRaw = p['id'];
         final idStr = idRaw == null ? '' : idRaw.toString();
-        if (idStr.isEmpty) return;
+        if (idStr.isEmpty) {
+          _logWs('wsFrame drop reason=empty_id action=delete');
+          return;
+        }
+        _logWs('wsFrame delete id=$idStr');
         _removeFromCache(idStr);
+      } else {
+        _logWs('wsFrame drop reason=invalid_payload action=delete');
       }
       return;
     }
     if (action == 'create' || action == 'update') {
       final p = decoded['payload'];
       if (p is Map<String, dynamic>) {
-        _mergeInbound(historyRecordFromServerMap(p));
+        final record = historyRecordFromServerMap(p);
+        final isNew = !_cache.any((e) => e.id == record.id);
+        _mergeInbound(record);
+        _logWs(
+          'wsFrame merge id=${record.id} event=${record.eventName} '
+          'isNew=$isNew action=$action',
+        );
+      } else {
+        _logWs('wsFrame drop reason=invalid_payload action=$action');
       }
       return;
     }
@@ -205,8 +228,17 @@ class RemoteFeedRepository implements FeedRepository {
         : decoded['payload'] is Map<String, dynamic>
             ? decoded['payload'] as Map<String, dynamic>
             : decoded;
-    if (!map.containsKey('id')) return;
-    _mergeInbound(historyRecordFromServerMap(map));
+    if (!map.containsKey('id')) {
+      _logWs('wsFrame drop reason=no_id action=$action type=$frameType');
+      return;
+    }
+    final record = historyRecordFromServerMap(map);
+    final isNew = !_cache.any((e) => e.id == record.id);
+    _mergeInbound(record);
+    _logWs(
+      'wsFrame merge id=${record.id} event=${record.eventName} '
+      'isNew=$isNew action=$action (fallback)',
+    );
   }
 
   void _ensureWs() {
@@ -385,26 +417,44 @@ class RemoteFeedRepository implements FeedRepository {
       return null;
     }
     if (!isHistoryWebSocketReady) {
+      _logWs('eventAdd skip: ws not ready');
       return null;
     }
     final payload = Map<String, dynamic>.from(body);
     _ensureDeviceNoOnBody(payload);
+    _logWs(
+      'eventAdd start deviceNo=$dn eventId=${payload['eventId']} '
+      'wsReady=$isHistoryWebSocketReady',
+    );
+    final sw = Stopwatch()..start();
     try {
       final data = await _api.postJsonEnvelope('/device/history/api/event/add', payload);
       if (data == null) {
+        _logWs('eventAdd fail elapsed=${sw.elapsedMilliseconds}ms reason=no_data');
         _toast('响应无数据');
         return null;
       }
       final idRaw = data['id'];
       if (idRaw == null) {
+        _logWs(
+          'eventAdd fail elapsed=${sw.elapsedMilliseconds}ms '
+          'reason=no_id dataKeys=${_logDataKeys(data)}',
+        );
         _toast('响应无记录 id');
         return null;
       }
-      return idRaw.toString();
+      final id = idRaw.toString();
+      _logWs(
+        'eventAdd ok id=$id elapsed=${sw.elapsedMilliseconds}ms '
+        'dataKeys=${_logDataKeys(data)}',
+      );
+      return id;
     } on ApiBusinessException catch (e) {
+      _logWs('eventAdd error elapsed=${sw.elapsedMilliseconds}ms code=${e.code}');
       _toast(e.message);
       return null;
     } catch (_) {
+      _logWs('eventAdd error elapsed=${sw.elapsedMilliseconds}ms reason=network');
       _toast('网络异常');
       return null;
     }
@@ -439,21 +489,38 @@ class RemoteFeedRepository implements FeedRepository {
   Future<String?> sendCommand(String text) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
+      _logWs('chatApi skip: deviceNo empty');
       _toast('请先绑定宝宝信息');
       return null;
     }
     if (!isHistoryWebSocketReady) {
+      _logWs('chatApi skip: ws not ready');
       return null;
     }
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return null;
+    if (trimmed.isEmpty) {
+      _logWs('chatApi skip: empty text');
+      return null;
+    }
+    _logWs('chatApi start deviceNo=$dn textLen=${trimmed.length} wsReady=$isHistoryWebSocketReady');
+    final sw = Stopwatch()..start();
     try {
       final data = await _api.postJsonEnvelope(
         '/device/history/api/chat',
         {'deviceNo': dn, 'transcript': trimmed},
       );
-      return data?['reply'] as String?;
+      final reply = data?['reply'] as String?;
+      _logWs(
+        'chatApi ok elapsed=${sw.elapsedMilliseconds}ms replyLen=${reply?.length ?? 0} '
+        'dataKeys=${_logDataKeys(data)}',
+      );
+      final createdId = data?['id'];
+      if (createdId != null) {
+        _logWs('chatApi ok data.id=$createdId');
+      }
+      return reply;
     } on ApiBusinessException catch (e) {
+      _logWs('chatApi error elapsed=${sw.elapsedMilliseconds}ms code=${e.code}');
       // 喂养 AI 额度/登录错误交由 UI 层弹框（与 WS error 帧一致）。
       if (isAiQuotaBusinessCode(e.code)) rethrow;
       _toast(e.message);

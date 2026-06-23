@@ -446,9 +446,9 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
       );
     }
 
-    final backdropUrl = post.imageUrls.isNotEmpty
-        ? post.imageUrls.first
-        : post.authorAvatarUrl;
+    final backdropUrl = post.imageThumbnailUrls.isNotEmpty
+        ? post.imageThumbnailUrls.first
+        : post.authorAvatarThumbnailUrl;
     final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
     final bio = post.authorBio.trim();
 
