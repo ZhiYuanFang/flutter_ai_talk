@@ -179,20 +179,42 @@ class UcgRepository {
     return UcgProfile.fromJson(data ?? profile.toJson());
   }
 
-  // 推荐广场帖子接口
-  Future<UcgPagedPosts> fetchRecommendedFeed({required int page}) async {
+  // 推荐广场帖子接口（cursor + 可选坐标）
+  Future<UcgCursorFeedPage> fetchRecommendedFeed({
+    String? cursor,
+    double? lat,
+    double? lng,
+  }) async {
+    final query = <String, String>{
+      'pageSize': '$kUcgPageSize',
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      if (cursor == null || cursor.isEmpty) ...{
+        if (lat != null) 'lat': lat.toString(),
+        if (lng != null) 'lng': lng.toString(),
+      },
+    };
     final data = await _api.get(
       '/feed/recommend',
-      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+      query: query,
       withAuthorization: _withAuthForPublicRead,
+      timeout: const Duration(seconds: 45),
     );
-    return parsePagedPosts(data, publicFeedOnly: true);
+    return parseCursorFeed(data, publicFeedOnly: true);
   }
 
-  Future<UcgPagedPosts> fetchFollowingFeed({required int page}) async {
+  Future<UcgPagedPosts> fetchFollowingFeed({
+    required int page,
+    double? lat,
+    double? lng,
+  }) async {
+    final query = <String, String>{
+      ...UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+      if (lat != null) 'lat': lat.toString(),
+      if (lng != null) 'lng': lng.toString(),
+    };
     final data = await _api.get(
       '/feed/following',
-      query: UcgApiClient.pageQuery(page: page, pageSize: kUcgPageSize),
+      query: query,
     );
     return parsePagedPosts(data, publicFeedOnly: true);
   }
@@ -217,9 +239,14 @@ class UcgRepository {
     return parsePagedPosts(data, publicFeedOnly: true);
   }
 
-  Future<UcgPost> fetchPost(String postId) async {
+  Future<UcgPost> fetchPost(String postId, {double? lat, double? lng}) async {
+    final query = <String, String>{
+      if (lat != null) 'lat': lat.toString(),
+      if (lng != null) 'lng': lng.toString(),
+    };
     final data = await _api.get(
       '/posts/$postId',
+      query: query.isEmpty ? null : query,
       withAuthorization: _withAuthForPublicRead,
     );
     if (data == null) {
@@ -265,6 +292,8 @@ class UcgRepository {
     required String text,
     List<String> imageKeys = const [],
     String? videoKey,
+    double? lat,
+    double? lng,
   }) async {
     final mediaType = videoKey != null && videoKey.isNotEmpty
         ? 2
@@ -282,8 +311,10 @@ class UcgRepository {
       'mediaType': mediaType,
       'submit': true,
       if (media.isNotEmpty) 'media': media,
+      if (lat != null) 'lat': lat,
+      if (lng != null) 'lng': lng,
     };
-    final data = await _api.post('/posts', body);
+    final data = await _api.post('/v2/posts', body);
     return UcgPost.fromJson(data ?? body);
   }
 
@@ -292,6 +323,8 @@ class UcgRepository {
     required String text,
     List<String> imageKeys = const [],
     String? videoKey,
+    double? lat,
+    double? lng,
   }) async {
     final mediaType = videoKey != null && videoKey.isNotEmpty
         ? 2
@@ -309,6 +342,8 @@ class UcgRepository {
       'mediaType': mediaType,
       'submit': true,
       if (media.isNotEmpty) 'media': media,
+      if (lat != null) 'lat': lat,
+      if (lng != null) 'lng': lng,
     };
     final data = await _api.put('/posts/$postId', body);
     return UcgPost.fromJson(data ?? body);

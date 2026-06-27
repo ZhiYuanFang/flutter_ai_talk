@@ -51,7 +51,6 @@ class RemoteFeedRepository implements FeedRepository {
         },
         onApplicationFrame: _onHistoryApplicationFrame,
         onErrorFrame: _onHistoryWsError,
-        log: _logWs,
       ),
     );
     _wsClient.readyStream.listen(_emitWsReady);
@@ -139,21 +138,11 @@ class RemoteFeedRepository implements FeedRepository {
     }
   }
 
-  void _logWs(String message) {
-    HomeHistoryLog.d(message);
-  }
-
-  String _logDataKeys(Map<String, dynamic>? data) {
-    if (data == null) return 'null';
-    return data.keys.join(',');
-  }
-
   Future<WsConnectContext?> _prepareWsConnectContext() async {
     final session = _ref.read(sessionProvider);
     if (!session.isLoggedIn) return null;
     final ok = await session.ensureFreshSession();
     if (!ok) {
-      _logWs('ws session refresh failed, signed out');
       await _ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await _ref.read(signInChannelProvider.notifier).clear();
       if (_ref.read(homeHistoryProvider).initialLoadDone) {
@@ -165,7 +154,6 @@ class RemoteFeedRepository implements FeedRepository {
     if (dn != null && dn.isNotEmpty) {
       final synced = await ensureAccessTokenHasDeviceNo(_ref, localDeviceNo: dn);
       if (!synced) {
-        _logWs('ws token refresh for device_no failed');
         _ref.showApiToastError('会话刷新失败，请重新登录后再试');
         return null;
       }
@@ -188,23 +176,13 @@ class RemoteFeedRepository implements FeedRepository {
 
   void _onHistoryApplicationFrame(Map<String, dynamic> decoded) {
     final action = decoded['action'] as String?;
-    final frameType = decoded['type'];
-    _logWs(
-      'wsFrame recv action=$action type=$frameType keys=${decoded.keys.join(',')}',
-    );
     if (action == 'delete') {
       final p = decoded['payload'];
       if (p is Map<String, dynamic>) {
         final idRaw = p['id'];
         final idStr = idRaw == null ? '' : idRaw.toString();
-        if (idStr.isEmpty) {
-          _logWs('wsFrame drop reason=empty_id action=delete');
-          return;
-        }
-        _logWs('wsFrame delete id=$idStr');
+        if (idStr.isEmpty) return;
         _removeFromCache(idStr);
-      } else {
-        _logWs('wsFrame drop reason=invalid_payload action=delete');
       }
       return;
     }
@@ -212,14 +190,7 @@ class RemoteFeedRepository implements FeedRepository {
       final p = decoded['payload'];
       if (p is Map<String, dynamic>) {
         final record = historyRecordFromServerMap(p);
-        final isNew = !_cache.any((e) => e.id == record.id);
         _mergeInbound(record);
-        _logWs(
-          'wsFrame merge id=${record.id} event=${record.eventName} '
-          'isNew=$isNew action=$action',
-        );
-      } else {
-        _logWs('wsFrame drop reason=invalid_payload action=$action');
       }
       return;
     }
@@ -228,17 +199,9 @@ class RemoteFeedRepository implements FeedRepository {
         : decoded['payload'] is Map<String, dynamic>
             ? decoded['payload'] as Map<String, dynamic>
             : decoded;
-    if (!map.containsKey('id')) {
-      _logWs('wsFrame drop reason=no_id action=$action type=$frameType');
-      return;
-    }
+    if (!map.containsKey('id')) return;
     final record = historyRecordFromServerMap(map);
-    final isNew = !_cache.any((e) => e.id == record.id);
     _mergeInbound(record);
-    _logWs(
-      'wsFrame merge id=${record.id} event=${record.eventName} '
-      'isNew=$isNew action=$action (fallback)',
-    );
   }
 
   void _ensureWs() {
@@ -278,7 +241,6 @@ class RemoteFeedRepository implements FeedRepository {
   }) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
-      HomeHistoryLog.d('api list skip: deviceNo empty');
       return const HistoryListPage(
         listDesc: [],
         total: 0,
@@ -286,8 +248,6 @@ class RemoteFeedRepository implements FeedRepository {
         pageSize: kHomeHistoryPageSize,
       );
     }
-    HomeHistoryLog.d('api list start deviceNo=$dn page=$page pageSize=$pageSize');
-    final sw = Stopwatch()..start();
     try {
       final data = await _api.getEnvelope(
         '/device/history/api/list',
@@ -297,11 +257,7 @@ class RemoteFeedRepository implements FeedRepository {
           'pageSize': '$pageSize',
         },
       );
-      if (data == null) {
-        sw.stop();
-        HomeHistoryLog.d('api list response data=null elapsed=${sw.elapsedMilliseconds}ms');
-        return null;
-      }
+      if (data == null) return null;
       final list = data['list'] as List<dynamic>? ?? const [];
       final out = <HistoryRecord>[];
       for (final e in list) {
@@ -327,26 +283,15 @@ class RemoteFeedRepository implements FeedRepository {
       final pageSizeRaw = data['pageSize'];
       final resolvedPageSize =
           pageSizeRaw is num ? pageSizeRaw.toInt() : pageSize;
-      sw.stop();
-      HomeHistoryLog.d(
-        'api list ok page=$pageNo count=${out.length} total=$total '
-        'elapsed=${sw.elapsedMilliseconds}ms',
-      );
       return HistoryListPage(
         listDesc: out,
         total: total,
         page: pageNo,
         pageSize: resolvedPageSize,
       );
-    } on ApiBusinessException catch (e) {
-      sw.stop();
-      HomeHistoryLog.d(
-        'api list ApiBusinessException code=${e.code} message=${e.message} elapsed=${sw.elapsedMilliseconds}ms',
-      );
+    } on ApiBusinessException {
       return null;
-    } catch (e) {
-      sw.stop();
-      HomeHistoryLog.d('api list error: $e elapsed=${sw.elapsedMilliseconds}ms');
+    } catch (_) {
       return null;
     }
   }
@@ -416,45 +361,25 @@ class RemoteFeedRepository implements FeedRepository {
       _toast('请先绑定宝宝信息');
       return null;
     }
-    if (!isHistoryWebSocketReady) {
-      _logWs('eventAdd skip: ws not ready');
-      return null;
-    }
+    if (!isHistoryWebSocketReady) return null;
     final payload = Map<String, dynamic>.from(body);
     _ensureDeviceNoOnBody(payload);
-    _logWs(
-      'eventAdd start deviceNo=$dn eventId=${payload['eventId']} '
-      'wsReady=$isHistoryWebSocketReady',
-    );
-    final sw = Stopwatch()..start();
     try {
       final data = await _api.postJsonEnvelope('/device/history/api/event/add', payload);
       if (data == null) {
-        _logWs('eventAdd fail elapsed=${sw.elapsedMilliseconds}ms reason=no_data');
         _toast('响应无数据');
         return null;
       }
       final idRaw = data['id'];
       if (idRaw == null) {
-        _logWs(
-          'eventAdd fail elapsed=${sw.elapsedMilliseconds}ms '
-          'reason=no_id dataKeys=${_logDataKeys(data)}',
-        );
         _toast('响应无记录 id');
         return null;
       }
-      final id = idRaw.toString();
-      _logWs(
-        'eventAdd ok id=$id elapsed=${sw.elapsedMilliseconds}ms '
-        'dataKeys=${_logDataKeys(data)}',
-      );
-      return id;
+      return idRaw.toString();
     } on ApiBusinessException catch (e) {
-      _logWs('eventAdd error elapsed=${sw.elapsedMilliseconds}ms code=${e.code}');
       _toast(e.message);
       return null;
     } catch (_) {
-      _logWs('eventAdd error elapsed=${sw.elapsedMilliseconds}ms reason=network');
       _toast('网络异常');
       return null;
     }
@@ -489,38 +414,19 @@ class RemoteFeedRepository implements FeedRepository {
   Future<String?> sendCommand(String text) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
-      _logWs('chatApi skip: deviceNo empty');
       _toast('请先绑定宝宝信息');
       return null;
     }
-    if (!isHistoryWebSocketReady) {
-      _logWs('chatApi skip: ws not ready');
-      return null;
-    }
+    if (!isHistoryWebSocketReady) return null;
     final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      _logWs('chatApi skip: empty text');
-      return null;
-    }
-    _logWs('chatApi start deviceNo=$dn textLen=${trimmed.length} wsReady=$isHistoryWebSocketReady');
-    final sw = Stopwatch()..start();
+    if (trimmed.isEmpty) return null;
     try {
       final data = await _api.postJsonEnvelope(
         '/device/history/api/chat',
         {'deviceNo': dn, 'transcript': trimmed},
       );
-      final reply = data?['reply'] as String?;
-      _logWs(
-        'chatApi ok elapsed=${sw.elapsedMilliseconds}ms replyLen=${reply?.length ?? 0} '
-        'dataKeys=${_logDataKeys(data)}',
-      );
-      final createdId = data?['id'];
-      if (createdId != null) {
-        _logWs('chatApi ok data.id=$createdId');
-      }
-      return reply;
+      return data?['reply'] as String?;
     } on ApiBusinessException catch (e) {
-      _logWs('chatApi error elapsed=${sw.elapsedMilliseconds}ms code=${e.code}');
       // 喂养 AI 额度/登录错误交由 UI 层弹框（与 WS error 帧一致）。
       if (isAiQuotaBusinessCode(e.code)) rethrow;
       _toast(e.message);

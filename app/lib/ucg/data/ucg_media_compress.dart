@@ -1,8 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image/image.dart' as img;
-import 'package:video_compress/video_compress.dart';
 
 import 'ucg_media_limits.dart';
 
@@ -42,52 +40,4 @@ Future<Uint8List> ucgCompressImageBytes(
   throw StateError(
     '图片过大，压缩后仍超过 ${(maxBytes / (1024 * 1024)).toStringAsFixed(0)}MB 限制',
   );
-}
-
-/// 移动端：若视频超过 [maxBytes] 尝试 [VideoCompress]；Web 仅校验大小。
-Future<Uint8List> ucgPrepareVideoBytes({
-  required Uint8List bytes,
-  required String? sourcePath,
-  int maxBytes = UcgMediaLimits.videoMaxBytes,
-}) async {
-  if (bytes.length <= maxBytes) return bytes;
-
-  if (kIsWeb) {
-    if (bytes.length <= UcgMediaLimits.serverMaxBytes) return bytes;
-    throw StateError(
-      'Web 端暂不支持视频压缩，请选择 ${(maxBytes / (1024 * 1024)).toStringAsFixed(0)}MB 以内的视频',
-    );
-  }
-
-  if (sourcePath == null || sourcePath.isEmpty) {
-    throw StateError('视频超过 ${(maxBytes / (1024 * 1024)).toStringAsFixed(0)}MB，无法压缩');
-  }
-
-  final info = await VideoCompress.compressVideo(
-    sourcePath,
-    quality: VideoQuality.MediumQuality,
-    deleteOrigin: false,
-    includeAudio: true,
-  );
-  if (info?.file == null) {
-    throw StateError('视频压缩失败，请选择更小的文件');
-  }
-  final compressed = await info!.file!.readAsBytes();
-  if (compressed.length <= maxBytes) return Uint8List.fromList(compressed);
-  if (compressed.length <= UcgMediaLimits.serverMaxBytes) return Uint8List.fromList(compressed);
-
-  final low = await VideoCompress.compressVideo(
-    sourcePath,
-    quality: VideoQuality.LowQuality,
-    deleteOrigin: false,
-    includeAudio: true,
-  );
-  if (low?.file == null) {
-    throw StateError('视频压缩后仍超过大小限制');
-  }
-  final lowBytes = await low!.file!.readAsBytes();
-  if (lowBytes.length <= UcgMediaLimits.serverMaxBytes) {
-    return Uint8List.fromList(lowBytes);
-  }
-  throw StateError('视频压缩后仍超过 ${(UcgMediaLimits.serverMaxBytes / (1024 * 1024)).toStringAsFixed(0)}MB 限制');
 }

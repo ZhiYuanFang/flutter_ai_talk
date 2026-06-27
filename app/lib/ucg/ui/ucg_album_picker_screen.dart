@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -122,10 +122,7 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
           _error = '加载失败';
         });
       }
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('UcgAlbumPickerScreen._initAlbum failed: $e\n$st');
-      }
+    } catch (_) {
       if (mounted) setState(() { _loading = false; _error = '加载相册失败'; });
     }
   }
@@ -165,10 +162,7 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
         _error = null;
       });
       return true;
-    } on Object catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('album "${album.name}" (${album.id}) load failed: $e\n$st');
-      }
+    } on Object catch (_) {
       return false;
     }
   }
@@ -182,13 +176,8 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
         final batch = await album.getAssetListPaged(page: page, size: size);
         if (page == 0) _pageBatchSize = size;
         return batch;
-      } on Object catch (e, st) {
+      } on Object catch (e) {
         lastError = e;
-        if (kDebugMode) {
-          debugPrint(
-            'getAssetListPaged failed album=${album.id} page=$page size=$size: $e\n$st',
-          );
-        }
         try {
           final total = await album.assetCountAsync;
           final start = page * size;
@@ -197,13 +186,8 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
           final batch = await album.getAssetListRange(start: start, end: end);
           if (page == 0) _pageBatchSize = size;
           return batch;
-        } on Object catch (e2, st2) {
+        } on Object catch (e2) {
           lastError = e2;
-          if (kDebugMode) {
-            debugPrint(
-              'getAssetListRange failed album=${album.id} page=$page size=$size: $e2\n$st2',
-            );
-          }
         }
       }
     }
@@ -296,10 +280,7 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
         _loading = false;
         _loadingMore = false;
       });
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('UcgAlbumPickerScreen._loadPage failed page=$page: $e\n$st');
-      }
+    } catch (_) {
       if (mounted) {
         setState(() {
           _loading = false;

@@ -4,12 +4,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../ui/widgets/ucg_compose_local_preview.dart' show ucgReadLocalImageBytes;
 import 'ucg_video_playback.dart';
-import 'ucg_media_compress.dart';
 import 'ucg_media_picker.dart';
 import 'ucg_presign.dart';
 import 'ucg_repository.dart';
+import 'ucg_video_upload.dart';
 
-enum UcgComposeMediaSlotStatus { pending, uploading, done, failed }
+enum UcgComposeMediaSlotStatus { pending, preparing, uploading, done, failed }
 
 /// 发布页单条媒体槽：本地预览 + 后台上传 objectKey。
 class UcgComposeMediaSlot {
@@ -100,48 +100,61 @@ Future<void> uploadComposeMediaSlot({
 }) async {
   if (slot.removed || slot.isDone || !slot.needsUpload) return;
 
-  slot.status = UcgComposeMediaSlotStatus.uploading;
-  onUpdated?.call();
-
   try {
     final path = slot.localPath!;
-    final Uint8List bytes;
-    if (slot.localBytes != null && slot.localBytes!.isNotEmpty) {
-      bytes = slot.localBytes!;
-    } else if (kIsWeb) {
-      throw StateError('web local bytes missing');
+    final UcgUploadResult uploaded;
+    if (slot.isVideo) {
+      uploaded = await ucgUploadLocalVideo(
+        repo: repo,
+        sourcePath: path,
+        sourceBytes: slot.localBytes,
+        onPhase: (phase) {
+          if (slot.removed) return;
+          slot.status = phase == UcgVideoUploadPhase.preparing
+              ? UcgComposeMediaSlotStatus.preparing
+              : UcgComposeMediaSlotStatus.uploading;
+          onUpdated?.call();
+        },
+      );
     } else {
-      var readPath = path;
-      var loaded = await ucgReadLocalImageBytes(readPath);
-      if ((loaded == null || loaded.isEmpty) && !kIsWeb) {
-        final cached = await ucgCacheMediaPath(readPath);
-        if (cached != null) {
-          readPath = cached;
-          loaded = await ucgReadLocalImageBytes(cached);
+      slot.status = UcgComposeMediaSlotStatus.uploading;
+      onUpdated?.call();
+
+      final Uint8List bytes;
+      if (slot.localBytes != null && slot.localBytes!.isNotEmpty) {
+        bytes = slot.localBytes!;
+      } else if (kIsWeb) {
+        throw StateError('web local bytes missing');
+      } else {
+        var readPath = path;
+        var loaded = await ucgReadLocalImageBytes(readPath);
+        if ((loaded == null || loaded.isEmpty) && !kIsWeb) {
+          final cached = await ucgCacheMediaPath(readPath);
+          if (cached != null) {
+            readPath = cached;
+            loaded = await ucgReadLocalImageBytes(cached);
+          }
+        }
+        if (loaded != null && loaded.isNotEmpty) {
+          slot.localBytes = loaded;
+          bytes = loaded;
+        } else {
+          bytes = Uint8List(0);
+        }
+        if (bytes.isEmpty) {
+          throw StateError('local file missing');
         }
       }
-      if (loaded != null && loaded.isNotEmpty) {
-        slot.localBytes = loaded;
-        bytes = loaded;
-      } else {
-        bytes = Uint8List(0);
-      }
-      if (bytes.isEmpty) {
-        throw StateError('local file missing');
-      }
-    }
 
-    final name = ucgFallbackFileName(isVideo: slot.isVideo, path: path);
-    final prepared = slot.isVideo
-        ? await ucgPrepareVideoBytes(bytes: bytes, sourcePath: path)
-        : bytes;
-    final uploaded = await ucgUploadBytes(
-      repo: repo,
-      bytes: Uint8List.fromList(prepared),
-      fileName: name,
-      contentType: ucgContentTypeForFileName(name),
-      isVideo: slot.isVideo,
-    );
+      final name = ucgFallbackFileName(isVideo: false, path: path);
+      uploaded = await ucgUploadBytes(
+        repo: repo,
+        bytes: bytes,
+        fileName: name,
+        contentType: ucgContentTypeForFileName(name),
+        isVideo: false,
+      );
+    }
 
     if (slot.removed) {
       try {

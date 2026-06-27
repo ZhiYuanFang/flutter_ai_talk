@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
 
@@ -54,16 +54,10 @@ class UcgPushRegistrationService {
   }) async {
     if (kIsWeb || !isLoggedIn || !wxBound) return false;
     final channel = await detectSupportedChannel();
-    if (channel == null) {
-      debugPrint('[ucg-push] skip register: unsupported OEM');
-      return false;
-    }
+    if (channel == null) return false;
     await UcgPushNative.requestNotificationPermission();
     final token = await UcgPushNative.fetchToken(channel);
-    if (token == null || token.isEmpty) {
-      debugPrint('[ucg-push] skip register: no token for ${channel.apiValue}');
-      return false;
-    }
+    if (token == null || token.isEmpty) return false;
     _activeChannel = channel;
     final key = await deviceKey();
     await _api.post('/push/register', {

@@ -25,6 +25,65 @@ flutter run -d android
 
 > 若缺少 iOS 工程目录，可在已安装 Xcode 的机器上执行：`flutter create . --platforms=ios`（会补齐模板文件；注意与现有 `pubspec.yaml` 合并）。
 
+### Debug 日志
+
+Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间戳）：
+
+| Tag | 用途 |
+|-----|------|
+| `[ApiHttp]` | `ApiClient` HTTP 请求/响应（敏感字段已脱敏） |
+| `[UcgFeed]` | 广场 Feed 加载/下拉刷新各阶段耗时 |
+| `[UcgLocation]` | UCG 坐标 consent / 缓存命中 / GPS 刷新 |
+| `[UcgVideo]` | 本地视频 ffmpeg normalize / v2 上传 |
+| `[UcgVideo]` | 本地视频 ffmpeg normalize / v2 上传 |
+
+`app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
+
+`flutter run` 终端仍会转发设备 **完整 logcat**，其中可能混入：
+
+| 来源 | 示例 | 能否在仓库内关闭 |
+|------|------|------------------|
+| 白名单 tag | `I/flutter: [UcgFeed] 2026-… onRefresh fired` | 即目标日志 |
+| 微信 Open SDK（fluwx） | SDK 原生日志 | `pubspec.yaml` 中 `fluwx.debug_logging: false`（默认） |
+| vivo / 其它 OEM | `D/ScreenUtils: hasVivoFreeformTasks` | **否**（ROM 或三方 AAR，非 Dart 代码） |
+| 系统 / 引擎 | `ActivityThread`、`Open vivo delay for GC JIT` | **否** |
+
+**推荐：单独终端只看白名单日志**
+
+终端 A 照常运行应用：
+
+```bash
+cd app
+flutter run -d android --dart-define=API_BASE_URL=https://test.pangbao.cuplay.top
+```
+
+终端 B（Windows，需 `adb` 在 PATH；**推荐用脚本**，避免 PowerShell 管道 GBK 导致 JSON 中文乱码）：
+
+```powershell
+cd app
+.\scripts\logcat_api_http.ps1
+```
+
+脚本顶部 `$Tags` 数组可增删 tag。若需手动过滤，请先 `chcp 65001`，或使用 PowerShell 7+（`pwsh`）。
+
+```powershell
+adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
+```
+
+**下拉刷新排查**：在终端 B 对齐 `[UcgFeed] onRefresh fired` → `fetchRecommendedFeed calling` → `[ApiHttp] -> GET …/feed/recommend` 的时间戳，可拆分「触发刷新 → 发 HTTP」各段耗时。
+
+临时排查微信 SDK 问题时，可将 `pubspec.yaml` 的 `fluwx.debug_logging` 改回 `true` 后重新 `flutter pub get`。
+
+### UCG 本地视频上传（normalize）
+
+- **统一入口**：所有本地视频 OSS 上传 MUST 经 `ucgUploadLocalVideo`（compose、聊天、历史同步、相册直传）。
+- **iOS/Android**：每条本地视频经 `ffmpeg_kit_flutter_new_min_gpl` 转码为 H.264 Main + AAC（无音轨补静音）+ `-movflags +faststart`，`transform_version` **`v2`**；不再因 ≤20MB 跳过转码。
+- **Web**：校验后直传 raw（`transform_version` **`v1`**），不使用 ffmpeg.wasm；canonical MP4 由 **go_ai_talk 服务端 ffmpeg worker** 异步补齐（Phase 2，本仓库不实现）。
+- **APK 体积**：`ffmpeg_kit_flutter_new_min_gpl` 约增加数 MB/ABI（min-gpl 变体）；Play 分发建议 `.aab`。
+- **播放兜底**：CDN/内联 `VideoPlayer` 失败时 UI 提供「用系统播放器打开」（Android `ACTION_VIEW` https；iOS/Web `url_launcher` externalApplication）。
+
+Debug 下 `[UcgVideo]` 日志可确认 normalize 与 v2 上传字节数（见上方 logcat 脚本 `$Tags`）。
+
 ### 语音识别（设置中心）
 
 - **Android 默认「云端实时转写」**（`WS_VOICE_ASR_URL` 或基址推导的 `/voice/asr/ws`）；**iOS 默认「系统语音识别」**。
@@ -152,9 +211,7 @@ flutter build apk --release --target-platform android-arm64
 2. **登录与绑定**：须 **已登录** 且 UCG 账号 **已绑定微信**（`wxId` 有效）；否则客户端会跳过注册。
 3. **通知权限**：Android 13+ 首次启动会请求「通知」权限，需允许。
 4. **Logcat / 调试输出**（`flutter run` 终端或 `adb logcat`）：
-   - 成功拿到 token 后，Dart 侧会尝试注册；失败时可见：
-     - `[ucg-push] skip register: unsupported OEM` — 非华为/小米设备
-     - `[ucg-push] skip register: no token for hms` 或 `… for mipush` — 凭证或 SDK 未配好、token 尚未返回
+   - 推送注册无 Dart 侧 debug 日志；请通过网关 **`POST /ucg/app/api/push/register`** 或断点确认是否注册成功
    - 华为：确认 `BuildConfig.UCG_HMS_APP_ID` 非空（app_id 未填则 HMS 不会启动）
    - 小米：确认 `libs/` 内 AAR 存在且 `ucg.mipush.app_id` / `app_key` 已填
 5. **网络请求**：登录并绑定微信后，抓包或网关日志应出现 **`POST /ucg/app/api/push/register`**（经 UCG 客户端封装为 `POST /push/register`），请求体示例：

@@ -12,6 +12,7 @@ import '../../session/token_expiry.dart';
 import '../data/ucg_api_client.dart';
 import '../data/ucg_compose_draft_store.dart';
 import '../data/ucg_models.dart';
+import '../data/ucg_location.dart';
 import '../data/ucg_repository.dart';
 import '../push/ucg_push_registration_service.dart';
 
@@ -192,7 +193,12 @@ void bumpUcgNotificationsRefresh(WidgetRef ref) {
 /// 单帖详情（进入详情页 refresh）。
 final ucgPostDetailProvider = FutureProvider.autoDispose.family<UcgPost, String>((ref, postId) async {
   ref.watch(ucgPostsChangedProvider);
-  return ref.read(ucgRepositoryProvider).fetchPost(postId);
+  final coords = await readCurrentCoordsIfGranted(ref);
+  return ref.read(ucgRepositoryProvider).fetchPost(
+        postId,
+        lat: coords?.lat,
+        lng: coords?.lng,
+      );
 });
 
 /// 互动消息分页（首屏）。

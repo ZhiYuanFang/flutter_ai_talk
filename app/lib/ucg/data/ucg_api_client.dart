@@ -18,11 +18,13 @@ class UcgApiClient {
     String path, {
     Map<String, String>? query,
     bool withAuthorization = true,
+    Duration? timeout,
   }) {
     return _api.getEnvelope(
       _path(path),
       query: query,
       withAuthorization: withAuthorization,
+      timeout: timeout,
     );
   }
 

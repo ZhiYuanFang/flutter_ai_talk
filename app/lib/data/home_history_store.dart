@@ -1,19 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
-
-/// 主页历史调试日志（静态方法，避免 Hot Reload 顶层符号丢失）。
-abstract final class HomeHistoryLog {
-  static void d(String message) {
-    if (kDebugMode) {
-      debugPrint('[HomeHistory] ${DateTime.now().toIso8601String()} $message');
-    }
-  }
-}
 
 const _historyFileSuffix = '_v1.json';
 
@@ -58,10 +49,7 @@ class HomeHistoryStore {
 
   /// 读取缓存；items 升序（旧→新）。
   static Future<HomeHistoryCacheSnapshot> loadSnapshot(String deviceNo) async {
-    final sw = Stopwatch()..start();
-    HomeHistoryLog.d('cache load start deviceNo=$deviceNo');
     if (!homeHistorySupportsLocalFiles) {
-      HomeHistoryLog.d('cache load skip: Web platform');
       return const HomeHistoryCacheSnapshot(
         items: [],
         total: 0,
@@ -70,16 +58,13 @@ class HomeHistoryStore {
     }
     final file = await _historyFile(deviceNo);
     if (file == null) {
-      HomeHistoryLog.d('cache load miss: no file path');
       return const HomeHistoryCacheSnapshot(
         items: [],
         total: 0,
         highestPageLoaded: 0,
       );
     }
-    final path = file.path;
     if (!await file.exists()) {
-      HomeHistoryLog.d('cache load miss: file not exists path=$path');
       return const HomeHistoryCacheSnapshot(
         items: [],
         total: 0,
@@ -88,16 +73,8 @@ class HomeHistoryStore {
     }
     try {
       final decoded = jsonDecode(await file.readAsString());
-      final parsed = _parseCacheEnvelope(decoded);
-      sw.stop();
-      HomeHistoryLog.d(
-        'cache load ok count=${parsed.items.length} total=${parsed.total} '
-        'pages=${parsed.highestPageLoaded} elapsed=${sw.elapsedMilliseconds}ms path=$path',
-      );
-      return parsed;
-    } catch (e) {
-      sw.stop();
-      HomeHistoryLog.d('cache load error: $e path=$path elapsed=${sw.elapsedMilliseconds}ms');
+      return _parseCacheEnvelope(decoded);
+    } catch (_) {
       return const HomeHistoryCacheSnapshot(
         items: [],
         total: 0,
@@ -160,19 +137,13 @@ class HomeHistoryStore {
       final root = await _rootDir();
       if (root != null && await root.exists()) {
         await root.delete(recursive: true);
-        HomeHistoryLog.d('cache clearAll: root deleted');
       }
-    } catch (e) {
-      HomeHistoryLog.d('cache clearAll error: $e');
-    }
+    } catch (_) {}
   }
 
   static Future<void> saveSnapshot(String deviceNo, HomeHistoryCacheSnapshot snapshot) async {
     final file = await _historyFile(deviceNo);
-    if (file == null) {
-      HomeHistoryLog.d('cache save skip: no file path deviceNo=$deviceNo');
-      return;
-    }
+    if (file == null) return;
     try {
       final encoded = jsonEncode({
         'items': snapshot.items.map((e) => e.toJson()).toList(),
@@ -180,13 +151,7 @@ class HomeHistoryStore {
         'highestPageLoaded': snapshot.highestPageLoaded,
       });
       await file.writeAsString(encoded);
-      HomeHistoryLog.d(
-        'cache save ok count=${snapshot.items.length} total=${snapshot.total} '
-        'pages=${snapshot.highestPageLoaded} path=${file.path}',
-      );
-    } catch (e) {
-      HomeHistoryLog.d('cache save error: $e deviceNo=$deviceNo');
-    }
+    } catch (_) {}
   }
 
   static Future<void> save(String deviceNo, List<HistoryRecord> items) async {

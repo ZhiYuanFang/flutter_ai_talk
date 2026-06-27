@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -7,10 +6,10 @@ import '../config/event_media_local_store.dart';
 import '../data/history_edit_media_item.dart';
 import '../data/models.dart';
 import '../session/token_expiry.dart';
-import '../ucg/data/ucg_media_compress.dart';
 import '../ucg/data/ucg_media_picker.dart';
 import '../ucg/data/ucg_presign.dart';
 import '../ucg/data/ucg_repository.dart';
+import '../ucg/data/ucg_video_upload.dart';
 
 /// 广场同步帖子正文：第一行「{宝宝名}的{事件名}」，备注非空时第二行。
 String formatHistorySquareSyncCaption({
@@ -61,6 +60,8 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
   required List<HistoryEditMediaItem> media,
   required bool syncEnabled,
   required int existingPostId,
+  double? lat,
+  double? lng,
 }) async {
   final meta = historyEditMediaMetadata(media);
   final effectiveSync = syncEnabled && media.isNotEmpty;
@@ -97,6 +98,8 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
           text: caption,
           imageKeys: uploaded.imageKeys,
           videoKey: uploaded.videoKey.isEmpty ? null : uploaded.videoKey,
+          lat: lat,
+          lng: lng,
         );
         return HistoryEventSquareSyncResult(
           postId: int.tryParse(post.id) ?? existingPostId,
@@ -117,6 +120,8 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
         text: caption,
         imageKeys: uploaded.imageKeys,
         videoKey: uploaded.videoKey.isEmpty ? null : uploaded.videoKey,
+        lat: lat,
+        lng: lng,
       );
       return HistoryEventSquareSyncResult(
         postId: int.tryParse(post.id) ?? 0,
@@ -192,21 +197,19 @@ Future<({List<String> imageKeys, String videoKey})> _uploadHistoryMedia({
       case HistoryEditLocalFile(:final path, :final isVideo):
         final file = File(path);
         if (!await file.exists()) continue;
-        final bytes = await file.readAsBytes();
-        final name = ucgFallbackFileName(isVideo: isVideo, path: path);
-        final prepared = isVideo
-            ? await ucgPrepareVideoBytes(bytes: bytes, sourcePath: path)
-            : bytes;
-        final uploaded = await ucgUploadBytes(
-          repo: ucgRepo,
-          bytes: Uint8List.fromList(prepared),
-          fileName: name,
-          contentType: ucgContentTypeForFileName(name),
-          isVideo: isVideo,
-        );
         if (isVideo) {
+          final uploaded = await ucgUploadLocalVideo(repo: ucgRepo, sourcePath: path);
           videoKey = uploaded.objectKey;
         } else {
+          final bytes = await file.readAsBytes();
+          final name = ucgFallbackFileName(isVideo: false, path: path);
+          final uploaded = await ucgUploadBytes(
+            repo: ucgRepo,
+            bytes: bytes,
+            fileName: name,
+            contentType: ucgContentTypeForFileName(name),
+            isVideo: false,
+          );
           imageKeys.add(uploaded.objectKey);
         }
     }

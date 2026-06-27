@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cross_file/cross_file.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_compress/video_compress.dart';
 import 'package:video_player/video_player.dart';
@@ -13,10 +13,6 @@ Future<void> _androidCodecCooldown() async {
   if (!kIsWeb && Platform.isAndroid) {
     await Future<void>.delayed(_kAndroidCodecCooldown);
   }
-}
-
-void _ucgVideoLog(String message) {
-  if (kDebugMode) debugPrint('[ucg_video] $message');
 }
 
 bool ucgPathIsMediaUri(String path) =>
@@ -220,7 +216,6 @@ Future<String?> ucgTranscodedPlayPath(
         await _isPlausibleMediaFile(cacheFile, minBytes: 32768) &&
         await _hasValidMediaInfo(cacheFile.path) &&
         await _isLikelyTranscoded(cacheFile.path, source)) {
-      _ucgVideoLog('reuse transcoded cache ${cacheFile.path}');
       return cacheFile.path;
     }
     if (skipCache) await _deleteFileIfExists(cacheFile.path);
@@ -234,9 +229,6 @@ Future<String?> ucgTranscodedPlayPath(
       (quality: VideoQuality.MediumQuality, includeAudio: true, frameRate: 30),
     ];
     for (final attempt in attempts) {
-      _ucgVideoLog(
-        'transcode source=$source quality=${attempt.quality} audio=${attempt.includeAudio}',
-      );
       final info = await VideoCompress.compressVideo(
         source,
         quality: attempt.quality,
@@ -259,10 +251,8 @@ Future<String?> ucgTranscodedPlayPath(
       try {
         await File(out).copy(cacheFile.path);
       } catch (_) {}
-      _ucgVideoLog('transcode ok out=$out');
       return out;
     }
-    _ucgVideoLog('transcode failed for source=$source');
   } catch (_) {}
   return null;
 }

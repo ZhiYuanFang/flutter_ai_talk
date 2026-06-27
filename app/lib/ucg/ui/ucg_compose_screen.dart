@@ -9,6 +9,7 @@ import '../../api/ai_quota_errors.dart';
 import '../../api/api_exceptions.dart';
 import '../../providers/ai_quota_provider.dart';
 import '../../ui/widgets/ai_quota_remaining_hint.dart';
+import '../data/ucg_location.dart';
 import '../data/ucg_compose_media_slot.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
@@ -412,18 +413,23 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
           if (mounted) setState(() {});
         },
       );
+      final coords = await ensureUcgLocationForDistance(context, ref);
       if (widget.editingPost != null) {
         await ref.read(ucgRepositoryProvider).updatePost(
               postId: widget.editingPost!.id,
               text: text,
               imageKeys: uploaded.imageKeys,
               videoKey: uploaded.videoKey,
+              lat: coords?.lat,
+              lng: coords?.lng,
             );
       } else {
         await ref.read(ucgRepositoryProvider).createPost(
               text: text,
               imageKeys: uploaded.imageKeys,
               videoKey: uploaded.videoKey,
+              lat: coords?.lat,
+              lng: coords?.lng,
             );
       }
       await ref.read(ucgComposeDraftStoreProvider).clear();
@@ -573,37 +579,65 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                               ],
                               if (_hasVideo && videoSlot != null) ...[
                                 const SizedBox(height: 12),
-                                Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    GestureDetector(
-                                      onTap: _busy ? null : () => unawaited(_openVideoPreview(videoSlot)),
-                                      child: AspectRatio(
-                                        aspectRatio: 16 / 9,
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(12),
-                                          child: _buildVideoPreview(videoSlot),
-                                        ),
-                                      ),
-                                    ),
-                                    if (_canRemoveVideo)
-                                      Positioned(
-                                        top: 6,
-                                        right: 6,
-                                        child: Material(
-                                          color: Colors.black.withValues(alpha: 0.55),
-                                          shape: const CircleBorder(),
-                                          clipBehavior: Clip.antiAlias,
-                                          child: IconButton(
-                                            visualDensity: VisualDensity.compact,
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                            onPressed: _busy ? null : () => unawaited(_removeVideo()),
-                                            icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                ValueListenableBuilder<int>(
+                                  valueListenable: _slotsRevision,
+                                  builder: (context, _, __) {
+                                    final slot = _videoSlot;
+                                    if (slot == null) return const SizedBox.shrink();
+                                    return Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        GestureDetector(
+                                          onTap: _busy ? null : () => unawaited(_openVideoPreview(slot)),
+                                          child: AspectRatio(
+                                            aspectRatio: 16 / 9,
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: _buildVideoPreview(slot),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                  ],
+                                        if (slot.status == UcgComposeMediaSlotStatus.preparing ||
+                                            slot.status == UcgComposeMediaSlotStatus.uploading)
+                                          Positioned.fill(
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: ColoredBox(
+                                                color: Colors.black.withValues(alpha: 0.45),
+                                                child: Center(
+                                                  child: Text(
+                                                    slot.status == UcgComposeMediaSlotStatus.preparing
+                                                        ? '正在处理视频…'
+                                                        : '正在上传…',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        if (_canRemoveVideo)
+                                          Positioned(
+                                            top: 6,
+                                            right: 6,
+                                            child: Material(
+                                              color: Colors.black.withValues(alpha: 0.55),
+                                              shape: const CircleBorder(),
+                                              clipBehavior: Clip.antiAlias,
+                                              child: IconButton(
+                                                visualDensity: VisualDensity.compact,
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                                onPressed: _busy ? null : () => unawaited(_removeVideo()),
+                                                icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    );
+                                  },
                                 ),
                               ],
                               if (_showAiPolish) ...[

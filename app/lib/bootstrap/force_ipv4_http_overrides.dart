@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
-
 /// 安装全局 [HttpOverrides]，使 `dart:io` HTTP/WebSocket 仅解析并连接 IPv4。
 void installForceIpv4HttpOverrides() {
   HttpOverrides.global = ForceIpv4HttpOverrides();
@@ -38,12 +36,6 @@ class ForceIpv4HttpOverrides extends HttpOverrides {
     if (addresses.isEmpty) {
       throw SocketException('No IPv4 address for $host');
     }
-    if (kDebugMode) {
-      // ignore: avoid_print
-      print(
-        'ForceIpv4: $host -> ${addresses.map((a) => a.address).join(', ')}:$port',
-      );
-    }
 
     if (_isSecureScheme(url.scheme)) {
       return _connectTlsFirst(addresses, port, host: host);
@@ -70,10 +62,6 @@ class ForceIpv4HttpOverrides extends HttpOverrides {
           return await activeTask!.socket;
         } catch (e) {
           lastError = e;
-          if (kDebugMode) {
-            // ignore: avoid_print
-            print('ForceIpv4: plain connect failed ${address.address}: $e');
-          }
         }
       }
       throw SocketException(
@@ -122,10 +110,6 @@ class ForceIpv4HttpOverrides extends HttpOverrides {
         } catch (e) {
           lastError = e;
           raw?.destroy();
-          if (kDebugMode) {
-            // ignore: avoid_print
-            print('ForceIpv4: TLS connect failed ${address.address}: $e');
-          }
         }
       }
       throw SocketException(

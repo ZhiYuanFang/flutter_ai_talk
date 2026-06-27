@@ -1400,17 +1400,67 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
               ),
             ),
           )
-        else if (!widget.posterOnly && (_posterFailed || _playbackFailed))
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              kIsWeb ? 'Web 端暂无法播放该视频' : '视频加载失败，点击重试',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: primary.withValues(alpha: 0.85)),
-            ),
-          )
-        else if (showPlayIcon)
+        else if (showPlayIcon && !(_posterFailed || _playbackFailed))
           UcgVideoPlayOverlayIcon(),
+      ],
+    );
+  }
+
+  bool get _inlineFailed => _posterFailed || _playbackFailed;
+
+  Widget _buildInlineFailureOverlay(
+    BuildContext context, {
+    VoidCallback? onRetry,
+  }) {
+    final primary = UcgTheme.primary(context);
+    final retry = onRetry ?? _startPlayback;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: retry,
+            behavior: HitTestBehavior.opaque,
+            child: ColoredBox(color: Colors.black.withValues(alpha: 0.26)),
+          ),
+        ),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  kIsWeb ? 'Web 端暂无法播放该视频' : '视频加载失败，点击重试',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: primary.withValues(alpha: 0.85)),
+                ),
+                if (widget.videoUrl.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () {
+                      unawaited(
+                        ucgOpenExternalVideoPlayerWithFeedback(
+                          context,
+                          videoUrl: widget.videoUrl,
+                        ),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      '用系统播放器打开',
+                      style: TextStyle(fontSize: 12, color: primary),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1420,29 +1470,43 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     final onScrim = UcgTheme.onPrimary(context);
 
     if (widget.posterOnly) {
-      return IgnorePointer(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(widget.borderRadius),
-          child: AspectRatio(
-            aspectRatio: widget.aspectRatio,
-            child: _buildPosterStack(context, showPlayIcon: true),
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(widget.borderRadius),
+        child: AspectRatio(
+          aspectRatio: widget.aspectRatio,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              IgnorePointer(
+                child: _buildPosterStack(context, showPlayIcon: !_inlineFailed),
+              ),
+              if (_inlineFailed && widget.videoUrl.isNotEmpty)
+                _buildInlineFailureOverlay(context, onRetry: _loadPoster),
+            ],
           ),
         ),
       );
     }
 
     if (!_playing) {
-      return GestureDetector(
-        onTap: _startPlayback,
-        behavior: HitTestBehavior.opaque,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(widget.borderRadius),
-          child: AspectRatio(
-            aspectRatio: widget.aspectRatio,
-            child: _buildPosterStack(
-              context,
-              showPlayIcon: !_initializingPoster && !_initializingPlayback && !_posterFailed && !_playbackFailed,
-            ),
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(widget.borderRadius),
+        child: AspectRatio(
+          aspectRatio: widget.aspectRatio,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              GestureDetector(
+                onTap: _startPlayback,
+                behavior: HitTestBehavior.opaque,
+                child: _buildPosterStack(
+                  context,
+                  showPlayIcon:
+                      !_inlineFailed && !_initializingPoster && !_initializingPlayback,
+                ),
+              ),
+              if (_inlineFailed) _buildInlineFailureOverlay(context),
+            ],
           ),
         ),
       );
@@ -1953,11 +2017,17 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
-                      if (!kIsWeb && Platform.isAndroid)
+                      if ((widget.videoUrl != null && widget.videoUrl!.isNotEmpty) ||
+                          (!kIsWeb &&
+                              Platform.isAndroid &&
+                              ((widget.filePath?.isNotEmpty ?? false) ||
+                                  (widget.contentUri?.isNotEmpty ?? false))))
                         TextButton(
                           onPressed: () {
                             unawaited(
-                              ucgOpenSystemVideoPlayer(
+                              ucgOpenExternalVideoPlayerWithFeedback(
+                                context,
+                                videoUrl: widget.videoUrl,
                                 filePath: widget.filePath,
                                 contentUri: widget.contentUri,
                               ),
@@ -1968,7 +2038,12 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
                             style: TextStyle(color: UcgTheme.primary(context)),
                           ),
                         ),
-                      if (!kIsWeb && Platform.isAndroid) const SizedBox(height: 8),
+                      if ((widget.videoUrl != null && widget.videoUrl!.isNotEmpty) ||
+                          (!kIsWeb &&
+                              Platform.isAndroid &&
+                              ((widget.filePath?.isNotEmpty ?? false) ||
+                                  (widget.contentUri?.isNotEmpty ?? false))))
+                        const SizedBox(height: 8),
                       TextButton(
                         onPressed: () {
                           setState(() {

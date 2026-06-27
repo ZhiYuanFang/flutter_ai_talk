@@ -17,6 +17,7 @@ import '../providers/home_history_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../ucg/data/ucg_album_picker.dart';
+import '../ucg/data/ucg_location.dart';
 import '../ucg/providers/ucg_providers.dart';
 import 'event_logo.dart';
 import 'history_event_media_picker.dart';
@@ -352,6 +353,10 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
 
     if (ok) {
       final syncEnabled = _effectiveSyncToSquare;
+      UcgCoords? syncCoords;
+      if (syncEnabled && _media.isNotEmpty) {
+        syncCoords = await ensureUcgLocationForDistance(context, ref);
+      }
       final baby = await ref.read(settingsBabyProvider.future);
       final eventDef = lookupEventForRecord(widget.eventCatalog, r);
       final syncEventName = (eventDef?.name ?? r.eventName).trim();
@@ -365,6 +370,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
         media: List.unmodifiable(_media),
         syncEnabled: syncEnabled,
         existingPostId: existingPostId,
+        lat: syncCoords?.lat,
+        lng: syncCoords?.lng,
       );
 
       if (syncResult.skippedUcg) {

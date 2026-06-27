@@ -28,7 +28,6 @@ import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
 import '../data/feed_repository.dart';
-import '../data/home_history_store.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
 import '../data/history_record_metric.dart';
@@ -148,7 +147,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   List<EventDefinition>? _buttonGridOrder;
   var _voiceSendSeq = 0;
   var _voiceSendWatchdogCorr = 0;
-  var _voiceSendWsSeen = false;
   bool get _showRecordingStatsPanel =>
       _showRecordingDiagnostics &&
       _speechEngine == SpeechEngine.cloudAsr &&
@@ -170,10 +168,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
     unawaited(_restoreSavedInputChannel());
     unawaited(_loadEventUsageAndButtonOrder());
-    HomeHistoryLog.d(
-      'HomeScreen initState provider items=${ref.read(homeHistoryProvider).items.length} '
-      'initialLoadDone=${ref.read(homeHistoryProvider).initialLoadDone}',
-    );
     _init();
   }
 
@@ -325,8 +319,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         showAppToast('语音转写服务未连接，请稍后再试', tone: AppToastTone.error);
       }
       return _voiceReady;
-    } catch (e) {
-      debugPrint('prepare voice input failed: $e');
+    } catch (_) {
       if (mounted) {
         showAppToast('语音识别初始化失败，请切换到事件记录模式', tone: AppToastTone.error);
       }
@@ -549,25 +542,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _sseSub = feed.watchLatest().listen((payload) {
       final removed = payload.removedRecordId;
       if (removed != null) {
-        HomeHistoryLog.d(
-          'wsListener remove recordId=$removed channel=$_inputChannel',
-        );
         _history.removeRecord(removed);
         return;
       }
       final r = payload.record!;
       final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
       final flySuppressed = _shouldScheduleWsFly(r.id);
-      HomeHistoryLog.d(
-        'wsListener recordId=${r.id} event=${r.eventName} isNew=$isNew '
-        'flySuppressed=$flySuppressed channel=$_inputChannel',
-      );
-      if (_voiceSendWatchdogCorr > 0) {
-        _voiceSendWsSeen = true;
-        HomeHistoryLog.d(
-          'voiceSend#$_voiceSendWatchdogCorr wsListener matched recordId=${r.id}',
-        );
-      }
       _history.upsertRecord(r);
       if (isNew && !flySuppressed) {
         _onWsNewHistoryRecord(r);
@@ -682,17 +662,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         repo: ref.read(versionRepositoryProvider),
         currentVersion: currentVersion,
       );
-    } catch (e, st) {
-      debugPrint('version bootstrap failed: $e\n$st');
-    }
+    } catch (_) {}
     if (!mounted) return;
     try {
       final baby = await ref.read(settingsRepositoryProvider).loadBaby();
       ref.read(babySexProvider.notifier).state = baby.sex;
       await persistCachedBabySex(baby.sex);
-    } catch (e, st) {
-      debugPrint('baby bootstrap failed: $e\n$st');
-    }
+    } catch (_) {}
   }
 
   HistoryRecord _recordWithEndTime(HistoryRecord r, DateTime end) {
@@ -873,10 +849,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      ref.read(feedRepositoryProvider).onAppLifecycleResumed();
-      ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
-      unawaited(ref.read(ucgUnreadSyncProvider)());
+      unawaited(_onAppLifecycleResumed());
     }
+  }
+
+  /// 回前台：先单飞 ensureFreshSession，再并行 WS 重连与 UCG 未读同步。
+  Future<void> _onAppLifecycleResumed() async {
+    await ref.read(sessionProvider).ensureFreshSession();
+    ref.read(feedRepositoryProvider).onAppLifecycleResumed();
+    ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
+    unawaited(ref.read(ucgUnreadSyncProvider)());
   }
 
   Future<void> _reloadHistoryIfLoggedIn() async {
@@ -959,29 +941,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (text.isEmpty) return;
     if (!await _ensureRemoteGate()) return;
     final corr = ++_voiceSendSeq;
-    HomeHistoryLog.d(
-      'voiceSend#$corr start channel=voice textLen=${text.length} wsReady=$_wsReady',
-    );
-    if (!_ensureHistoryWsForSend()) {
-      HomeHistoryLog.d('voiceSend#$corr blocked: history ws not ready');
-      return;
-    }
-    final sw = Stopwatch()..start();
+    if (!_ensureHistoryWsForSend()) return;
     try {
       final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
-      HomeHistoryLog.d(
-        'voiceSend#$corr sendCommand done elapsed=${sw.elapsedMilliseconds}ms '
-        'replyLen=${reply?.length ?? 0}',
-      );
       _scheduleVoiceWsWatchdog(corr);
       if (!mounted) return;
       ref.invalidate(voiceAiQuotaProvider);
       _applyChatReply(reply);
     } on ApiBusinessException catch (e) {
-      HomeHistoryLog.d(
-        'voiceSend#$corr sendCommand failed elapsed=${sw.elapsedMilliseconds}ms '
-        'code=${e.code}',
-      );
       if (!mounted) return;
       if (!await handleAiQuotaException(context, e)) {
         ref.showApiToastError(e.message);
@@ -991,15 +958,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   void _scheduleVoiceWsWatchdog(int corr) {
     _voiceSendWatchdogCorr = corr;
-    _voiceSendWsSeen = false;
-    final itemsAtSend = ref.read(homeHistoryProvider).items.length;
     unawaited(Future<void>.delayed(const Duration(seconds: 5), () {
       if (!mounted || _voiceSendWatchdogCorr != corr) return;
-      final itemsNow = ref.read(homeHistoryProvider).items.length;
-      HomeHistoryLog.d(
-        'voiceSend#$corr watchdog: wsSeen=$_voiceSendWsSeen wsReady=$_wsReady '
-        'items=$itemsAtSend->$itemsNow',
-      );
       if (_voiceSendWatchdogCorr == corr) {
         _voiceSendWatchdogCorr = 0;
       }
@@ -1278,12 +1238,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         if (!mounted) return;
         unawaited(_retryEventCatalogIfEmpty());
       });
-    });
-    ref.listen<HomeHistoryState>(homeHistoryProvider, (prev, next) {
-      HomeHistoryLog.d(
-        'ui provider changed items=${next.items.length} initialLoadDone=${next.initialLoadDone} '
-        'prevItems=${prev?.items.length ?? "null"}',
-      );
     });
     final homeHistory = ref.watch(homeHistoryProvider);
     final historyItems = homeHistory.items;

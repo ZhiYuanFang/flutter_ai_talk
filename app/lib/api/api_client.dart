@@ -47,15 +47,18 @@ class ApiClient {
   }
 
   /// [withAuthorization] 为 `false` 时不带 Bearer（如登录、刷新、版本检查等网关约定）。
+  /// [timeout] 可选；未设则使用 HTTP 包默认（无上限）。推荐 Feed 索引 warm 场景建议 ≥45s。
   Future<Map<String, dynamic>?> getEnvelope(
     String path, {
     Map<String, String>? query,
     bool withAuthorization = true,
+    Duration? timeout,
   }) async {
     final uri = _uri(path, query);
     final res = await _send(
       () => http.get(uri, headers: _headers(withAuthorization: withAuthorization)),
       withAuthorization: withAuthorization,
+      timeout: timeout,
     );
     return _decodeResponse(res);
   }
@@ -143,14 +146,19 @@ class ApiClient {
   Future<http.Response> _send(
     Future<http.Response> Function() once, {
     required bool withAuthorization,
+    Duration? timeout,
   }) async {
-    var res = await once();
+    Future<http.Response> run() {
+      final f = once();
+      return timeout != null ? f.timeout(timeout) : f;
+    }
+    var res = await run();
     if (res.statusCode == 401 && withAuthorization) {
       final refresh = onUnauthorizedRefresh;
       if (refresh != null) {
         final ok = await refresh();
         if (ok) {
-          res = await once();
+          res = await run();
         } else {
           await onUnauthorizedFailed?.call();
         }

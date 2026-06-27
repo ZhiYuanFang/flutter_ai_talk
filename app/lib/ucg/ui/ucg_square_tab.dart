@@ -7,10 +7,12 @@ import 'package:intl/intl.dart';
 
 import '../../providers/session_provider.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../data/ucg_location.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_post_detail_screen.dart';
 import 'ucg_profile_screens.dart';
+import 'widgets/ucg_location_settings_hint.dart';
 import 'widgets/ucg_masonry_feed_card.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
@@ -43,11 +45,14 @@ class UcgSquareTab extends ConsumerStatefulWidget {
 class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   _SquareFeedMode _mode = _SquareFeedMode.recommended;
   final _items = <UcgPost>[];
-  var _page = 1;
+  String? _nextCursor;
   var _hasMore = true;
   var _loading = false;
   var _initialLoaded = false;
+  var _didEmptyRetry = false;
   String? _error;
+  double? _followingLat;
+  double? _followingLng;
   final _scrollController = ScrollController();
 
   @override
@@ -77,23 +82,65 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       _loading = true;
       _error = null;
       if (refresh) {
-        _page = 1;
+        _nextCursor = null;
         _hasMore = true;
+        _didEmptyRetry = false;
       }
     });
     try {
       final repo = ref.read(ucgRepositoryProvider);
-      final result = _mode == _SquareFeedMode.recommended
-          ? await repo.fetchRecommendedFeed(page: _page)
-          : await repo.fetchFollowingFeed(page: _page);
-      if (!mounted) return;
-      setState(() {
-        if (refresh) _items.clear();
-        _items.addAll(result.items);
-        _page = result.page + 1;
-        _hasMore = result.hasMore;
-        _initialLoaded = true;
-      });
+      final sw = Stopwatch()..start();
+      if (_mode == _SquareFeedMode.recommended) {
+        ({double lat, double lng})? coords;
+        if (refresh) {
+          coords = await ensureUcgLocationForDistance(context, ref);
+        }
+        final result = await repo.fetchRecommendedFeed(
+          cursor: refresh ? null : _nextCursor,
+          lat: coords?.lat,
+          lng: coords?.lng,
+        );
+        sw.stop();
+        if (!mounted) return;
+        setState(() {
+          if (refresh) _items.clear();
+          _items.addAll(result.items);
+          _nextCursor = result.nextCursor;
+          _hasMore = result.hasMore;
+          _initialLoaded = true;
+        });
+        if (refresh &&
+            result.items.isEmpty &&
+            !result.hasMore &&
+            sw.elapsed.inSeconds < 3 &&
+            !_didEmptyRetry) {
+          _didEmptyRetry = true;
+          unawaited(
+            Future<void>.delayed(const Duration(seconds: 2), () {
+              if (mounted) unawaited(_load(refresh: true));
+            }),
+          );
+        }
+      } else {
+        final page = refresh ? 1 : (_items.length ~/ kUcgPageSize) + 1;
+        if (refresh) {
+          final coords = await ensureUcgLocationForDistance(context, ref);
+          _followingLat = coords?.lat;
+          _followingLng = coords?.lng;
+        }
+        final result = await repo.fetchFollowingFeed(
+          page: page,
+          lat: _followingLat,
+          lng: _followingLng,
+        );
+        if (!mounted) return;
+        setState(() {
+          if (refresh) _items.clear();
+          _items.addAll(result.items);
+          _hasMore = result.hasMore;
+          _initialLoaded = true;
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -167,9 +214,17 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => _load(refresh: true),
-        child: _buildBody(fg, loggedIn),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const UcgLocationSettingsHint(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () => _load(refresh: true),
+              child: _buildBody(fg, loggedIn),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -199,6 +254,9 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
           ),
         ],
       );
+    }
+    if (!_initialLoaded && _loading) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
     if (_initialLoaded && _items.isEmpty) {
       if (_mode == _SquareFeedMode.following) {

@@ -142,6 +142,18 @@ String? _nullableString(dynamic raw) {
   return s.isEmpty ? null : s;
 }
 
+/// formatDistance 将 API 米数字符串格式化为展示文案（m/km）。
+String formatDistance(String? distanceMeters) {
+  final raw = distanceMeters?.trim();
+  if (raw == null || raw.isEmpty) return '';
+  final meters = int.tryParse(raw);
+  if (meters == null || meters < 0) return '';
+  if (meters < 1000) return '${meters}m';
+  final km = meters / 1000.0;
+  if (km < 10) return '${km.toStringAsFixed(1)}km';
+  return '${km.round()}km';
+}
+
 String? _mediaCdnAt(List<String> list, int index) {
   if (index < 0 || index >= list.length) return null;
   final s = list[index].trim();
@@ -176,6 +188,7 @@ class UcgPost {
     this.commentCount = 0,
     this.likedByMe = false,
     this.ipLocation,
+    this.distanceMeters,
   });
 
   final String id;
@@ -204,6 +217,9 @@ class UcgPost {
   final int commentCount;
   final bool likedByMe;
   final String? ipLocation;
+  final String? distanceMeters;
+
+  String get distanceDisplay => formatDistance(distanceMeters);
 
   String get ipLocationDisplay {
     final loc = ipLocation?.trim();
@@ -302,6 +318,8 @@ class UcgPost {
       likeCount: likeCount ?? this.likeCount,
       commentCount: commentCount ?? this.commentCount,
       likedByMe: likedByMe ?? this.likedByMe,
+      ipLocation: ipLocation,
+      distanceMeters: distanceMeters,
     );
   }
 
@@ -398,6 +416,7 @@ class UcgPost {
       commentCount: _int(json['commentCount']),
       likedByMe: json['likedByMe'] == true || json['liked'] == true,
       ipLocation: _nullableString(json['ipLocation'] ?? json['location'] ?? json['region']),
+      distanceMeters: _nullableString(json['distanceMeters']),
     );
   }
 }
@@ -416,6 +435,33 @@ class UcgPagedPosts {
   final int total;
 
   bool get hasMore => page * pageSize < total;
+}
+
+/// 推荐 Feed cursor 分页结果（无 total）。
+class UcgCursorFeedPage {
+  const UcgCursorFeedPage({
+    required this.items,
+    required this.hasMore,
+    this.nextCursor,
+  });
+
+  final List<UcgPost> items;
+  final bool hasMore;
+  final String? nextCursor;
+}
+
+UcgCursorFeedPage parseCursorFeed(Map<String, dynamic>? data, {bool publicFeedOnly = false}) {
+  if (data == null) {
+    return const UcgCursorFeedPage(items: [], hasMore: false);
+  }
+  final listRaw = data['list'] ?? data['items'] ?? data['records'];
+  final hasMore = data['hasMore'] == true;
+  final nextCursor = _nullableString(data['nextCursor']);
+  return UcgCursorFeedPage(
+    items: parsePostList(listRaw, publicFeedOnly: publicFeedOnly),
+    hasMore: hasMore,
+    nextCursor: nextCursor,
+  );
 }
 
 class UcgPagedConversations {

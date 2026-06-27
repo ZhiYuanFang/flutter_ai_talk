@@ -12,5 +12,14 @@ abstract final class UcgMediaLimits {
   static const videoMaxDuration = Duration(seconds: 15);
 }
 
-/// prepared bytes 哈希管线版本；变更压缩/prepare 算法时 bump（如 v2），旧 blob 不参与跨版本 dedup。
-const kUcgMediaTransformVersion = 'v1';
+/// 图片 prepared bytes 哈希管线版本。
+const kUcgMediaTransformVersionImage = 'v1';
+
+/// Web 端视频直传（服务端转码前）。
+const kUcgMediaTransformVersionVideoWeb = 'v1';
+
+/// 原生 ffmpeg normalize 后视频。
+const kUcgMediaTransformVersionVideoNative = 'v2';
+
+/// 图片默认 transform_version（向后兼容别名）。
+const kUcgMediaTransformVersion = kUcgMediaTransformVersionImage;

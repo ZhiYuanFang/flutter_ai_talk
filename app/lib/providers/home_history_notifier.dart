@@ -56,13 +56,6 @@ class HomeHistoryState {
 class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   HomeHistoryNotifier(this._ref, HomeHistoryState initialState)
       : super(initialState) {
-    if (state.items.isNotEmpty) {
-      HomeHistoryLog.d(
-        'provider created with memory cache count=${state.items.length}',
-      );
-    } else {
-      HomeHistoryLog.d('provider created, warmFromDisk scheduled');
-    }
     unawaited(_warmFromDisk());
   }
 
@@ -75,7 +68,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   void setFlyAnimationFrozen(bool frozen) {
     if (_flyAnimationFrozen == frozen) return;
     _flyAnimationFrozen = frozen;
-    HomeHistoryLog.d('flyAnimationFrozen=$frozen queued=${_queuedWhileFlyFrozen.length}');
     if (!frozen) {
       _flushQueuedWhileFlyFrozen();
     }
@@ -99,25 +91,15 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     return true;
   }
 
-  void _applyState(
-    HomeHistoryState next, {
-    required String source,
-  }) {
-    final prev = state.items.length;
+  void _applyState(HomeHistoryState next) {
     state = next;
     HomeHistoryMemoryCache.update(_deviceNo(), next.items);
-    HomeHistoryLog.d(
-      'state update source=$source count=${next.items.length} prev=$prev '
-      'total=${next.total} pages=${next.highestPageLoaded} '
-      'initialLoadDone=${next.initialLoadDone}',
-    );
   }
 
   void _applyItems(
     List<HistoryRecord> items, {
     int? total,
     int? highestPageLoaded,
-    required String source,
   }) {
     _applyState(
       state.copyWith(
@@ -125,7 +107,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         total: total,
         highestPageLoaded: highestPageLoaded,
       ),
-      source: source,
     );
   }
 
@@ -134,13 +115,8 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   }
 
   Future<void> _loadWarmFromDisk() async {
-    if (state.items.isNotEmpty) {
-      HomeHistoryLog.d('warmFromDisk skip: memory already has ${state.items.length}');
-      return;
-    }
-    HomeHistoryLog.d('warmFromDisk start');
+    if (state.items.isNotEmpty) return;
     if (!_ref.read(sessionProvider).isLoggedIn) {
-      HomeHistoryLog.d('warmFromDisk skip: not logged in');
       if (!state.initialLoadDone) {
         state = state.copyWith(initialLoadDone: true);
       }
@@ -148,37 +124,25 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     }
     var dn = _ref.read(deviceNoNotifierProvider).asData?.value;
     if (dn == null || dn.isEmpty) {
-      HomeHistoryLog.d('warmFromDisk deviceNo empty, refreshing…');
       await _ref.read(deviceNoNotifierProvider.notifier).refresh();
       dn = _ref.read(deviceNoNotifierProvider).asData?.value;
     }
-    if (dn == null || dn.isEmpty) {
-      HomeHistoryLog.d('warmFromDisk skip: deviceNo still empty');
-      return;
-    }
+    if (dn == null || dn.isEmpty) return;
     final cached = await HomeHistoryStore.loadSnapshot(dn);
-    if (cached.items.isEmpty) {
-      HomeHistoryLog.d('warmFromDisk: cache empty (deviceNo=$dn)');
-      return;
-    }
+    if (cached.items.isEmpty) return;
     _applyState(
       state.copyWith(
         items: cached.items,
         total: cached.total,
         highestPageLoaded: cached.highestPageLoaded,
       ),
-      source: 'warmFromDisk',
     );
   }
 
   String? _deviceNo() => _ref.read(deviceNoNotifierProvider).asData?.value;
 
   Future<void> loadFromDisk() async {
-    if (state.items.isNotEmpty) {
-      HomeHistoryLog.d('loadFromDisk skip: memory already has ${state.items.length}');
-      return;
-    }
-    HomeHistoryLog.d('loadFromDisk start');
+    if (state.items.isNotEmpty) return;
     await _warmFromDisk();
   }
 
@@ -187,16 +151,12 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     await loadFromDisk();
     if (state.items.isNotEmpty && !state.initialLoadDone) {
       state = state.copyWith(initialLoadDone: true);
-      HomeHistoryLog.d(
-        'hydrateFromDiskForSplash initialLoadDone=true count=${state.items.length}',
-      );
     }
   }
 
   void markInitialLoadComplete() {
     if (state.initialLoadDone) return;
     state = state.copyWith(initialLoadDone: true);
-    HomeHistoryLog.d('markInitialLoadComplete count=${state.items.length}');
   }
 
   HomeHistoryCacheSnapshot _currentSnapshot() {
@@ -213,22 +173,18 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) return;
     if (!_ref.read(sessionProvider).isLoggedIn) return;
-    final snapshot = _currentSnapshot();
-    HomeHistoryLog.d(
-      'persistToDisk count=${snapshot.items.length} total=${snapshot.total}',
-    );
-    unawaited(HomeHistoryStore.saveSnapshot(dn, snapshot));
+    unawaited(HomeHistoryStore.saveSnapshot(dn, _currentSnapshot()));
   }
 
   void setItems(List<HistoryRecord> items, {bool persist = true, String source = 'setItems'}) {
     if (_enqueueIfFrozen(() => setItems(items, persist: persist, source: source))) {
       return;
     }
-    _setItemsNow(items, persist: persist, source: source);
+    _setItemsNow(items, persist: persist);
   }
 
-  void _setItemsNow(List<HistoryRecord> items, {bool persist = true, required String source}) {
-    _applyItems(items, source: source);
+  void _setItemsNow(List<HistoryRecord> items, {bool persist = true}) {
+    _applyItems(items);
     if (persist) unawaited(persistToDisk());
   }
 
@@ -256,10 +212,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   }
 
   void insertOptimistic(HistoryRecord record) {
-    _setItemsNow(
-      [...state.items, record],
-      source: 'insertOptimistic id=${record.id}',
-    );
+    _setItemsNow([...state.items, record]);
   }
 
   void replaceRecordId(String fromId, String toId) {
@@ -328,24 +281,18 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   }
 
   Future<void> _refreshFromRemoteImpl() async {
-    HomeHistoryLog.d('refreshFromRemote start memory=${state.items.length}');
     if (!_ref.read(sessionProvider).isLoggedIn) {
-      HomeHistoryLog.d('refreshFromRemote skip: not logged in');
       state = const HomeHistoryState(initialLoadDone: true);
       HomeHistoryMemoryCache.clear();
       return;
     }
     await _warmFromDisk();
     final dn = _deviceNo();
-    if (dn == null || dn.isEmpty) {
-      HomeHistoryLog.d('refreshFromRemote skip: deviceNo empty');
-      return;
-    }
+    if (dn == null || dn.isEmpty) return;
 
     final cachedSnapshot = state.items.isNotEmpty
         ? _currentSnapshot()
         : await HomeHistoryStore.loadSnapshot(dn);
-    HomeHistoryLog.d('refreshFromRemote cache read count=${cachedSnapshot.items.length}');
     if (cachedSnapshot.items.isNotEmpty && state.items.isEmpty) {
       _applyState(
         state.copyWith(
@@ -353,30 +300,17 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
           total: cachedSnapshot.total,
           highestPageLoaded: cachedSnapshot.highestPageLoaded,
         ),
-        source: 'refreshFromRemote(cache)',
       );
     }
 
-    final sw = Stopwatch()..start();
     final page = await _ref.read(feedRepositoryProvider).tryLoadHistoryPage(page: 1);
-    sw.stop();
-    if (page == null) {
-      HomeHistoryLog.d(
-        'refreshFromRemote api returned null (${sw.elapsedMilliseconds}ms), keep memory=${state.items.length}',
-      );
-      return;
-    }
+    if (page == null) return;
 
     final remoteAsc = historyListToHomeAsc(page.listDesc);
-    HomeHistoryLog.d(
-      'refreshFromRemote api ok count=${remoteAsc.length} total=${page.total} '
-      'elapsed=${sw.elapsedMilliseconds}ms',
-    );
 
     final firstPageOnlyCached = cachedSnapshot.highestPageLoaded <= 1 &&
         historySnapshotsEqual(cachedSnapshot.items, remoteAsc);
     if (firstPageOnlyCached) {
-      HomeHistoryLog.d('refreshFromRemote skip write: same as cache page1');
       if (state.items.isEmpty && remoteAsc.isNotEmpty) {
         _applyState(
           state.copyWith(
@@ -384,12 +318,10 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
             total: page.total,
             highestPageLoaded: 1,
           ),
-          source: 'refreshFromRemote(syncMemory)',
         );
       } else if (state.total != page.total || state.highestPageLoaded != 1) {
         _applyState(
           state.copyWith(total: page.total, highestPageLoaded: 1),
-          source: 'refreshFromRemote(syncMeta)',
         );
       }
       return;
@@ -409,8 +341,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         highestPageLoaded: 1,
       ),
     );
-    _applyState(next, source: 'refreshFromRemote(api)');
-    HomeHistoryLog.d('refreshFromRemote saved disk count=${remoteAsc.length}');
+    _applyState(next);
   }
 
   Future<void> loadMoreHistory() async {
@@ -418,25 +349,16 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       _enqueueIfFrozen(() => unawaited(loadMoreHistory()));
       return;
     }
-    if (!state.hasMore || state.loadingMore) {
-      HomeHistoryLog.d(
-        'loadMoreHistory skip hasMore=${state.hasMore} loading=${state.loadingMore}',
-      );
-      return;
-    }
+    if (!state.hasMore || state.loadingMore) return;
     if (!_ref.read(sessionProvider).isLoggedIn) return;
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) return;
 
     final nextPage = state.highestPageLoaded + 1;
     state = state.copyWith(loadingMore: true);
-    HomeHistoryLog.d('loadMoreHistory start page=$nextPage');
 
-    final sw = Stopwatch()..start();
     final page = await _ref.read(feedRepositoryProvider).tryLoadHistoryPage(page: nextPage);
-    sw.stop();
     if (page == null) {
-      HomeHistoryLog.d('loadMoreHistory failed elapsed=${sw.elapsedMilliseconds}ms');
       state = state.copyWith(loadingMore: false);
       return;
     }
@@ -452,7 +374,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       highestPageLoaded: nextPage,
       loadingMore: false,
     );
-    _applyState(next, source: 'loadMoreHistory page=$nextPage added=${newOnes.length}');
+    _applyState(next);
     await HomeHistoryStore.saveSnapshot(
       dn,
       HomeHistoryCacheSnapshot(
@@ -461,17 +383,11 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         highestPageLoaded: nextPage,
       ),
     );
-    HomeHistoryLog.d(
-      'loadMoreHistory ok page=$nextPage added=${newOnes.length} total=${page.total} '
-      'elapsed=${sw.elapsedMilliseconds}ms',
-    );
   }
 
   Future<void> bootstrap() async {
-    HomeHistoryLog.d('bootstrap start memory=${state.items.length}');
     try {
       if (!_ref.read(sessionProvider).isLoggedIn) {
-        HomeHistoryLog.d('bootstrap skip: not logged in');
         HomeHistoryMemoryCache.clear();
         state = const HomeHistoryState(initialLoadDone: true);
         return;
@@ -480,9 +396,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       await refreshFromRemote();
     } finally {
       state = state.copyWith(initialLoadDone: true);
-      HomeHistoryLog.d(
-        'bootstrap done memory=${state.items.length} initialLoadDone=true',
-      );
     }
   }
 }
@@ -494,7 +407,6 @@ HomeHistoryState _homeHistoryInitialState(Ref ref) {
   final dn = ref.read(deviceNoNotifierProvider).asData?.value;
   final mem = HomeHistoryMemoryCache.peek(dn);
   if (mem.isEmpty) return const HomeHistoryState();
-  HomeHistoryLog.d('initialState from memory cache count=${mem.length} deviceNo=$dn');
   return HomeHistoryState(
     items: mem,
     highestPageLoaded: 1,

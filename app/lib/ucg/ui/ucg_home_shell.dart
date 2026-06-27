@@ -22,6 +22,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
 
   final _pageController = PageController();
   var _pageIndex = 0;
+  var _ucgEverMounted = false;
   var _blockPageScroll = false;
   DateTime? _lastExitBackPress;
 
@@ -33,7 +34,18 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
     super.dispose();
   }
 
+  void _markUcgMounted() {
+    if (_ucgEverMounted) return;
+    setState(() => _ucgEverMounted = true);
+  }
+
+  void _onPageChanged(int index) {
+    if (index == 1) _markUcgMounted();
+    setState(() => _pageIndex = index);
+  }
+
   Future<void> _goToUcg() async {
+    _markUcgMounted();
     await _pageController.animateToPage(
       1,
       duration: const Duration(milliseconds: 280),
@@ -83,22 +95,28 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
       },
       child: Stack(
         children: [
-          PageView(
+          PageView.builder(
             controller: _pageController,
+            itemCount: 2,
             physics: _blockPageScroll
                 ? const NeverScrollableScrollPhysics()
                 : const PageScrollPhysics(),
-            onPageChanged: (i) => setState(() => _pageIndex = i),
-            children: [
-              _KeepAliveHomeScreen(
-                onDockDraggingChanged: (dragging) {
-                  if (_blockPageScroll != dragging) {
-                    setState(() => _blockPageScroll = dragging);
-                  }
-                },
-              ),
-              UcgShell(onBackToFeeding: _goToFeeding),
-            ],
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _KeepAliveHomeScreen(
+                  onDockDraggingChanged: (dragging) {
+                    if (_blockPageScroll != dragging) {
+                      setState(() => _blockPageScroll = dragging);
+                    }
+                  },
+                );
+              }
+              if (!_ucgEverMounted) {
+                return const SizedBox.expand();
+              }
+              return UcgShell(onBackToFeeding: _goToFeeding);
+            },
           ),
           if (_pageIndex == 0) UcgEnterSquareTab(onTap: _goToUcg),
         ],

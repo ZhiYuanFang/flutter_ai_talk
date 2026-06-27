@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -78,16 +77,13 @@ class VoiceAsrWsClient {
   Future<bool> _connectOnce() async {
     await _tearDownSocket();
     try {
-      debugPrint('VoiceAsrWs connecting: $wsUrl');
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _sub = _channel!.stream.listen(
         _onRawMessage,
-        onError: (e) {
-          debugPrint('VoiceAsrWs stream error: $e');
+        onError: (_) {
           _handleDisconnect();
         },
         onDone: () {
-          debugPrint('VoiceAsrWs stream closed');
           _handleDisconnect();
         },
         cancelOnError: true,
@@ -95,17 +91,14 @@ class VoiceAsrWsClient {
       await _channel!.ready.timeout(const Duration(seconds: 8));
       final pongOk = await _waitForPong();
       if (!pongOk) {
-        debugPrint('VoiceAsrWs: no pong (service may be down)');
         await _tearDownSocket();
         return false;
       }
       _handshakeOk = true;
       _emitReady(true);
       _startPing();
-      debugPrint('VoiceAsrWs handshake ok');
       return true;
-    } catch (e) {
-      debugPrint('VoiceAsrWs connect failed: $e');
+    } catch (_) {
       await _tearDownSocket();
       return false;
     }
@@ -115,8 +108,7 @@ class VoiceAsrWsClient {
     _pongCompleter = Completer<void>();
     try {
       _channel?.sink.add('ping');
-    } catch (e) {
-      debugPrint('VoiceAsrWs ping send failed: $e');
+    } catch (_) {
       return false;
     }
     try {
@@ -154,9 +146,7 @@ class VoiceAsrWsClient {
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
       _dispatchJson(map);
-    } catch (e) {
-      debugPrint('VoiceAsrWs parse: $e raw=$raw');
-    }
+    } catch (_) {}
   }
 
   void _dispatchJson(Map<String, dynamic> map) {
@@ -183,7 +173,6 @@ class VoiceAsrWsClient {
       case 'ended':
         break;
       case 'error':
-        debugPrint('VoiceAsrWs error: ${map['stage']} ${map['message']}');
         if (!(_startedCompleter?.isCompleted ?? true)) {
           _startedCompleter!.completeError(
             map['message'] as String? ?? 'voice asr error',
@@ -260,8 +249,7 @@ class VoiceAsrWsClient {
 
     try {
       await _startedCompleter!.future.timeout(const Duration(seconds: 8));
-    } catch (e) {
-      debugPrint('VoiceAsrWs started timeout: $e');
+    } catch (_) {
       _utteranceActive = false;
       return false;
     }
@@ -295,8 +283,7 @@ class VoiceAsrWsClient {
         sessionAvgAbs: metrics.sessionAvgAbs,
       );
       _channel?.sink.add(bytes);
-    } catch (e) {
-      debugPrint('VoiceAsrWs send pcm: $e');
+    } catch (_) {
       _handleDisconnect();
     } finally {
       _feedBusy = false;
@@ -314,9 +301,7 @@ class VoiceAsrWsClient {
     String text = '';
     try {
       text = await _finalCompleter!.future.timeout(const Duration(seconds: 12));
-    } catch (e) {
-      debugPrint('VoiceAsrWs final timeout: $e');
-    }
+    } catch (_) {}
 
     try {
       _channel?.sink.add(jsonEncode({'type': 'end'}));

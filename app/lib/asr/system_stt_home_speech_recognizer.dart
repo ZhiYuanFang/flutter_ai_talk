@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../audio/pcm_level.dart';
@@ -20,9 +19,7 @@ class SystemSttHomeSpeechRecognizer implements HomeSpeechRecognizer {
   Future<bool> prepare() async {
     _lastFailure = null;
     if (_ready) return true;
-    final ok = await _speech.initialize(
-      onError: (e) => debugPrint('speech_to_text error: $e'),
-    );
+    final ok = await _speech.initialize(onError: (_) {});
     _ready = ok;
     if (!ok) {
       _lastFailure = HomeSpeechPrepareFailure.engineError;
@@ -70,8 +67,7 @@ class SystemSttHomeSpeechRecognizer implements HomeSpeechRecognizer {
     try {
       final locales = await _speech.locales();
       _chineseLocaleId = _pickChineseLocaleId(locales);
-    } catch (e) {
-      debugPrint('speech_to_text locales error: $e');
+    } catch (_) {
       _chineseLocaleId = _kFallbackChineseLocaleId;
     }
   }

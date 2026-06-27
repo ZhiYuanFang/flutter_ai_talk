@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/event_catalog_state.dart';
@@ -35,12 +34,7 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
     final cached = await EventCatalogStore.loadFromDisk();
     if (cached.isNotEmpty && state.items.isEmpty) {
       state = state.copyWith(items: cached);
-      _debugLog('warmFromDisk: ${cached.length} items');
     }
-  }
-
-  void _debugLog(String message) {
-    if (kDebugMode) debugPrint('[EventCatalog] $message');
   }
 
   EventDefinition? lookupByEventId(Object? eventId) {
@@ -165,19 +159,14 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
       final keepPaths =
           state.items.map((e) => e.localLogoPath).whereType<String>().toSet();
       await EventCatalogStore.pruneLogoFiles(keepPaths);
-      _debugLog('logos persisted: ${state.items.length} items');
     } catch (_) {}
   }
 
   void _applyRefreshResult(List<EventDefinition>? updated, String? deviceNo) {
     if (updated == null) return;
-    if (updated.isEmpty && state.items.isNotEmpty) {
-      _debugLog('refresh skipped empty remote (keeping ${state.items.length} in memory)');
-      return;
-    }
+    if (updated.isEmpty && state.items.isNotEmpty) return;
     if (updated.isNotEmpty) {
       state = state.copyWith(items: updated);
-      _debugLog('refresh: ${updated.length} items (deviceNo=${deviceNo ?? "none"})');
     }
   }
 
@@ -190,12 +179,8 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
       await _refreshFromRemoteImpl(markRemoteAttempt: attempt == maxAttempts);
       if (state.items.isNotEmpty) break;
       if (attempt < maxAttempts) {
-        _debugLog('bootstrap retry $attempt/$maxAttempts (catalog still empty)');
         await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
       }
-    }
-    if (state.items.isEmpty) {
-      _debugLog('bootstrap finished with empty catalog');
     }
   }
 

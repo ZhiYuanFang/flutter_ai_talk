@@ -40,8 +40,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   List<UcgComment> _comments = const [];
   var _commentsTruncated = false;
   var _authorFollowing = false;
-  var _loading = true;
-  String? _error;
+  String? _ancillaryForPostId;
   final _scrollController = ScrollController();
   final _commentLayerLinks = <String, LayerLink>{};
   final _commentItemKeys = <String, GlobalKey>{};
@@ -53,7 +52,10 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   void initState() {
     super.initState();
     _post = widget.seedPost;
-    unawaited(_refresh());
+    final seed = widget.seedPost;
+    if (seed != null) {
+      unawaited(_loadAncillary(seed));
+    }
   }
 
   @override
@@ -250,16 +252,11 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
     );
   }
 
-  Future<void> _refresh() async {
-    setState(() {
-      _loading = _post == null;
-      _error = null;
-    });
+  Future<void> _loadAncillary(UcgPost post) async {
+    final repo = ref.read(ucgRepositoryProvider);
     try {
-      final repo = ref.read(ucgRepositoryProvider);
-      final post = await repo.fetchPost(widget.postId);
-      final likers = await repo.fetchPostLikes(widget.postId);
-      final commentsResult = await repo.fetchComments(widget.postId);
+      final likers = await repo.fetchPostLikes(post.id);
+      final commentsResult = await repo.fetchComments(post.id);
       var following = false;
       final selfId = ref.read(ucgCurrentUserIdProvider);
       if (selfId != null &&
@@ -271,20 +268,23 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
       }
       if (!mounted) return;
       setState(() {
-        _post = post;
         _likers = likers;
         _comments = commentsResult.items;
         _commentsTruncated = commentsResult.truncated;
         _authorFollowing = following;
-        _loading = false;
+        _ancillaryForPostId = post.id;
       });
-    } catch (e) {
+    } catch (_) {}
+  }
+
+  Future<void> _refresh() async {
+    ref.invalidate(ucgPostDetailProvider(widget.postId));
+    try {
+      final post = await ref.read(ucgPostDetailProvider(widget.postId).future);
       if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
+      setState(() => _post = post);
+      await _loadAncillary(post);
+    } catch (_) {}
   }
 
   Future<void> _toggleLike() async {
@@ -417,15 +417,30 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final postAsync = ref.watch(ucgPostDetailProvider(widget.postId));
+    ref.listen<AsyncValue<UcgPost>>(
+      ucgPostDetailProvider(widget.postId),
+      (prev, next) {
+        next.whenData((post) {
+          if (!mounted) return;
+          final loadAncillary = _ancillaryForPostId != post.id;
+          setState(() => _post = post);
+          if (loadAncillary) {
+            unawaited(_loadAncillary(post));
+          }
+        });
+      },
+    );
+
     final selfId = ref.watch(ucgCurrentUserIdProvider);
-    final post = _post;
+    final post = _post ?? postAsync.asData?.value ?? widget.seedPost;
     final shellBg = UcgTheme.tokens(context)?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
     final isAuthor = selfId != null && post != null && post.authorId == selfId;
 
-    if (_loading && post == null) {
+    if (post == null && postAsync.isLoading) {
       return Scaffold(
         backgroundColor: shellBg,
         body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -439,7 +454,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
           child: UcgEmptyState(
             icon: Icons.cloud_off_rounded,
             title: '加载失败',
-            subtitle: _error ?? '帖子不存在',
+            subtitle: postAsync.error?.toString() ?? '帖子不存在',
             action: TextButton(onPressed: _refresh, child: const Text('重试')),
           ),
         ),
@@ -556,9 +571,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                         Row(
                           children: [
                             Text(
-                              post.ipLocationDisplay.isNotEmpty
-                                  ? '$time · ${post.ipLocationDisplay}'
-                                  : time,
+                              _postMetaLine(post, time),
                               style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.42)),
                             ),
                             const Spacer(),
@@ -883,4 +896,13 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
       ],
     );
   }
+}
+
+String _postMetaLine(UcgPost post, String time) {
+  final loc = post.ipLocationDisplay;
+  final dist = post.distanceDisplay;
+  if (loc.isNotEmpty && dist.isNotEmpty) return '$time · $loc · $dist';
+  if (loc.isNotEmpty) return '$time · $loc';
+  if (dist.isNotEmpty) return '$time · $dist';
+  return time;
 }

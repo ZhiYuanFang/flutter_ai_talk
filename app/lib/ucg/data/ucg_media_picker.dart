@@ -9,6 +9,7 @@ import 'ucg_media_compress.dart';
 import 'ucg_media_limits.dart';
 import 'ucg_presign.dart';
 import 'ucg_repository.dart';
+import 'ucg_video_upload.dart';
 
 final _picker = ImagePicker();
 
@@ -18,18 +19,20 @@ Future<UcgUploadResult> ucgUploadBytes({
   required String fileName,
   required String contentType,
   required bool isVideo,
+  String? transformVersion,
 }) async {
-  final prepared = isVideo
-      ? bytes
-      : await ucgCompressImageBytes(bytes);
+  if (isVideo) {
+    throw StateError('视频上传须经 ucgUploadLocalVideo');
+  }
+  final prepared = await ucgCompressImageBytes(bytes);
   final contentHash = sha256.convert(prepared).toString();
   return repo.uploadMediaBytes(
-    isVideo: isVideo,
+    isVideo: false,
     fileName: fileName,
     bytes: prepared,
     contentType: contentType,
     contentHash: contentHash,
-    transformVersion: kUcgMediaTransformVersion,
+    transformVersion: transformVersion ?? kUcgMediaTransformVersionImage,
   );
 }
 
@@ -133,16 +136,7 @@ Future<UcgUploadResult?> ucgPickAndUploadVideo({
   );
   if (file == null) return null;
 
-  final bytes = await file.readAsBytes();
-  final prepared = await ucgPrepareVideoBytes(bytes: bytes, sourcePath: file.path);
-  final name = ucgFallbackFileName(isVideo: true, path: file.path);
-  return ucgUploadBytes(
-    repo: repo,
-    bytes: prepared,
-    fileName: name,
-    contentType: ucgContentTypeForFileName(name),
-    isVideo: true,
-  );
+  return ucgUploadLocalVideo(repo: repo, sourcePath: file.path);
 }
 
 /// 聊天本地选图/选视频结果（不上传）。
@@ -181,6 +175,13 @@ Future<UcgUploadResult> ucgUploadChatLocalMedia({
   required bool isVideo,
   Uint8List? localBytes,
 }) async {
+  if (isVideo) {
+    return ucgUploadLocalVideo(
+      repo: repo,
+      sourcePath: localPath,
+      sourceBytes: localBytes,
+    );
+  }
   final Uint8List bytes;
   if (localBytes != null && localBytes.isNotEmpty) {
     bytes = localBytes;
@@ -193,16 +194,13 @@ Future<UcgUploadResult> ucgUploadChatLocalMedia({
     }
     bytes = await file.readAsBytes();
   }
-  final name = ucgFallbackFileName(isVideo: isVideo, path: localPath);
-  final prepared = isVideo
-      ? await ucgPrepareVideoBytes(bytes: bytes, sourcePath: localPath)
-      : bytes;
+  final name = ucgFallbackFileName(isVideo: false, path: localPath);
   return ucgUploadBytes(
     repo: repo,
-    bytes: Uint8List.fromList(prepared),
+    bytes: bytes,
     fileName: name,
     contentType: ucgContentTypeForFileName(name),
-    isVideo: isVideo,
+    isVideo: false,
   );
 }
 

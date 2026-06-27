@@ -5,10 +5,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import 'ucg_compose_initial_media.dart';
-import 'ucg_media_compress.dart';
 import 'ucg_media_picker.dart';
 import 'ucg_presign.dart';
 import 'ucg_repository.dart';
+import 'ucg_video_upload.dart';
 
 final _imagePicker = ImagePicker();
 
@@ -24,16 +24,7 @@ Future<UcgComposeInitialMedia?> ucgUploadAlbumAssets({
     if (assets.length > 1) return null;
     final file = await first.file;
     if (file == null) return null;
-    final bytes = await file.readAsBytes();
-    final prepared = await ucgPrepareVideoBytes(bytes: bytes, sourcePath: file.path);
-    final name = ucgFallbackFileName(isVideo: true, path: file.path);
-    final uploaded = await ucgUploadBytes(
-      repo: repo,
-      bytes: prepared,
-      fileName: name,
-      contentType: ucgContentTypeForFileName(name),
-      isVideo: true,
-    );
+    final uploaded = await ucgUploadLocalVideo(repo: repo, sourcePath: file.path);
     return UcgComposeInitialMedia(videoKey: uploaded.objectKey);
   }
 
@@ -123,14 +114,10 @@ Future<UcgComposeInitialMedia?> ucgPickMediaWebFallback({
     if (picked.length > 1) throw UcgAlbumMixedMediaException();
     final file = picked.first;
     final bytes = await file.readAsBytes();
-    final prepared = await ucgPrepareVideoBytes(bytes: bytes, sourcePath: file.path);
-    final name = ucgFallbackFileName(isVideo: true, path: file.path);
-    final uploaded = await ucgUploadBytes(
+    final uploaded = await ucgUploadLocalVideo(
       repo: repo,
-      bytes: prepared,
-      fileName: name,
-      contentType: ucgContentTypeForFileName(name),
-      isVideo: true,
+      sourcePath: file.path,
+      sourceBytes: bytes,
     );
     return UcgComposeInitialMedia(videoKey: uploaded.objectKey);
   }

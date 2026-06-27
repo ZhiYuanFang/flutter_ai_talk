@@ -140,6 +140,12 @@ class _MasonryMedia extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               UcgNetworkImage(url: url, fit: BoxFit.cover),
+              if (post.distanceDisplay.isNotEmpty)
+                Positioned(
+                  left: 6,
+                  bottom: 6,
+                  child: _DistanceBadge(label: post.distanceDisplay),
+                ),
               if (post.imageUrls.length > 1)
                 Positioned(
                   right: 6,
@@ -156,16 +162,53 @@ class _MasonryMedia extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: AspectRatio(
           aspectRatio: 3 / 4,
-          child: UcgVideoSnapshotPoster(
-            posterUrl: post.videoThumbnailUrl,
-            videoUrl: post.videoUrl,
-            aspectRatio: 3 / 4,
-            borderRadius: 8,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              UcgVideoSnapshotPoster(
+                posterUrl: post.videoThumbnailUrl,
+                videoUrl: post.videoUrl,
+                aspectRatio: 3 / 4,
+                borderRadius: 8,
+              ),
+              if (post.distanceDisplay.isNotEmpty)
+                Positioned(
+                  left: 6,
+                  bottom: 6,
+                  child: _DistanceBadge(label: post.distanceDisplay),
+                ),
+            ],
           ),
         ),
       );
     }
     return const SizedBox.shrink();
+  }
+}
+
+class _DistanceBadge extends StatelessWidget {
+  const _DistanceBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withValues(alpha: 0.92),
+          height: 1.2,
+        ),
+      ),
+    );
   }
 }
 

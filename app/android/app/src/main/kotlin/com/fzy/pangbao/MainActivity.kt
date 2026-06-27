@@ -48,19 +48,16 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, localVideoChannel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "openSystemPlayer" -> {
+                    val videoUrl = call.argument<String>("videoUrl")
                     val filePath = call.argument<String>("filePath")
                     val contentUri = call.argument<String>("contentUri")
-                    val uri = resolveVideoUri(filePath, contentUri)
+                    val uri = resolveVideoUri(videoUrl, filePath, contentUri)
                     if (uri == null) {
                         result.error("invalid_source", "missing video source", null)
                         return@setMethodCallHandler
                     }
                     try {
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "video/*")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(intent)
+                        startVideoViewIntent(uri)
                         result.success(null)
                     } catch (e: Exception) {
                         result.error("open_failed", e.message, null)
@@ -135,7 +132,10 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun resolveVideoUri(filePath: String?, contentUri: String?): Uri? {
+    private fun resolveVideoUri(videoUrl: String?, filePath: String?, contentUri: String?): Uri? {
+        if (!videoUrl.isNullOrEmpty()) {
+            return Uri.parse(videoUrl)
+        }
         if (!contentUri.isNullOrEmpty()) return Uri.parse(contentUri)
         if (filePath.isNullOrEmpty()) return null
         if (filePath.startsWith("content://") || filePath.startsWith("file://")) {
@@ -144,6 +144,34 @@ class MainActivity : FlutterActivity() {
         val file = File(filePath)
         if (!file.exists()) return null
         return FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+    }
+
+    private fun startVideoViewIntent(uri: Uri) {
+        val isRemote = uri.scheme.equals("http", ignoreCase = true) ||
+            uri.scheme.equals("https", ignoreCase = true)
+        val candidates = buildList {
+            if (isRemote) {
+                add(Intent(Intent.ACTION_VIEW, uri))
+            } else {
+                add(
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "video/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                )
+                add(Intent(Intent.ACTION_VIEW, uri).apply {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+            }
+        }
+        for (intent in candidates) {
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+                return
+            }
+        }
+        val fallback = candidates.first()
+        startActivity(Intent.createChooser(fallback, null))
     }
 }
 
