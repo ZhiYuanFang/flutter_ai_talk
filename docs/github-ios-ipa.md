@@ -525,7 +525,7 @@ CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修�
 
 ### 5. `pod install` 报 speech_to_text 需要更高 deployment target？
 
-本仓库依赖 `speech_to_text`（iOS 13+）。CI 会在 `prepare_ios_project.sh` 中把 `Podfile` 设为 `platform :ios, '13.0'`，并同步 Runner 与 Pods 的 `IPHONEOS_DEPLOYMENT_TARGET`。若本地自行生成 `ios/` 后遇到同样错误，请确认 `ios/Podfile` 已取消注释并设为 `platform :ios, '13.0'`，再执行 `pod install --repo-update`。
+本仓库依赖 `speech_to_text`（iOS 13+）与 `ffmpeg_kit_flutter_new_min_gpl`（iOS 14+）。CI 会在 `prepare_ios_project.sh` 中把 `Podfile` 设为 `platform :ios, '14.0'`，并同步 Runner 与 Pods 的 `IPHONEOS_DEPLOYMENT_TARGET`。若本地自行生成 `ios/` 后遇到 CocoaPods「required a higher minimum deployment target」，请确认 `ios/Podfile` 已取消注释并设为 `platform :ios, '14.0'`，再执行 `pod install --repo-update`。
 
 ### 7. `pod install` 报 `Error installing WechatOpenSDK-XCFramework`（curl dldir1.qq.com 失败）？
 
