@@ -4,7 +4,10 @@ const _kBannerHeight = 44.0;
 
 const kHomeHistoryWsDisconnectMessage = '连接中断，请点击重连';
 const kHomeHistoryWsAutoReconnectMessage = '正在重连…';
+const kHomeHistoryWsRefreshRecoveryMessage = '正在恢复连接…';
 const kHomeHistoryWsGaveUpMessage = '连接失败，请检查网络后点击重连';
+
+enum HomeHistoryWsBannerVariant { error, info }
 
 /// 历史 WebSocket 断开时，展示于历史列表与输入区之间的内联重连横幅。
 class HomeHistoryWsStatusBanner extends StatelessWidget {
@@ -15,6 +18,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
     required this.onReconnect,
     this.reconnecting = false,
     this.tapEnabled = true,
+    this.variant = HomeHistoryWsBannerVariant.error,
   });
 
   final bool visible;
@@ -22,11 +26,14 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
   final VoidCallback onReconnect;
   final bool reconnecting;
   final bool tapEnabled;
+  final HomeHistoryWsBannerVariant variant;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final onContainer = scheme.onErrorContainer;
+    final infoStyle = variant == HomeHistoryWsBannerVariant.info;
+    final containerColor = infoStyle ? scheme.primaryContainer : scheme.errorContainer;
+    final onContainer = infoStyle ? scheme.onPrimaryContainer : scheme.onErrorContainer;
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 200),
@@ -34,7 +41,7 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: visible
           ? Material(
-              color: scheme.errorContainer,
+              color: containerColor,
               child: InkWell(
                 onTap: tapEnabled ? onReconnect : null,
                 child: SizedBox(
@@ -53,7 +60,11 @@ class HomeHistoryWsStatusBanner extends StatelessWidget {
                             ),
                           )
                         else
-                          Icon(Icons.cloud_off_outlined, size: 20, color: onContainer),
+                          Icon(
+                            infoStyle ? Icons.sync_outlined : Icons.cloud_off_outlined,
+                            size: 20,
+                            color: onContainer,
+                          ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(

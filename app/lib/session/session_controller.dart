@@ -38,6 +38,9 @@ class SessionController extends ChangeNotifier {
 
   bool get isLoggedIn => _accessToken != null && _accessToken!.isNotEmpty;
 
+  /// 静默 refresh 单飞进行中（供 WS 横幅等 UI 抑制误报断连）。
+  bool get isRefreshInFlight => _refreshInFlight != null;
+
   /// refresh 失败后是否应硬登出：access 仍须续期且上次为 refresh 明确无效。
   bool get shouldHardSignOutAfterRefreshFailure {
     if (!accessTokenShouldRefresh(_accessToken)) return false;
@@ -51,6 +54,8 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 写入 access/refresh token。若新旧 access 均非空且不同，视为 **token 轮换**（非登出）。
+  /// 监听方可用 [isAccessTokenRotation] 判断；[signOut] 清空 token 不视为轮换。
   Future<void> persistTokens({required String accessToken, required String refreshToken}) async {
     final prefs = await SharedPreferences.getInstance();
     _accessToken = accessToken;
@@ -59,6 +64,13 @@ class SessionController extends ChangeNotifier {
     await prefs.setString(_kRefreshKey, refreshToken);
     await prefs.remove(_kLegacyTokenKey);
     notifyListeners();
+  }
+
+  /// 非空 access 被替换为不同非空 access（登录初写与 [signOut] 除外）。
+  static bool isAccessTokenRotation(String? previous, String? next) {
+    if (next == null || next.isEmpty) return false;
+    if (previous == null || previous.isEmpty) return false;
+    return previous != next;
   }
 
   /// 冷启动或 access 将过期时主动 refresh；明确 refresh 无效时 [signOut]。
@@ -103,11 +115,13 @@ class SessionController extends ChangeNotifier {
       return outcome == _RefreshOutcome.success;
     });
     _refreshInFlight = future;
+    notifyListeners();
     try {
       return await future;
     } finally {
       if (identical(_refreshInFlight, future)) {
         _refreshInFlight = null;
+        notifyListeners();
       }
     }
   }

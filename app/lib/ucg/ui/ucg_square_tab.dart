@@ -19,6 +19,87 @@ import 'widgets/ucg_visual_widgets.dart';
 
 enum _SquareFeedMode { recommended, following }
 
+enum _SquareLoadPhase { idle, locating, fetchingFeed }
+
+/// 广场 Feed 加载阶段提示（定位 / 拉列表）。
+class _SquareLoadStatusPanel extends StatelessWidget {
+  const _SquareLoadStatusPanel({
+    required this.phase,
+    required this.mode,
+    this.compact = false,
+  });
+
+  final _SquareLoadPhase phase;
+  final _SquareFeedMode mode;
+  final bool compact;
+
+  String get _title => switch (phase) {
+        _SquareLoadPhase.locating => '正在获取位置…',
+        _SquareLoadPhase.fetchingFeed => mode == _SquareFeedMode.recommended
+            ? '正在加载推荐…'
+            : '正在加载关注…',
+        _SquareLoadPhase.idle => '',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    if (phase == _SquareLoadPhase.idle) return const SizedBox.shrink();
+
+    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
+        Theme.of(context).colorScheme.onSurface;
+
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (phase == _SquareLoadPhase.locating)
+          Icon(
+            Icons.location_searching_rounded,
+            size: compact ? 20 : 36,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.75),
+          )
+        else
+          SizedBox(
+            width: compact ? 20 : 24,
+            height: compact ? 20 : 24,
+            child: CircularProgressIndicator(
+              strokeWidth: compact ? 2 : 2,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        SizedBox(height: compact ? 6 : 16),
+        Text(
+          _title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: compact ? 13 : 15,
+            fontWeight: FontWeight.w500,
+            color: fg.withValues(alpha: 0.85),
+          ),
+        ),
+        if (!compact && phase == _SquareLoadPhase.locating) ...[
+          const SizedBox(height: 6),
+          Text(
+            '用于展示动态与你的距离',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: fg.withValues(alpha: 0.55),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        child: Center(child: content),
+      );
+    }
+    return Center(child: content);
+  }
+}
+
 /// 关注 Tab 统一发现空态（游客与已登录空列表共用，无 action 按钮）。
 class UcgFollowingDiscoveryEmpty extends StatelessWidget {
   const UcgFollowingDiscoveryEmpty({super.key});
@@ -48,6 +129,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   String? _nextCursor;
   var _hasMore = true;
   var _loading = false;
+  var _loadPhase = _SquareLoadPhase.idle;
   var _initialLoaded = false;
   var _didEmptyRetry = false;
   String? _error;
@@ -80,6 +162,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     if (_mode == _SquareFeedMode.following && !ref.read(sessionProvider).isLoggedIn) return;
     setState(() {
       _loading = true;
+      _loadPhase = refresh ? _SquareLoadPhase.locating : _SquareLoadPhase.fetchingFeed;
       _error = null;
       if (refresh) {
         _nextCursor = null;
@@ -94,6 +177,8 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         ({double lat, double lng})? coords;
         if (refresh) {
           coords = await ensureUcgLocationForDistance(context, ref);
+          if (!mounted) return;
+          setState(() => _loadPhase = _SquareLoadPhase.fetchingFeed);
         }
         final result = await repo.fetchRecommendedFeed(
           cursor: refresh ? null : _nextCursor,
@@ -125,6 +210,8 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         final page = refresh ? 1 : (_items.length ~/ kUcgPageSize) + 1;
         if (refresh) {
           final coords = await ensureUcgLocationForDistance(context, ref);
+          if (!mounted) return;
+          setState(() => _loadPhase = _SquareLoadPhase.fetchingFeed);
           _followingLat = coords?.lat;
           _followingLng = coords?.lng;
         }
@@ -145,7 +232,12 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadPhase = _SquareLoadPhase.idle;
+        });
+      }
     }
   }
 
@@ -256,7 +348,15 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       );
     }
     if (!_initialLoaded && _loading) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.45,
+            child: _SquareLoadStatusPanel(phase: _loadPhase, mode: _mode),
+          ),
+        ],
+      );
     }
     if (_initialLoaded && _items.isEmpty) {
       if (_mode == _SquareFeedMode.following) {
@@ -273,28 +373,40 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         ],
       );
     }
-    return MasonryGridView.count(
-      controller: _scrollController,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-      crossAxisCount: 2,
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      itemCount: _items.length + (_loading ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index >= _items.length) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-          );
-        }
-        final post = _items[index];
-        return UcgMasonryFeedCard(
-          post: post,
-          onTap: () => _openDetail(post),
-          onAvatarTap: () => _openUserProfile(post.authorId),
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_loading && _loadPhase != _SquareLoadPhase.idle)
+          _SquareLoadStatusPanel(phase: _loadPhase, mode: _mode, compact: true),
+        Expanded(
+          child: MasonryGridView.count(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            itemCount: _items.length + (_loading && _loadPhase == _SquareLoadPhase.fetchingFeed ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index >= _items.length) {
+                return _SquareLoadStatusPanel(
+                  phase: _loadPhase,
+                  mode: _mode,
+                  compact: true,
+                );
+              }
+              final post = _items[index];
+              final selfId = ref.watch(ucgCurrentUserIdProvider);
+              return UcgMasonryFeedCard(
+                post: post,
+                currentUserId: selfId,
+                onTap: () => _openDetail(post),
+                onAvatarTap: () => _openUserProfile(post.authorId),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

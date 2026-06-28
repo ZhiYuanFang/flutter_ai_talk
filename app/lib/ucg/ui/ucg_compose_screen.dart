@@ -7,12 +7,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/ai_quota_errors.dart';
 import '../../api/api_exceptions.dart';
+import '../../api/app_debug_log.dart';
 import '../../providers/ai_quota_provider.dart';
 import '../../ui/widgets/ai_quota_remaining_hint.dart';
 import '../data/ucg_location.dart';
 import '../data/ucg_compose_media_slot.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
+import '../data/ucg_video_upload.dart';
+import '../data/ucg_video_playback.dart';
 import '../providers/ucg_providers.dart';
 import '../../config/ucg_ai_polish_consent_store.dart';
 import '../../theme/app_visual_tokens.dart';
@@ -22,6 +25,7 @@ import 'widgets/ucg_compose_local_preview.dart';
 import 'widgets/ucg_compose_entry_sheet.dart';
 import 'widgets/ucg_compose_light_glass_panel.dart';
 import 'widgets/ucg_compose_media_grid.dart';
+import 'widgets/ucg_compose_video_preview_layout.dart';
 import 'widgets/ucg_media_viewer.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
@@ -32,7 +36,7 @@ class UcgComposePopResult {
   final bool publishedNewPost;
 }
 
-/// 发布页：玻璃 panel + 9 宫格；本地预览 + 后台上传。
+/// 发布页：玻璃 panel + 9 宫格；本地预览，提交时 upload。
 class UcgComposeScreen extends ConsumerStatefulWidget {
   const UcgComposeScreen({
     super.key,
@@ -85,10 +89,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   bool get _canAddImages =>
       !widget.textOnly && !_hasVideo && _imageSlots.length < maxImages;
 
+  /// 编辑帖且无图无视频：单一 entry sheet 添加入口（方案 B）。
+  bool get _showUnifiedEditMediaEntry =>
+      widget.editingPost != null &&
+      !widget.textOnly &&
+      !_hasVideo &&
+      _imageSlots.isEmpty;
+
   /// 新发视频帖选定后不可移除（须退出重选）。
   bool get _canRemoveVideo => widget.editingPost != null && _hasVideo;
 
-  bool get _showImageGrid => _imageSlots.isNotEmpty || _canAddImages;
+  bool get _showImageGrid =>
+      _imageSlots.isNotEmpty || (_canAddImages && !_showUnifiedEditMediaEntry);
+
+  bool get _showVideoArea => _hasVideo;
 
   List<UcgComposeGridCell> get _gridCells => _imageSlots
       .map(
@@ -115,7 +129,9 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         _sessionUploadedKeys.add(key);
       }
       if (post.videoKey != null && post.videoKey!.isNotEmpty) {
-        _videoSlot = UcgComposeMediaSlot.remoteVideo(objectKey: post.videoKey!);
+        _videoSlot = UcgComposeMediaSlot.remoteVideo(objectKey: post.videoKey!)
+          ..videoWidth = post.videoWidth
+          ..videoHeight = post.videoHeight;
         _sessionUploadedKeys.add(post.videoKey!);
       }
     } else {
@@ -187,25 +203,23 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     );
     if (isVideo) {
       _videoSlot = slot;
+      unawaited(_probeVideoSlotDimensions(slot));
     } else {
       _imageSlots.add(slot);
     }
-    _enqueueSlotUpload(slot);
     return slot;
   }
 
-  void _enqueueSlotUpload(UcgComposeMediaSlot slot) {
-    startComposeSlotBackgroundUpload(
-      repo: ref.read(ucgRepositoryProvider),
-      slot: slot,
-      onUpdated: () {
-        if (!mounted) return;
-        if (slot.isDone && slot.objectKey != null) {
-          _sessionUploadedKeys.add(slot.objectKey!);
-        }
-        _notifySlotsChanged();
-      },
-    );
+  void _recordSessionUploadedKeys() {
+    for (final slot in _imageSlots) {
+      if (!slot.removed && slot.isDone && slot.objectKey != null) {
+        _sessionUploadedKeys.add(slot.objectKey!);
+      }
+    }
+    final video = _videoSlot;
+    if (video != null && !video.removed && video.isDone && video.objectKey != null) {
+      _sessionUploadedKeys.add(video.objectKey!);
+    }
   }
 
   Future<void> _restoreDraft() async {
@@ -237,6 +251,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         if (mounted) _notifySlotsChanged();
       },
     );
+    _recordSessionUploadedKeys();
     await ref.read(ucgComposeDraftStoreProvider).save(
           UcgComposeDraft(
             text: _text.text,
@@ -341,6 +356,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     }
   }
 
+  Future<void> _pickMediaViaEntrySheet() async {
+    if (!_showUnifiedEditMediaEntry) return;
+    try {
+      final initial = await showUcgComposeEntrySheet(
+        context,
+        repo: ref.read(ucgRepositoryProvider),
+      );
+      if (!mounted || initial == null || initial.isEmpty) return;
+      await _applyInitialMedia(initial);
+    } catch (_) {
+      _toast('选择媒体失败');
+    }
+  }
+
   Future<bool> _ensureUcgAiPolishConsent() async {
     if (await UcgAiPolishConsentStore.load()) return true;
     if (!mounted) return false;
@@ -366,17 +395,18 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         imageSlots: _imageSlots,
         videoSlot: null,
         onUpdated: () {
-          if (mounted) setState(() {});
+          if (mounted) _notifySlotsChanged();
         },
       );
-      final polished = await ref.read(ucgRepositoryProvider).polishPost(
+      _recordSessionUploadedKeys();
+      final result = await ref.read(ucgRepositoryProvider).polishPost(
             imageKeys: uploaded.imageKeys,
             text: _text.text,
           );
       if (!mounted) return;
-      _text.text = polished;
+      _text.text = result.polishedText;
       ref.invalidate(polishAiQuotaProvider);
-      _toast('已润笔，可继续编辑');
+      _toast(result.quotaDegraded ? '本月润笔额度已用完，已降速' : '已润笔，可继续编辑');
     } on ApiBusinessException catch (e) {
       if (!mounted) return;
       if (!await handleAiQuotaException(context, e)) {
@@ -404,16 +434,24 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       return;
     }
     setState(() => _publishing = true);
+    var stage = 'upload';
+    AppDebugLog.ucgCompose(
+      'compose publish start editing=${widget.editingPost != null} '
+      'images=${_imageSlots.length} hasVideo=$_hasVideo',
+    );
     try {
       final uploaded = await ensureComposeMediaUploaded(
         repo: ref.read(ucgRepositoryProvider),
         imageSlots: _imageSlots,
         videoSlot: _videoSlot,
         onUpdated: () {
-          if (mounted) setState(() {});
+          if (mounted) _notifySlotsChanged();
         },
       );
+      _recordSessionUploadedKeys();
+      stage = 'location';
       final coords = await ensureUcgLocationForDistance(context, ref);
+      stage = 'createPost';
       if (widget.editingPost != null) {
         await ref.read(ucgRepositoryProvider).updatePost(
               postId: widget.editingPost!.id,
@@ -432,6 +470,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
               lng: coords?.lng,
             );
       }
+      AppDebugLog.ucgCompose('compose publish ok editing=${widget.editingPost != null}');
       await ref.read(ucgComposeDraftStoreProvider).clear();
       ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
       ref.invalidate(ucgMyProfileProvider);
@@ -441,8 +480,13 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       } else {
         Navigator.pop(context, const UcgComposePopResult(publishedNewPost: true));
       }
-    } catch (_) {
-      _toast('发布失败');
+    } catch (e) {
+      AppDebugLog.ucgCompose('compose publish fail stage=$stage err=$e');
+      if (stage == 'upload' && e is StateError && e.message == kUcgVideoUploadUserFailureMessage) {
+        _toast(kUcgVideoUploadUserFailureMessage);
+      } else {
+        _toast('发布失败');
+      }
     } finally {
       if (mounted) setState(() => _publishing = false);
     }
@@ -472,7 +516,6 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     final shellFg = tokens?.onShell ?? scheme.onSurface;
     final hintColor = ucgComposeLightHintColor(context);
-    final videoSlot = _videoSlot;
 
     return PopScope(
       canPop: false,
@@ -562,6 +605,23 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                   hintStyle: TextStyle(color: hintColor),
                                 ),
                               ),
+                              if (_showUnifiedEditMediaEntry) ...[
+                                const SizedBox(height: 12),
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final cellSize = ucgComposeCellSize(constraints.maxWidth);
+                                    return Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: UcgComposeAddTile(
+                                        size: cellSize,
+                                        onTap: _busy
+                                            ? null
+                                            : () => unawaited(_pickMediaViaEntrySheet()),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                               if (_showImageGrid) ...[
                                 const SizedBox(height: 12),
                                 ValueListenableBuilder<int>(
@@ -577,65 +637,125 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                   ),
                                 ),
                               ],
-                              if (_hasVideo && videoSlot != null) ...[
+                              if (_showVideoArea) ...[
                                 const SizedBox(height: 12),
-                                ValueListenableBuilder<int>(
-                                  valueListenable: _slotsRevision,
-                                  builder: (context, _, __) {
-                                    final slot = _videoSlot;
-                                    if (slot == null) return const SizedBox.shrink();
-                                    return Stack(
-                                      clipBehavior: Clip.none,
-                                      children: [
-                                        GestureDetector(
-                                          onTap: _busy ? null : () => unawaited(_openVideoPreview(slot)),
-                                          child: AspectRatio(
-                                            aspectRatio: 16 / 9,
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(12),
-                                              child: _buildVideoPreview(slot),
-                                            ),
-                                          ),
-                                        ),
-                                        if (slot.status == UcgComposeMediaSlotStatus.preparing ||
-                                            slot.status == UcgComposeMediaSlotStatus.uploading)
-                                          Positioned.fill(
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(12),
-                                              child: ColoredBox(
-                                                color: Colors.black.withValues(alpha: 0.45),
-                                                child: Center(
-                                                  child: Text(
-                                                    slot.status == UcgComposeMediaSlotStatus.preparing
-                                                        ? '正在处理视频…'
-                                                        : '正在上传…',
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 14,
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final contentWidth = constraints.maxWidth;
+                                    return ValueListenableBuilder<int>(
+                                      valueListenable: _slotsRevision,
+                                      builder: (context, _, __) {
+                                        final slot = _videoSlot;
+                                        if (slot == null) return const SizedBox.shrink();
+                                        final layout = _videoPreviewLayout(
+                                          contentWidth: contentWidth,
+                                          slot: slot,
+                                        );
+                                        return Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: SizedBox(
+                                            width: layout.displayWidth,
+                                            child: AspectRatio(
+                                              aspectRatio: layout.aspectRatio,
+                                              child: Stack(
+                                                clipBehavior: Clip.none,
+                                                children: [
+                                                  GestureDetector(
+                                                    onTap: _busy
+                                                        ? null
+                                                        : () => unawaited(_openVideoPreview(slot)),
+                                                    child: ClipRRect(
+                                                      borderRadius:
+                                                          BorderRadius.circular(ucgComposeCellRadius),
+                                                      child: _buildVideoPreview(
+                                                        slot,
+                                                        aspectRatio: layout.aspectRatio,
+                                                      ),
                                                     ),
                                                   ),
-                                                ),
+                                                  if (slot.status == UcgComposeMediaSlotStatus.failed)
+                                                    Positioned.fill(
+                                                      child: ClipRRect(
+                                                        borderRadius:
+                                                            BorderRadius.circular(ucgComposeCellRadius),
+                                                        child: ColoredBox(
+                                                          color: Colors.black.withValues(alpha: 0.55),
+                                                          child: Center(
+                                                            child: Padding(
+                                                              padding: const EdgeInsets.symmetric(
+                                                                horizontal: 8,
+                                                              ),
+                                                              child: Text(
+                                                                kUcgVideoUploadUserFailureMessage,
+                                                                textAlign: TextAlign.center,
+                                                                style: const TextStyle(
+                                                                  color: Colors.white,
+                                                                  fontSize: 11,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  if (slot.status ==
+                                                          UcgComposeMediaSlotStatus.preparing ||
+                                                      slot.status ==
+                                                          UcgComposeMediaSlotStatus.uploading)
+                                                    Positioned.fill(
+                                                      child: ClipRRect(
+                                                        borderRadius:
+                                                            BorderRadius.circular(ucgComposeCellRadius),
+                                                        child: ColoredBox(
+                                                          color: Colors.black.withValues(alpha: 0.45),
+                                                          child: Center(
+                                                            child: Text(
+                                                              slot.status ==
+                                                                      UcgComposeMediaSlotStatus
+                                                                          .preparing
+                                                                  ? '正在处理视频…'
+                                                                  : '正在上传…',
+                                                              style: const TextStyle(
+                                                                color: Colors.white,
+                                                                fontSize: 12,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  if (_canRemoveVideo)
+                                                    Positioned(
+                                                      top: 4,
+                                                      right: 4,
+                                                      child: Material(
+                                                        color: Colors.black.withValues(alpha: 0.55),
+                                                        shape: const CircleBorder(),
+                                                        clipBehavior: Clip.antiAlias,
+                                                        child: IconButton(
+                                                          visualDensity: VisualDensity.compact,
+                                                          padding: EdgeInsets.zero,
+                                                          constraints: const BoxConstraints(
+                                                            minWidth: 28,
+                                                            minHeight: 28,
+                                                          ),
+                                                          onPressed: _busy
+                                                              ? null
+                                                              : () => unawaited(_removeVideo()),
+                                                          icon: const Icon(
+                                                            Icons.close_rounded,
+                                                            color: Colors.white,
+                                                            size: 16,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
                                               ),
                                             ),
                                           ),
-                                        if (_canRemoveVideo)
-                                          Positioned(
-                                            top: 6,
-                                            right: 6,
-                                            child: Material(
-                                              color: Colors.black.withValues(alpha: 0.55),
-                                              shape: const CircleBorder(),
-                                              clipBehavior: Clip.antiAlias,
-                                              child: IconButton(
-                                                visualDensity: VisualDensity.compact,
-                                                padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                                onPressed: _busy ? null : () => unawaited(_removeVideo()),
-                                                icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
-                                              ),
-                                            ),
-                                          ),
-                                      ],
+                                        );
+                                      },
                                     );
                                   },
                                 ),
@@ -697,7 +817,108 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     );
   }
 
-  Widget _buildVideoPreview(UcgComposeMediaSlot slot) {
+  Future<void> _probeVideoSlotDimensions(UcgComposeMediaSlot slot) async {
+    if (!slot.isVideo || slot.removed) return;
+    if (slot.videoWidth != null && slot.videoHeight != null) return;
+
+    final post = widget.editingPost;
+    if (post != null &&
+        slot.objectKey != null &&
+        slot.objectKey == post.videoKey &&
+        post.videoWidth != null &&
+        post.videoHeight != null &&
+        post.videoWidth! > 0 &&
+        post.videoHeight! > 0) {
+      slot.videoWidth = post.videoWidth;
+      slot.videoHeight = post.videoHeight;
+      _notifySlotsChanged();
+      return;
+    }
+
+    final path = slot.localPath;
+    final mediaUri = slot.mediaUri;
+    if ((path == null || path.isEmpty) && (mediaUri == null || mediaUri.isEmpty)) {
+      return;
+    }
+
+    final dims = await ucgProbeLocalVideoDimensions(
+      path ?? '',
+      contentUri: mediaUri,
+    );
+    if (!mounted || slot.removed) return;
+    if (dims.width != null && dims.height != null) {
+      slot.videoWidth = dims.width;
+      slot.videoHeight = dims.height;
+      _notifySlotsChanged();
+    }
+  }
+
+  ({int? width, int? height, bool isPortrait, double aspectRatio, double displayWidth})
+      _videoPreviewLayout({
+    required double contentWidth,
+    UcgComposeMediaSlot? slot,
+    bool addVideoPlaceholder = false,
+  }) {
+    if (addVideoPlaceholder) {
+      return (
+        width: null,
+        height: null,
+        isPortrait: true,
+        aspectRatio: ucgComposePortraitVideoAspectRatio,
+        displayWidth: ucgComposeVideoDisplayWidth(contentWidth, isPortrait: true),
+      );
+    }
+    final metrics = _videoMetricsForSlot(slot);
+    final aspectRatio = ucgVideoPreviewAspectRatio(
+      width: metrics.width,
+      height: metrics.height,
+      isPortrait: metrics.isPortrait,
+    );
+    return (
+      width: metrics.width,
+      height: metrics.height,
+      isPortrait: metrics.isPortrait,
+      aspectRatio: aspectRatio,
+      displayWidth: ucgComposeVideoDisplayWidth(contentWidth, isPortrait: metrics.isPortrait),
+    );
+  }
+
+  ({int? width, int? height, bool isPortrait}) _videoMetricsForSlot(UcgComposeMediaSlot? slot) {
+    if (slot == null) {
+      return (width: null, height: null, isPortrait: true);
+    }
+    if (slot.videoWidth != null &&
+        slot.videoHeight != null &&
+        slot.videoWidth! > 0 &&
+        slot.videoHeight! > 0) {
+      return (
+        width: slot.videoWidth,
+        height: slot.videoHeight,
+        isPortrait: ucgVideoIsPortrait(width: slot.videoWidth, height: slot.videoHeight),
+      );
+    }
+    final post = widget.editingPost;
+    if (post != null &&
+        slot.objectKey != null &&
+        slot.objectKey == post.videoKey &&
+        post.videoWidth != null &&
+        post.videoHeight != null &&
+        post.videoWidth! > 0 &&
+        post.videoHeight! > 0) {
+      return (
+        width: post.videoWidth,
+        height: post.videoHeight,
+        isPortrait: ucgVideoIsPortrait(width: post.videoWidth, height: post.videoHeight),
+      );
+    }
+    return (
+      width: null,
+      height: null,
+      isPortrait: true,
+    );
+  }
+
+  Widget _buildVideoPreview(UcgComposeMediaSlot slot, {required double aspectRatio}) {
     final localPath = slot.localPath;
     if (localPath != null && localPath.isNotEmpty) {
       return UcgLocalVideoThumb(
@@ -710,8 +931,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final key = slot.objectKey;
     if (key != null && key.isNotEmpty) {
       return UcgInlineVideoPlayer(
-        videoUrl: UcgMediaUrl.resolveUrl(objectKey: key, cdnUrl: slot.cdnUrl),
-        aspectRatio: 16 / 9,
+        videoUrl: UcgMediaUrl.videoPlayUrl(objectKey: key, cdnUrl: slot.cdnUrl),
+        aspectRatio: aspectRatio,
         borderRadius: 0,
         posterOnly: true,
       );
@@ -731,11 +952,28 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
         (mediaUri != null && mediaUri.isNotEmpty);
     if (hasLocalSource) {
       if (!context.mounted) return;
+      var videoWidth = slot.videoWidth;
+      var videoHeight = slot.videoHeight;
+      if (videoWidth == null ||
+          videoHeight == null ||
+          videoWidth <= 0 ||
+          videoHeight <= 0) {
+        final dims = await ucgProbeLocalVideoDimensions(
+          path ?? '',
+          contentUri: mediaUri,
+        );
+        if (!context.mounted) return;
+        videoWidth = dims.width;
+        videoHeight = dims.height;
+      }
+      if (!context.mounted) return;
       await showUcgVideoFullscreen(
         context,
         filePath: path,
         contentUri: mediaUri,
         posterBytes: slot.localBytes,
+        videoWidth: videoWidth,
+        videoHeight: videoHeight,
       );
       return;
     }
@@ -744,7 +982,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       if (!context.mounted) return;
       await showUcgVideoFullscreen(
         context,
-        videoUrl: UcgMediaUrl.resolveUrl(objectKey: key, cdnUrl: slot.cdnUrl),
+        videoUrl: UcgMediaUrl.videoPlayUrl(objectKey: key, cdnUrl: slot.cdnUrl),
       );
     }
   }

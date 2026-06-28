@@ -13,6 +13,7 @@ import '../../theme/app_visual_tokens.dart';
 import '../theme/ucg_theme.dart';
 import '../data/ucg_media_picker.dart';
 import '../data/ucg_models.dart';
+import '../data/ucg_video_upload.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_login_gate.dart';
 import 'ucg_profile_screens.dart';
@@ -83,7 +84,6 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onMessageListScroll);
-    ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
     unawaited(_loadHistory());
     unawaited(_ensurePeerProfile());
     _listenWs();
@@ -251,12 +251,9 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
             widget.conversation.id,
             lastMsgId: lastMsgId,
           );
-      if (!_unreadBadgeCleared && widget.conversation.unreadCount > 0) {
+      if (!_unreadBadgeCleared) {
         _unreadBadgeCleared = true;
-        final prev = ref.read(ucgUnreadCountProvider);
-        final delta = widget.conversation.unreadCount;
-        ref.read(ucgUnreadCountProvider.notifier).state =
-            (prev - delta).clamp(0, prev);
+        unawaited(ref.read(ucgUnreadSyncProvider)());
       }
     } catch (_) {}
   }
@@ -387,8 +384,9 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
         await _ensurePendingUpload(pending);
         if (!mounted) return;
         if (!pending.isDone) {
+          final message = pending.isVideo ? kUcgVideoUploadUserFailureMessage : '媒体上传失败，请移除后重试';
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('媒体上传失败，请移除后重试')),
+            SnackBar(content: Text(message)),
           );
           return;
         }
@@ -466,7 +464,6 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
         isVideo: picked.isVideo,
       );
       setState(() => _pendingMedia = pending);
-      _startPendingUpload(pending);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -494,9 +491,14 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
       pending.objectKey = uploaded.objectKey;
       pending.cdnUrl = uploaded.cdnUrl;
       pending.status = _ChatPendingMediaStatus.done;
-    } catch (_) {
+    } catch (e) {
       if (_pendingMedia == pending) {
         pending.status = _ChatPendingMediaStatus.failed;
+        if (mounted && pending.isVideo && e is StateError && e.message == kUcgVideoUploadUserFailureMessage) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text(kUcgVideoUploadUserFailureMessage)),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() {});
@@ -560,7 +562,7 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
               style: TextStyle(color: fg.withValues(alpha: 0.75), fontSize: 13),
             ),
           ),
-          if (pending.status == _ChatPendingMediaStatus.uploading)
+          if (_sending && pending.status == _ChatPendingMediaStatus.uploading)
             Padding(
               padding: const EdgeInsets.only(right: 4),
               child: SizedBox(
@@ -887,7 +889,8 @@ class _ChatBubble extends StatelessWidget {
       children: [
         if (m.hasImage && m.imageUrl != null)
           _MediaImage(previewUrl: m.imageThumbnailUrl ?? m.imageUrl!, fullUrl: m.imageUrl!),
-        if (m.hasVideo && m.videoUrl != null) _MediaVideo(url: m.videoUrl!),
+        if (m.hasVideo && m.videoUrl != null)
+          _MediaVideo(url: m.videoUrl!, posterUrl: m.videoThumbnailUrl),
       ],
     );
   }
@@ -1035,9 +1038,10 @@ class _MediaImage extends StatelessWidget {
 }
 
 class _MediaVideo extends StatelessWidget {
-  const _MediaVideo({required this.url});
+  const _MediaVideo({required this.url, this.posterUrl});
 
   final String url;
+  final String? posterUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -1051,6 +1055,7 @@ class _MediaVideo extends StatelessWidget {
             videoUrl: url,
             aspectRatio: 16 / 9,
             borderRadius: 12,
+            posterUrl: posterUrl,
           ),
         ),
       ),

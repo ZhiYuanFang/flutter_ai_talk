@@ -11,7 +11,7 @@ description: 将 OpenSpec change delta 收进指定版本基线（不创建 arch
 
 可选参数（用户显式提及时才用）：
 - `--base v1.0.1`：指定起始基线；省略则用 `openspec/specs/v*.md` 中最新一份
-- `--remove-changes`：合并成功后删除 `openspec/changes/*`（仍**不**写入 archive/）；默认**保留** change 目录，除非用户要求清理
+- `--keep-changes`：合并成功后**保留** `openspec/changes/*`；**默认行为是删除**（见 `.cursor/rules/openspec-archive.mdc`）
 
 **Steps**
 
@@ -35,16 +35,19 @@ description: 将 OpenSpec change delta 收进指定版本基线（不创建 arch
    python scripts/sync_specs_to_version.py <version> [--base vX.Y.Z] [--remove-changes]
    ```
 
+   **默认必须加 `--remove-changes`**（除非用户显式 `--keep-changes` 或要求保留）。
+
    脚本行为：
    - 从基线解析 capability
    - 按 change 目录 mtime 顺序应用全部 delta（ADDED / MODIFIED / REMOVED）
    - 写出 `openspec/specs/<version>.md`
+   - 删除 `openspec/changes/*`（跳过 `archive/`）
 
 5. **显示摘要**
 
-   输出：目标版本、起始基线、capability 数、应用的 delta 条数、输出路径、是否删除 change 目录。
+   输出：目标版本、起始基线、capability 数、应用的 delta 条数、输出路径、删除的 change 目录数量。
 
-**Output On Success**
+**Output On Success（默认）**
 
 ```
 ## Spec 收进完成
@@ -54,25 +57,20 @@ description: 将 OpenSpec change delta 收进指定版本基线（不创建 arch
 **Output:** openspec/specs/v2.0.0.md
 **Capabilities:** 154
 **Deltas applied:** 128
-**Changes removed:** no（保留 openspec/changes/）
+**Changes removed:** 32 个 change 目录已删除（无 archive/）
 
 未创建 archive 目录。
 ```
 
-**Output On Success（含 --remove-changes）**
+**Output On Success（含 --keep-changes）**
 
 ```
-## Spec 收进完成
-
-**Version:** v2.0.0
-**Base:** v1.0.1.md
-**Output:** openspec/specs/v2.0.0.md
-**Changes removed:** 32 个 change 目录已删除（无 archive/）
+**Changes removed:** no（保留 openspec/changes/）
 ```
 
 **Guardrails**
 
 - 本命令**只做版本基线合并**，不做 `openspec/changes/archive/` 归档
 - 用户只给版本名时**自动执行**，不要 AskUserQuestion 选 change
-- 默认保留 `openspec/changes/`；删除 change 须用户明确 `--remove-changes` 或口头要求清理
+- **默认删除** change 目录；保留须用户显式 `--keep-changes`
 - 合并后提醒：涉及行为变更的 PR/评审应引用 `openspec/specs/<version>.md` 中对应 capability

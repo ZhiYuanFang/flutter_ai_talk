@@ -571,8 +571,8 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                         Row(
                           children: [
                             Text(
-                              _postMetaLine(post, time),
-                              style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.42)),
+                              _postMetaLine(post, time, currentUserId: selfId),
+                              style: TextStyle(fontSize: 8, color: fg.withValues(alpha: 0.42)),
                             ),
                             const Spacer(),
                             UcgMomentsActionMenu(
@@ -898,9 +898,9 @@ class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
   }
 }
 
-String _postMetaLine(UcgPost post, String time) {
+String _postMetaLine(UcgPost post, String time, {String? currentUserId}) {
   final loc = post.ipLocationDisplay;
-  final dist = post.distanceDisplay;
+  final dist = post.shouldShowDistance(currentUserId) ? post.distanceDisplay : '';
   if (loc.isNotEmpty && dist.isNotEmpty) return '$time · $loc · $dist';
   if (loc.isNotEmpty) return '$time · $loc';
   if (dist.isNotEmpty) return '$time · $dist';

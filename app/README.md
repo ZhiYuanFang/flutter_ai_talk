@@ -34,8 +34,12 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[ApiHttp]` | `ApiClient` HTTP 请求/响应（敏感字段已脱敏） |
 | `[UcgFeed]` | 广场 Feed 加载/下拉刷新各阶段耗时 |
 | `[UcgLocation]` | UCG 坐标 consent / 缓存命中 / GPS 刷新 |
-| `[UcgVideo]` | 本地视频 ffmpeg normalize / v2 上传 |
-| `[UcgVideo]` | 本地视频 ffmpeg normalize / v2 上传 |
+| `[UcgVideo]` | 本地视频 validate / ffmpeg normalize / OSS 上传门闸 |
+| `[UcgCompose]` | compose 槽位上传、ensure 重试、发布各阶段（upload / location / createPost） |
+| `[UcgPlay]` | CDN 内联播放 init/play/runtime 失败（ExoPlayer `errorDescription`） |
+| `[UcgUnread]` | UCG 未读 HTTP 校准失败（`sync err=`） |
+| `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
+| `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
@@ -74,15 +78,51 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 
 临时排查微信 SDK 问题时，可将 `pubspec.yaml` 的 `fluwx.debug_logging` 改回 `true` 后重新 `flutter pub get`。
 
+### WebSocket 架构
+
+三鉴权通道共用 `ResilientWebSocketClient`（指数退避、auth 超时、ping/pong、gaveUp、lifecycle resume）：
+
+| 通道 | 实现 | auth 帧 | prepareToken |
+|------|------|---------|--------------|
+| 喂养历史 | `RemoteFeedRepository` | `{type, accessToken, deviceNo}` | `prepareDeviceWsConnectContext` |
+| UCG 聊天 | `UcgRepository` | `{type: auth, token}` | `ensureFreshSession`（无 deviceNo） |
+| 胖宝诊疗 | `ClinicWsClient` | `{type, accessToken, deviceNo}` | `prepareDeviceWsConnectContext` |
+
+**例外**：语音 ASR（`/voice/asr/ws`）无 access 鉴权，使用独立 `VoiceAsrWsClient`。
+
+**Auth error 统一策略**（`handleWsAuthOrQuotaError`）：`isRefreshInFlight` 不弹 UI → 40301 silent refresh + reconnect → hard 失效才登录引导；40302 额度弹框。
+
+**前置条件重试**：`shouldConnect`/`prepareToken` 失败时传输层自动短退避重试；`bindAuthenticatedWsSession` 在 refresh 结束后 reconnect。胖宝 clinic 使用 `requireHandshakePong: false`（auth_ok 即 ready）。
+
+**新增通道 checklist**（须 OpenSpec change，见 `.cursor/rules/ws-resilient-transport.mdc`）：
+
+1. 配置 `WsConnectionConfig` + `ResilientWebSocketClient`，禁止手写 `WebSocketChannel.connect`
+2. 设备通道复用 `prepareDeviceWsConnectContext`；error 帧走 `handleWsAuthOrQuotaError`
+3. token 轮换时 `reconnect(resetStrike: false)`；lifecycle `onAppLifecycleResumed`
+4. Debug 日志走白名单 tag；失败路径记录 `err=`（勿打 token）
+
 ### UCG 本地视频上传（normalize）
 
 - **统一入口**：所有本地视频 OSS 上传 MUST 经 `ucgUploadLocalVideo`（compose、聊天、历史同步、相册直传）。
-- **iOS/Android**：每条本地视频经 `ffmpeg_kit_flutter_new_min_gpl` 转码为 H.264 Main + AAC（无音轨补静音）+ `-movflags +faststart`，`transform_version` **`v2`**；不再因 ≤20MB 跳过转码。
+- **iOS/Android**：每条本地视频经 `ffmpeg_kit_flutter_new_min_gpl` 转码为 H.264 Main（level 3.1）+ AAC（无音轨补静音）+ bt709 色域 + `-movflags +faststart`，`transform_version` **`v2`**；不再因 ≤20MB 跳过转码。
+- **上传门闸**：normalize 成功后、OSS 上传前，对临时 MP4 做 ExoPlayer 试 init（`VideoPlayerController.file`，超时 ~8s）；失败则不上传，compose/聊天提示「视频无法处理，请换一段视频或稍后重试」。
 - **Web**：校验后直传 raw（`transform_version` **`v1`**），不使用 ffmpeg.wasm；canonical MP4 由 **go_ai_talk 服务端 ffmpeg worker** 异步补齐（Phase 2，本仓库不实现）。
 - **APK 体积**：`ffmpeg_kit_flutter_new_min_gpl` 约增加数 MB/ABI（min-gpl 变体）；Play 分发建议 `.aab`。
-- **播放兜底**：CDN/内联 `VideoPlayer` 失败时 UI 提供「用系统播放器打开」（Android `ACTION_VIEW` https；iOS/Web `url_launcher` externalApplication）。
+- **播放**：CDN/内联仅 App 内 `VideoPlayer`（Media3 ExoPlayer）；失败 overlay 仅「重试」，不提供站外/系统播放器兜底。已用旧 v2 转码且 App 内仍不能播的帖需**重新上传**。
 
-Debug 下 `[UcgVideo]` 日志可确认 normalize 与 v2 上传字节数（见上方 logcat 脚本 `$Tags`）。
+Debug 下 `[UcgVideo]` 日志可确认 normalize 色域摘要（`normalize colors`）、probe（`probe ok/fail`）与 v2 上传字节数（见上方 logcat 脚本 `$Tags`）。
+
+**Compose 发布失败排查**（终端 B 按时间线对齐）：
+
+1. `[UcgCompose]` — 槽位 `start/phase/ok/fail`、`ensure retry/incomplete`、`publish start/ok/fail stage=…`
+2. `[UcgVideo]` — 若 stage 卡在 `upload`：`validate fail`、`normalize fail`、`probe fail`、`upload fail` 及 ffmpeg tail
+3. `[ApiHttp]` — 若 stage 为 `createPost`：对照 `POST …/posts` 或 `PATCH …/posts/…` 响应
+
+**CDN 播放失败排查**（终端 B 按时间线对齐）：
+
+1. `[UcgPlay]` — `init fail` / `runtime fail` 的 `err=`（ExoPlayer `errorDescription`）
+2. 若内联仍失败 — 浏览器/`curl -I` 验证 CDN URL 与 `Content-Type`；对照同帖 `[UcgVideo] normalize colors`（不应出现 `color_space=gbr`）与 `probe ok`
+3. 新发帖仍 `init fail` — 对照 `[UcgVideo] upload ok transform=v2` 与 probe 是否通过
 
 ### 语音识别（设置中心）
 

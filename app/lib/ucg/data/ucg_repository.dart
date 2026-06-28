@@ -1,11 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../../api/ai_quota_codes.dart';
 import '../../config/env.dart';
 import '../../network/resilient_websocket_client.dart';
+import '../../network/ws_auth_error_handler.dart';
 import '../../network/ws_connection_config.dart';
+import '../../providers/ai_quota_dialog_bus.dart';
 import '../../session/token_expiry.dart';
 import 'ucg_api_client.dart';
 import 'ucg_models.dart';
@@ -19,12 +23,14 @@ typedef UcgWsErrorToast = void Function(String message);
 class UcgRepository {
   UcgRepository({
     required UcgApiClient api,
+    required Ref ref,
     required UcgUserIdGetter userIdGetter,
     required String? Function() accessTokenGetter,
     required bool Function() isLoggedInGetter,
     required Future<String?> Function() prepareAccessToken,
     UcgWsErrorToast? onWsErrorToast,
   })  : _api = api,
+        _ref = ref,
         _userIdGetter = userIdGetter,
         _accessTokenGetter = accessTokenGetter,
         _isLoggedInGetter = isLoggedInGetter,
@@ -49,7 +55,6 @@ class UcgRepository {
         buildAuthFrame: (ctx) => {'type': 'auth', 'token': ctx.accessToken},
         onApplicationFrame: _onChatApplicationFrame,
         onErrorFrame: _onChatWsError,
-        log: (m) => debugPrint(m),
       ),
     );
     _wsClient.readyStream.listen((ready) {
@@ -59,6 +64,7 @@ class UcgRepository {
   }
 
   final UcgApiClient _api;
+  final Ref _ref;
   final UcgUserIdGetter _userIdGetter;
   final String? Function() _accessTokenGetter;
   final bool Function() _isLoggedInGetter;
@@ -93,9 +99,26 @@ class UcgRepository {
 
   void setWsConnectionDesired(bool desired) => _wsClient.setConnectionDesired(desired);
 
+  Future<void> reconnectChatWebSocket({bool resetStrike = false}) async {
+    _wsClient.setConnectionDesired(true);
+    await _wsClient.reconnect(resetStrike: resetStrike);
+  }
+
   void onAppLifecycleResumed() => _wsClient.onAppLifecycleResumed();
 
   Future<bool> _onChatWsError(Map<String, dynamic> decoded) async {
+    final code = parseWsErrorBusinessCode(decoded);
+    if (code != null && isAiQuotaBusinessCode(code)) {
+      final result = await handleWsAuthOrQuotaError(
+        _ref,
+        decoded,
+        onQuotaDialog: (c) => _ref.requestAiQuotaDialog(c),
+      );
+      if (result.requestLoginDialog) {
+        _ref.requestAiQuotaDialog(kAiCodeNotLoggedIn);
+      }
+      return result.scheduleReconnect;
+    }
     final message = decoded['message']?.toString().trim() ?? '';
     _onWsErrorToast?.call(message.isNotEmpty ? message : '操作失败');
     // 业务 error（如发送失败）不断连、不重连；已连接时 ResilientWebSocketClient 会保持通道。
@@ -423,7 +446,7 @@ class UcgRepository {
   }
 
   /// AI 润笔正文（需已上传图片 objectKeys）。
-  Future<String> polishPost({
+  Future<({String polishedText, bool quotaDegraded})> polishPost({
     required List<String> imageKeys,
     String? text,
   }) async {
@@ -436,7 +459,8 @@ class UcgRepository {
     if (polished.trim().isEmpty) {
       throw const FormatException('润笔响应缺少 polishedText');
     }
-    return polished.trim();
+    final quotaDegraded = data?['quotaDegraded'] == true;
+    return (polishedText: polished.trim(), quotaDegraded: quotaDegraded);
   }
 
   /// Web 经 gateway 同域代理上传，规避 OSS 直传 CORS 预检 403（不写 ownership）。

@@ -6,17 +6,26 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../api/ai_quota_codes.dart';
 import '../api/ai_quota_errors.dart';
+import '../api/clinic_ws_error.dart';
+import '../api/app_debug_log.dart';
 import '../config/env.dart';
 import '../config/pangbao_ai_consent_store.dart';
+import '../config/pangbao_clinic_session_store.dart';
+import '../data/feed_repository.dart';
 import '../providers/ai_quota_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/session_provider.dart';
-import '../ucg/ui/widgets/ucg_visual_widgets.dart';
+import '../providers/toast_bus.dart';
+import '../session/session_controller.dart';
+import '../ui/widgets/app_empty_state_gallery.dart';
 import '../ui/widgets/app_glass_overlay.dart';
 import '../ui/widgets/clinic_answer_body.dart';
 import 'home_history_scroll_to_bottom_button.dart';
+import 'home_history_ws_status_banner.dart';
 import '../ui/widgets/keyboard_dismiss_scope.dart';
+import '../ucg/ui/widgets/ucg_visual_widgets.dart';
 import '../voice/clinic_ws_client.dart';
 
 /// 胖宝诊疗：文本问答 + 流式 thinking/answer + 免责声明；支持流式中断/改问。
@@ -44,6 +53,8 @@ class _ChatItem {
   String? thinking;
   String? answer;
   var thinkingExpanded = false;
+  var isError = false;
+  String? errorMessage;
 }
 
 class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsBindingObserver {
@@ -55,14 +66,101 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   final _scroll = ScrollController();
   ClinicWsClient? _client;
   StreamSubscription<Map<String, dynamic>>? _frameSub;
+  StreamSubscription<bool>? _clinicWsReadySub;
+  StreamSubscription<HistoryWsPhase>? _clinicWsPhaseSub;
   var _consented = false;
+  var _clinicWsReady = false;
+  HistoryWsPhase _clinicWsPhase = HistoryWsPhase.disconnected;
+  var _clinicWsManualReconnecting = false;
+  var _gaveUpSnackbarShown = false;
   String? _activeTurnId;
   _ChatItem? _activeAssistant;
   var _followLatest = true;
   var _showScrollToBottomButton = false;
   var _autoScrolling = false;
+  String? _sessionDeviceNo;
 
   bool get _streaming => _activeTurnId != null && _activeAssistant != null;
+
+  bool _needsDeviceBind(AsyncValue<String?> dnAsync) {
+    return dnAsync.maybeWhen(
+      data: (dn) => dn == null || dn.isEmpty,
+      orElse: () => false,
+    );
+  }
+
+  Widget _buildEmptyGallery(BuildContext context, WidgetRef ref) {
+    final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    if (!loggedIn) {
+      return AppEmptyStateGallery(
+        animationPath: 'assets/images/ani_baby_welcome.json',
+        title: '尚未登录',
+        subtitle: '登录并绑定宝宝后，可基于喂养记录向 AI 提问',
+        actionLabel: '去登录',
+        onAction: () => unawaited(context.push('/login')),
+      );
+    }
+    final dnAsync = ref.watch(deviceNoNotifierProvider);
+    if (_needsDeviceBind(dnAsync)) {
+      return AppEmptyStateGallery(
+        animationPath: 'assets/images/ani_baby_welcome.json',
+        title: '嗨，我是胖宝！',
+        subtitle: '绑定宝宝信息后，我才能结合喂养记录回答你的问题',
+        actionLabel: '立即绑定宝宝',
+        onAction: () => unawaited(context.push('/settings/bind-baby')),
+      );
+    }
+    return const AppEmptyStateGallery(
+      animationPath: 'assets/images/ani_baby_feeding_guide.json',
+      title: '开始提问',
+      subtitle: '我会结合近 7 天喂养记录作答；问答记录仅保留12个小时。',
+      fallbackIcon: Icons.medical_services_outlined,
+    );
+  }
+
+  Widget _buildConversationArea(BuildContext context) {
+    if (_items.isEmpty) {
+      return _buildEmptyGallery(context, ref);
+    }
+    return Stack(
+      children: [
+        NotificationListener<UserScrollNotification>(
+          onNotification: (n) {
+            if (n.depth != 0 || _autoScrolling) return false;
+            if (n.direction == ScrollDirection.reverse && _followLatest) {
+              setState(() {
+                _followLatest = false;
+                _showScrollToBottomButton = _items.isNotEmpty;
+              });
+            }
+            return false;
+          },
+          child: ListView.builder(
+            controller: _scroll,
+            padding: const EdgeInsets.all(16),
+            itemCount: _items.length,
+            itemBuilder: (context, i) => _buildItem(_items[i]),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 10,
+          child: IgnorePointer(
+            ignoring: !_showScrollToBottomButton,
+            child: AnimatedOpacity(
+              opacity: _showScrollToBottomButton ? 1 : 0,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              child: Center(
+                child: HomeHistoryScrollToBottomButton(onPressed: _onScrollToBottomTap),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -91,42 +189,266 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     }
     if (!mounted) return;
     _setupWs(desired: true);
+    unawaited(_hydrateFromLocalCacheIfEmpty());
   }
 
   void _setupWs({required bool desired}) {
-    final session = ref.read(sessionProvider);
     _client ??= ClinicWsClient(
       wsUrl: AppEnv.wsClinicUrlEffective,
-      accessTokenGetter: () => session.accessToken,
+      ref: ref,
       deviceNoGetter: () => ref.read(deviceNoNotifierProvider).asData?.value,
     );
     _frameSub ??= _client!.frames.listen(_onFrame);
+    _bindClinicWsStatusSubscriptions();
     _client!.setConnectionDesired(desired);
+  }
+
+  void _bindClinicWsStatusSubscriptions() {
+    final client = _client;
+    if (client == null) return;
+    if (_clinicWsReadySub == null && _clinicWsPhaseSub == null) {
+      _clinicWsReady = client.isClinicWebSocketReady;
+      _clinicWsPhase = client.clinicWsPhase;
+    }
+    _clinicWsReadySub ??= client.clinicWsReadyStream.listen((v) {
+      if (!mounted) return;
+      setState(() {
+        _clinicWsReady = v;
+        if (v) _gaveUpSnackbarShown = false;
+      });
+    });
+    _clinicWsPhaseSub ??= client.clinicWsPhaseStream.listen((phase) {
+      if (!mounted) return;
+      setState(() {
+        _clinicWsPhase = phase;
+        if (phase != HistoryWsPhase.gaveUp) {
+          _gaveUpSnackbarShown = false;
+        }
+      });
+      if (phase == HistoryWsPhase.gaveUp) {
+        _maybeShowClinicGaveUpSnackbar();
+      }
+    });
+  }
+
+  void _maybeShowClinicGaveUpSnackbar() {
+    if (_gaveUpSnackbarShown) return;
+    if (ref.read(sessionProvider).isRefreshInFlight) return;
+    _gaveUpSnackbarShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_clinicWsPhase != HistoryWsPhase.gaveUp) return;
+      if (ref.read(sessionProvider).isRefreshInFlight) return;
+      ref.showApiToastError(kHomeHistoryWsGaveUpMessage);
+    });
+  }
+
+  String _clinicWsBannerMessage() {
+    return switch (_clinicWsPhase) {
+      HistoryWsPhase.gaveUp => kHomeHistoryWsGaveUpMessage,
+      HistoryWsPhase.ready ||
+      HistoryWsPhase.disconnected ||
+      HistoryWsPhase.autoReconnecting =>
+        kHomeHistoryWsDisconnectMessage,
+    };
+  }
+
+  Future<void> _reconnectClinicWsFromBanner() async {
+    if (_clinicWsManualReconnecting) return;
+    setState(() => _clinicWsManualReconnecting = true);
+    try {
+      if (_client == null) {
+        _setupWs(desired: true);
+      }
+      await _client?.reconnect(resetStrike: true);
+    } finally {
+      if (mounted) setState(() => _clinicWsManualReconnecting = false);
+    }
+  }
+
+  void _reconnectClinicWs({bool resetStrike = false}) {
+    if (_client == null) {
+      _setupWs(desired: true);
+      return;
+    }
+    unawaited(_client!.reconnect(resetStrike: resetStrike));
+  }
+
+  Future<void> _hydrateFromLocalCacheIfEmpty() async {
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    if (dn == null || dn.isEmpty) return;
+    _sessionDeviceNo ??= dn;
+    if (_items.isNotEmpty) return;
+    final snapshot = await PangbaoClinicSessionStore.loadSnapshot(dn);
+    if (!mounted || snapshot.isEmpty || _items.isNotEmpty) return;
+    final completedQ = snapshot.completed.map((t) => t.question.trim()).toSet();
+    final failed = snapshot.failed.where((f) => !completedQ.contains(f.question.trim())).toList();
+    AppDebugLog.pangbaoClinic(
+      'hydrate deviceNo=$dn completed=${snapshot.completed.length} failed=${failed.length}',
+    );
+    setState(() {
+      _items.addAll(_itemsFromCachedTurns(snapshot.completed));
+      _items.addAll(_itemsFromFailedTurns(failed));
+    });
+  }
+
+  Future<void> _onDeviceNoChanged(String deviceNo) async {
+    if (deviceNo.isEmpty) return;
+    final prev = _sessionDeviceNo;
+    if (prev == deviceNo) return;
+    _sessionDeviceNo = deviceNo;
+    if (prev == null) {
+      await _hydrateFromLocalCacheIfEmpty();
+      _reconnectClinicWs();
+      return;
+    }
+    if (_activeAssistant != null) return;
+    setState(() {
+      _items.clear();
+      _followLatest = true;
+      _showScrollToBottomButton = false;
+    });
+    await _hydrateFromLocalCacheIfEmpty();
+  }
+
+  Future<void> _persistSessionStore() async {
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    if (dn == null || dn.isEmpty) return;
+    await PangbaoClinicSessionStore.saveSnapshot(
+      dn,
+      PangbaoClinicSessionSnapshot(
+        completed: _completedTurnsFromItems(),
+        failed: _failedTurnsFromItems(),
+      ),
+    );
+  }
+
+  List<PangbaoClinicFailedTurn> _failedTurnsFromItems() {
+    final completedQ = <String>{};
+    for (var i = 0; i < _items.length; i++) {
+      if (!_items[i].isUser) continue;
+      if (i + 1 >= _items.length || _items[i + 1].isUser) continue;
+      final assistant = _items[i + 1];
+      if (assistant.isError) continue;
+      final q = _items[i].question?.trim() ?? '';
+      if (q.isNotEmpty) completedQ.add(q);
+    }
+
+    final out = <PangbaoClinicFailedTurn>[];
+    for (var i = 0; i < _items.length; i++) {
+      if (!_items[i].isUser) continue;
+      if (i + 1 >= _items.length || _items[i + 1].isUser) continue;
+      final question = _items[i].question?.trim() ?? '';
+      final assistant = _items[i + 1];
+      if (!assistant.isError) continue;
+      final msg = assistant.errorMessage?.trim() ?? '';
+      if (question.isEmpty || msg.isEmpty) continue;
+      if (completedQ.contains(question)) continue;
+      if (out.any((t) => t.question.trim() == question)) continue;
+      final thinkingRaw = assistant.thinking?.trim();
+      out.add(
+        PangbaoClinicFailedTurn(
+          question: question,
+          errorMessage: msg,
+          thinking: thinkingRaw != null && thinkingRaw.isNotEmpty ? thinkingRaw : null,
+        ),
+      );
+    }
+    return out;
+  }
+
+  List<PangbaoClinicTurn> _completedTurnsFromItems() {
+    final out = <PangbaoClinicTurn>[];
+    for (var i = 0; i < _items.length; i++) {
+      if (!_items[i].isUser) continue;
+      if (i + 1 >= _items.length || _items[i + 1].isUser) continue;
+      final assistant = _items[i + 1];
+      if (assistant.isError) continue;
+      final question = _items[i].question?.trim() ?? '';
+      final answer = _items[i + 1].answer?.trim() ?? '';
+      if (question.isEmpty || answer.isEmpty) continue;
+      final thinkingRaw = _items[i + 1].thinking?.trim();
+      out.add(
+        PangbaoClinicTurn(
+          question: question,
+          answer: answer,
+          thinking: thinkingRaw != null && thinkingRaw.isNotEmpty ? thinkingRaw : null,
+        ),
+      );
+    }
+    return out;
+  }
+
+  Map<String, String> _thinkingByQuestionFromItems() {
+    final out = <String, String>{};
+    for (var i = 0; i < _items.length - 1; i++) {
+      if (!_items[i].isUser || _items[i + 1].isUser) continue;
+      final q = _items[i].question?.trim() ?? '';
+      final t = _items[i + 1].thinking?.trim();
+      if (q.isNotEmpty && t != null && t.isNotEmpty) {
+        out[q] = t;
+      }
+    }
+    return out;
+  }
+
+  Future<Map<String, String>> _thinkingByQuestionIncludingCache() async {
+    final out = _thinkingByQuestionFromItems();
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    if (dn == null || dn.isEmpty) return out;
+    final snapshot = await PangbaoClinicSessionStore.loadSnapshot(dn);
+    for (final turn in snapshot.completed) {
+      final q = turn.question.trim();
+      final t = turn.thinking?.trim();
+      if (q.isNotEmpty && t != null && t.isNotEmpty && !out.containsKey(q)) {
+        out[q] = t;
+      }
+    }
+    for (final turn in snapshot.failed) {
+      final q = turn.question.trim();
+      final t = turn.thinking?.trim();
+      if (q.isNotEmpty && t != null && t.isNotEmpty && !out.containsKey(q)) {
+        out[q] = t;
+      }
+    }
+    return out;
+  }
+
+  void _applyInlineErrorToActiveAssistant(ParsedClinicWsError parsed) {
+    if (_activeAssistant == null) return;
+    _activeAssistant!.isError = true;
+    _activeAssistant!.errorMessage = parsed.userMessage;
+    _activeAssistant!.answer = '';
+    _activeTurnId = null;
+    _activeAssistant = null;
+  }
+
+  String _debugClinicErrorMsg(String message) {
+    if (message.length <= 48) return message;
+    return '${message.substring(0, 45)}...';
   }
 
   void _onFrame(Map<String, dynamic> frame) {
     final type = (frame['type'] as String? ?? '').toLowerCase();
     if (type == 'error') {
-      final code = ClinicWsClient.businessCodeFromFrame(frame);
-      if (code != null && mounted) {
-        unawaited(handleAiQuotaBusinessCode(context, code));
+      final parsed = parseClinicWsUserMessage(frame);
+      AppDebugLog.pangbaoClinic(
+        'ws error kind=${parsed.kind.name} code=${parsed.businessCode} msg=${_debugClinicErrorMsg(parsed.userMessage)}',
+      );
+      if (parsed.businessCode != null && isAiQuotaBusinessCode(parsed.businessCode!) && mounted) {
+        unawaited(handleAiQuotaBusinessCode(context, parsed.businessCode!));
       }
       setState(() {
-        _clearActiveStreaming(removeAssistant: true);
+        _applyInlineErrorToActiveAssistant(parsed);
       });
+      unawaited(_persistSessionStore());
+      _scrollToBottom();
       return;
     }
     if (type == 'session_sync') {
       if (_activeAssistant != null) return;
       final turns = ClinicWsClient.parseSessionSyncTurns(frame);
-      setState(() {
-        _items
-          ..clear()
-          ..addAll(_itemsFromSessionTurns(turns));
-        _followLatest = true;
-        _showScrollToBottomButton = false;
-      });
-      _scrollToBottom(animate: false, force: true);
+      unawaited(_applySessionSync(turns));
       return;
     }
     if (type == 'turn_cancelled') {
@@ -168,6 +490,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
           _activeTurnId = null;
           _activeAssistant = null;
           ref.invalidate(voiceAiQuotaProvider);
+          unawaited(_persistSessionStore());
           break;
       }
     });
@@ -194,12 +517,80 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     }
   }
 
-  List<_ChatItem> _itemsFromSessionTurns(List<ClinicSessionTurn> turns) {
+  Future<void> _applySessionSync(List<ClinicSessionTurn> turns) async {
+    if (turns.isEmpty) {
+      if (_items.isNotEmpty) {
+        AppDebugLog.pangbaoClinic('session_sync empty kept items=${_items.length}');
+        return;
+      }
+      await _hydrateFromLocalCacheIfEmpty();
+      return;
+    }
+    final thinkingByQuestion = await _thinkingByQuestionIncludingCache();
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    final serverQ = turns.map((t) => t.question.trim()).toSet();
+    final failedFromMemory = _failedTurnsFromItems();
+    final failedFromStore = dn != null && dn.isNotEmpty
+        ? (await PangbaoClinicSessionStore.loadSnapshot(dn)).failed
+        : const <PangbaoClinicFailedTurn>[];
+    final failedToAppend = <PangbaoClinicFailedTurn>[];
+    for (final f in [...failedFromMemory, ...failedFromStore]) {
+      final q = f.question.trim();
+      if (q.isEmpty || serverQ.contains(q)) continue;
+      if (failedToAppend.any((x) => x.question.trim() == q)) continue;
+      failedToAppend.add(f);
+    }
+    if (!mounted) return;
+    setState(() {
+      _items
+        ..clear()
+        ..addAll(_itemsFromSessionTurns(turns, thinkingByQuestion: thinkingByQuestion))
+        ..addAll(_itemsFromFailedTurns(failedToAppend));
+      _followLatest = true;
+      _showScrollToBottomButton = false;
+    });
+    AppDebugLog.pangbaoClinic(
+      'session_sync merged turns=${turns.length} failedKept=${failedToAppend.length}',
+    );
+    unawaited(_persistSessionStore());
+    _scrollToBottom(animate: false, force: true);
+  }
+
+  List<_ChatItem> _itemsFromFailedTurns(List<PangbaoClinicFailedTurn> turns) {
     final out = <_ChatItem>[];
     for (final turn in turns) {
       out.add(_ChatItem.user(turn.question));
       final assistant = _ChatItem.assistant();
-      assistant.thinking = null;
+      assistant.thinking = turn.thinking;
+      assistant.isError = true;
+      assistant.errorMessage = turn.errorMessage;
+      out.add(assistant);
+    }
+    return out;
+  }
+
+  List<_ChatItem> _itemsFromCachedTurns(List<PangbaoClinicTurn> turns) {
+    final out = <_ChatItem>[];
+    for (final turn in turns) {
+      out.add(_ChatItem.user(turn.question));
+      final assistant = _ChatItem.assistant();
+      assistant.thinking = turn.thinking;
+      assistant.answer = turn.answer;
+      out.add(assistant);
+    }
+    return out;
+  }
+
+  List<_ChatItem> _itemsFromSessionTurns(
+    List<ClinicSessionTurn> turns, {
+    Map<String, String>? thinkingByQuestion,
+  }) {
+    final out = <_ChatItem>[];
+    for (final turn in turns) {
+      out.add(_ChatItem.user(turn.question));
+      final assistant = _ChatItem.assistant();
+      final q = turn.question.trim();
+      assistant.thinking = thinkingByQuestion?[q];
       assistant.answer = turn.answer;
       out.add(assistant);
     }
@@ -315,6 +706,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       _client?.setConnectionDesired(false);
     } else if (state == AppLifecycleState.resumed && _consented) {
+      _client?.onAppLifecycleResumed();
       _client?.setConnectionDesired(true);
     }
   }
@@ -324,6 +716,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     WidgetsBinding.instance.removeObserver(this);
     _scroll.removeListener(_onScroll);
     _frameSub?.cancel();
+    _clinicWsReadySub?.cancel();
+    _clinicWsPhaseSub?.cancel();
     _client?.dispose();
     _input.dispose();
     _inputFocusNode.dispose();
@@ -333,7 +727,63 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
+      if (loggedIn && _consented) {
+        _setupWs(desired: true);
+      }
+    });
+    ref.listen<String?>(sessionProvider.select((s) => s.accessToken), (prev, next) {
+      if (!SessionController.isAccessTokenRotation(prev, next)) return;
+      if (_consented && ref.read(sessionProvider).isLoggedIn) {
+        _reconnectClinicWs();
+      }
+    });
+    ref.listen<bool>(sessionProvider.select((s) => s.isRefreshInFlight), (prev, inFlight) {
+      if (prev != true || inFlight || !_consented) return;
+      if (!ref.read(sessionProvider).isLoggedIn) return;
+      _reconnectClinicWs();
+    });
+    ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
+      final dn = next.asData?.value;
+      if (dn == null || dn.isEmpty) return;
+      unawaited(_onDeviceNoChanged(dn));
+    });
+
     final quota = ref.watch(voiceAiQuotaProvider);
+    final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    final dnAsync = ref.watch(deviceNoNotifierProvider);
+    final canUseInput = _consented && loggedIn && !_needsDeviceBind(dnAsync);
+    final needsDeviceBind = loggedIn && _needsDeviceBind(dnAsync);
+    final refreshInFlight = ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
+    final showWsRefreshBanner = _consented &&
+        loggedIn &&
+        !needsDeviceBind &&
+        !_clinicWsReady &&
+        refreshInFlight &&
+        _clinicWsPhase != HistoryWsPhase.autoReconnecting;
+    final showWsDisconnectBanner = _consented &&
+        loggedIn &&
+        !needsDeviceBind &&
+        !_clinicWsReady &&
+        !refreshInFlight &&
+        _clinicWsPhase != HistoryWsPhase.autoReconnecting;
+    final showWsBanner = showWsRefreshBanner || showWsDisconnectBanner;
+    final wsBannerMessage = showWsRefreshBanner
+        ? kHomeHistoryWsRefreshRecoveryMessage
+        : _clinicWsBannerMessage();
+    final wsBannerVariant =
+        showWsRefreshBanner ? HomeHistoryWsBannerVariant.info : HomeHistoryWsBannerVariant.error;
+    final wsBannerReconnecting =
+        _clinicWsPhase == HistoryWsPhase.autoReconnecting || _clinicWsManualReconnecting;
+    final wsBannerTapEnabled = !showWsRefreshBanner;
+    final inputHint = !_consented
+        ? '请先同意告知'
+        : !loggedIn
+            ? '请先登录'
+            : _needsDeviceBind(dnAsync)
+                ? '请先绑定宝宝'
+                : '问问胖宝诊疗…';
+
     return Scaffold(
       appBar: AppBar(title: const Text('胖宝诊疗')),
       body: Column(
@@ -343,13 +793,21 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
               if (s == null) return const SizedBox.shrink();
               final snap = s.clinicAi;
               if (snap.limit <= 0) return const SizedBox.shrink();
+              final label = snap.degraded
+                  ? '本月胖宝诊疗额度已用完，已降速'
+                  : '本月胖宝诊疗剩余 ${snap.remaining} 次';
+              final colorScheme = Theme.of(context).colorScheme;
               return Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '本月胖宝诊疗剩余 ${snap.remaining} 次',
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55)),
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: snap.degraded ? colorScheme.error : colorScheme.onSurface.withValues(alpha: 0.55),
+                      fontWeight: snap.degraded ? FontWeight.w600 : null,
+                    ),
                   ),
                 ),
               );
@@ -357,45 +815,16 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
           ),
+          HomeHistoryWsStatusBanner(
+            visible: showWsBanner,
+            message: wsBannerMessage,
+            reconnecting: wsBannerReconnecting,
+            tapEnabled: wsBannerTapEnabled,
+            variant: wsBannerVariant,
+            onReconnect: () => unawaited(_reconnectClinicWsFromBanner()),
+          ),
           Expanded(
-            child: Stack(
-              children: [
-                NotificationListener<UserScrollNotification>(
-                  onNotification: (n) {
-                    if (n.depth != 0 || _autoScrolling) return false;
-                    if (n.direction == ScrollDirection.reverse && _followLatest) {
-                      setState(() {
-                        _followLatest = false;
-                        _showScrollToBottomButton = _items.isNotEmpty;
-                      });
-                    }
-                    return false;
-                  },
-                  child: ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _items.length,
-                    itemBuilder: (context, i) => _buildItem(_items[i]),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 10,
-                  child: IgnorePointer(
-                    ignoring: !_showScrollToBottomButton,
-                    child: AnimatedOpacity(
-                      opacity: _showScrollToBottomButton ? 1 : 0,
-                      duration: const Duration(milliseconds: 150),
-                      curve: Curves.easeOut,
-                      child: Center(
-                        child: HomeHistoryScrollToBottomButton(onPressed: _onScrollToBottomTap),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: _buildConversationArea(context),
           ),
           Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + MediaQuery.paddingOf(context).bottom),
@@ -406,12 +835,12 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
                     child: TextField(
                       controller: _input,
                       focusNode: _inputFocusNode,
-                      enabled: _consented,
+                      enabled: canUseInput,
                       textInputAction: TextInputAction.send,
-                      onSubmitted: _consented ? (_) => unawaited(_send()) : null,
+                      onSubmitted: canUseInput ? (_) => unawaited(_send()) : null,
                       decoration: ucgComposerFieldDecoration(
                         context,
-                        hint: _consented ? '问问胖宝诊疗…' : '请先同意告知',
+                        hint: inputHint,
                       ),
                     ),
                   ),
@@ -419,13 +848,13 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
                 const SizedBox(width: 8),
                 if (_streaming)
                   IconButton.filled(
-                    onPressed: _consented ? _stopStreaming : null,
+                    onPressed: canUseInput ? _stopStreaming : null,
                     icon: const Icon(Icons.stop),
                     tooltip: '停止',
                   )
                 else
                   IconButton.filled(
-                    onPressed: _consented ? _send : null,
+                    onPressed: canUseInput ? _send : null,
                     icon: const Icon(Icons.send),
                   ),
               ],
@@ -467,10 +896,44 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
         if ((item.thinking ?? '').isNotEmpty)
           _ThinkingBlock(
             item: item,
-            streaming: item == _activeAssistant && (item.answer ?? '').isEmpty,
+            streaming: item == _activeAssistant &&
+                (item.answer ?? '').isEmpty &&
+                !item.isError,
             onTap: () => setState(() => item.thinkingExpanded = !item.thinkingExpanded),
           ),
-        if ((item.answer ?? '').isNotEmpty)
+        if (item.isError && (item.errorMessage ?? '').isNotEmpty)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.errorMessage!,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if ((item.answer ?? '').isNotEmpty)
           Container(
             width: double.infinity,
             margin: const EdgeInsets.only(bottom: 6),
@@ -484,7 +947,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
               streaming: item == _activeAssistant && _streaming,
             ),
           ),
-        if ((item.answer ?? '').isNotEmpty)
+        if (!item.isError && (item.answer ?? '').isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(

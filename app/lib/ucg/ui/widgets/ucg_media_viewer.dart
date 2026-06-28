@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../api/app_debug_log.dart';
+import '../../data/ucg_playback_log.dart';
 import '../../data/ucg_video_playback.dart';
 import '../../theme/ucg_theme.dart';
 import 'ucg_android_local_video.dart';
@@ -212,6 +214,8 @@ Future<void> showUcgVideoFullscreen(
   String? filePath,
   String? contentUri,
   Uint8List? posterBytes,
+  int? videoWidth,
+  int? videoHeight,
   Duration initialPosition = Duration.zero,
   bool autoPlay = true,
 }) {
@@ -228,6 +232,8 @@ Future<void> showUcgVideoFullscreen(
         filePath: hasFile ? filePath : null,
         contentUri: hasUri ? contentUri : null,
         posterBytes: posterBytes,
+        videoWidth: videoWidth,
+        videoHeight: videoHeight,
         initialPosition: initialPosition,
         autoPlay: autoPlay,
       ),
@@ -270,11 +276,18 @@ Future<void> showUcgAssetPreview(BuildContext context, AssetEntity asset) async 
     try {
       thumb = await asset.thumbnailDataWithSize(const ThumbnailSize.square(1080));
     } catch (_) {}
+    final dims = await ucgProbeLocalVideoDimensions(
+      path ?? '',
+      contentUri: mediaUri,
+    );
+    if (!context.mounted) return;
     await showUcgVideoFullscreen(
       context,
       filePath: path,
       contentUri: mediaUri,
       posterBytes: thumb,
+      videoWidth: dims.width,
+      videoHeight: dims.height,
     );
     return;
   }
@@ -1199,8 +1212,6 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     unawaited(_loadPoster());
   }
 
-  Uri get _videoUri => Uri.parse(widget.videoUrl);
-
   Future<void> _loadPoster() async {
     if (_disposed || _initializingPoster || _posterReady) return;
     setState(() {
@@ -1215,21 +1226,41 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     }
 
     await _controller?.dispose();
-    final controller = VideoPlayerController.networkUrl(_videoUri);
+    final controller = await ucgCreateVideoPlayerController(videoUrl: widget.videoUrl);
+    if (controller == null) {
+      _UcgVideoInitLimiter.release();
+      if (!_disposed && mounted) {
+        setState(() {
+          _initializingPoster = false;
+          _posterFailed = true;
+        });
+      }
+      return;
+    }
+    final sw = Stopwatch()..start();
+    final logTarget = ucgPlayLogUrl(widget.videoUrl);
     try {
       await controller.initialize();
       await controller.setVolume(0);
       await controller.pause();
+      if (controller.value.hasError) {
+        throw StateError(controller.value.errorDescription ?? 'playback');
+      }
       if (_disposed || !mounted) {
         await controller.dispose();
         return;
       }
+      AppDebugLog.ucgPlay('play cdn poster ok $logTarget elapsedMs=${sw.elapsedMilliseconds}');
       setState(() {
         _controller = controller;
         _posterReady = true;
         _initializingPoster = false;
       });
-    } catch (_) {
+    } catch (e) {
+      AppDebugLog.ucgPlay(
+        'play cdn poster fail $logTarget err=${ucgPlayErrorMessage(e, controller)} '
+        'elapsedMs=${sw.elapsedMilliseconds}',
+      );
       await controller.dispose();
       if (!_disposed && mounted) {
         setState(() {
@@ -1255,18 +1286,38 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
       return;
     }
 
-    final controller = VideoPlayerController.networkUrl(_videoUri);
+    final controller = await ucgCreateVideoPlayerController(videoUrl: widget.videoUrl);
+    if (controller == null) {
+      _UcgVideoInitLimiter.release();
+      if (!_disposed && mounted) {
+        setState(() {
+          _initializingPlayback = false;
+          _playbackFailed = true;
+        });
+      }
+      return;
+    }
+    final sw = Stopwatch()..start();
+    final logTarget = ucgPlayLogUrl(widget.videoUrl);
     try {
       await controller.initialize();
+      if (controller.value.hasError) {
+        throw StateError(controller.value.errorDescription ?? 'playback');
+      }
       if (_disposed || !mounted) {
         await controller.dispose();
         return;
       }
+      AppDebugLog.ucgPlay('play cdn init ok $logTarget elapsedMs=${sw.elapsedMilliseconds}');
       setState(() {
         _controller = controller;
         _initializingPlayback = false;
       });
-    } catch (_) {
+    } catch (e) {
+      AppDebugLog.ucgPlay(
+        'play cdn init fail $logTarget err=${ucgPlayErrorMessage(e, controller)} '
+        'elapsedMs=${sw.elapsedMilliseconds}',
+      );
       await controller.dispose();
       if (!_disposed && mounted) {
         setState(() {
@@ -1297,12 +1348,19 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
     try {
       await controller.setVolume(1);
       await controller.play();
+      if (controller.value.hasError) {
+        throw StateError(controller.value.errorDescription ?? 'playback');
+      }
       if (_disposed || !mounted) return;
       setState(() {
         _playing = true;
         _initializingPlayback = false;
       });
-    } catch (_) {
+    } catch (e) {
+      AppDebugLog.ucgPlay(
+        'play cdn play fail ${ucgPlayLogUrl(widget.videoUrl)} '
+        'err=${ucgPlayErrorMessage(e, controller)}',
+      );
       if (!_disposed && mounted) {
         setState(() {
           _initializingPlayback = false;
@@ -1435,28 +1493,6 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: primary.withValues(alpha: 0.85)),
                 ),
-                if (widget.videoUrl.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () {
-                      unawaited(
-                        ucgOpenExternalVideoPlayerWithFeedback(
-                          context,
-                          videoUrl: widget.videoUrl,
-                        ),
-                      );
-                    },
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      '用系统播放器打开',
-                      style: TextStyle(fontSize: 12, color: primary),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -1691,6 +1727,8 @@ class _UcgVideoFullscreenPage extends StatefulWidget {
     this.filePath,
     this.contentUri,
     this.posterBytes,
+    this.videoWidth,
+    this.videoHeight,
     required this.initialPosition,
     required this.autoPlay,
   }) : assert(
@@ -1703,6 +1741,8 @@ class _UcgVideoFullscreenPage extends StatefulWidget {
   final String? filePath;
   final String? contentUri;
   final Uint8List? posterBytes;
+  final int? videoWidth;
+  final int? videoHeight;
   final Duration initialPosition;
   final bool autoPlay;
 
@@ -1782,6 +1822,13 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
     if (_disposed || !mounted || _failed) return;
     final failed = _controller;
     if (failed == null) return;
+    final url = widget.videoUrl;
+    if (url != null && url.isNotEmpty) {
+      AppDebugLog.ucgPlay(
+        'play cdn runtime fail ${ucgPlayLogUrl(url)} '
+        'err=${ucgPlayErrorMessage(null, failed)} posMs=${failed.value.position.inMilliseconds}',
+      );
+    }
     _detachPlaybackGuard();
     _controller = null;
     await failed.dispose();
@@ -1818,14 +1865,31 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
     VideoPlayerController? controller;
     final url = widget.videoUrl;
     if (url != null && url.isNotEmpty) {
+      final sw = Stopwatch()..start();
+      final logTarget = ucgPlayLogUrl(url);
       controller = await ucgCreateVideoPlayerController(videoUrl: url);
       if (controller != null) {
         try {
           await controller.initialize();
-        } catch (_) {
+          if (controller.value.hasError) {
+            throw StateError(controller.value.errorDescription ?? 'playback');
+          }
+          AppDebugLog.ucgPlay(
+            'play cdn fullscreen init ok $logTarget elapsedMs=${sw.elapsedMilliseconds}',
+          );
+        } catch (e) {
+          AppDebugLog.ucgPlay(
+            'play cdn fullscreen init fail $logTarget err=${ucgPlayErrorMessage(e, controller)} '
+            'elapsedMs=${sw.elapsedMilliseconds}',
+          );
           await controller.dispose();
           controller = null;
         }
+      } else {
+        AppDebugLog.ucgPlay(
+          'play cdn fullscreen init fail $logTarget err=no-controller '
+          'elapsedMs=${sw.elapsedMilliseconds}',
+        );
       }
     } else {
       controller = await _loadLocalController(forceTranscodeOnly: false);
@@ -1833,6 +1897,9 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
 
     if (controller == null) {
       _UcgVideoInitLimiter.release();
+      if (url != null && url.isNotEmpty && !_disposed && mounted) {
+        AppDebugLog.ucgPlay('play cdn fullscreen fail ${ucgPlayLogUrl(url)} err=init-aborted');
+      }
       if (!_disposed && mounted) setState(() => _failed = true);
       return;
     }
@@ -1957,9 +2024,14 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
             if (_useAndroidNative && !_failed)
               Positioned.fill(
                 child: UcgAndroidLocalVideoView(
-                  key: ValueKey('native-${widget.contentUri}-${widget.filePath}-$_nativeAttempt'),
+                  key: ValueKey(
+                    'native-${widget.contentUri}-${widget.filePath}-'
+                    '${widget.videoWidth}x${widget.videoHeight}-$_nativeAttempt',
+                  ),
                   filePath: widget.filePath,
                   contentUri: widget.contentUri,
+                  videoWidth: widget.videoWidth,
+                  videoHeight: widget.videoHeight,
                   onFailed: () {
                     if (mounted) setState(() => _failed = true);
                   },
@@ -2017,33 +2089,6 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
-                      if ((widget.videoUrl != null && widget.videoUrl!.isNotEmpty) ||
-                          (!kIsWeb &&
-                              Platform.isAndroid &&
-                              ((widget.filePath?.isNotEmpty ?? false) ||
-                                  (widget.contentUri?.isNotEmpty ?? false))))
-                        TextButton(
-                          onPressed: () {
-                            unawaited(
-                              ucgOpenExternalVideoPlayerWithFeedback(
-                                context,
-                                videoUrl: widget.videoUrl,
-                                filePath: widget.filePath,
-                                contentUri: widget.contentUri,
-                              ),
-                            );
-                          },
-                          child: Text(
-                            '用系统播放器打开',
-                            style: TextStyle(color: UcgTheme.primary(context)),
-                          ),
-                        ),
-                      if ((widget.videoUrl != null && widget.videoUrl!.isNotEmpty) ||
-                          (!kIsWeb &&
-                              Platform.isAndroid &&
-                              ((widget.filePath?.isNotEmpty ?? false) ||
-                                  (widget.contentUri?.isNotEmpty ?? false))))
-                        const SizedBox(height: 8),
                       TextButton(
                         onPressed: () {
                           setState(() {

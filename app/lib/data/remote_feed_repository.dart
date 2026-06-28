@@ -5,15 +5,12 @@ import '../api/ai_quota_codes.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import '../network/resilient_websocket_client.dart';
+import '../network/ws_auth_error_handler.dart';
+import '../network/ws_connect_context.dart';
 import '../network/ws_connection_config.dart';
 import '../network/ws_phase_mapping.dart';
 import '../providers/ai_quota_dialog_bus.dart';
-import '../providers/device_no_notifier.dart';
-import '../providers/home_history_notifier.dart';
-import '../providers/session_provider.dart';
-import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
-import '../session/session_device_token_sync.dart';
 import 'history_mapper.dart';
 import 'history_list_page.dart';
 import 'home_history_store.dart';
@@ -138,40 +135,24 @@ class RemoteFeedRepository implements FeedRepository {
     }
   }
 
-  Future<WsConnectContext?> _prepareWsConnectContext() async {
-    final session = _ref.read(sessionProvider);
-    if (!session.isLoggedIn) return null;
-    final ok = await session.ensureFreshSession();
-    if (!ok) {
-      await _ref.read(deviceNoNotifierProvider.notifier).clearLocal();
-      await _ref.read(signInChannelProvider.notifier).clear();
-      if (_ref.read(homeHistoryProvider).initialLoadDone) {
-        _ref.showApiToastError('登录已过期，请重新登录');
-      }
-      return null;
-    }
-    final dn = _deviceNoGetter();
-    if (dn != null && dn.isNotEmpty) {
-      final synced = await ensureAccessTokenHasDeviceNo(_ref, localDeviceNo: dn);
-      if (!synced) {
-        _ref.showApiToastError('会话刷新失败，请重新登录后再试');
-        return null;
-      }
-    }
-    return WsConnectContext(
-      accessToken: _ref.read(sessionProvider).accessToken,
-      deviceNo: dn,
-    );
-  }
+  Future<WsConnectContext?> _prepareWsConnectContext() => prepareDeviceWsConnectContext(
+        _ref,
+        deviceNo: _deviceNoGetter(),
+        shouldToastHardFailure: () => historyWsShouldToastHardFailure(_ref),
+      );
 
   Future<bool> _onHistoryWsError(Map<String, dynamic> decoded) async {
-    final bizCode = parseWsErrorBusinessCode(decoded);
-    if (bizCode != null && isAiQuotaBusinessCode(bizCode)) {
-      _ref.requestAiQuotaDialog(bizCode);
-      return false;
+    final result = await handleWsAuthOrQuotaError(
+      _ref,
+      decoded,
+      onQuotaDialog: (c) => _ref.requestAiQuotaDialog(c),
+      onGenericError: _toast,
+      genericErrorSchedulesReconnect: true,
+    );
+    if (result.requestLoginDialog) {
+      _ref.requestAiQuotaDialog(kAiCodeNotLoggedIn);
     }
-    _toast(decoded['message'] as String? ?? '连接异常');
-    return true;
+    return result.scheduleReconnect;
   }
 
   void _onHistoryApplicationFrame(Map<String, dynamic> decoded) {

@@ -12,6 +12,15 @@ class UcgLocalVideoViewFactory : PlatformViewFactory(StandardMessageCodec.INSTAN
         val params = args as? Map<String, Any?>
         val filePath = params?.get("filePath") as? String
         val contentUri = params?.get("contentUri") as? String
-        return UcgLocalVideoPlatformView(context, filePath, contentUri, UcgLocalVideoEvents.sink)
+        val videoWidth = (params?.get("videoWidth") as? Number)?.toInt()?.takeIf { it > 0 }
+        val videoHeight = (params?.get("videoHeight") as? Number)?.toInt()?.takeIf { it > 0 }
+        return UcgLocalVideoPlatformView(
+            context,
+            filePath,
+            contentUri,
+            videoWidth,
+            videoHeight,
+            UcgLocalVideoEvents.sink,
+        )
     }
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'api_exceptions.dart';
+import 'api_http_log.dart';
 import 'gateway_user_message.dart';
 
 typedef AccessTokenProvider = String? Function();
@@ -55,8 +56,12 @@ class ApiClient {
     Duration? timeout,
   }) async {
     final uri = _uri(path, query);
+    final headers = _headers(withAuthorization: withAuthorization);
     final res = await _send(
-      () => http.get(uri, headers: _headers(withAuthorization: withAuthorization)),
+      () => http.get(uri, headers: headers),
+      method: 'GET',
+      uri: uri,
+      headers: headers,
       withAuthorization: withAuthorization,
       timeout: timeout,
     );
@@ -71,12 +76,17 @@ class ApiClient {
   }) async {
     final uri = _uri(path, query);
     final encoded = jsonEncode(body);
+    final headers = _headers(withAuthorization: withAuthorization);
     final res = await _send(
       () => http.post(
             uri,
-            headers: _headers(withAuthorization: withAuthorization),
+            headers: headers,
             body: encoded,
           ),
+      method: 'POST',
+      uri: uri,
+      headers: headers,
+      requestBody: encoded,
       withAuthorization: withAuthorization,
     );
     return _decodeResponse(res);
@@ -90,12 +100,17 @@ class ApiClient {
   }) async {
     final uri = _uri(path, query);
     final encoded = jsonEncode(body);
+    final headers = _headers(withAuthorization: withAuthorization);
     final res = await _send(
       () => http.put(
             uri,
-            headers: _headers(withAuthorization: withAuthorization),
+            headers: headers,
             body: encoded,
           ),
+      method: 'PUT',
+      uri: uri,
+      headers: headers,
+      requestBody: encoded,
       withAuthorization: withAuthorization,
     );
     return _decodeResponse(res);
@@ -107,8 +122,12 @@ class ApiClient {
     bool withAuthorization = true,
   }) async {
     final uri = _uri(path, query);
+    final headers = _headers(withAuthorization: withAuthorization);
     final res = await _send(
-      () => http.delete(uri, headers: _headers(withAuthorization: withAuthorization)),
+      () => http.delete(uri, headers: headers),
+      method: 'DELETE',
+      uri: uri,
+      headers: headers,
       withAuthorization: withAuthorization,
     );
     return _decodeResponse(res);
@@ -139,31 +158,63 @@ class ApiClient {
       return http.Response.fromStream(streamed);
     }
 
-    final res = await _send(send, withAuthorization: withAuthorization);
+    final res = await _send(
+      send,
+      method: 'POST',
+      uri: uri,
+      headers: withAuthorization ? _headers(withAuthorization: true) : const {'Content-Type': 'multipart/form-data'},
+      requestBody: 'multipart file=$fileField name=$fileName bytes=${bytes.length}',
+      withAuthorization: withAuthorization,
+    );
     return _decodeResponse(res);
   }
 
   Future<http.Response> _send(
     Future<http.Response> Function() once, {
+    required String method,
+    required Uri uri,
+    required Map<String, String>? headers,
+    String? requestBody,
     required bool withAuthorization,
     Duration? timeout,
   }) async {
+    final sw = Stopwatch()..start();
+    ApiHttpLog.request(
+      method: method,
+      uri: uri,
+      headers: headers,
+      body: requestBody,
+    );
+
     Future<http.Response> run() {
       final f = once();
       return timeout != null ? f.timeout(timeout) : f;
     }
+
+    var retried = false;
     var res = await run();
     if (res.statusCode == 401 && withAuthorization) {
       final refresh = onUnauthorizedRefresh;
       if (refresh != null) {
         final ok = await refresh();
         if (ok) {
+          ApiHttpLog.retryAfter401();
+          retried = true;
+          sw.reset();
+          sw.start();
           res = await run();
         } else {
           await onUnauthorizedFailed?.call();
         }
       }
     }
+
+    ApiHttpLog.response(
+      status: res.statusCode,
+      elapsedMs: sw.elapsedMilliseconds,
+      body: res.body,
+      retried: retried,
+    );
     return res;
   }
 

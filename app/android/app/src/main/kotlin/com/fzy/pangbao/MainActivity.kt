@@ -147,23 +147,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startVideoViewIntent(uri: Uri) {
-        val isRemote = uri.scheme.equals("http", ignoreCase = true) ||
-            uri.scheme.equals("https", ignoreCase = true)
-        val candidates = buildList {
-            if (isRemote) {
-                add(Intent(Intent.ACTION_VIEW, uri))
-            } else {
-                add(
-                    Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "video/*")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    },
-                )
-                add(Intent(Intent.ACTION_VIEW, uri).apply {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                })
-            }
-        }
+        val candidates = listOf(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "video/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+            Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+        )
         for (intent in candidates) {
             if (intent.resolveActivity(packageManager) != null) {
                 startActivity(intent)

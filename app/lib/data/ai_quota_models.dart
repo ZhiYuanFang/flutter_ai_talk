@@ -2,13 +2,20 @@
 
 class AiQuotaFeatureStatus {
 
-  const AiQuotaFeatureStatus({required this.used, required this.limit});
+  const AiQuotaFeatureStatus({
+    required this.used,
+    required this.limit,
+    this.degraded = false,
+  });
 
 
 
   final int used;
 
   final int limit;
+
+  /// 额度用尽且服务端允许降速 fallback（polish / clinic_ai）。
+  final bool degraded;
 
 
 
@@ -27,6 +34,8 @@ class AiQuotaFeatureStatus {
       used: usedVal is int ? usedVal : (usedVal is num ? usedVal.toInt() : 0),
 
       limit: limitVal is int ? limitVal : (limitVal is num ? limitVal.toInt() : 0),
+
+      degraded: json['degraded'] == true,
 
     );
 
@@ -107,4 +116,3 @@ class PolishAiQuotaStatus {
   }
 
 }
-

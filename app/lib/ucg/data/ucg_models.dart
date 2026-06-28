@@ -221,6 +221,14 @@ class UcgPost {
 
   String get distanceDisplay => formatDistance(distanceMeters);
 
+  /// 是否展示距离；本人帖不展示（推荐 Feed 服务端亦 omit distanceMeters）。
+  bool shouldShowDistance(String? currentUserId) {
+    if (distanceDisplay.isEmpty) return false;
+    final selfId = currentUserId?.trim();
+    if (selfId != null && selfId.isNotEmpty && authorId == selfId) return false;
+    return true;
+  }
+
   String get ipLocationDisplay {
     final loc = ipLocation?.trim();
     if (loc != null && loc.isNotEmpty) return loc;
@@ -262,7 +270,7 @@ class UcgPost {
 
   String? get videoUrl {
     if (videoKey == null || videoKey!.isEmpty) return null;
-    return UcgMediaUrl.fullUrl(objectKey: videoKey!, cdnUrl: videoCdnUrl);
+    return UcgMediaUrl.videoPlayUrl(objectKey: videoKey!, cdnUrl: videoCdnUrl);
   }
 
   /// 列表封面：优先 API `videoThumbCdnUrl`（OSS snapshot）；无 thumb 时返回 null，不得回退 mp4。
@@ -801,7 +809,15 @@ class UcgChatMessage {
 
   String? get videoUrl {
     if (!hasVideo) return null;
-    return UcgMediaUrl.resolveUrl(objectKey: videoKey!, cdnUrl: mediaCdnUrl);
+    return UcgMediaUrl.videoPlayUrl(objectKey: videoKey!, cdnUrl: mediaCdnUrl);
+  }
+
+  /// 视频气泡封面：优先 API `mediaThumbnailUrl`（物理 `_thumb.jpg`）；无 thumb 时返回 null。
+  String? get videoThumbnailUrl {
+    if (!hasVideo) return null;
+    final fromApi = mediaThumbnailUrl?.trim();
+    if (fromApi != null && fromApi.isNotEmpty) return fromApi;
+    return null;
   }
 
   factory UcgChatMessage.fromJson(Map<String, dynamic> json, {String? currentUserId}) {

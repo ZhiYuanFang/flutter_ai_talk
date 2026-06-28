@@ -19,3 +19,10 @@ extension AiQuotaDialogRefX on Ref {
     read(aiQuotaDialogProvider.notifier).state = AiQuotaDialogRequest(code);
   }
 }
+
+extension AiQuotaDialogWidgetRefX on WidgetRef {
+  void requestAiQuotaDialog(int code) {
+    if (!isAiQuotaBusinessCode(code)) return;
+    read(aiQuotaDialogProvider.notifier).state = AiQuotaDialogRequest(code);
+  }
+}

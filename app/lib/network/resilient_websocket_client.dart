@@ -4,12 +4,15 @@ import 'dart:math';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../api/app_debug_log.dart';
 import 'ws_connection_config.dart';
 import 'ws_connection_phase.dart';
 
 /// 共享 WebSocket 传输：鉴权、JSON ping/pong、指数退避、gaveUp、resume 重连。
 class ResilientWebSocketClient {
   ResilientWebSocketClient(this._config);
+
+  static const _maxPreconditionRetries = 12;
 
   final WsConnectionConfig _config;
   final _rng = Random();
@@ -22,12 +25,15 @@ class ResilientWebSocketClient {
   Timer? _authTimeoutTimer;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
+  Timer? _preconditionRetryTimer;
 
   Completer<void>? _pongCompleter;
   var _ready = false;
   var _phase = WsConnectionPhase.disconnected;
   var _consecutiveFailedAttempts = 0;
   var _backoffIndex = 0;
+  var _preconditionRetryIndex = 0;
+  var _preconditionRetriesPaused = false;
   var _missedPongs = 0;
   var _authOkReceived = false;
   var _handshakeAttemptActive = false;
@@ -35,6 +41,7 @@ class ResilientWebSocketClient {
   var _subscribeActive = true;
   var _attemptGeneration = 0;
   Future<void>? _connectInFlight;
+  Future<void>? _reconnectInFlight;
 
   Stream<bool> get readyStream => _readyController.stream;
   Stream<WsConnectionPhase> get phaseStream => _phaseController.stream;
@@ -42,7 +49,12 @@ class ResilientWebSocketClient {
   WsConnectionPhase get phase => _phase;
 
   void _log(String message) {
-    _config.log?.call('${_config.channelLabel} $message');
+    final line = '${_config.channelLabel} $message';
+    if (_config.log != null) {
+      _config.log!(line);
+    } else {
+      AppDebugLog.wsTransport(line);
+    }
   }
 
   void _emitReady(bool v) {
@@ -57,13 +69,25 @@ class ResilientWebSocketClient {
     if (!_phaseController.isClosed) _phaseController.add(next);
   }
 
+  void _resetPreconditionRetryState() {
+    _preconditionRetryIndex = 0;
+    _preconditionRetriesPaused = false;
+    _cancelPreconditionRetryTimer();
+  }
+
   void setConnectionDesired(bool desired) {
+    final wasDesired = _connectionDesired;
     _connectionDesired = desired;
     if (desired) {
+      if (!wasDesired) {
+        _resetPreconditionRetryState();
+      }
       _ensureConnect();
     } else {
       _connectInFlight = null;
+      _reconnectInFlight = null;
       _cancelReconnectTimer();
+      _resetPreconditionRetryState();
       _tearDown(scheduleReconnect: false);
     }
   }
@@ -73,8 +97,10 @@ class ResilientWebSocketClient {
     _subscribeActive = active;
     if (!active) {
       _cancelReconnectTimer();
+      _resetPreconditionRetryState();
       _tearDown(scheduleReconnect: false);
     } else if (_connectionDesired) {
+      _resetPreconditionRetryState();
       _ensureConnect();
     }
   }
@@ -82,6 +108,7 @@ class ResilientWebSocketClient {
   void resetStrike() {
     _consecutiveFailedAttempts = 0;
     _backoffIndex = 0;
+    _resetPreconditionRetryState();
     if (_phase == WsConnectionPhase.gaveUp) {
       _emitPhase(WsConnectionPhase.disconnected);
     }
@@ -92,18 +119,35 @@ class ResilientWebSocketClient {
     if (_ready) return;
     if (!_connectionDesired) return;
     if (!_mayAutoReconnect()) return;
-    if (_handshakeAttemptActive || _reconnectTimer != null) return;
+    if (_handshakeAttemptActive || _reconnectTimer != null || _preconditionRetryTimer != null) return;
     _scheduleReconnect();
   }
 
   Future<void> reconnect({bool resetStrike = false}) async {
-    if (resetStrike) this.resetStrike();
+    if (_reconnectInFlight != null) {
+      await _reconnectInFlight;
+      return;
+    }
+    _reconnectInFlight = _reconnectOnce(resetStrike);
+    try {
+      await _reconnectInFlight;
+    } finally {
+      _reconnectInFlight = null;
+    }
+  }
+
+  Future<void> _reconnectOnce(bool resetStrike) async {
+    if (resetStrike) {
+      this.resetStrike();
+    } else {
+      _resetPreconditionRetryState();
+    }
     _log('manual reconnect resetStrike=$resetStrike phase=$_phase');
     _connectInFlight = null;
     _cancelReconnectTimer();
     _tearDown(scheduleReconnect: false);
     if (_phase == WsConnectionPhase.gaveUp) return;
-    await _beginAttemptOnce();
+    await _beginAttempt();
   }
 
   void sendJson(Map<String, dynamic> payload) {
@@ -132,6 +176,7 @@ class ResilientWebSocketClient {
     if (_ready) return;
     if (_handshakeAttemptActive) return;
     if (_reconnectTimer != null) return;
+    if (_preconditionRetryTimer != null) return;
     if (_connectInFlight != null) return;
     unawaited(_beginAttempt());
   }
@@ -158,14 +203,22 @@ class ResilientWebSocketClient {
     final canConnect = await _config.shouldConnect();
     if (!canConnect) {
       _log('skip connect: shouldConnect false');
+      if (_mayAutoReconnect()) {
+        _schedulePreconditionRetry('shouldConnect');
+      }
       return;
     }
 
     final ctx = await _config.prepareToken();
     if (ctx == null || (ctx.accessToken == null || ctx.accessToken!.isEmpty)) {
       _log('skip connect: token unavailable');
+      if (_mayAutoReconnect()) {
+        _schedulePreconditionRetry('token');
+      }
       return;
     }
+
+    _resetPreconditionRetryState();
 
     final gen = ++_attemptGeneration;
     _handshakeAttemptActive = true;
@@ -282,7 +335,25 @@ class ResilientWebSocketClient {
     _authTimeoutTimer?.cancel();
     _authTimeoutTimer = null;
     _authOkReceived = true;
-    unawaited(_finishHandshakePingPong());
+    if (_config.requireHandshakePong) {
+      unawaited(_finishHandshakePingPong());
+    } else {
+      _completeHandshakeReady(startPeriodicPing: false);
+    }
+  }
+
+  void _completeHandshakeReady({required bool startPeriodicPing}) {
+    if (!_handshakeAttemptActive) return;
+    _handshakeAttemptActive = false;
+    _preconditionRetryIndex = 0;
+    _consecutiveFailedAttempts = 0;
+    _backoffIndex = 0;
+    _emitReady(true);
+    _emitPhase(WsConnectionPhase.ready);
+    _log(startPeriodicPing ? 'ready (auth_ok + pong)' : 'ready (auth_ok)');
+    if (startPeriodicPing) {
+      _startPeriodicPing();
+    }
   }
 
   Future<void> _finishHandshakePingPong() async {
@@ -337,13 +408,7 @@ class ResilientWebSocketClient {
     _missedPongs = 0;
 
     if (_handshakeAttemptActive && _authOkReceived && !_ready) {
-      _handshakeAttemptActive = false;
-      _consecutiveFailedAttempts = 0;
-      _backoffIndex = 0;
-      _emitReady(true);
-      _emitPhase(WsConnectionPhase.ready);
-      _log('ready (auth_ok + pong)');
-      _startPeriodicPing();
+      _completeHandshakeReady(startPeriodicPing: true);
     }
   }
 
@@ -398,6 +463,43 @@ class ResilientWebSocketClient {
     }
   }
 
+  void _schedulePreconditionRetry(String reason) {
+    if (_phase == WsConnectionPhase.gaveUp) return;
+    if (!_connectionDesired) return;
+    if (!_mayAutoReconnect()) return;
+    if (_preconditionRetriesPaused) return;
+    if (_preconditionRetryIndex >= _maxPreconditionRetries) {
+      _preconditionRetriesPaused = true;
+      _log(
+        'precondition retry paused reason=$reason '
+        'after $_maxPreconditionRetries attempts',
+      );
+      if (_phase == WsConnectionPhase.autoReconnecting) {
+        _emitPhase(WsConnectionPhase.disconnected);
+      }
+      return;
+    }
+    if (_preconditionRetryTimer != null) return;
+    if (_handshakeAttemptActive) return;
+    if (_reconnectTimer != null) return;
+    _emitPhase(WsConnectionPhase.autoReconnecting);
+    final baseMs = min(500 * (1 << _preconditionRetryIndex), 5000);
+    final jitterMs = _rng.nextInt(251);
+    final delay = Duration(milliseconds: baseMs + jitterMs);
+    _preconditionRetryIndex++;
+    _log(
+      'precondition retry reason=$reason '
+      'attempt=$_preconditionRetryIndex/$_maxPreconditionRetries '
+      'delayMs=${delay.inMilliseconds}',
+    );
+    _preconditionRetryTimer = Timer(delay, () {
+      _preconditionRetryTimer = null;
+      if (_phase == WsConnectionPhase.gaveUp) return;
+      if (_preconditionRetriesPaused) return;
+      unawaited(_beginAttempt());
+    });
+  }
+
   void _scheduleReconnect() {
     if (_phase == WsConnectionPhase.gaveUp) return;
     if (!_connectionDesired) return;
@@ -441,6 +543,7 @@ class ResilientWebSocketClient {
     _pingTimer?.cancel();
     _pingTimer = null;
     _cancelPongWait();
+    _cancelPreconditionRetryTimer();
   }
 
   void _cancelPongWait() {
@@ -449,6 +552,11 @@ class ResilientWebSocketClient {
       c.completeError(StateError('cancelled'));
     }
     _pongCompleter = null;
+  }
+
+  void _cancelPreconditionRetryTimer() {
+    _preconditionRetryTimer?.cancel();
+    _preconditionRetryTimer = null;
   }
 
   void _cancelReconnectTimer() {

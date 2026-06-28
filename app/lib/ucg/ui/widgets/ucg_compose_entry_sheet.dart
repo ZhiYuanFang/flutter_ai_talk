@@ -22,11 +22,10 @@ Future<UcgComposeInitialMedia?> showUcgComposeEntrySheet(
 }) async {
   final pick = await showGlassAdaptiveBottomSheet<_UcgComposeEntryPick>(
     context: context,
-    maxHeightFraction: 0.35,
-    scrollable: false,
+    scrollable: true,
     useLightGlass: true,
     glassContentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
-    bodyBuilder: (ctx) => _EntrySheetBody(showCamera: !kIsWeb),
+    bodyBuilder: (ctx) => const _EntrySheetBody(showCamera: !kIsWeb),
   );
   if (pick == null || !context.mounted) return null;
 
@@ -88,8 +87,7 @@ Future<UcgComposeInitialMedia?> showUcgCameraCaptureSheet(BuildContext context) 
   if (kIsWeb) return null;
   final isVideo = await showGlassAdaptiveBottomSheet<bool>(
     context: context,
-    maxHeightFraction: 0.32,
-    scrollable: false,
+    scrollable: true,
     useLightGlass: true,
     glassContentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
     bodyBuilder: (ctx) {
@@ -148,6 +146,51 @@ Future<UcgComposeInitialMedia?> ucgPickMoreImagesForCompose(
         maxPhotos: remainingSlots,
         deferUpload: true,
         lockedPickKind: UcgAlbumLockedPickKind.photos,
+      ),
+    ),
+  );
+  if (items == null || items.isEmpty) return null;
+  return UcgComposeInitialMedia.fromHistoryItems(items);
+}
+
+/// compose 页内选视频（编辑删视频后重选等）：单视频、deferUpload。
+Future<UcgComposeInitialMedia?> ucgPickVideoForCompose(
+  BuildContext context, {
+  required UcgRepository repo,
+}) async {
+  if (kIsWeb) {
+    try {
+      return await ucgPickMediaWebLocalFallback(maxImages: 1);
+    } on UcgAlbumMixedMediaException {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('不能同时选择图片和视频')),
+        );
+      }
+      return null;
+    }
+  }
+
+  final pick = await showGlassAdaptiveBottomSheet<_UcgComposeEntryPick>(
+    context: context,
+    scrollable: true,
+    useLightGlass: true,
+    glassContentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
+    bodyBuilder: (ctx) => const _EntrySheetBody(showCamera: !kIsWeb),
+  );
+  if (pick == null || !context.mounted) return null;
+
+  if (pick == _UcgComposeEntryPick.camera) {
+    return showUcgCameraCaptureSheet(context);
+  }
+
+  final items = await Navigator.of(context).push<List<HistoryEditMediaItem>>(
+    MaterialPageRoute(
+      builder: (_) => UcgAlbumPickerScreen(
+        repo: repo,
+        maxPhotos: 1,
+        deferUpload: true,
+        lockedPickKind: UcgAlbumLockedPickKind.video,
       ),
     ),
   );

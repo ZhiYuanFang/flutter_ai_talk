@@ -9,6 +9,8 @@ import '../data/remote_settings_repository.dart';
 import '../data/remote_trends_repository.dart';
 import '../data/remote_version_repository.dart';
 import '../data/repositories.dart';
+import '../session/session_controller.dart';
+import '../network/ws_session_binding.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
 import 'session_provider.dart';
@@ -52,6 +54,26 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
   ref.listen<AsyncValue<String?>>(
     deviceNoNotifierProvider,
     (_, __) => tryReconnectHistoryWs(resetStrike: true),
+  );
+  ref.listen<String?>(
+    sessionProvider.select((s) => s.accessToken),
+    (prev, next) {
+      if (!SessionController.isAccessTokenRotation(prev, next)) return;
+      if (!ref.read(sessionProvider).isLoggedIn) return;
+      final gaveUp = remote.historyWsPhase == HistoryWsPhase.gaveUp;
+      tryReconnectHistoryWs(resetStrike: gaveUp);
+    },
+  );
+  bindAuthenticatedWsSession(
+    ref,
+    reconnect: ({bool resetStrike = false}) async {
+      tryReconnectHistoryWs(resetStrike: resetStrike);
+    },
+    shouldReconnect: () {
+      if (AppEnv.wsHistoryUrlEffective.isEmpty) return false;
+      final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+      return dn != null && dn.isNotEmpty;
+    },
   );
 
   // 建连由 watchLatest() 订阅后触发，避免 provider 创建时 watch 未订阅导致失败不重试。

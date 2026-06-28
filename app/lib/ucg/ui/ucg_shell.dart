@@ -27,18 +27,31 @@ class UcgShell extends ConsumerStatefulWidget {
 
 class _UcgShellState extends ConsumerState<UcgShell> {
   var _tabIndex = 0;
+  /// IndexedStack 槽位：仅首次进入对应 Tab 时挂载子页，避免消息/我的预拉接口。
+  final _stackMounted = <int>{0};
 
-  int get _stackIndex {
+  int get _stackChildCount => kUcgTreasureEnabled ? 4 : 3;
+
+  int _stackIndexForTab(int tabIndex) {
     if (!kUcgTreasureEnabled) {
-      if (_tabIndex == 0) return 0;
-      if (_tabIndex == 3) return 1;
-      if (_tabIndex == 4) return 2;
+      if (tabIndex == 0) return 0;
+      if (tabIndex == 3) return 1;
+      if (tabIndex == 4) return 2;
       return 0;
     }
-    if (_tabIndex <= 1) return _tabIndex;
-    if (_tabIndex == 3) return 2;
-    if (_tabIndex == 4) return 3;
+    if (tabIndex <= 1) return tabIndex;
+    if (tabIndex == 3) return 2;
+    if (tabIndex == 4) return 3;
     return 0;
+  }
+
+  int get _stackIndex => _stackIndexForTab(_tabIndex);
+
+  void _selectTab(int tabIndex) {
+    setState(() {
+      _tabIndex = tabIndex;
+      _stackMounted.add(_stackIndexForTab(tabIndex));
+    });
   }
 
   @override
@@ -47,6 +60,7 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShellWs());
   }
 
+  /// C1：进 UCG 仅 HTTP 校准未读（会话 + 互动），不预挂载消息/我的 Tab。
   void _ensureShellWs() {
     final wxId = ref.read(ucgCurrentUserIdProvider);
     if (!isUcgWxAccountBound(wxId)) return;
@@ -67,7 +81,7 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       unawaited(promptLoginForPersonalAction(context, ref));
       return;
     }
-    setState(() => _tabIndex = index);
+    _selectTab(index);
     if (index == 3) {
       bumpUcgConversationsRefresh(ref);
       bumpUcgNotificationsRefresh(ref);
@@ -102,7 +116,8 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       );
       if (!mounted) return;
       if (result?.publishedNewPost == true) {
-        setState(() => _tabIndex = 4);
+        _selectTab(4);
+        ref.invalidate(ucgMyProfileProvider);
       }
       return;
     }
@@ -120,8 +135,31 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     );
     if (!mounted) return;
     if (result?.publishedNewPost == true) {
-      setState(() => _tabIndex = 4);
+      _selectTab(4);
+      ref.invalidate(ucgMyProfileProvider);
     }
+  }
+
+  Widget _buildStackChild(int stackIndex) {
+    final back = widget.onBackToFeeding;
+    if (!_stackMounted.contains(stackIndex)) {
+      return const SizedBox.expand();
+    }
+    if (!kUcgTreasureEnabled) {
+      return switch (stackIndex) {
+        0 => UcgSquareTab(onBackToFeeding: back),
+        1 => UcgMessagesTab(onBackToFeeding: back),
+        2 => UcgProfileTab(onBackToFeeding: back),
+        _ => const SizedBox.expand(),
+      };
+    }
+    return switch (stackIndex) {
+      0 => UcgSquareTab(onBackToFeeding: back),
+      1 => UcgTreasurePlaceholder(onBackToFeeding: back),
+      2 => UcgMessagesTab(onBackToFeeding: back),
+      3 => UcgProfileTab(onBackToFeeding: back),
+      _ => const SizedBox.expand(),
+    };
   }
 
   @override
@@ -133,16 +171,12 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     });
 
     final unread = ref.watch(ucgUnreadCountProvider) > 0;
-    final back = widget.onBackToFeeding;
 
     return UcgScaffold(
       body: IndexedStack(
         index: _stackIndex,
         children: [
-          UcgSquareTab(onBackToFeeding: back),
-          if (kUcgTreasureEnabled) UcgTreasurePlaceholder(onBackToFeeding: back),
-          UcgMessagesTab(onBackToFeeding: back),
-          UcgProfileTab(onBackToFeeding: back),
+          for (var i = 0; i < _stackChildCount; i++) _buildStackChild(i),
         ],
       ),
       bottomNavigationBar: UcgBottomDock(

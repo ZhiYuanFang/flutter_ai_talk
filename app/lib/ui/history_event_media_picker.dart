@@ -33,11 +33,10 @@ Future<List<HistoryEditMediaItem>?> pickHistoryEventMedia({
 
   final pick = await showGlassAdaptiveBottomSheet<_UcgComposeEntryPick>(
     context: context,
-    maxHeightFraction: 0.35,
-    scrollable: false,
+    scrollable: true,
     useLightGlass: true,
     glassContentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
-    bodyBuilder: (ctx) => _HistoryMediaEntryBody(showCamera: !kIsWeb),
+    bodyBuilder: (ctx) => const _HistoryMediaEntryBody(showCamera: !kIsWeb),
   );
   if (pick == null || !context.mounted) return null;
 

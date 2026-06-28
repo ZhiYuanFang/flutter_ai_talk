@@ -18,4 +18,29 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[UcgVideo] ${_ts()} $message');
   }
+
+  static void ucgCompose(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[UcgCompose] ${_ts()} $message');
+  }
+
+  static void ucgPlay(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[UcgPlay] ${_ts()} $message');
+  }
+
+  static void ucgUnread(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[UcgUnread] ${_ts()} $message');
+  }
+
+  static void pangbaoClinic(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[PangbaoClinic] ${_ts()} $message');
+  }
+
+  static void wsTransport(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[WsTransport] ${_ts()} $message');
+  }
 }

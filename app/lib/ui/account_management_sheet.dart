@@ -19,7 +19,8 @@ import 'account_bind_messages.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 
-Future<void> showAccountManagementSheet(BuildContext context, WidgetRef ref) async {
+Future<void> showAccountManagementSheet(
+    BuildContext context, WidgetRef ref) async {
   ref.invalidate(userProfileProvider);
 
   await showGlassAdaptiveBottomSheet<void>(
@@ -44,10 +45,12 @@ class _AccountManagementSheetBody extends ConsumerStatefulWidget {
   final BuildContext hostContext;
 
   @override
-  ConsumerState<_AccountManagementSheetBody> createState() => _AccountManagementSheetBodyState();
+  ConsumerState<_AccountManagementSheetBody> createState() =>
+      _AccountManagementSheetBodyState();
 }
 
-class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementSheetBody> {
+class _AccountManagementSheetBodyState
+    extends ConsumerState<_AccountManagementSheetBody> {
   var _bindingWx = false;
   var _bindingApple = false;
 
@@ -108,7 +111,9 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
               title: _bindingApple ? '绑定中…' : '绑定 Apple',
               glassText: glassText,
               enabled: !_bindingApple && !_bindingWx,
-              onTap: (_bindingApple || _bindingWx) ? null : () => _bindApple(context),
+              onTap: (_bindingApple || _bindingWx)
+                  ? null
+                  : () => _bindApple(context),
             ),
           if (profile.isWxBound)
             _AccountActionTile(
@@ -123,7 +128,9 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
               title: _bindingWx ? '绑定中…' : '绑定微信',
               glassText: glassText,
               enabled: !_bindingWx && !_bindingApple,
-              onTap: (_bindingWx || _bindingApple) ? null : () => _bindWeChat(context),
+              onTap: (_bindingWx || _bindingApple)
+                  ? null
+                  : () => _bindWeChat(context),
             ),
           Divider(color: glassLabel.withValues(alpha: 0.2), height: 24),
           _AccountActionTile(
@@ -145,7 +152,8 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
                 child: SizedBox(
                   width: 22,
                   height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: scheme.primary),
                 ),
               ),
             ),
@@ -176,7 +184,8 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
             children: [
               Text(
                 '绑定成功',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: text),
+                style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w600, color: text),
               ),
               const SizedBox(height: 12),
               Text(
@@ -217,7 +226,9 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
     setState(() => _bindingApple = true);
     try {
       final identityToken = await obtainAppleIdentityToken();
-      await ref.read(authRepositoryProvider).bindApple(identityToken: identityToken);
+      await ref
+          .read(authRepositoryProvider)
+          .bindApple(identityToken: identityToken);
       ref.invalidate(userProfileProvider);
       if (!context.mounted) return;
       await showGlassDialog<void>(
@@ -230,7 +241,8 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
             children: [
               Text(
                 '绑定成功',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: text),
+                style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w600, color: text),
               ),
               const SizedBox(height: 12),
               Text(
@@ -277,13 +289,16 @@ class _AccountManagementSheetBodyState extends ConsumerState<_AccountManagementS
       Navigator.of(widget.sheetCtx).pop();
     }
 
-    await ref.read(authRepositoryProvider).signOut();
-    await ref.read(sessionProvider).signOut();
-    await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
-    await ref.read(signInChannelProvider.notifier).clear();
-    await ref.read(feedRepositoryProvider).clearCache();
-    await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
-    ref.read(goRouterProvider).go('/login');
+    try {
+      await ref.read(authRepositoryProvider).signOut();
+    } finally {
+      await ref.read(sessionProvider).signOut();
+      await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
+      await ref.read(signInChannelProvider.notifier).clear();
+      await ref.read(feedRepositoryProvider).clearCache();
+      // await ref.read(homeHistoryProvider.notifier).refreshFromRemote();// 切换账号时，不刷新历史记录, 防止刷新时会话已过期导致自动刷新
+      ref.read(goRouterProvider).go('/login');
+    }
   }
 
   Future<void> _deregister() async {
@@ -339,7 +354,8 @@ class _AccountActionTile extends StatelessWidget {
                 ),
               ),
               if (enabled && onTap != null)
-                Icon(Icons.chevron_right, size: 20, color: glassText.withValues(alpha: 0.5)),
+                Icon(Icons.chevron_right,
+                    size: 20, color: glassText.withValues(alpha: 0.5)),
             ],
           ),
         ),

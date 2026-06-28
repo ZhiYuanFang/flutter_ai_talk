@@ -25,8 +25,19 @@ class AppAdaptiveBottomSheet extends StatelessWidget {
     final maxH = media.size.height * maxHeightFraction;
     final keyboardInset = respectKeyboardInset ? media.viewInsets.bottom : 0.0;
     final bottomPad = keyboardInset + media.viewPadding.bottom + bottomExtraPadding;
+    const handleBlockHeight = 20.0;
+    final handleHeight = showDragHandle ? handleBlockHeight : 0.0;
+    final contentMaxH = (maxH - bottomPad - handleHeight).clamp(0.0, maxH);
 
-    final body = scrollable ? SingleChildScrollView(child: child) : child;
+    final content = scrollable
+        ? ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: contentMaxH),
+            child: SingleChildScrollView(child: child),
+          )
+        : ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: contentMaxH),
+            child: child,
+          );
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxH),
@@ -49,7 +60,7 @@ class AppAdaptiveBottomSheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-            Flexible(child: body),
+            if (scrollable) Flexible(child: content) else content,
           ],
         ),
       ),

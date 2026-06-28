@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires openspec CLI and scripts/sync_specs_to_version.py.
 metadata:
   author: openspec
-  version: "2.0"
+  version: "2.1"
   generatedBy: project-custom
 ---
 
@@ -33,12 +33,14 @@ metadata:
    python scripts/sync_specs_to_version.py <version> [--base vX.Y.Z] [--remove-changes]
    ```
 
+   **默认必须加 `--remove-changes`**（项目规则见 `.cursor/rules/openspec-archive.mdc`）。用户显式要求保留 change 目录时省略该 flag。
+
 5. **摘要**
 
-   报告版本、基线、capability 数、delta 数、是否删除 change 目录。
+   报告版本、基线、capability 数、delta 数、删除的 change 目录数量。
 
 **Guardrails**
 
 - 不做 dated archive 目录移动
-- 默认保留 `openspec/changes/`
-- 删除 change 目录需用户明确要求
+- **默认删除** `openspec/changes/*`（跳过 `archive/`）
+- 保留 change 目录须用户显式 `--keep-changes` 或口头要求

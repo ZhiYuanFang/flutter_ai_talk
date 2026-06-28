@@ -9,11 +9,16 @@ import '../../../theme/app_visual_tokens.dart';
 import 'ucg_compose_local_preview.dart';
 import 'ucg_media_viewer.dart';
 
-const _kGridGap = 4.0;
-const _kCellRadius = 13.0;
+const ucgComposeGridGap = 4.0;
+const ucgComposeCellRadius = 13.0;
 const _kReorderAnimDuration = Duration(milliseconds: 220);
 const _kLongPressDelay = Duration(milliseconds: 180);
 const _kDragFeedbackScale = 1.08;
+
+/// 与 [UcgComposeImageGrid] 单格图片相同的边长。
+double ucgComposeCellSize(double maxWidth) {
+  return (maxWidth - ucgComposeGridGap * 2) / 3;
+}
 
 /// 以格内按压点为锚，放大反馈时按中心外扩，避免左上角贴指针造成错位。
 Offset _composeDragAnchorStrategy(Draggable<Object> draggable, BuildContext context, Offset position) {
@@ -184,7 +189,7 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
   Offset _cellOrigin(int slot, double cellSize) {
     final col = slot % 3;
     final row = slot ~/ 3;
-    return Offset(col * (cellSize + _kGridGap), row * (cellSize + _kGridGap));
+    return Offset(col * (cellSize + ucgComposeGridGap), row * (cellSize + ucgComposeGridGap));
   }
 
   @override
@@ -194,9 +199,9 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final cellSize = (width - _kGridGap * 2) / 3;
+        final cellSize = ucgComposeCellSize(width);
         final rows = (_itemCount + 2) ~/ 3;
-        final height = rows * cellSize + (rows - 1) * _kGridGap;
+        final height = rows * cellSize + (rows - 1) * ucgComposeGridGap;
         final dragging = _dragFromIndex != null;
 
         return SizedBox(
@@ -302,7 +307,7 @@ class _UcgComposeImageGridState extends State<UcgComposeImageGrid> {
       top: origin.dy,
       width: cellSize,
       height: cellSize,
-      child: _AddTile(size: cellSize, onTap: widget.onAddTap),
+      child: UcgComposeAddTile(size: cellSize, onTap: widget.onAddTap),
     );
   }
 }
@@ -323,7 +328,7 @@ class _DragLiftFeedback extends StatelessWidget {
       color: Colors.transparent,
       elevation: 10,
       shadowColor: Colors.black.withValues(alpha: 0.32),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kCellRadius)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ucgComposeCellRadius)),
       child: SizedBox(
         width: cellSize,
         height: cellSize,
@@ -372,8 +377,8 @@ class _ComposeDraggableCell extends StatelessWidget {
   }
 }
 
-class _AddTile extends StatelessWidget {
-  const _AddTile({required this.size, this.onTap});
+class UcgComposeAddTile extends StatelessWidget {
+  const UcgComposeAddTile({super.key, required this.size, this.onTap});
 
   final double size;
   final VoidCallback? onTap;
@@ -385,20 +390,23 @@ class _AddTile extends StatelessWidget {
     final fg = tokens?.onRecordsCard ?? scheme.onSurface;
     final fill = tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.06);
 
-    return Material(
-      color: Color.alphaBlend(Colors.white.withValues(alpha: 0.55), fill),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(_kCellRadius),
-        side: BorderSide(color: scheme.primary.withValues(alpha: 0.12)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Center(
-          child: Icon(
-            Icons.add,
-            size: 36,
-            color: fg.withValues(alpha: 0.35),
+    return SizedBox.square(
+      dimension: size,
+      child: Material(
+        color: Color.alphaBlend(Colors.white.withValues(alpha: 0.55), fill),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ucgComposeCellRadius),
+          side: BorderSide(color: scheme.primary.withValues(alpha: 0.12)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Center(
+            child: Icon(
+              Icons.add,
+              size: 36,
+              color: fg.withValues(alpha: 0.35),
+            ),
           ),
         ),
       ),
@@ -420,11 +428,11 @@ class _ImageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(_kCellRadius),
+        borderRadius: BorderRadius.circular(ucgComposeCellRadius),
         border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.10)),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(_kCellRadius),
+        borderRadius: BorderRadius.circular(ucgComposeCellRadius),
         child: UcgComposeMediaPreview(
           key: ValueKey('preview-${cell.id}'),
           localPath: cell.localPath,

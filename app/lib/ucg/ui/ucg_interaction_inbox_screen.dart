@@ -98,6 +98,7 @@ class _UcgInteractionInboxScreenState extends ConsumerState<UcgInteractionInboxS
   Future<void> _markAllRead() async {
     await ref.read(ucgRepositoryProvider).markNotificationsRead(all: true);
     bumpUcgNotificationsRefresh(ref);
+    unawaited(ref.read(ucgUnreadSyncProvider)());
     if (!mounted) return;
     setState(() {
       _unreadCount = 0;
@@ -124,6 +125,7 @@ class _UcgInteractionInboxScreenState extends ConsumerState<UcgInteractionInboxS
     if (!n.read) {
       await ref.read(ucgRepositoryProvider).markNotificationsRead(ids: [n.id]);
       bumpUcgNotificationsRefresh(ref);
+      unawaited(ref.read(ucgUnreadSyncProvider)());
       if (mounted) {
         setState(() {
           _unreadCount = (_unreadCount - 1).clamp(0, 999999);

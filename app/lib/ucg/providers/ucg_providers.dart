@@ -4,11 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../api/app_debug_log.dart';
 import '../../providers/authorized_api_client_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/settings_baby.dart';
 import '../../providers/toast_bus.dart';
+import '../../session/session_controller.dart';
 import '../../session/token_expiry.dart';
+import '../../network/ws_session_binding.dart';
 import '../data/ucg_api_client.dart';
 import '../data/ucg_compose_draft_store.dart';
 import '../data/ucg_models.dart';
@@ -24,7 +27,10 @@ final ucgPushRegistrationServiceProvider = Provider<UcgPushRegistrationService>(
 
 Future<void>? _syncUcgUnreadInFlight;
 
-/// HTTP 校准未读（会话 + 互动 OR），与 resume / WS 事件共用；并发调用合并为同一 in-flight。
+/// 本会话 UCG WS 首次 ready 后 baseline HTTP 是否已触发。
+var _ucgUnreadBaselineSynced = false;
+
+/// HTTP 校准未读（会话 + 互动 OR）；WS ready baseline / resume / 登录 / 已读 reconcile 使用。
 Future<void> syncUcgUnreadFromServer(Ref ref) async {
   if (_syncUcgUnreadInFlight != null) {
     await _syncUcgUnreadInFlight;
@@ -54,7 +60,44 @@ Future<void> _syncUcgUnreadFromServerOnce(Ref ref) async {
     final convPage = await repo.fetchConversations(page: 1);
     final chatUnread = convPage.items.fold<int>(0, (s, c) => s + c.unreadCount);
     ref.read(ucgUnreadCountProvider.notifier).state = chatUnread + notifPage.unreadCount;
-  } catch (_) {}
+  } catch (e) {
+    AppDebugLog.ucgUnread('sync err=$e');
+  }
+}
+
+/// WS 他人私信到达：本地未读 +1，不发起 HTTP（方案 A）。
+void bumpUcgUnreadOptimisticChat(Ref ref, UcgChatMessage msg) {
+  if (msg.isMine) return;
+  if (!ref.read(sessionProvider).isLoggedIn) return;
+  if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+  final next = ref.read(ucgUnreadCountProvider) + 1;
+  ref.read(ucgUnreadCountProvider.notifier).state = next;
+  AppDebugLog.ucgUnread(
+    'optimistic +1 chat conv=${msg.conversationId} isMine=false count=$next',
+  );
+}
+
+/// WS 互动通知到达：本地未读 +1。
+void bumpUcgUnreadOptimisticNotification(Ref ref) {
+  if (!ref.read(sessionProvider).isLoggedIn) return;
+  if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+  final next = ref.read(ucgUnreadCountProvider) + 1;
+  ref.read(ucgUnreadCountProvider.notifier).state = next;
+  AppDebugLog.ucgUnread('optimistic +1 notification count=$next');
+}
+
+/// UCG WS 本会话首次 ready：HTTP baseline 一次（不重试 reconnect）。
+void maybeSyncUcgUnreadBaselineOnWsReady(Ref ref) {
+  if (_ucgUnreadBaselineSynced) return;
+  if (!ref.read(sessionProvider).isLoggedIn) return;
+  if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+  _ucgUnreadBaselineSynced = true;
+  unawaited(() async {
+    await syncUcgUnreadFromServer(ref);
+    AppDebugLog.ucgUnread(
+      'baseline ws ready count=${ref.read(ucgUnreadCountProvider)}',
+    );
+  }());
 }
 
 Future<void> syncUcgLauncherBadgeFromUnread(Ref ref) async {
@@ -107,6 +150,7 @@ final ucgCurrentUserIdProvider = Provider<String?>((ref) {
 final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
   final repo = UcgRepository(
     api: ref.watch(ucgApiClientProvider),
+    ref: ref,
     userIdGetter: () => ref.read(ucgCurrentUserIdProvider),
     accessTokenGetter: () => ref.read(sessionProvider).accessToken,
     isLoggedInGetter: () => ref.read(sessionProvider).isLoggedIn,
@@ -149,33 +193,57 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
       unawaited(syncUnreadFromWs());
       unawaited(_syncUcgPushRegistration(ref));
     } else {
+      _ucgUnreadBaselineSynced = false;
       ref.read(ucgUnreadCountProvider.notifier).state = 0;
       unawaited(push.unregister());
     }
   });
   ref.listen<String?>(ucgCurrentUserIdProvider, (_, __) {
     syncUcgWsDesired();
-    unawaited(syncUnreadFromWs());
     unawaited(_syncUcgPushRegistration(ref));
   });
   ref.listen<String?>(sessionProvider.select((s) => s.accessToken), (prev, next) {
     if (next == null || next.isEmpty) return;
-    unawaited(syncUnreadFromWs());
+    final loggedIn = ref.read(sessionProvider).isLoggedIn;
+    final wxId = ref.read(ucgCurrentUserIdProvider);
+    if (SessionController.isAccessTokenRotation(prev, next) &&
+        loggedIn &&
+        isUcgWxAccountBound(wxId)) {
+      unawaited(repo.reconnectChatWebSocket(resetStrike: false));
+    }
   });
+  bindAuthenticatedWsSession(
+    ref,
+    reconnect: ({bool resetStrike = false}) => repo.reconnectChatWebSocket(resetStrike: resetStrike),
+    shouldReconnect: () {
+      if (!ref.read(sessionProvider).isLoggedIn) return false;
+      return isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider));
+    },
+  );
   syncUcgWsDesired();
-  unawaited(syncUnreadFromWs());
   unawaited(_syncUcgPushRegistration(ref));
-  scheduleMicrotask(() => unawaited(syncUnreadFromWs()));
 
   final notifSub = repo.notificationEvents.listen((_) {
     ref.read(ucgNotificationsChangedProvider.notifier).state++;
+    bumpUcgUnreadOptimisticNotification(ref);
   });
-  final msgSub = repo.incomingMessages.listen((_) {
-    unawaited(syncUnreadFromWs());
+  final msgSub = repo.incomingMessages.listen((msg) {
+    bumpUcgUnreadOptimisticChat(ref, msg);
+  });
+  var wsWasReady = repo.isWsConnected;
+  if (wsWasReady) {
+    maybeSyncUcgUnreadBaselineOnWsReady(ref);
+  }
+  final wsReadySub = repo.wsReadyStream.listen((ready) {
+    if (ready && !wsWasReady) {
+      maybeSyncUcgUnreadBaselineOnWsReady(ref);
+    }
+    wsWasReady = ready;
   });
   ref.onDispose(() {
     notifSub.cancel();
     msgSub.cancel();
+    wsReadySub.cancel();
   });
 
   return repo;

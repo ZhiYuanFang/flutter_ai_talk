@@ -33,16 +33,34 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   var _convLoading = true;
   var _convLoadingMore = false;
   String? _convError;
+  StreamSubscription<UcgChatMessage>? _wsMsgSub;
+  StreamSubscription<void>? _wsNotifSub;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     unawaited(_loadConversationsFirst());
+    _bindWsListeners();
+  }
+
+  void _bindWsListeners() {
+    final repo = ref.read(ucgRepositoryProvider);
+    _wsMsgSub = repo.incomingMessages.listen((_) {
+      if (!mounted) return;
+      unawaited(_loadConversationsFirst());
+    });
+    _wsNotifSub = repo.notificationEvents.listen((_) {
+      if (!mounted) return;
+      bumpUcgNotificationsRefresh(ref);
+      unawaited(ref.refresh(ucgCommentNotificationsProvider.future));
+    });
   }
 
   @override
   void dispose() {
+    _wsMsgSub?.cancel();
+    _wsNotifSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -70,7 +88,6 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
         _convHasMore = page.hasMore;
         _convLoading = false;
       });
-      _syncUnreadBadge();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -105,13 +122,13 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
       _loadConversationsFirst(),
       ref.refresh(ucgCommentNotificationsProvider.future),
     ]);
-    _syncUnreadBadge();
+    await ref.read(ucgUnreadSyncProvider)();
   }
 
   Future<void> _deleteConv(UcgConversation c) async {
     await ref.read(ucgRepositoryProvider).deleteConversation(c.id);
     setState(() => _conversations = _conversations.where((x) => x.id != c.id).toList());
-    _syncUnreadBadge();
+    unawaited(ref.read(ucgUnreadSyncProvider)());
   }
 
   String _peerDisplayName(UcgConversation c) {
@@ -124,12 +141,6 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   Future<void> _pinConv(UcgConversation c, bool pinned) async {
     await ref.read(ucgRepositoryProvider).pinConversation(c.id, pinned: pinned);
     await _loadConversationsFirst();
-  }
-
-  void _syncUnreadBadge() {
-    final interactionUnread = ref.read(ucgCommentNotificationsProvider).valueOrNull?.unreadCount ?? 0;
-    final chatUnread = _conversations.fold<int>(0, (s, c) => s + c.unreadCount);
-    ref.read(ucgUnreadCountProvider.notifier).state = chatUnread + interactionUnread;
   }
 
   @override
@@ -157,10 +168,6 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
     final fmt = DateFormat('MM-dd HH:mm');
     final notificationsAsync = ref.watch(ucgCommentNotificationsProvider);
     final interactionUnread = notificationsAsync.valueOrNull?.unreadCount ?? 0;
-
-    ref.listen<AsyncValue<UcgPagedCommentNotifications>>(ucgCommentNotificationsProvider, (prev, next) {
-      _syncUnreadBadge();
-    });
 
     return UcgTabPage(
       title: '消息',

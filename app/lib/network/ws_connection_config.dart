@@ -20,6 +20,7 @@ class WsConnectionConfig {
     this.log,
     this.channelLabel = 'ws',
     this.requireSubscribeGate = false,
+    this.requireHandshakePong = true,
   });
 
   final String url;
@@ -44,4 +45,7 @@ class WsConnectionConfig {
 
   /// 为 true 时仅当 [ResilientWebSocketClient.setSubscribeActive] 为 true 才自动重连（喂养历史）。
   final bool requireSubscribeGate;
+
+  /// 为 true 时就绪须 auth_ok + 首次 pong；为 false 时 auth_ok 即 ready（胖宝 clinic 等）。
+  final bool requireHandshakePong;
 }

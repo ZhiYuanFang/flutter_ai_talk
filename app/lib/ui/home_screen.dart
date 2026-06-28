@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lottie/lottie.dart';
 
 import '../api/ai_quota_errors.dart';
 import '../api/api_exceptions.dart';
@@ -61,8 +60,10 @@ import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_baby.dart';
 import '../data/repositories.dart' show readPackageVersion;
+import '../data/notify_banner_repository.dart';
 import '../providers/toast_bus.dart';
 import 'widgets/ai_quota_remaining_hint.dart';
+import 'widgets/app_empty_state_gallery.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/managed_keyboard_text_field.dart';
@@ -70,6 +71,7 @@ import '../ucg/ui/widgets/ucg_visual_widgets.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import '../theme/theme_bootstrap_cache.dart';
+import 'notify_banner_prompt.dart';
 import 'version_prompt.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -514,7 +516,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       unawaited(_initMobileSpeech());
     }
-    unawaited(_runPostLoginBootstrap());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_runHomeDialogBootstrap());
+    });
     _scheduleVoiceAsrConnectIfNeeded();
     unawaited(_bootstrapHomeData());
     final feed = ref.read(feedRepositoryProvider);
@@ -649,6 +653,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _showRecordingDiagnostics = await RecordingDiagnosticsStore.load();
     await _bindVoiceAsrReadyListener();
     if (mounted) setState(() {});
+  }
+
+  /// 维护公告优先于版本弹窗；未登录用户也会拉取 notify banner。
+  Future<void> _runHomeDialogBootstrap() async {
+    try {
+      await maybeShowNotifyBannerPrompt(
+        context: context,
+        repo: const NotifyBannerRepository(),
+      );
+    } catch (_) {}
+    if (!mounted) return;
+    await _runPostLoginBootstrap();
   }
 
   /// 版本检查与宝宝信息：Splash 已做本地门禁后进主页，此处后台补全。
@@ -816,10 +832,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   void _maybeShowGaveUpSnackbar() {
     if (_gaveUpSnackbarShown) return;
+    if (ref.read(sessionProvider).isRefreshInFlight) return;
     _gaveUpSnackbarShown = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_historyWsPhase != HistoryWsPhase.gaveUp) return;
+      if (ref.read(sessionProvider).isRefreshInFlight) return;
       ref.showApiToastError(kHomeHistoryWsGaveUpMessage);
     });
   }
@@ -1264,13 +1282,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     // 只有当不需要全屏 3D 动画（即不是无历史记录时）才显示 Banner。
     // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
+    final refreshInFlight = ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
+    final showWsRefreshBanner = loggedIn &&
+        !needsDeviceBind &&
+        !_wsReady &&
+        refreshInFlight &&
+        _historyWsPhase != HistoryWsPhase.autoReconnecting;
     final showWsDisconnectBanner = loggedIn &&
         !needsDeviceBind &&
         !_wsReady &&
+        !refreshInFlight &&
         _historyWsPhase != HistoryWsPhase.autoReconnecting;
+    final showWsBanner = showWsRefreshBanner || showWsDisconnectBanner;
+    final wsBannerMessage = showWsRefreshBanner
+        ? kHomeHistoryWsRefreshRecoveryMessage
+        : _historyWsBannerMessage();
+    final wsBannerVariant =
+        showWsRefreshBanner ? HomeHistoryWsBannerVariant.info : HomeHistoryWsBannerVariant.error;
     final wsBannerReconnecting =
         _historyWsPhase == HistoryWsPhase.autoReconnecting || _historyWsManualReconnecting;
-    final wsBannerTapEnabled = true;
+    final wsBannerTapEnabled = !showWsRefreshBanner;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
@@ -1339,7 +1370,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                           Expanded(
                             child: historyItems.isEmpty
                                 ? (needsGuestLogin
-                                    ? _HomeEmptyStateGallery(
+                                    ? AppEmptyStateGallery(
                                         animationPath: 'assets/images/ani_baby_welcome.json',
                                         title: '尚未登录',
                                         subtitle: '登录后即可记录与查看宝宝日常',
@@ -1349,7 +1380,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                       )
                                     : (historyInitialLoadDone
                                         ? (needsDeviceBind
-                                            ? _HomeEmptyStateGallery(
+                                            ? AppEmptyStateGallery(
                                                 animationPath: 'assets/images/ani_baby_welcome.json',
                                                 title: '嗨，我是胖宝！',
                                                 subtitle: '我想更好地陪伴宝宝成长',
@@ -1360,7 +1391,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                                 builder: (context, ref, _) {
                                                   final baby = ref.watch(settingsBabyProvider).asData?.value;
                                                   final name = baby?.nickname ?? '宝宝';
-                                                  return _HomeEmptyStateGallery(
+                                                  return AppEmptyStateGallery(
                                                     animationPath: 'assets/images/ani_baby_feeding_guide.json',
                                                     title: '还没有为 $name 记录哦',
                                                     subtitle: '试试点击下方按钮，开始记录第一笔吧',
@@ -1409,10 +1440,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       ),
                     ),
                     HomeHistoryWsStatusBanner(
-                      visible: showWsDisconnectBanner,
-                      message: _historyWsBannerMessage(),
+                      visible: showWsBanner,
+                      message: wsBannerMessage,
                       reconnecting: wsBannerReconnecting,
                       tapEnabled: wsBannerTapEnabled,
+                      variant: wsBannerVariant,
                       onReconnect: () => unawaited(_reconnectHistoryWs()),
                     ),
                     _buildInputModuleTopShadow(context),
@@ -1751,140 +1783,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             glassStyle: true,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _HomeEmptyStateGallery extends StatelessWidget {
-  const _HomeEmptyStateGallery({
-    required this.animationPath,
-    required this.title,
-    required this.subtitle,
-    this.footnote,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  static const _visualSlotWidth = 240.0;
-  static const _visualSlotHeight = 128.0;
-  static const _visualToTitleGap = 8.0;
-  static const _titleToSubtitleGap = 8.0;
-  static const _footnoteToActionGap = 20.0;
-  static const _subtitleToActionGap = 24.0;
-
-  final String animationPath;
-  final String title;
-  final String subtitle;
-  final String? footnote;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  static bool _shouldUseFallback(LottieComposition? composition) {
-    if (composition == null) return false;
-    return composition.layers.isEmpty;
-  }
-
-  /// 与 Android 原先 `errorBuilder` 一致的宝宝占位图标（非 app_icon 瓶身形象）。
-  Widget _buildBabyPlaceholder(ThemeData theme) {
-    return Center(
-      child: Icon(
-        Icons.child_care,
-        size: 120,
-        color: theme.colorScheme.primary.withValues(alpha: 0.35),
-      ),
-    );
-  }
-
-  Widget _buildAnimationSlot(BuildContext context) {
-    final theme = Theme.of(context);
-    return SizedBox(
-      width: _visualSlotWidth,
-      height: _visualSlotHeight,
-      child: ClipRect(
-        child: Lottie.asset(
-          animationPath,
-          width: _visualSlotWidth,
-          height: _visualSlotHeight,
-          fit: BoxFit.contain,
-          addRepaintBoundary: false,
-          frameBuilder: (context, child, composition) {
-            if (composition == null) {
-              return _buildBabyPlaceholder(theme);
-            }
-            if (_shouldUseFallback(composition)) {
-              return _buildBabyPlaceholder(theme);
-            }
-            return child;
-          },
-          errorBuilder: (context, error, stackTrace) => _buildBabyPlaceholder(theme),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildAnimationSlot(context),
-            const SizedBox(height: _visualToTitleGap),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: _titleToSubtitleGap),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (footnote != null) ...[
-              const SizedBox(height: _titleToSubtitleGap),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.swipe_left_alt_rounded,
-                    size: 18,
-                    color: theme.colorScheme.primary.withValues(alpha: 0.75),
-                  ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      footnote!,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.85),
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            if (actionLabel != null && onAction != null) ...[
-              SizedBox(
-                height: footnote != null ? _footnoteToActionGap : _subtitleToActionGap,
-              ),
-              FilledButton.tonal(
-                onPressed: onAction,
-                child: Text(actionLabel!),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }

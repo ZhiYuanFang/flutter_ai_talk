@@ -6,6 +6,18 @@ abstract final class AppEnv {
     defaultValue: 'https://pangbao.cuplay.top',
   );
 
+  /// 独立 notify 服务基址（维护/公告 banner）；与 [apiBaseUrl] 分离，gateway 维护期间仍可访问。
+  /// 优先 `--dart-define=NOTIFY_BASE_URL`；未配置时回退 legacy `STATUS_BASE_URL`。
+  static const _notifyBaseUrl = String.fromEnvironment('NOTIFY_BASE_URL', defaultValue: '');
+  static const _legacyStatusBaseUrl = String.fromEnvironment(
+    'STATUS_BASE_URL',
+    defaultValue: 'https://notify.cuplay.top',
+  );
+
+  /// notify 服务 HTTP 基址；DNS 默认仍为 status.pangbao.cuplay.top。
+  static String get notifyBaseUrl =>
+      _notifyBaseUrl.trim().isNotEmpty ? _notifyBaseUrl : _legacyStatusBaseUrl;
+
   static const userAgreementUrl = String.fromEnvironment(
     'USER_AGREEMENT_URL',
     defaultValue: '$apiBaseUrl/user-agreement.html',

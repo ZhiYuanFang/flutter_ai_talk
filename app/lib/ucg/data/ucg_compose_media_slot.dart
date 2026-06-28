@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../../api/app_debug_log.dart';
 import '../ui/widgets/ucg_compose_local_preview.dart' show ucgReadLocalImageBytes;
 import 'ucg_video_playback.dart';
 import 'ucg_media_picker.dart';
@@ -11,7 +12,7 @@ import 'ucg_video_upload.dart';
 
 enum UcgComposeMediaSlotStatus { pending, preparing, uploading, done, failed }
 
-/// 发布页单条媒体槽：本地预览 + 后台上传 objectKey。
+/// 发布页单条媒体槽：本地预览；upload 在发表/润笔/存草稿时触发。
 class UcgComposeMediaSlot {
   UcgComposeMediaSlot({
     required this.id,
@@ -34,6 +35,8 @@ class UcgComposeMediaSlot {
   UcgComposeMediaSlotStatus status;
   Future<void>? uploadFuture;
   var removed = false;
+  int? videoWidth;
+  int? videoHeight;
 
   bool get isDone =>
       status == UcgComposeMediaSlotStatus.done &&
@@ -92,6 +95,13 @@ String nextComposeSlotId() {
   return 'compose_slot_${DateTime.now().microsecondsSinceEpoch}_$_slotCounter';
 }
 
+String _composeLogBasename(String path) {
+  final slash = path.lastIndexOf('/');
+  final backslash = path.lastIndexOf('\\');
+  final start = slash > backslash ? slash : backslash;
+  return start >= 0 ? path.substring(start + 1) : path;
+}
+
 /// 后台上传单槽；完成后回调 [onUpdated] 刷新 UI。
 Future<void> uploadComposeMediaSlot({
   required UcgRepository repo,
@@ -100,8 +110,12 @@ Future<void> uploadComposeMediaSlot({
 }) async {
   if (slot.removed || slot.isDone || !slot.needsUpload) return;
 
+  final path = slot.localPath!;
+  AppDebugLog.ucgCompose(
+    'compose slot start isVideo=${slot.isVideo} slotId=${slot.id} file=${_composeLogBasename(path)}',
+  );
+
   try {
-    final path = slot.localPath!;
     final UcgUploadResult uploaded;
     if (slot.isVideo) {
       uploaded = await ucgUploadLocalVideo(
@@ -110,6 +124,7 @@ Future<void> uploadComposeMediaSlot({
         sourceBytes: slot.localBytes,
         onPhase: (phase) {
           if (slot.removed) return;
+          AppDebugLog.ucgCompose('compose slot phase ${phase.name} slotId=${slot.id}');
           slot.status = phase == UcgVideoUploadPhase.preparing
               ? UcgComposeMediaSlotStatus.preparing
               : UcgComposeMediaSlotStatus.uploading;
@@ -166,7 +181,11 @@ Future<void> uploadComposeMediaSlot({
     slot.objectKey = uploaded.objectKey;
     slot.cdnUrl = uploaded.cdnUrl;
     slot.status = UcgComposeMediaSlotStatus.done;
-  } catch (_) {
+    AppDebugLog.ucgCompose(
+      'compose slot ok slotId=${slot.id} objectKey=${uploaded.objectKey}',
+    );
+  } catch (e) {
+    AppDebugLog.ucgCompose('compose slot fail slotId=${slot.id} err=$e');
     if (!slot.removed) {
       slot.status = UcgComposeMediaSlotStatus.failed;
     }
@@ -210,6 +229,7 @@ Future<({List<String> imageKeys, String? videoKey})> ensureComposeMediaUploaded(
 
   final failed = all.where((s) => s.status == UcgComposeMediaSlotStatus.failed).toList();
   if (failed.isNotEmpty) {
+    AppDebugLog.ucgCompose('compose ensure retry failed=${failed.length}');
     for (final slot in failed) {
       slot.status = UcgComposeMediaSlotStatus.pending;
       await uploadComposeMediaSlot(repo: repo, slot: slot, onUpdated: onUpdated);
@@ -218,6 +238,14 @@ Future<({List<String> imageKeys, String? videoKey})> ensureComposeMediaUploaded(
   }
 
   if (all.any((s) => !s.isDone)) {
+    final videoFailed = all.any(
+      (s) => s.isVideo && s.status == UcgComposeMediaSlotStatus.failed,
+    );
+    if (videoFailed) {
+      throw StateError(kUcgVideoUploadUserFailureMessage);
+    }
+    final statuses = all.map((s) => '${s.id}:${s.status.name}').join(',');
+    AppDebugLog.ucgCompose('compose ensure incomplete statuses=$statuses');
     throw StateError('media upload incomplete');
   }
 

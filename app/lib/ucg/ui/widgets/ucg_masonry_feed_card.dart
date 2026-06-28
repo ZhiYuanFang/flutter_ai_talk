@@ -14,11 +14,14 @@ class UcgMasonryFeedCard extends StatelessWidget {
     required this.post,
     required this.onTap,
     this.onAvatarTap,
+    this.currentUserId,
   });
 
   final UcgPost post;
   final VoidCallback onTap;
   final VoidCallback? onAvatarTap;
+  /// 当前登录 wxId；用于隐藏本人帖距离角标。
+  final String? currentUserId;
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +96,7 @@ class UcgMasonryFeedCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 6),
-          _MasonryMedia(post: post),
+          _MasonryMedia(post: post, currentUserId: currentUserId),
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Row(
@@ -122,9 +125,10 @@ class UcgMasonryFeedCard extends StatelessWidget {
 }
 
 class _MasonryMedia extends StatelessWidget {
-  const _MasonryMedia({required this.post});
+  const _MasonryMedia({required this.post, this.currentUserId});
 
   final UcgPost post;
+  final String? currentUserId;
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +144,7 @@ class _MasonryMedia extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               UcgNetworkImage(url: url, fit: BoxFit.cover),
-              if (post.distanceDisplay.isNotEmpty)
+              if (post.shouldShowDistance(currentUserId))
                 Positioned(
                   left: 6,
                   bottom: 6,
@@ -171,7 +175,7 @@ class _MasonryMedia extends StatelessWidget {
                 aspectRatio: 3 / 4,
                 borderRadius: 8,
               ),
-              if (post.distanceDisplay.isNotEmpty)
+              if (post.shouldShowDistance(currentUserId))
                 Positioned(
                   left: 6,
                   bottom: 6,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,7 +8,54 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_compress/video_compress.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../api/app_debug_log.dart';
+import 'ucg_media_url.dart';
+import 'ucg_video_dimensions.dart';
+
 const _kAndroidCodecCooldown = Duration(milliseconds: 500);
+const _kUcgNormalizedVideoProbeTimeout = Duration(seconds: 8);
+const _kCdnDownloadTimeout = Duration(seconds: 45);
+
+/// normalize 输出试播：与 Feed CDN 相同 ExoPlayer 路径，超时即失败。
+Future<void> ucgProbeNormalizedVideoPlayable(String path) async {
+  if (kIsWeb || path.isEmpty) return;
+  final controller = VideoPlayerController.file(File(path));
+  try {
+    await controller.initialize().timeout(_kUcgNormalizedVideoProbeTimeout);
+    if (controller.value.hasError) {
+      throw StateError(controller.value.errorDescription ?? 'playback error');
+    }
+  } on TimeoutException {
+    throw StateError('probe timeout');
+  } finally {
+    await controller.dispose();
+  }
+}
+
+/// OSS/CDN 播放 URL 试 init（Android 经 Dart 下载后 file 试播）。
+Future<void> ucgProbeCdnVideoPlayable(String url) async {
+  if (kIsWeb || url.isEmpty) return;
+  final playUrl = UcgMediaUrl.normalizeVideoPlayUrl(url);
+  if (!kIsWeb && Platform.isAndroid) {
+    final cached = await ucgCacheRemoteVideoUrl(playUrl);
+    if (cached == null) throw StateError('cdn cache fail');
+    await ucgProbeNormalizedVideoPlayable(cached);
+    return;
+  }
+  final uri = Uri.tryParse(playUrl);
+  if (uri == null) throw StateError('invalid cdn url');
+  final controller = VideoPlayerController.networkUrl(uri);
+  try {
+    await controller.initialize().timeout(_kUcgNormalizedVideoProbeTimeout);
+    if (controller.value.hasError) {
+      throw StateError(controller.value.errorDescription ?? 'playback error');
+    }
+  } on TimeoutException {
+    throw StateError('cdn probe timeout');
+  } finally {
+    await controller.dispose();
+  }
+}
 
 Future<void> _androidCodecCooldown() async {
   if (!kIsWeb && Platform.isAndroid) {
@@ -64,6 +112,114 @@ Future<File> _playCacheFileAsync(String source) async {
   return File('${dir.path}/ucg_play_$key.mp4');
 }
 
+Future<void> _deleteFileQuietly(File file) async {
+  try {
+    if (await file.exists()) await file.delete();
+  } catch (_) {}
+}
+
+Future<bool> _fileStartsWithFtyp(File file) async {
+  try {
+    final bytes = await file.openRead(0, 32).first;
+    if (bytes.length < 8) return false;
+    if (String.fromCharCodes(bytes.sublist(4, 8)) == 'ftyp') return true;
+    // 少数容器在 offset 0 即 ftyp
+    return String.fromCharCodes(bytes.sublist(0, 4)) == 'ftyp';
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<String> _fileHexPrefix(File file, {int max = 16}) async {
+  try {
+    final bytes = await file.openRead(0, max).first;
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('-');
+  } catch (_) {
+    return '';
+  }
+}
+
+String _cdnCacheLogUrl(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return 'url=invalid';
+  final q = uri.query.isNotEmpty ? '?${uri.query}' : '';
+  return 'url=${uri.origin}${uri.path}$q';
+}
+
+HttpClient _cdnDownloadClient() {
+  final client = HttpClient();
+  client.connectionTimeout = const Duration(seconds: 10);
+  // 避免系统代理/WAF 注入非 MP4 内容（与 ExoPlayer 直链同类问题）。
+  client.findProxy = (_) => 'DIRECT';
+  client.autoUncompress = true;
+  return client;
+}
+
+/// Android CDN 视频：经 Dart [HttpClient]（尊重 FORCE_IPV4）落盘后再 ExoPlayer file 播放。
+Future<String?> ucgCacheRemoteVideoUrl(String url) async {
+  if (url.isEmpty || kIsWeb) return null;
+  final playUrl = UcgMediaUrl.normalizeVideoPlayUrl(url);
+  final uri = Uri.tryParse(playUrl);
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) return null;
+  final logUrl = _cdnCacheLogUrl(playUrl);
+
+  final cacheFile = await _playCacheFileAsync(playUrl);
+  if (await _isPlausibleMediaFile(cacheFile) && await _fileStartsWithFtyp(cacheFile)) {
+    AppDebugLog.ucgPlay('cdn cache hit $logUrl');
+    return cacheFile.path;
+  }
+  await _deleteFileQuietly(cacheFile);
+
+  AppDebugLog.ucgPlay('cdn cache start $logUrl');
+  final client = _cdnDownloadClient();
+  try {
+    final request = await client.getUrl(uri);
+    request.headers.set(HttpHeaders.acceptHeader, 'video/mp4,video/*,*/*');
+    request.headers.set(
+      HttpHeaders.userAgentHeader,
+      'PangbaoApp/1.0 (Android; UCG-Video)',
+    );
+    request.followRedirects = true;
+    request.maxRedirects = 5;
+    final response = await request.close().timeout(_kCdnDownloadTimeout);
+    final contentType = response.headers.contentType?.mimeType;
+    if (response.statusCode != HttpStatus.ok) {
+      AppDebugLog.ucgPlay(
+        'cdn cache fail $logUrl status=${response.statusCode} ct=$contentType',
+      );
+      return null;
+    }
+    final expectedBytes = response.contentLength;
+    final sink = cacheFile.openWrite(mode: FileMode.writeOnly);
+    await response.pipe(sink);
+    final bytes = await cacheFile.length();
+    if (expectedBytes > 0 && bytes != expectedBytes) {
+      await _deleteFileQuietly(cacheFile);
+      AppDebugLog.ucgPlay(
+        'cdn cache fail $logUrl reason=size-mismatch got=$bytes expected=$expectedBytes ct=$contentType',
+      );
+      return null;
+    }
+    if (!await _isPlausibleMediaFile(cacheFile) || !await _fileStartsWithFtyp(cacheFile)) {
+      final prefix = await _fileHexPrefix(cacheFile);
+      await _deleteFileQuietly(cacheFile);
+      final hint = prefix.startsWith('ff-d8') ? 'jpeg-body' : 'invalid-mp4';
+      AppDebugLog.ucgPlay(
+        'cdn cache fail $logUrl reason=$hint bytes=$bytes ct=$contentType prefix=$prefix',
+      );
+      return null;
+    }
+    AppDebugLog.ucgPlay('cdn cache ok $logUrl bytes=$bytes ct=$contentType');
+    return cacheFile.path;
+  } catch (e) {
+    await _deleteFileQuietly(cacheFile);
+    AppDebugLog.ucgPlay('cdn cache fail $logUrl err=$e');
+    return null;
+  } finally {
+    client.close(force: true);
+  }
+}
+
 /// 将不可直接读取的媒体路径复制到应用临时目录（供播放/压缩使用）。
 Future<String?> ucgCacheMediaPath(String path) async {
   if (path.isEmpty || kIsWeb) return null;
@@ -93,7 +249,15 @@ Future<VideoPlayerController?> ucgCreateVideoPlayerController({
   String? videoUrl,
 }) async {
   if (videoUrl != null && videoUrl.isNotEmpty) {
-    return VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+    final playUrl = UcgMediaUrl.normalizeVideoPlayUrl(videoUrl);
+    if (!kIsWeb && Platform.isAndroid) {
+      final cached = await ucgCacheRemoteVideoUrl(playUrl);
+      if (cached != null) {
+        return VideoPlayerController.file(File(cached));
+      }
+      return null;
+    }
+    return VideoPlayerController.networkUrl(Uri.parse(playUrl));
   }
   final path = localPath;
   if (path == null || path.isEmpty) return null;
@@ -133,6 +297,30 @@ Future<VideoPlayerController?> ucgCreateVideoPlayerController({
   final cached = await ucgCacheMediaPath(path);
   if (cached != null) return VideoPlayerController.file(File(cached));
   return null;
+}
+
+/// 读取本地视频宽高（compose 预览 layout；失败返回 null）。
+Future<({int? width, int? height})> ucgProbeLocalVideoDimensions(
+  String path, {
+  String? contentUri,
+}) async {
+  if (kIsWeb) return (width: null, height: null);
+  final input = path.isNotEmpty ? path : (contentUri ?? '');
+  if (input.isEmpty) return (width: null, height: null);
+  try {
+    final resolved = await ucgResolveVideoSourcePath(input);
+    if (resolved == null || resolved.isEmpty) return (width: null, height: null);
+    final info = await VideoCompress.getMediaInfo(resolved);
+    final display = ucgVideoDisplaySizeFromCompressInfo(
+      width: info.width,
+      height: info.height,
+      orientation: info.orientation,
+    );
+    if (display != null) {
+      return (width: display.width, height: display.height);
+    }
+  } catch (_) {}
+  return (width: null, height: null);
 }
 
 /// 提取视频封面（不经过 ExoPlayer）。优先由选图阶段 [photo_manager] 注入 bytes。

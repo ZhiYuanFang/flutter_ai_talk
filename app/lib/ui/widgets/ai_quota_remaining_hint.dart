@@ -43,15 +43,14 @@ class AiQuotaRemainingHint extends ConsumerWidget {
 
   Widget _buildHint(BuildContext context, AiQuotaFeatureStatus? snap, AiQuotaRemainingHintFeature feature) {
     if (snap == null || snap.limit <= 0) return const SizedBox.shrink();
-    final label = switch (feature) {
-      AiQuotaRemainingHintFeature.polish => '本月润笔剩余 ${snap.remaining} 次',
-      AiQuotaRemainingHintFeature.clinicAi => '本月胖宝诊疗剩余 ${snap.remaining} 次',
-      AiQuotaRemainingHintFeature.voiceAi => '本月 AI 对话剩余 ${snap.remaining} 次',
-    };
-    final color = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
+    final label = _hintLabel(snap, feature);
+    final colorScheme = Theme.of(context).colorScheme;
+    final color = snap.degraded
+        ? colorScheme.error
+        : colorScheme.onSurface.withValues(alpha: 0.55);
     final text = Text(
       label,
-      style: TextStyle(fontSize: 12, height: 1.3, color: color),
+      style: TextStyle(fontSize: 12, height: 1.3, color: color, fontWeight: snap.degraded ? FontWeight.w600 : null),
     );
     if (!glassStyle) {
       return Padding(padding: padding, child: text);
@@ -78,6 +77,21 @@ class AiQuotaRemainingHint extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  String _hintLabel(AiQuotaFeatureStatus snap, AiQuotaRemainingHintFeature feature) {
+    if (snap.degraded) {
+      return switch (feature) {
+        AiQuotaRemainingHintFeature.polish => '本月润笔额度已用完，已降速',
+        AiQuotaRemainingHintFeature.clinicAi => '本月胖宝诊疗额度已用完，已降速',
+        AiQuotaRemainingHintFeature.voiceAi => '本月 AI 对话剩余 ${snap.remaining} 次',
+      };
+    }
+    return switch (feature) {
+      AiQuotaRemainingHintFeature.polish => '本月润笔剩余 ${snap.remaining} 次',
+      AiQuotaRemainingHintFeature.clinicAi => '本月胖宝诊疗剩余 ${snap.remaining} 次',
+      AiQuotaRemainingHintFeature.voiceAi => '本月 AI 对话剩余 ${snap.remaining} 次',
+    };
   }
 }
 
