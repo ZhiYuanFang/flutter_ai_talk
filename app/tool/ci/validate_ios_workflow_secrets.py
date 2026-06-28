@@ -60,6 +60,68 @@ def validate_bundle_id() -> None:
         fail('[Secret] IOS_BUNDLE_ID 格式无效，至少应为 com.example.app')
 
 
+def _is_p12_password_error(output: str) -> bool:
+    lowered = output.lower()
+    return (
+        'invalid password' in lowered
+        or 'mac verify failure' in lowered
+        or 'bad decrypt' in lowered
+    )
+
+
+def _openssl_pkcs12_noout(p12_path: str, password: str, *, legacy: bool) -> subprocess.CompletedProcess[str]:
+    cmd = [
+        'openssl',
+        'pkcs12',
+        '-in',
+        p12_path,
+        '-passin',
+        f'pass:{password}',
+        '-noout',
+    ]
+    if legacy:
+        cmd.append('-legacy')
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _validate_p12_with_security_import(p12_path: str, password: str) -> bool:
+    """Match the CI signing step: macOS security import accepts legacy Apple .p12."""
+    import secrets
+
+    keychain_path = Path(tempfile.gettempdir()) / f'ios-p12-validate-{secrets.token_hex(8)}.keychain-db'
+    keychain_password = secrets.token_urlsafe(16)
+    try:
+        steps = [
+            ['security', 'create-keychain', '-p', keychain_password, str(keychain_path)],
+            ['security', 'unlock-keychain', '-p', keychain_password, str(keychain_path)],
+            [
+                'security',
+                'import',
+                p12_path,
+                '-P',
+                password,
+                '-A',
+                '-t',
+                'cert',
+                '-f',
+                'pkcs12',
+                '-k',
+                str(keychain_path),
+            ],
+        ]
+        for cmd in steps:
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                return False
+        return True
+    finally:
+        subprocess.run(
+            ['security', 'delete-keychain', str(keychain_path)],
+            capture_output=True,
+            text=True,
+        )
+
+
 def validate_p12() -> None:
     data = decode_base64(
         'IOS_CERTIFICATE_P12_BASE64',
@@ -70,25 +132,32 @@ def validate_p12() -> None:
         tmp.write(data)
         tmp_path = tmp.name
     try:
-        proc = subprocess.run(
-            [
-                'openssl',
-                'pkcs12',
-                '-in',
-                tmp_path,
-                '-passin',
-                f'pass:{password}',
-                '-noout',
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or '').strip().lower()
-            if 'invalid password' in err or 'mac verify failure' in err:
+        for legacy in (False, True):
+            proc = _openssl_pkcs12_noout(tmp_path, password, legacy=legacy)
+            if proc.returncode == 0:
+                if legacy:
+                    notice(
+                        '[Cert] PKCS#12 校验通过（Apple 旧版加密，OpenSSL 需 -legacy；'
+                        '与后续 security import 兼容）'
+                    )
+                else:
+                    notice('[Cert] PKCS#12 格式与密码校验通过')
+                return
+
+            err = (proc.stderr or proc.stdout or '').strip()
+            if _is_p12_password_error(err):
                 fail('[P12] IOS_CERTIFICATE_PASSWORD 错误或 .p12 文件损坏')
-            fail(f'[P12] 证书无法解析: {(proc.stderr or proc.stdout or "")[:200]}')
-        notice('[Cert] PKCS#12 格式与密码校验通过')
+
+        if sys.platform == 'darwin' and _validate_p12_with_security_import(tmp_path, password):
+            notice(
+                '[Cert] PKCS#12 校验通过（security import 探活；'
+                'OpenSSL 3 无法读取但 macOS 签名链可用）'
+            )
+            return
+
+        last = _openssl_pkcs12_noout(tmp_path, password, legacy=True)
+        err = (last.stderr or last.stdout or 'unknown error').strip()
+        fail(f'[P12] 证书无法解析: {err[:200]}')
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
