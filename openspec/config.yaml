@@ -1,28 +1,24 @@
 schema: spec-driven
 
-# 项目上下文：生成 OpenSpec 制品（proposal / design / specs / tasks）时供 AI 参考。
+# OpenSpec CLI 注入：完整工程约束见 openspec/project.md；Cursor / 其它 AI 环境见根 AGENTS.md。
 context: |
-  语言与文档：所有 OpenSpec 变更下的 Markdown 制品（proposal.md、design.md、tasks.md、specs/**/*.md）
-  的正文、章节标题、需求描述、场景、任务说明必须使用简体中文撰写。
-  可保留必要的技术专有名词（如 Flutter、SSE、WebView、OAuth、App Store、DTO、API 等）及代码标识符（类名、包名、路由名等）原文。
-  规范文档中的需求表述以中文为主，使用「必须 / 不得」等明确语态；场景建议使用「当……则……」结构。
-  OpenSpec 校验器要求每条 `### Requirement` 正文中仍须出现英文 **SHALL** 或 **MUST**（建议首行用一句英文规范性摘要，后附中文细则）。
+  工程约束与 OpenSpec 约定全文见 openspec/project.md；编写制品或实现代码前 MUST 阅读并对照。
+  当前合并基线：openspec/specs/v2.0.3.md。
+  OpenSpec 制品须简体中文；每条 ### Requirement 正文须含英文 SHALL 或 MUST。
 
-  基线与可追溯（重要）：编写或评审变更时，必须考虑是否引用并遵循仓库根目录下历史 **`openspec/specs/`** 基线（若目录存在且已有能力规格）；
-  若变更涉及**用户可见行为、对外 API/契约、兼容性或安全语义**的调整，须在 OpenSpec 制品中落到明确的 **`### Requirement`** 与 **`#### Scenario`**
-  （含 `changes/<name>/specs/**` 内 ADDED/MODIFIED delta）；PR 说明、任务勾选理由或评审记录中应能一句话指回对应能力名与需求标题，禁止「只改代码、规格悬空」。
-
-# PR / 归档 / 应用变更前人工评审必选检查项（与上节 context 一致，便于单独引用）。
+# PR / 归档 / 应用变更前人工评审（细则见 openspec/project.md「重要约束」）。
 review:
   required_checks:
     - >-
-      是否引用并遵循历史 `openspec/specs` 基线：已存在的能力是否在 proposal/specs 中声明为「修改」并阅读过原条文；
-      无根目录基线时，是否在本次变更中新增/写清规格以免行为漂移。
+      是否引用并遵循 openspec/specs 基线（当前 v2.0.3）：已存在能力是否在 proposal/specs 中声明为「修改」；
+      无基线条目时是否在本次变更中新增/写清规格。
     - >-
-      行为变更可追溯：凡涉及行为变更的实现，是否可在 `openspec/changes/<change>/specs/**/*.md` 中
-      对应到具体 `### Requirement` 与 `#### Scenario`（或归档后与 `openspec/specs` 的映射），且 PR/评审能引用该对应关系。
+      行为变更可追溯：是否对应到 ### Requirement 与 #### Scenario；PR/评审能引用能力名与需求标题。
+    - >-
+      Android 原生改动（app/android/**）：是否 flutter build apk --release 通过，proguard-rules.pro 已按需更新（见 project.md §Android Release）。
 
-# 可按需为各制品追加规则，例如：
-# rules:
-#   proposal:
-#     - 单篇提案控制在约两页内
+rules:
+  tasks:
+    - 涉及 app/android/** 或原生 SDK 时，tasks 须含 release 构建与 proguard-rules.pro 更新项（见 openspec/project.md）。
+  proposal:
+    - 编写前 MUST 阅读 openspec/project.md 与当前 spec 基线。

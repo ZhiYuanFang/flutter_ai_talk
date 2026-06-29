@@ -11,7 +11,7 @@ description: 将 OpenSpec change delta 收进指定版本基线（不创建 arch
 
 可选参数（用户显式提及时才用）：
 - `--base v1.0.1`：指定起始基线；省略则用 `openspec/specs/v*.md` 中最新一份
-- `--keep-changes`：合并成功后**保留** `openspec/changes/*`；**默认行为是删除**（见 `.cursor/rules/openspec-archive.mdc`）
+- `--keep-changes`：合并成功后**保留** `openspec/changes/*`；**默认行为是删除**（见 `openspec/project.md`「OpenSpec 归档约定」）
 
 **Steps**
 
@@ -45,7 +45,7 @@ description: 将 OpenSpec change delta 收进指定版本基线（不创建 arch
 
 5. **显示摘要**
 
-   输出：目标版本、起始基线、capability 数、应用的 delta 条数、输出路径、删除的 change 目录数量。
+   输出：目标版本、起始基线、capability 数、应用的 delta 条数、输出路径、删除的 change 目录数量（**Changes removed: yes/no**）；并更新 **`openspec/project.md`** 基线版本号。
 
 **Output On Success（默认）**
 

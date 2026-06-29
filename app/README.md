@@ -2,7 +2,7 @@
 
 **所有 `flutter` / `dart` 命令（如 `flutter run`、`flutter pub get`）必须在包含 `pubspec.yaml` 的目录执行，即本仓库的 `app/` 目录；在仓库根目录 `flutter_ai_talk/` 下运行会报 `No pubspec.yaml file found`。**
 
-OpenSpec 变更：`openspec/changes/cold-start-fast-splash`（冷启动品牌 Splash、移除 Vosk 减包体）、`openspec/changes/pangbao-app`（M1）、`openspec/changes/pangbao-m2-editing-trends`（编辑/历史/趋势增强）、`openspec/changes/pangbao-web-input-mode`（Web 主输入文字/语音可配置）、`openspec/changes/pangbao-api-liantiao`（后端接口联调）、`openspec/changes/app-wechat-sdk-login`（微信 SDK / 网页授权）、`openspec/changes/pangbao-device-login-apk-install`（胖宝号默认登录、Android 缓存安装）、`openspec/changes/api-json-camelcase-fields`（网关 JSON camelCase 约定与实现）、`openspec/changes/device-login-baby-save-user-save`（胖宝号会话保存宝宝资料走 `user/save`）、`openspec/changes/feed-history-ws-after-chat`（发消息后依赖 WS 更新历史、WS 未就绪禁发 chat）、`openspec/changes/history-detail-editable-fields`（历史详情按 `eventNumber` 编辑时间与用量、备注；删除：`POST /device/history/api/event/delete`，body `id`、`deviceNo`）。
+OpenSpec 变更：`openspec/changes/cold-start-fast-splash`（冷启动品牌 Splash、移除 Vosk 减包体）、`openspec/changes/pangbao-app`（M1）、`openspec/changes/pangbao-m2-editing-trends`（编辑/历史/趋势增强）、`openspec/changes/pangbao-web-input-mode`（Web 主输入文字/语音可配置）、`openspec/changes/pangbao-api-liantiao`（后端接口联调）、`openspec/changes/app-wechat-sdk-login`（微信 SDK / 网页授权）、`openspec/changes/pangbao-device-login-apk-install`（胖宝号默认登录、Android 缓存安装）、`openspec/changes/api-json-camelcase-fields`（网关 JSON camelCase 约定与实现）、`openspec/changes/device-login-baby-save-user-save`（胖宝号会话保存宝宝资料走 `user/save`）、`openspec/changes/feed-history-ws-after-chat`（发消息后依赖 WS 更新历史、WS 未就绪禁发 chat）、`openspec/changes/history-detail-editable-fields`（历史详情按 `eventNumber` 编辑时间与用量、备注；删除：`POST /device/history/api/event/delete`，body `id`、`deviceNo`）。**工程约束**见 [`AGENTS.md`](../AGENTS.md)、[`openspec/project.md`](../openspec/project.md)。
 
 ## 环境要求
 
@@ -94,7 +94,7 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 
 **前置条件重试**：`shouldConnect`/`prepareToken` 失败时传输层自动短退避重试；`bindAuthenticatedWsSession` 在 refresh 结束后 reconnect。胖宝 clinic 使用 `requireHandshakePong: false`（auth_ok 即 ready）。
 
-**新增通道 checklist**（须 OpenSpec change，见 `.cursor/rules/ws-resilient-transport.mdc`）：
+**新增通道 checklist**（须 OpenSpec change，见 `openspec/project.md`「WebSocket 韧性传输」与 `AGENTS.md`）：
 
 1. 配置 `WsConnectionConfig` + `ResilientWebSocketClient`，禁止手写 `WebSocketChannel.connect`
 2. 设备通道复用 `prepareDeviceWsConnectContext`；error 帧走 `handleWsAuthOrQuotaError`

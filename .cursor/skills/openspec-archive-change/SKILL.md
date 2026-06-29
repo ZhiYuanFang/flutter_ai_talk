@@ -33,11 +33,15 @@ metadata:
    python scripts/sync_specs_to_version.py <version> [--base vX.Y.Z] [--remove-changes]
    ```
 
-   **默认必须加 `--remove-changes`**（项目规则见 `.cursor/rules/openspec-archive.mdc`）。用户显式要求保留 change 目录时省略该 flag。
+   **默认必须加 `--remove-changes`**（见 `openspec/project.md`「OpenSpec 归档约定」）。用户显式要求保留 change 目录时省略该 flag。
 
-5. **摘要**
+5. **更新基线引用**
 
-   报告版本、基线、capability 数、delta 数、删除的 change 目录数量。
+   收版成功后更新 **`openspec/project.md`** 中「OpenSpec 基线参考约定」的版本号（如 `v2.0.3` → 新版本）。
+
+6. **摘要**
+
+   报告版本、基线、capability 数、delta 数、删除的 change 目录数量；说明 **Changes removed: yes/no**。
 
 **Guardrails**
 

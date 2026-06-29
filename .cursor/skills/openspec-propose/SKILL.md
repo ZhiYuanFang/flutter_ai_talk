@@ -24,6 +24,10 @@ When ready to implement, run /opsx:apply
 
 **Steps**
 
+0. **Read project constraints**
+
+   Before creating artifacts, read **`openspec/project.md`** and **`AGENTS.md`**.
+
 1. **If no clear input provided, ask what they want to build**
 
    Use the **AskUserQuestion tool** (open-ended, no preset options) to ask:

@@ -47,7 +47,11 @@ subprojects {
         }
     }
     afterEvaluate {
-        extensions.findByType(BaseExtension::class.java)?.ndkVersion = "29.0.14206865"
+        extensions.findByType(BaseExtension::class.java)?.apply {
+            // Override stale plugin compileSdk (e.g. flutter_app_badger 29 → needs ≥31 for lStar).
+            compileSdkVersion(36)
+            ndkVersion = "29.0.14206865"
+        }
     }
 }
 
