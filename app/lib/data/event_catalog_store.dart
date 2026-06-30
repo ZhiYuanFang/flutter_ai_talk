@@ -9,6 +9,19 @@ import 'event_definition.dart';
 
 const _catalogFileName = 'catalog_v1.json';
 
+/// 跟踪进行中的 logo `HttpClient`，供 `cancelLogoDownloads` 强制关闭释放连接槽。
+final Set<HttpClient> _activeLogoDownloadClients = {};
+
+/// 强制关闭所有进行中的 logo 下载 HTTP 连接（同步，不等待 body）。
+void abortActiveLogoDownloads() {
+  for (final client in _activeLogoDownloadClients.toList()) {
+    try {
+      client.close(force: true);
+    } catch (_) {}
+  }
+  _activeLogoDownloadClients.clear();
+}
+
 /// 事件目录与 logo 文件的本地持久化（非 Web 写文件；Web 仅内存）。
 class EventCatalogStore {
   static Future<Directory?> _rootDir() async {
@@ -92,20 +105,23 @@ class EventCatalogStore {
     final stem = safeEventLogoFileStem(eventId);
     final ext = logoFileExtensionFromUrl(resolved);
     final dest = File('${logos.path}/$stem.$ext');
+    HttpClient? client;
     try {
-      final client = HttpClient();
-      try {
-        final request = await client.getUrl(Uri.parse(resolved));
-        final response = await request.close();
-        if (response.statusCode != 200) return null;
-        final bytes = await response.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
-        await dest.writeAsBytes(bytes);
-        return dest.path;
-      } finally {
-        client.close();
-      }
+      client = HttpClient();
+      _activeLogoDownloadClients.add(client);
+      final request = await client.getUrl(Uri.parse(resolved));
+      final response = await request.close();
+      if (response.statusCode != 200) return null;
+      final bytes = await response.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
+      await dest.writeAsBytes(bytes);
+      return dest.path;
     } catch (_) {
       return null;
+    } finally {
+      if (client != null) {
+        _activeLogoDownloadClients.remove(client);
+        client.close();
+      }
     }
   }
 

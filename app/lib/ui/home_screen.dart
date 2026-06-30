@@ -159,6 +159,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   @override
   void initState() {
     super.initState();
+    PangbaoHomeTransportGate.onHomeMounted();
     WidgetsBinding.instance.addObserver(this);
     _voiceLevelNotifier = ValueNotifier(0);
     _voiceLevelSmoother = VoiceLevelSmoother(_voiceLevelNotifier);
@@ -1237,6 +1238,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _wsReadySub?.cancel();
     _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();
+    PangbaoHomeTransportGate.onHomeUnmounted();
     unawaited(releasePangbaoHomeTransports(ref));
     _webFocusNode.dispose();
     _webController.dispose();

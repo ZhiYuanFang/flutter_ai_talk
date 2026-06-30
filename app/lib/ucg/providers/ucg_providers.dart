@@ -5,6 +5,7 @@ import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/app_debug_log.dart';
+import '../../bootstrap/pangbao_transport_release.dart';
 import '../../providers/authorized_api_client_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/settings_baby.dart';
@@ -166,6 +167,10 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
   ref.onDispose(repo.dispose);
 
   void syncUcgWsDesired() {
+    if (!PangbaoHomeTransportGate.isHomeMounted) {
+      repo.setWsConnectionDesired(false);
+      return;
+    }
     final loggedIn = ref.read(sessionProvider).isLoggedIn;
     final wxId = ref.read(ucgCurrentUserIdProvider);
     if (loggedIn && isUcgWxAccountBound(wxId)) {
@@ -204,6 +209,7 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
   });
   ref.listen<String?>(sessionProvider.select((s) => s.accessToken), (prev, next) {
     if (next == null || next.isEmpty) return;
+    if (!PangbaoHomeTransportGate.isHomeMounted) return;
     final loggedIn = ref.read(sessionProvider).isLoggedIn;
     final wxId = ref.read(ucgCurrentUserIdProvider);
     if (SessionController.isAccessTokenRotation(prev, next) &&
@@ -216,6 +222,7 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
     ref,
     reconnect: ({bool resetStrike = false}) => repo.reconnectChatWebSocket(resetStrike: resetStrike),
     shouldReconnect: () {
+      if (!PangbaoHomeTransportGate.isHomeMounted) return false;
       if (!ref.read(sessionProvider).isLoggedIn) return false;
       return isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider));
     },

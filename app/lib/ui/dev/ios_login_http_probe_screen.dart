@@ -10,6 +10,7 @@ import '../../providers/device_no_notifier.dart';
 import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
 import 'ios_login_probe_items.dart';
+import 'ios_login_probe_real_mounts.dart';
 import 'ios_login_probe_runner.dart';
 import 'ios_login_probe_transports.dart';
 
@@ -28,6 +29,7 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
 
   final _deviceNoCtrl = TextEditingController(text: _defaultDeviceNo);
   final _transports = IosLoginProbeTransports();
+  final _realMounts = IosLoginProbeRealMounts();
   final _selected = <HomeProbeItem, bool>{};
 
   var _running = false;
@@ -63,6 +65,8 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
   @override
   void dispose() {
     _transports.dispose();
+    unawaited(_realMounts.release(ref));
+    _realMounts.dispose();
     _deviceNoCtrl.dispose();
     super.dispose();
   }
@@ -113,6 +117,10 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     return IosLoginProbeRunner(
       ref: ref,
       transports: _transports,
+      realMounts: _realMounts,
+      onRealMountChanged: () {
+        if (mounted) setState(() {});
+      },
       deviceNo: deviceNo,
       version: version,
       wxBound: wxBound,
@@ -166,6 +174,42 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     );
   }
 
+  Future<void> _releaseRealMounts() async {
+    await _realMounts.release(ref);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('REAL mounts 已释放')),
+    );
+  }
+
+  Future<void> _runPollutionCheck() async {
+    if (_running) return;
+    final deviceNo = _deviceNoCtrl.text.trim();
+    if (deviceNo.isEmpty) return;
+    final version = _version ?? await readPackageVersion();
+    if (!mounted) return;
+
+    setState(() {
+      _running = true;
+      _mode = 'POST-MOUNT 污染检测';
+      _results = const [];
+    });
+
+    final runner = _buildRunner(
+      deviceNo: deviceNo,
+      version: version,
+      wxBound: isUcgWxAccountBound(readJwtWxId(ref.read(sessionProvider).accessToken)),
+    );
+    final out = await runner.runPollutionHttpCheck();
+
+    if (!mounted) return;
+    setState(() {
+      _running = false;
+      _results = out;
+    });
+  }
+
   List<Widget> _buildItemCheckboxes(bool wxBound) {
     final widgets = <Widget>[];
     String? lastPhase;
@@ -194,6 +238,7 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
 
   @override
   Widget build(BuildContext context) {
+    _realMounts.watchHomeProvidersInBuild(ref);
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final token = ref.watch(sessionProvider.select((s) => s.accessToken));
     final wxId = readJwtWxId(token);
@@ -218,6 +263,11 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
           Text('notify: ${AppEnv.notifyBaseUrl}', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
           Text('loggedIn=$loggedIn wxId=${wxId ?? '–'} wxBound=$wxBound'),
+          if (_realMounts.homeWatchActive)
+            Text(
+              'REAL home watch 活跃',
+              style: TextStyle(color: Theme.of(context).colorScheme.primary),
+            ),
           Text('version=${_version ?? '…'} · $slotSummary'),
           const SizedBox(height: 12),
           TextField(
@@ -314,6 +364,16 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
           OutlinedButton(
             onPressed: _running ? null : _disconnectAll,
             child: const Text('断开 WS / Voice ASR'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _running ? null : () => unawaited(_releaseRealMounts()),
+            child: const Text('释放 REAL mounts + pangbao'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _running ? null : () => unawaited(_runPollutionCheck()),
+            child: const Text('污染检测：version/check + notify'),
           ),
           const SizedBox(height: 12),
           FilledButton(

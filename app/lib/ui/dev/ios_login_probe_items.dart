@@ -12,6 +12,10 @@ enum HomeProbeItem {
   iosDelay2s,
   historyWs,
   notifyBanner,
+  realFeedWatchLatest,
+  realUcgRepoMount,
+  realLogoDeferredBackground,
+  realHomeProviderWatch,
 }
 
 extension HomeProbeItemMeta on HomeProbeItem {
@@ -28,6 +32,10 @@ extension HomeProbeItemMeta on HomeProbeItem {
         HomeProbeItem.iosDelay2s => 'iOS 等待 2s（Home WS 前）',
         HomeProbeItem.historyWs => 'WS history',
         HomeProbeItem.notifyBanner => 'HTTP notify banner',
+        HomeProbeItem.realFeedWatchLatest => 'REAL feed.watchLatest + history WS',
+        HomeProbeItem.realUcgRepoMount => 'REAL ucgRepository + chat WS',
+        HomeProbeItem.realLogoDeferredBackground => 'REAL runDeferredLogoDownloads（不 await）',
+        HomeProbeItem.realHomeProviderWatch => 'REAL watch homeHistory + catalog',
       };
 
   String get phaseTitle => switch (this) {
@@ -44,12 +52,18 @@ extension HomeProbeItemMeta on HomeProbeItem {
         HomeProbeItem.logoDownload => 'D · iOS deferred logo',
         HomeProbeItem.iosDelay2s || HomeProbeItem.historyWs => 'E · iOS WS 延迟 + history',
         HomeProbeItem.notifyBanner => 'F · notify（独立 host）',
+        HomeProbeItem.realFeedWatchLatest ||
+        HomeProbeItem.realUcgRepoMount ||
+        HomeProbeItem.realLogoDeferredBackground ||
+        HomeProbeItem.realHomeProviderWatch =>
+          'R · real Home providers',
       };
 
   bool get requiresWx => switch (this) {
         HomeProbeItem.ucgChatWs ||
         HomeProbeItem.ucgUnreadNotif ||
-        HomeProbeItem.ucgUnreadConv =>
+        HomeProbeItem.ucgUnreadConv ||
+        HomeProbeItem.realUcgRepoMount =>
           true,
         _ => false,
       };
@@ -58,6 +72,15 @@ extension HomeProbeItemMeta on HomeProbeItem {
         HomeProbeItem.voiceAsrWs ||
         HomeProbeItem.ucgChatWs ||
         HomeProbeItem.historyWs =>
+          true,
+        _ => false,
+      };
+
+  bool get isRealProviderMount => switch (this) {
+        HomeProbeItem.realFeedWatchLatest ||
+        HomeProbeItem.realUcgRepoMount ||
+        HomeProbeItem.realLogoDeferredBackground ||
+        HomeProbeItem.realHomeProviderWatch =>
           true,
         _ => false,
       };
@@ -74,6 +97,11 @@ extension HomeProbeItemMeta on HomeProbeItem {
         HomeProbeItem.logoDownload => logoConcurrency,
         HomeProbeItem.iosDelay2s => 0,
         HomeProbeItem.notifyBanner => 0,
+        HomeProbeItem.realFeedWatchLatest ||
+        HomeProbeItem.realUcgRepoMount ||
+        HomeProbeItem.realLogoDeferredBackground ||
+        HomeProbeItem.realHomeProviderWatch =>
+          0,
         _ => 1,
       };
 }

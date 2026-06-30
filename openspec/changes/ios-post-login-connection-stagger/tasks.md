@@ -83,3 +83,10 @@
 - [x] 14.3 UCG repo **gate 后** `mountUcgHomeTransportsIfEligible`；移除 initState/build 抢先 mount
 - [x] 14.4 Voice ASR 建连移至 gate 后（与 history WS 同 `_startHomePangbaoTransportsAfterGate`）
 - [ ] 14.5 iOS 真机：进 Home → 回探针 / 设置 version/check 仍 ✓；不杀 App 不复现 POLLUTED
+
+## 15. POST-HOME 污染补强 + 探针 v3
+
+- [x] 15.1 logo `HttpClient` 注册表 + `abortActiveLogoDownloads()`；`cancelLogoDownloads` 强制关闭 in-flight
+- [x] 15.2 `PangbaoHomeTransportGate`：Home 挂载计数；`release` 用 `ref.exists(feedRepositoryProvider)`；token/refresh reconnect 仅 Home 挂载时
+- [x] 15.3 探针 v3：**REAL** feed/ucg/logo deferred/home watch 项 + 「污染检测」+ 「释放 REAL mounts」
+- [ ] 15.4 iOS 真机：REAL 项二分最小复现集；release 后进 Home 再回探针 version/check 仍 ✓

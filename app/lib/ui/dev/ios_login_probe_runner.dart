@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api_exceptions.dart';
@@ -11,6 +12,7 @@ import '../../providers/authorized_api_client_provider.dart';
 import '../../ucg/data/ucg_api_client.dart';
 import '../../ucg/data/ucg_models.dart';
 import 'ios_login_probe_items.dart';
+import 'ios_login_probe_real_mounts.dart';
 import 'ios_login_probe_transports.dart';
 
 class ProbeRunResult {
@@ -39,16 +41,27 @@ class IosLoginProbeRunner {
     required this.forceChatWs,
     required this.logoCount,
     required this.logoConcurrency,
+    this.realMounts,
+    this.onRealMountChanged,
   });
 
   final WidgetRef ref;
   final IosLoginProbeTransports transports;
+  final IosLoginProbeRealMounts? realMounts;
+  final VoidCallback? onRealMountChanged;
   final String deviceNo;
   final String version;
   final bool wxBound;
   final bool forceChatWs;
   final int logoCount;
   final int logoConcurrency;
+
+  Future<List<ProbeRunResult>> runPollutionHttpCheck() async {
+    return [
+      await _runOne(HomeProbeItem.versionCheck),
+      await _runOne(HomeProbeItem.notifyBanner),
+    ];
+  }
 
   Future<List<ProbeRunResult>> runParallel(Set<HomeProbeItem> selected) async {
     final items = selected.where((i) => !i.isDelayOnly).toList();
@@ -185,6 +198,48 @@ class IosLoginProbeRunner {
           await _runLogoDownloads();
         case HomeProbeItem.notifyBanner:
           await _runNotifyBanner();
+        case HomeProbeItem.realFeedWatchLatest:
+          realMounts?.mountFeedWatchLatest(ref);
+          return ProbeRunResult(
+            label: item.label,
+            ok: true,
+            elapsedMs: sw.elapsedMilliseconds,
+            detail: 'feedRepository mounted · watchLatest + ensureHistoryWebSocketConnected',
+          );
+        case HomeProbeItem.realUcgRepoMount:
+          if (item.requiresWx && !wxBound) {
+            return ProbeRunResult(
+              label: item.label,
+              ok: true,
+              elapsedMs: 0,
+              detail: 'skipped: no wxId',
+              skipped: true,
+            );
+          }
+          realMounts?.mountUcgRepo(ref);
+          return ProbeRunResult(
+            label: item.label,
+            ok: true,
+            elapsedMs: sw.elapsedMilliseconds,
+            detail: 'ucgRepository mounted · mountUcgHomeTransportsIfEligible',
+          );
+        case HomeProbeItem.realLogoDeferredBackground:
+          realMounts?.startLogoDeferredUnawaited(ref);
+          return ProbeRunResult(
+            label: item.label,
+            ok: true,
+            elapsedMs: sw.elapsedMilliseconds,
+            detail: 'runDeferredLogoDownloads unawaited (background)',
+          );
+        case HomeProbeItem.realHomeProviderWatch:
+          realMounts?.enableHomeProviderWatch();
+          onRealMountChanged?.call();
+          return ProbeRunResult(
+            label: item.label,
+            ok: true,
+            elapsedMs: sw.elapsedMilliseconds,
+            detail: 'ref.watch homeHistory + eventCatalog enabled in probe build',
+          );
         case HomeProbeItem.iosDelay2s:
           break;
       }

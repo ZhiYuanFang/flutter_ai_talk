@@ -39,6 +39,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
 
   void tryReconnectHistoryWs({bool resetStrike = false}) {
     if (AppEnv.disablePangbaoWebSocketSpike) return;
+    if (!PangbaoHomeTransportGate.isHomeMounted) return;
     if (!GatewayBootstrapGate.isLoggedInComplete) return;
     if (AppEnv.wsHistoryUrlEffective.isEmpty) return;
     // reconnect 先断开旧连接，再在 token / deviceNo 就绪时建链；登出或解绑时也会关掉 WS。
@@ -68,6 +69,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
       tryReconnectHistoryWs(resetStrike: resetStrike);
     },
     shouldReconnect: () {
+      if (!PangbaoHomeTransportGate.isHomeMounted) return false;
       if (AppEnv.wsHistoryUrlEffective.isEmpty) return false;
       final dn = ref.read(deviceNoNotifierProvider).asData?.value;
       return dn != null && dn.isNotEmpty;

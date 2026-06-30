@@ -140,6 +140,7 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
   void cancelLogoDownloads() {
     _logoDownloadGeneration++;
     _logoDownloadFuture = null;
+    abortActiveLogoDownloads();
   }
 
   Future<void> _downloadLogosInBackground(List<EventDefinition> base) {

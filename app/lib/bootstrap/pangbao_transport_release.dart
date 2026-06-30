@@ -10,12 +10,27 @@ import '../session/token_expiry.dart';
 import '../ucg/providers/ucg_providers.dart';
 import 'gateway_bootstrap_gate.dart';
 
+/// Home 是否挂载；仅挂载时允许 history/UCG WS desired 与 token 轮换 reconnect。
+class PangbaoHomeTransportGate {
+  static var _mountedCount = 0;
+
+  static bool get isHomeMounted => _mountedCount > 0;
+
+  static void onHomeMounted() => _mountedCount++;
+
+  static void onHomeUnmounted() {
+    if (_mountedCount > 0) _mountedCount--;
+  }
+}
+
 /// 释放 Home 占用的 pangbao 同 host 连接：历史 WS、UCG chat WS、Voice ASR、logo 下载。
 ///
 /// 登出、切账号、离开 Home 时调用；不销毁 Riverpod provider 实例。
 /// [ref] 接受 Riverpod [Ref] 或 [WidgetRef]。
 Future<void> releasePangbaoHomeTransports(dynamic ref) async {
-  ref.read(feedRepositoryProvider).disconnectHistoryWebSocket();
+  if (ref.exists(feedRepositoryProvider)) {
+    ref.read(feedRepositoryProvider).disconnectHistoryWebSocket();
+  }
   ref.read(eventCatalogProvider.notifier).cancelLogoDownloads();
   if (ref.exists(ucgRepositoryProvider)) {
     ref.read(ucgRepositoryProvider).setWsConnectionDesired(false);
@@ -26,8 +41,9 @@ Future<void> releasePangbaoHomeTransports(dynamic ref) async {
   GatewayBootstrapGate.reset();
 }
 
-/// gate 完成后挂载 UCG 传输（chat WS + unread）。
+/// gate 完成后挂载 UCG 传输（chat WS + unread）；须 Home 仍挂载。
 void mountUcgHomeTransportsIfEligible(dynamic ref) {
+  if (!PangbaoHomeTransportGate.isHomeMounted) return;
   if (!ref.read(sessionProvider).isLoggedIn) return;
   final wxId = readJwtWxId(ref.read(sessionProvider).accessToken);
   if (!isUcgWxAccountBound(wxId)) return;
