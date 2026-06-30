@@ -149,6 +149,9 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     return pos.maxScrollExtent - pos.pixels <= 1;
   }
 
+  /// 滚动位置已贴住列表底端（含短列表 `maxScrollExtent == 0`）。
+  bool get _isPinnedAtBottom => isScrolledToBottom;
+
   bool get _isNearBottom {
     if (!_controller.hasClients) return _followLatest;
     final pos = _controller.position;
@@ -175,6 +178,12 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     setState(() => _bottomPullExtent = 0);
   }
 
+  void _resetBottomPullOnGestureStart() {
+    if (_bottomRefreshing) return;
+    if (_bottomPullExtent == 0) return;
+    setState(() => _bottomPullExtent = 0);
+  }
+
   void _addBottomPullExtent(double delta) {
     if (delta <= 0 || _bottomRefreshing) return;
     final next = (_bottomPullExtent + delta).clamp(0.0, _bottomPullTriggerThreshold * 1.5);
@@ -182,13 +191,43 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     setState(() => _bottomPullExtent = next);
   }
 
+  void _finalizeBottomPullGesture({ScrollMetrics? metrics}) {
+    if (_bottomRefreshing) return;
+    final nearBottom =
+        metrics != null ? _isNearBottomMetrics(metrics) : _isNearBottom;
+    final shouldRefresh =
+        _bottomPullExtent >= _bottomPullTriggerThreshold && nearBottom;
+    if (shouldRefresh) {
+      unawaited(_handleBottomPullRefresh());
+    } else {
+      _resetBottomPull();
+    }
+  }
+
+  void _onBottomPullPointerDown(PointerDownEvent event) {
+    if (widget.onRefresh == null) return;
+    _resetBottomPullOnGestureStart();
+  }
+
+  void _onBottomPullPointerMove(PointerMoveEvent event) {
+    if (widget.onRefresh == null || _bottomRefreshing) return;
+    if (!_isNearBottom || !_isPinnedAtBottom) return;
+    if (event.delta.dy < 0) {
+      _addBottomPullExtent(-event.delta.dy);
+    }
+  }
+
+  void _onBottomPullPointerUp(PointerEvent event) {
+    if (widget.onRefresh == null || _bottomRefreshing) return;
+    if (!_isPinnedAtBottom) return;
+    _finalizeBottomPullGesture();
+  }
+
   bool _onScrollNotification(ScrollNotification notification) {
     if (widget.onRefresh == null) return false;
 
     if (notification is ScrollStartNotification) {
-      if (!_bottomRefreshing) {
-        setState(() => _bottomPullExtent = 0);
-      }
+      _resetBottomPullOnGestureStart();
       return false;
     }
 
@@ -218,13 +257,7 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
 
     if (notification is ScrollEndNotification) {
       if (_bottomRefreshing) return false;
-      final shouldRefresh = _bottomPullExtent >= _bottomPullTriggerThreshold &&
-          _isNearBottomMetrics(notification.metrics);
-      if (shouldRefresh) {
-        unawaited(_handleBottomPullRefresh());
-      } else {
-        _resetBottomPull();
-      }
+      _finalizeBottomPullGesture(metrics: notification.metrics);
       return false;
     }
 
@@ -679,32 +712,25 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
           onRefresh: _handleRefresh,
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
-            child: CustomScrollView(
-              controller: _controller,
-              cacheExtent: 360,
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: ClampingScrollPhysics(),
-              ),
-              slivers: [
-                if (widget.loadingMore)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Center(
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
-                    ),
-                  ),
+            child: Listener(
+              onPointerDown: _onBottomPullPointerDown,
+              onPointerMove: _onBottomPullPointerMove,
+              onPointerUp: _onBottomPullPointerUp,
+              onPointerCancel: _onBottomPullPointerUp,
+              child: CustomScrollView(
+                controller: _controller,
+                cacheExtent: 360,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: ClampingScrollPhysics(),
+                ),
+                slivers: [
                 SliverPadding(
                   padding: const EdgeInsets.only(top: 2, bottom: 6),
                   sliver: SliverMainAxisGroup(slivers: daySlivers),
                 ),
                 bottomPullFooter,
               ],
+              ),
             ),
           ),
         ),

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../../../config/env.dart';
 import '../../../data/history_edit_media_item.dart';
 import '../../data/ucg_album_picker.dart';
 import '../../data/ucg_compose_initial_media.dart';
@@ -25,7 +26,7 @@ Future<UcgComposeInitialMedia?> showUcgComposeEntrySheet(
     scrollable: true,
     useLightGlass: true,
     glassContentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
-    bodyBuilder: (ctx) => const _EntrySheetBody(showCamera: !kIsWeb),
+    bodyBuilder: (ctx) => _EntrySheetBody(showCamera: !kIsWeb),
   );
   if (pick == null || !context.mounted) return null;
 
@@ -48,7 +49,13 @@ Future<UcgComposeInitialMedia?> showUcgComposeEntrySheet(
 
   final items = await Navigator.of(context).push<List<HistoryEditMediaItem>>(
     MaterialPageRoute(
-      builder: (_) => UcgAlbumPickerScreen(repo: repo, deferUpload: true),
+      builder: (_) => UcgAlbumPickerScreen(
+        repo: repo,
+        deferUpload: true,
+        lockedPickKind: AppEnv.ucgVideoUploadEnabled
+            ? UcgAlbumLockedPickKind.none
+            : UcgAlbumLockedPickKind.photos,
+      ),
     ),
   );
   if (items == null || items.isEmpty) return null;
@@ -85,6 +92,11 @@ class _EntrySheetBody extends StatelessWidget {
 /// 拍摄子选项（拍照 / 录像）— 返回本地 path。
 Future<UcgComposeInitialMedia?> showUcgCameraCaptureSheet(BuildContext context) async {
   if (kIsWeb) return null;
+  if (!AppEnv.ucgVideoUploadEnabled) {
+    final path = await ucgCapturePhotoLocalPath();
+    if (path == null || !context.mounted) return null;
+    return UcgComposeInitialMedia(imageLocalPaths: [path]);
+  }
   final isVideo = await showGlassAdaptiveBottomSheet<bool>(
     context: context,
     scrollable: true,
@@ -158,6 +170,7 @@ Future<UcgComposeInitialMedia?> ucgPickVideoForCompose(
   BuildContext context, {
   required UcgRepository repo,
 }) async {
+  if (!AppEnv.ucgVideoUploadEnabled) return null;
   if (kIsWeb) {
     try {
       return await ucgPickMediaWebLocalFallback(maxImages: 1);

@@ -9,6 +9,7 @@ import '../session/token_expiry.dart';
 import '../ucg/data/ucg_media_picker.dart';
 import '../ucg/data/ucg_presign.dart';
 import '../ucg/data/ucg_repository.dart';
+import '../config/env.dart';
 import '../ucg/data/ucg_video_upload.dart';
 
 /// 广场同步帖子正文：第一行「{宝宝名}的{事件名}」，备注非空时第二行。
@@ -39,6 +40,7 @@ class HistoryEventSquareSyncResult {
     required this.imageKeys,
     required this.videoKey,
     this.skippedUcg = false,
+    this.videoUploadSkipped = false,
     this.ucgError,
   });
 
@@ -47,6 +49,8 @@ class HistoryEventSquareSyncResult {
   final List<String> imageKeys;
   final String videoKey;
   final bool skippedUcg;
+  /// 同步时因上传开关关闭而跳过本地视频（图片部分仍可能已同步）。
+  final bool videoUploadSkipped;
   final String? ucgError;
 }
 
@@ -92,6 +96,7 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
     }
     try {
       final uploaded = await _uploadHistoryMedia(ucgRepo: ucgRepo, media: media);
+      final videoUploadSkipped = uploaded.skippedLocalVideoDisabled;
       if (existingPostId > 0) {
         final post = await ucgRepo.updatePost(
           postId: '$existingPostId',
@@ -106,6 +111,7 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
           mediaType: uploaded.imageKeys.isNotEmpty ? 1 : (uploaded.videoKey.isNotEmpty ? 2 : 0),
           imageKeys: uploaded.imageKeys,
           videoKey: uploaded.videoKey,
+          videoUploadSkipped: videoUploadSkipped,
         );
       }
       if (uploaded.imageKeys.isEmpty && uploaded.videoKey.isEmpty && caption.trim().isEmpty) {
@@ -114,6 +120,7 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
           mediaType: 0,
           imageKeys: const [],
           videoKey: '',
+          videoUploadSkipped: videoUploadSkipped,
         );
       }
       final post = await ucgRepo.createPost(
@@ -128,6 +135,7 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
         mediaType: uploaded.imageKeys.isNotEmpty ? 1 : (uploaded.videoKey.isNotEmpty ? 2 : 0),
         imageKeys: uploaded.imageKeys,
         videoKey: uploaded.videoKey,
+        videoUploadSkipped: videoUploadSkipped,
       );
     } catch (e) {
       return HistoryEventSquareSyncResult(
@@ -181,12 +189,17 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
   );
 }
 
-Future<({List<String> imageKeys, String videoKey})> _uploadHistoryMedia({
+Future<({
+  List<String> imageKeys,
+  String videoKey,
+  bool skippedLocalVideoDisabled,
+})> _uploadHistoryMedia({
   required UcgRepository ucgRepo,
   required List<HistoryEditMediaItem> media,
 }) async {
   final imageKeys = <String>[];
   String videoKey = '';
+  var skippedLocalVideoDisabled = false;
 
   for (final item in media) {
     switch (item) {
@@ -198,6 +211,10 @@ Future<({List<String> imageKeys, String videoKey})> _uploadHistoryMedia({
         final file = File(path);
         if (!await file.exists()) continue;
         if (isVideo) {
+          if (!AppEnv.ucgVideoUploadEnabled) {
+            skippedLocalVideoDisabled = true;
+            continue;
+          }
           final uploaded = await ucgUploadLocalVideo(repo: ucgRepo, sourcePath: path);
           videoKey = uploaded.objectKey;
         } else {
@@ -214,7 +231,11 @@ Future<({List<String> imageKeys, String videoKey})> _uploadHistoryMedia({
         }
     }
   }
-  return (imageKeys: imageKeys, videoKey: videoKey);
+  return (
+    imageKeys: imageKeys,
+    videoKey: videoKey,
+    skippedLocalVideoDisabled: skippedLocalVideoDisabled,
+  );
 }
 
 HistoryRecord applyMediaFieldsToRecord(

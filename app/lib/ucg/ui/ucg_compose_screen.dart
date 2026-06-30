@@ -14,6 +14,7 @@ import '../data/ucg_location.dart';
 import '../data/ucg_compose_media_slot.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
+import '../../config/env.dart';
 import '../data/ucg_video_upload.dart';
 import '../data/ucg_video_playback.dart';
 import '../providers/ucg_providers.dart';
@@ -163,6 +164,11 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       _notifySlotsChanged();
     }
     if (initial.videoLocalPath != null && initial.videoLocalPath!.isNotEmpty) {
+      if (!AppEnv.ucgVideoUploadEnabled) {
+        _toast(kUcgVideoUploadDisabledMessage);
+        if (mounted) _notifySlotsChanged();
+        return;
+      }
       if (_imageSlots.isNotEmpty) {
         _toast('已选择图片，不能再添加视频');
         if (mounted) _notifySlotsChanged();
@@ -699,23 +705,17 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                                       ),
                                                     ),
                                                   if (slot.status ==
-                                                          UcgComposeMediaSlotStatus.preparing ||
-                                                      slot.status ==
-                                                          UcgComposeMediaSlotStatus.uploading)
+                                                      UcgComposeMediaSlotStatus.uploading)
                                                     Positioned.fill(
                                                       child: ClipRRect(
                                                         borderRadius:
                                                             BorderRadius.circular(ucgComposeCellRadius),
                                                         child: ColoredBox(
                                                           color: Colors.black.withValues(alpha: 0.45),
-                                                          child: Center(
+                                                          child: const Center(
                                                             child: Text(
-                                                              slot.status ==
-                                                                      UcgComposeMediaSlotStatus
-                                                                          .preparing
-                                                                  ? '正在处理视频…'
-                                                                  : '正在上传…',
-                                                              style: const TextStyle(
+                                                              '正在上传…',
+                                                              style: TextStyle(
                                                                 color: Colors.white,
                                                                 fontSize: 12,
                                                               ),

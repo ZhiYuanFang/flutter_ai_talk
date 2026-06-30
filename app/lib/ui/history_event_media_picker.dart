@@ -4,7 +4,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'dart:typed_data';
 
+import '../config/env.dart';
 import '../data/history_edit_media_item.dart';
+import '../ucg/data/ucg_video_upload.dart';
 import '../ucg/data/ucg_album_picker.dart';
 import '../ucg/data/ucg_repository.dart';
 import '../ucg/data/ucg_album_selection.dart';
@@ -45,7 +47,15 @@ Future<List<HistoryEditMediaItem>?> pickHistoryEventMedia({
   }
 
   if (kIsWeb) {
-    return _pickFromWeb(imageCount);
+    try {
+      return await _pickFromWeb(imageCount);
+    } on UcgAlbumMixedMediaException {
+      showAppToast('不能同时选择图片和视频', tone: AppToastTone.error);
+      return null;
+    } on StateError catch (e) {
+      showAppToast(e.message, tone: AppToastTone.error);
+      return null;
+    }
   }
 
   final remaining = _kMaxImages - imageCount;
@@ -55,8 +65,9 @@ Future<List<HistoryEditMediaItem>?> pickHistoryEventMedia({
         repo: repo,
         maxPhotos: remaining,
         deferUpload: true,
-        lockedPickKind:
-            imageCount > 0 ? UcgAlbumLockedPickKind.photos : UcgAlbumLockedPickKind.none,
+        lockedPickKind: imageCount > 0 || !AppEnv.ucgVideoUploadEnabled
+            ? UcgAlbumLockedPickKind.photos
+            : UcgAlbumLockedPickKind.none,
       ),
     ),
   );
@@ -98,6 +109,12 @@ Future<List<HistoryEditMediaItem>?> _pickFromCamera(
   if (hasImages) {
     showAppToast('已有图片，不能再添加视频', tone: AppToastTone.error);
     return null;
+  }
+  if (!AppEnv.ucgVideoUploadEnabled) {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.camera, imageQuality: 90);
+    if (file == null) return null;
+    return [HistoryEditLocalFile(path: file.path, isVideo: false)];
   }
   final isVideo = await showGlassAdaptiveBottomSheet<bool>(
     context: context,
@@ -144,10 +161,19 @@ Future<List<HistoryEditMediaItem>?> _pickFromWeb(int imageCount) async {
   for (final f in picked) {
     final mime = f.mimeType ?? '';
     if (mime.startsWith('video/')) {
+      if (!AppEnv.ucgVideoUploadEnabled) {
+        throw UcgAlbumMixedMediaException();
+      }
       hasVideo = true;
     } else {
       hasImage = true;
     }
+  }
+  if (hasVideo && !AppEnv.ucgVideoUploadEnabled) {
+    if (!hasImage) {
+      throw StateError(kUcgVideoUploadDisabledMessage);
+    }
+    throw UcgAlbumMixedMediaException();
   }
   if (hasImage && hasVideo) {
     throw UcgAlbumMixedMediaException();

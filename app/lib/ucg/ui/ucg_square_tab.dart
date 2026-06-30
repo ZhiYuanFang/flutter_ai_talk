@@ -129,6 +129,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   String? _nextCursor;
   var _hasMore = true;
   var _loading = false;
+  var _pullRefreshing = false;
   var _loadPhase = _SquareLoadPhase.idle;
   var _initialLoaded = false;
   var _didEmptyRetry = false;
@@ -157,12 +158,18 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     }
   }
 
-  Future<void> _load({required bool refresh}) async {
+  Future<void> _load({required bool refresh, bool fromPullRefresh = false}) async {
     if (_loading) return;
     if (_mode == _SquareFeedMode.following && !ref.read(sessionProvider).isLoggedIn) return;
+    final pullRefresh = fromPullRefresh && _initialLoaded;
     setState(() {
       _loading = true;
-      _loadPhase = refresh ? _SquareLoadPhase.locating : _SquareLoadPhase.fetchingFeed;
+      _pullRefreshing = pullRefresh;
+      if (pullRefresh) {
+        _loadPhase = _SquareLoadPhase.idle;
+      } else {
+        _loadPhase = refresh ? _SquareLoadPhase.locating : _SquareLoadPhase.fetchingFeed;
+      }
       _error = null;
       if (refresh) {
         _nextCursor = null;
@@ -178,7 +185,9 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         if (refresh) {
           coords = await ensureUcgLocationForDistance(context, ref);
           if (!mounted) return;
-          setState(() => _loadPhase = _SquareLoadPhase.fetchingFeed);
+          if (!_pullRefreshing) {
+            setState(() => _loadPhase = _SquareLoadPhase.fetchingFeed);
+          }
         }
         final result = await repo.fetchRecommendedFeed(
           cursor: refresh ? null : _nextCursor,
@@ -211,7 +220,9 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         if (refresh) {
           final coords = await ensureUcgLocationForDistance(context, ref);
           if (!mounted) return;
-          setState(() => _loadPhase = _SquareLoadPhase.fetchingFeed);
+          if (!_pullRefreshing) {
+            setState(() => _loadPhase = _SquareLoadPhase.fetchingFeed);
+          }
           _followingLat = coords?.lat;
           _followingLng = coords?.lng;
         }
@@ -236,6 +247,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         setState(() {
           _loading = false;
           _loadPhase = _SquareLoadPhase.idle;
+          _pullRefreshing = false;
         });
       }
     }
@@ -312,7 +324,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
           const UcgLocationSettingsHint(),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () => _load(refresh: true),
+              onRefresh: () => _load(refresh: true, fromPullRefresh: true),
               child: _buildBody(fg, loggedIn),
             ),
           ),
@@ -376,7 +388,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_loading && _loadPhase != _SquareLoadPhase.idle)
+        if (_loading && !_pullRefreshing && _loadPhase != _SquareLoadPhase.idle)
           _SquareLoadStatusPanel(phase: _loadPhase, mode: _mode, compact: true),
         Expanded(
           child: MasonryGridView.count(
@@ -386,7 +398,8 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
             crossAxisCount: 2,
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
-            itemCount: _items.length + (_loading && _loadPhase == _SquareLoadPhase.fetchingFeed ? 1 : 0),
+            itemCount: _items.length +
+                (_loading && !_pullRefreshing && _loadPhase == _SquareLoadPhase.fetchingFeed ? 1 : 0),
             itemBuilder: (context, index) {
               if (index >= _items.length) {
                 return _SquareLoadStatusPanel(

@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../config/env.dart';
 import '../../data/history_edit_media_item.dart';
 import '../data/ucg_album_picker.dart';
+import '../data/ucg_video_upload.dart';
 import '../data/ucg_album_permission.dart';
 import '../data/ucg_album_selection.dart';
 import '../data/ucg_repository.dart';
@@ -208,6 +210,10 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
     for (final f in picked) {
       final mime = f.mimeType ?? '';
       if (mime.startsWith('video/')) {
+        if (!AppEnv.ucgVideoUploadEnabled) {
+          _toast(kUcgVideoUploadDisabledMessage);
+          return;
+        }
         hasVideo = true;
       } else {
         hasImage = true;

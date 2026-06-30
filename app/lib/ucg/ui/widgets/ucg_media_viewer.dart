@@ -162,6 +162,7 @@ class _UcgVideoSnapshotPosterState extends State<UcgVideoSnapshotPoster> {
 Future<void> showUcgPhotoLightbox(
   BuildContext context, {
   required List<String> urls,
+  List<String>? thumbnailUrls,
   int initialIndex = 0,
 }) {
   if (urls.isEmpty) return Future.value();
@@ -171,12 +172,21 @@ Future<void> showUcgPhotoLightbox(
       opaque: false,
       barrierColor: Colors.black.withValues(alpha: 0.92),
       transitionDuration: const Duration(milliseconds: 200),
-      pageBuilder: (context, animation, secondaryAnimation) =>
-          _UcgPhotoLightbox(urls: urls, initialIndex: index),
+      pageBuilder: (context, animation, secondaryAnimation) => _UcgPhotoLightbox(
+        urls: urls,
+        thumbnailUrls: thumbnailUrls,
+        initialIndex: index,
+      ),
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
           FadeTransition(opacity: animation, child: child),
     ),
   );
+}
+
+bool _lightboxHasDistinctThumbnail(String? thumbnailUrl, String fullUrl) {
+  final thumb = thumbnailUrl?.trim();
+  if (thumb == null || thumb.isEmpty) return false;
+  return thumb != fullUrl;
 }
 
 /// Fullscreen pinch-zoom for a single local/remote image.
@@ -439,18 +449,20 @@ class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
     }
     final url = widget.url;
     if (url != null && url.isNotEmpty) {
-      return Image.network(url, fit: BoxFit.contain);
+      return UcgNetworkImage(
+        url: url,
+        fit: BoxFit.contain,
+        showLoadingIndicator: true,
+        errorBuilder: (_, __, ___) =>
+            Icon(Icons.broken_image_outlined, color: Colors.white.withValues(alpha: 0.5), size: 48),
+      );
     }
     final path = widget.filePath;
     if (!kIsWeb && path != null && path.isNotEmpty && File(path).existsSync()) {
       return Image.file(File(path), fit: BoxFit.contain);
     }
     if (_loadingPath) {
-      return const SizedBox(
-        width: 28,
-        height: 28,
-        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
-      );
+      return const UcgNetworkImageLoadingIndicator();
     }
     return Icon(Icons.broken_image_outlined, color: Colors.white.withValues(alpha: 0.5), size: 48);
   }
@@ -712,9 +724,14 @@ class _UcgLocalVideoThumbState extends State<UcgLocalVideoThumb> {
 }
 
 class _UcgPhotoLightbox extends StatefulWidget {
-  const _UcgPhotoLightbox({required this.urls, required this.initialIndex});
+  const _UcgPhotoLightbox({
+    required this.urls,
+    required this.initialIndex,
+    this.thumbnailUrls,
+  });
 
   final List<String> urls;
+  final List<String>? thumbnailUrls;
   final int initialIndex;
 
   @override
@@ -759,21 +776,38 @@ class _UcgPhotoLightboxState extends State<_UcgPhotoLightbox> {
                 _index = i;
                 _zoomed = false;
               }),
-              itemBuilder: (context, i) => _UcgFullscreenDismissLayer(
-                enabled: !_zoomed,
-                onDismiss: () => Navigator.of(context).pop(),
-                onDragActiveChanged: (active) {
-                  if (_blockPageScroll != active) {
-                    setState(() => _blockPageScroll = active);
-                  }
-                },
-                child: _ResetZoomPhoto(
-                  url: widget.urls[i],
-                  onZoomed: (zoomed) {
-                    if (_zoomed != zoomed) setState(() => _zoomed = zoomed);
+              itemBuilder: (context, i) {
+                final fullUrl = widget.urls[i];
+                final thumb = widget.thumbnailUrls != null && i < widget.thumbnailUrls!.length
+                    ? widget.thumbnailUrls![i]
+                    : null;
+                final zoomPhoto = _lightboxHasDistinctThumbnail(thumb, fullUrl)
+                    ? _ProgressiveZoomPhoto(
+                        key: ValueKey<String>('prog-$fullUrl'),
+                        fullUrl: fullUrl,
+                        thumbnailUrl: thumb!,
+                        onZoomed: (zoomed) {
+                          if (_zoomed != zoomed) setState(() => _zoomed = zoomed);
+                        },
+                      )
+                    : _ResetZoomPhoto(
+                        key: ValueKey<String>('full-$fullUrl'),
+                        url: fullUrl,
+                        onZoomed: (zoomed) {
+                          if (_zoomed != zoomed) setState(() => _zoomed = zoomed);
+                        },
+                      );
+                return _UcgFullscreenDismissLayer(
+                  enabled: !_zoomed,
+                  onDismiss: () => Navigator.of(context).pop(),
+                  onDragActiveChanged: (active) {
+                    if (_blockPageScroll != active) {
+                      setState(() => _blockPageScroll = active);
+                    }
                   },
-                ),
-              ),
+                  child: zoomPhoto,
+                );
+              },
             ),
             Positioned(
               top: 8,
@@ -1071,7 +1105,7 @@ class _UcgFullscreenDismissLayerState extends State<_UcgFullscreenDismissLayer>
 
 /// Pinch-zoom photo; animates back to identity scale on gesture end.
 class _ResetZoomPhoto extends StatefulWidget {
-  const _ResetZoomPhoto({required this.url, this.onZoomed});
+  const _ResetZoomPhoto({super.key, required this.url, this.onZoomed});
 
   final String url;
   final ValueChanged<bool>? onZoomed;
@@ -1137,7 +1171,175 @@ class _ResetZoomPhotoState extends State<_ResetZoomPhoto> with SingleTickerProvi
       scaleEnabled: true,
       onInteractionEnd: (_) => unawaited(_animateToIdentity()),
       child: Center(
-        child: UcgNetworkImage(url: widget.url, fit: BoxFit.contain),
+        child: UcgNetworkImage(
+          url: widget.url,
+          fit: BoxFit.contain,
+          showLoadingIndicator: true,
+          errorBuilder: (_, __, ___) => Icon(
+            Icons.broken_image_outlined,
+            color: Colors.white.withValues(alpha: 0.5),
+            size: 48,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+const _kFullImageFadeDuration = Duration(milliseconds: 180);
+
+/// 先展示缩略图，全分辨率就绪后淡入。
+class _ProgressiveZoomPhoto extends StatefulWidget {
+  const _ProgressiveZoomPhoto({
+    super.key,
+    required this.fullUrl,
+    required this.thumbnailUrl,
+    this.onZoomed,
+  });
+
+  final String fullUrl;
+  final String thumbnailUrl;
+  final ValueChanged<bool>? onZoomed;
+
+  @override
+  State<_ProgressiveZoomPhoto> createState() => _ProgressiveZoomPhotoState();
+}
+
+class _ProgressiveZoomPhotoState extends State<_ProgressiveZoomPhoto>
+    with SingleTickerProviderStateMixin {
+  final _controller = TransformationController();
+  AnimationController? _resetAnim;
+  var _zoomed = false;
+  var _fullReady = false;
+  var _fullFailed = false;
+  ImageStream? _fullImageStream;
+  ImageStreamListener? _fullImageListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTransformChanged);
+    _listenFullImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProgressiveZoomPhoto oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fullUrl != widget.fullUrl) {
+      _teardownFullListen();
+      setState(() {
+        _fullReady = false;
+        _fullFailed = false;
+      });
+      _listenFullImage();
+    }
+  }
+
+  @override
+  void dispose() {
+    _teardownFullListen();
+    _controller.removeListener(_onTransformChanged);
+    _resetAnim?.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _teardownFullListen() {
+    final stream = _fullImageStream;
+    final listener = _fullImageListener;
+    if (stream != null && listener != null) {
+      stream.removeListener(listener);
+    }
+    _fullImageStream = null;
+    _fullImageListener = null;
+  }
+
+  void _listenFullImage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final provider = ucgNetworkImageProvider(widget.fullUrl);
+      final stream = provider.resolve(createLocalImageConfiguration(context));
+      final listener = ImageStreamListener(
+        (ImageInfo _, bool __) {
+          if (!mounted || _fullReady) return;
+          setState(() => _fullReady = true);
+        },
+        onError: (_, __) {
+          if (!mounted) return;
+          setState(() => _fullFailed = true);
+        },
+      );
+      _fullImageStream = stream;
+      _fullImageListener = listener;
+      stream.addListener(listener);
+    });
+  }
+
+  void _onTransformChanged() {
+    final scale = _controller.value.getMaxScaleOnAxis();
+    final zoomed = (scale - 1.0).abs() > 0.02;
+    if (zoomed != _zoomed) {
+      _zoomed = zoomed;
+      widget.onZoomed?.call(zoomed);
+    }
+  }
+
+  Future<void> _animateToIdentity() async {
+    if (_controller.value.isIdentity()) return;
+    _resetAnim?.dispose();
+    _resetAnim = AnimationController(vsync: this, duration: _kPinchResetDuration);
+    final begin = Matrix4.copy(_controller.value);
+    final anim = _resetAnim!;
+    void tick() {
+      _controller.value = Matrix4Tween(begin: begin, end: Matrix4.identity()).evaluate(
+        CurvedAnimation(parent: anim, curve: Curves.easeOut),
+      );
+    }
+
+    anim.addListener(tick);
+    await anim.forward();
+    anim.removeListener(tick);
+    anim.dispose();
+    _resetAnim = null;
+  }
+
+  static Widget _brokenIcon() {
+    return Icon(
+      Icons.broken_image_outlined,
+      color: Colors.white.withValues(alpha: 0.5),
+      size: 48,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InteractiveViewer(
+      transformationController: _controller,
+      minScale: 0.85,
+      maxScale: 4,
+      panEnabled: _zoomed,
+      scaleEnabled: true,
+      onInteractionEnd: (_) => unawaited(_animateToIdentity()),
+      child: Center(
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            UcgNetworkImage(url: widget.thumbnailUrl, fit: BoxFit.contain),
+            if (!_fullFailed)
+              AnimatedOpacity(
+                opacity: _fullReady ? 1 : 0,
+                duration: _fullReady ? _kFullImageFadeDuration : Duration.zero,
+                curve: Curves.easeOut,
+                child: UcgNetworkImage(url: widget.fullUrl, fit: BoxFit.contain),
+              )
+            else
+              Positioned(
+                bottom: 24,
+                child: _brokenIcon(),
+              ),
+          ],
+        ),
       ),
     );
   }

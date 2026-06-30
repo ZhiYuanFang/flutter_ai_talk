@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../config/env.dart';
 import 'ucg_compose_initial_media.dart';
 import 'ucg_media_picker.dart';
 import 'ucg_presign.dart';
@@ -21,6 +22,7 @@ Future<UcgComposeInitialMedia?> ucgUploadAlbumAssets({
 
   final first = assets.first;
   if (first.type == AssetType.video) {
+    if (!AppEnv.ucgVideoUploadEnabled) return null;
     if (assets.length > 1) return null;
     final file = await first.file;
     if (file == null) return null;
@@ -60,10 +62,19 @@ Future<UcgComposeInitialMedia?> ucgPickMediaWebLocalFallback({
   for (final f in picked) {
     final mime = f.mimeType ?? '';
     if (mime.startsWith('video/')) {
+      if (!AppEnv.ucgVideoUploadEnabled) {
+        throw UcgAlbumMixedMediaException();
+      }
       hasVideo = true;
     } else {
       hasImage = true;
     }
+  }
+  if (hasVideo && !AppEnv.ucgVideoUploadEnabled) {
+    if (!hasImage) {
+      throw StateError(kUcgVideoUploadDisabledMessage);
+    }
+    throw UcgAlbumMixedMediaException();
   }
   if (hasImage && hasVideo) {
     throw UcgAlbumMixedMediaException();
@@ -101,10 +112,19 @@ Future<UcgComposeInitialMedia?> ucgPickMediaWebFallback({
   for (final f in picked) {
     final mime = f.mimeType ?? '';
     if (mime.startsWith('video/')) {
+      if (!AppEnv.ucgVideoUploadEnabled) {
+        throw UcgAlbumMixedMediaException();
+      }
       hasVideo = true;
     } else {
       hasImage = true;
     }
+  }
+  if (hasVideo && !AppEnv.ucgVideoUploadEnabled) {
+    if (!hasImage) {
+      throw StateError(kUcgVideoUploadDisabledMessage);
+    }
+    throw UcgAlbumMixedMediaException();
   }
   if (hasImage && hasVideo) {
     throw UcgAlbumMixedMediaException();

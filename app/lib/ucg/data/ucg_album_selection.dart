@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../config/env.dart';
+
 enum UcgAlbumPickMode { idle, photos, video }
 
 /// 打开相册前已确定的媒体类型（如 compose 已有图时再追加）。
@@ -55,6 +57,9 @@ class UcgAlbumSelectionController extends ChangeNotifier {
       _selected.any((e) => e.id == asset.id);
 
   bool isDisabled(AssetEntity asset) {
+    if (!AppEnv.ucgVideoUploadEnabled && asset.type == AssetType.video) {
+      return true;
+    }
     final m = mode;
     if (m == UcgAlbumPickMode.idle) return false;
     if (asset.type == AssetType.video) return m == UcgAlbumPickMode.photos;
@@ -62,6 +67,9 @@ class UcgAlbumSelectionController extends ChangeNotifier {
   }
 
   bool canTap(AssetEntity asset) {
+    if (!AppEnv.ucgVideoUploadEnabled && asset.type == AssetType.video) {
+      return false;
+    }
     if (isDisabled(asset)) return false;
     if (isSelected(asset)) return true;
     if (asset.type == AssetType.video) return mode == UcgAlbumPickMode.idle;

@@ -195,7 +195,12 @@ class UcgMomentsMediaGrid extends StatelessWidget {
                     onImageTap!(i);
                     return;
                   }
-                  showUcgPhotoLightbox(context, urls: fullUrls, initialIndex: i);
+                  showUcgPhotoLightbox(
+                    context,
+                    urls: fullUrls,
+                    thumbnailUrls: List.generate(fullUrls.length, _thumbnailAt),
+                    initialIndex: i,
+                  );
                 },
                 behavior: HitTestBehavior.opaque,
                 child: image,

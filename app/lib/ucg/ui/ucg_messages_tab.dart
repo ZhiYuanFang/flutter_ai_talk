@@ -30,8 +30,9 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   var _conversations = <UcgConversation>[];
   var _convPage = 1;
   var _convHasMore = true;
-  var _convLoading = true;
+  var _convInitialLoading = true;
   var _convLoadingMore = false;
+  var _lastInteractionUnread = 0;
   String? _convError;
   StreamSubscription<UcgChatMessage>? _wsMsgSub;
   StreamSubscription<void>? _wsNotifSub;
@@ -40,7 +41,7 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    unawaited(_loadConversationsFirst());
+    unawaited(_loadConversationsFirst(initial: true));
     _bindWsListeners();
   }
 
@@ -66,33 +67,69 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   }
 
   void _onScroll() {
-    if (!_convHasMore || _convLoadingMore || _convLoading) return;
+    if (!_convHasMore || _convLoadingMore || _convInitialLoading) return;
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       unawaited(_loadConversationsMore());
     }
   }
 
-  Future<void> _loadConversationsFirst() async {
-    setState(() {
-      _convLoading = true;
-      _convError = null;
-      _convPage = 1;
-    });
+  static bool _conversationContentEqual(UcgConversation a, UcgConversation b) {
+    return a.id == b.id &&
+        a.peerId == b.peerId &&
+        a.peerNickname == b.peerNickname &&
+        a.peerAvatarKey == b.peerAvatarKey &&
+        a.peerAvatarCdnUrl == b.peerAvatarCdnUrl &&
+        a.peerAvatarThumbnailCdnUrl == b.peerAvatarThumbnailCdnUrl &&
+        a.lastMessagePreview == b.lastMessagePreview &&
+        a.lastMessageAt == b.lastMessageAt &&
+        a.unreadCount == b.unreadCount &&
+        a.pinned == b.pinned;
+  }
+
+  List<UcgConversation> _mergeConversations(
+    List<UcgConversation> current,
+    List<UcgConversation> remote,
+  ) {
+    final byId = {for (final c in current) c.id: c};
+    final merged = <UcgConversation>[];
+    for (final remoteItem in remote) {
+      final existing = byId[remoteItem.id];
+      if (existing != null && _conversationContentEqual(existing, remoteItem)) {
+        merged.add(existing);
+      } else {
+        merged.add(remoteItem);
+      }
+    }
+    return merged;
+  }
+
+  Future<void> _loadConversationsFirst({bool initial = false}) async {
+    if (initial) {
+      setState(() {
+        _convInitialLoading = true;
+        _convError = null;
+        _convPage = 1;
+      });
+    }
     try {
       final page = await ref.read(ucgRepositoryProvider).fetchConversations(page: 1);
       final enriched = await ref.read(ucgRepositoryProvider).enrichConversationsWithPeerProfiles(page.items);
       if (!mounted) return;
       setState(() {
-        _conversations = enriched;
+        _conversations = initial || _conversations.isEmpty
+            ? enriched
+            : _mergeConversations(_conversations, enriched);
         _convPage = page.page;
         _convHasMore = page.hasMore;
-        _convLoading = false;
+        _convInitialLoading = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _convLoading = false;
-        _convError = '加载失败';
+        _convInitialLoading = false;
+        if (initial || _conversations.isEmpty) {
+          _convError = '加载失败';
+        }
       });
     }
   }
@@ -166,14 +203,21 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
     final fmt = DateFormat('MM-dd HH:mm');
+    ref.listen<AsyncValue<UcgPagedCommentNotifications>>(ucgCommentNotificationsProvider, (_, next) {
+      final count = next.valueOrNull?.unreadCount;
+      if (count != null) {
+        _lastInteractionUnread = count;
+      }
+    });
     final notificationsAsync = ref.watch(ucgCommentNotificationsProvider);
-    final interactionUnread = notificationsAsync.valueOrNull?.unreadCount ?? 0;
+    final interactionUnread =
+        notificationsAsync.valueOrNull?.unreadCount ?? _lastInteractionUnread;
 
     return UcgTabPage(
       title: '消息',
       subtitle: '与宝妈宝爸私信聊天',
       leading: ucgBackLeading(context, widget.onBackToFeeding),
-      body: _convLoading && notificationsAsync.isLoading
+      body: _convInitialLoading && _conversations.isEmpty
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
           : _convError != null && _conversations.isEmpty
               ? UcgEmptyState(
@@ -199,7 +243,7 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
                           );
                         },
                       ),
-                      if (_conversations.isEmpty && ! _convLoading) ...[
+                      if (_conversations.isEmpty && !_convInitialLoading) ...[
                         const SizedBox(height: 24),
                         UcgEmptyState(
                           icon: Icons.chat_bubble_outline_rounded,
@@ -211,6 +255,7 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
                         if (i == 0) const SizedBox(height: 10),
                         if (i > 0) const SizedBox(height: 10),
                         _ConversationTile(
+                          key: ValueKey(_conversations[i].id),
                           conversation: _conversations[i],
                           fg: fg,
                           primary: primary,
@@ -311,6 +356,7 @@ class _InteractionSystemRow extends StatelessWidget {
 
 class _ConversationTile extends StatelessWidget {
   const _ConversationTile({
+    super.key,
     required this.conversation,
     required this.fg,
     required this.primary,

@@ -122,12 +122,10 @@ Future<void> uploadComposeMediaSlot({
         repo: repo,
         sourcePath: path,
         sourceBytes: slot.localBytes,
-        onPhase: (phase) {
+        onPhase: (_) {
           if (slot.removed) return;
-          AppDebugLog.ucgCompose('compose slot phase ${phase.name} slotId=${slot.id}');
-          slot.status = phase == UcgVideoUploadPhase.preparing
-              ? UcgComposeMediaSlotStatus.preparing
-              : UcgComposeMediaSlotStatus.uploading;
+          AppDebugLog.ucgCompose('compose slot phase uploading slotId=${slot.id}');
+          slot.status = UcgComposeMediaSlotStatus.uploading;
           onUpdated?.call();
         },
       );

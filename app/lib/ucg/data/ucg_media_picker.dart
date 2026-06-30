@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
+import '../../config/env.dart';
 import 'ucg_media_compress.dart';
 import 'ucg_media_limits.dart';
 import 'ucg_presign.dart';
@@ -154,6 +155,9 @@ class UcgChatLocalPick {
 
 /// 聊天附件：仅选择本地文件，不上传 OSS。
 Future<UcgChatLocalPick?> ucgPickChatMediaLocal({required bool isVideo}) async {
+  if (isVideo && !AppEnv.ucgVideoUploadEnabled) {
+    throw StateError(kUcgVideoUploadDisabledMessage);
+  }
   if (isVideo) {
     final file = await _picker.pickVideo(
       source: ImageSource.gallery,

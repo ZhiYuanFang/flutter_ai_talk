@@ -34,7 +34,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[ApiHttp]` | `ApiClient` HTTP 请求/响应（敏感字段已脱敏） |
 | `[UcgFeed]` | 广场 Feed 加载/下拉刷新各阶段耗时 |
 | `[UcgLocation]` | UCG 坐标 consent / 缓存命中 / GPS 刷新 |
-| `[UcgVideo]` | 本地视频 validate / ffmpeg normalize / OSS 上传门闸 |
+| `[UcgVideo]` | 本地视频 validate / v1 直传 / 上传门闸 |
 | `[UcgCompose]` | compose 槽位上传、ensure 重试、发布各阶段（upload / location / createPost） |
 | `[UcgPlay]` | CDN 内联播放 init/play/runtime 失败（ExoPlayer `errorDescription`） |
 | `[UcgUnread]` | UCG 未读 HTTP 校准失败（`sync err=`） |
@@ -101,28 +101,35 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 3. token 轮换时 `reconnect(resetStrike: false)`；lifecycle `onAppLifecycleResumed`
 4. Debug 日志走白名单 tag；失败路径记录 `err=`（勿打 token）
 
-### UCG 本地视频上传（normalize）
+### UCG 本地视频上传
 
 - **统一入口**：所有本地视频 OSS 上传 MUST 经 `ucgUploadLocalVideo`（compose、聊天、历史同步、相册直传）。
-- **iOS/Android**：每条本地视频经 `ffmpeg_kit_flutter_new_min_gpl` 转码为 H.264 Main（level 3.1）+ AAC（无音轨补静音）+ bt709 色域 + `-movflags +faststart`，`transform_version` **`v2`**；不再因 ≤20MB 跳过转码。
-- **上传门闸**：normalize 成功后、OSS 上传前，对临时 MP4 做 ExoPlayer 试 init（`VideoPlayerController.file`，超时 ~8s）；失败则不上传，compose/聊天提示「视频无法处理，请换一段视频或稍后重试」。
-- **Web**：校验后直传 raw（`transform_version` **`v1`**），不使用 ffmpeg.wasm；canonical MP4 由 **go_ai_talk 服务端 ffmpeg worker** 异步补齐（Phase 2，本仓库不实现）。
-- **APK 体积**：`ffmpeg_kit_flutter_new_min_gpl` 约增加数 MB/ABI（min-gpl 变体）；Play 分发建议 `.aab`。
-- **播放**：CDN/内联仅 App 内 `VideoPlayer`（Media3 ExoPlayer）；失败 overlay 仅「重试」，不提供站外/系统播放器兜底。已用旧 v2 转码且 App 内仍不能播的帖需**重新上传**。
+- **默认关闭**：`UCG_VIDEO_UPLOAD_ENABLED` 默认 `false`；关闭时隐藏录像/选视频/聊天视频附件/历史本地视频入口，**已有 `videoKey` 的 CDN 播放不受影响**。
+- **v1 直传（全平台）**：校验后读取 raw bytes 上传 OSS，`transform_version` **`v1`**；canonical MP4 由 **go_ai_talk 服务端 ffmpeg worker** 异步补齐（本仓库不实现客户端转码）。
+- **客户端转码已移除**：不再依赖 `ffmpeg_kit_flutter_new_min_gpl`（避免部分 release 包 JNI 注册失败导致插件链中断）。
+- **播放**：CDN/内联仅 App 内 `VideoPlayer`（Media3 ExoPlayer）；失败 overlay 仅「重试」，不提供站外/系统播放器兜底。
 
-Debug 下 `[UcgVideo]` 日志可确认 normalize 色域摘要（`normalize colors`）、probe（`probe ok/fail`）与 v2 上传字节数（见上方 logcat 脚本 `$Tags`）。
+**后期开通本地视频上传**（服务端 v1 转码就绪后）：
+
+```bash
+cd app
+flutter run -d android --dart-define=UCG_VIDEO_UPLOAD_ENABLED=true
+flutter build apk --release --dart-define=UCG_VIDEO_UPLOAD_ENABLED=true
+```
+
+Debug 下 `[UcgVideo]` 日志可确认 validate 与 v1 上传（`upload ok transform=v1`）；见上方 logcat 脚本 `$Tags`。
 
 **Compose 发布失败排查**（终端 B 按时间线对齐）：
 
 1. `[UcgCompose]` — 槽位 `start/phase/ok/fail`、`ensure retry/incomplete`、`publish start/ok/fail stage=…`
-2. `[UcgVideo]` — 若 stage 卡在 `upload`：`validate fail`、`normalize fail`、`probe fail`、`upload fail` 及 ffmpeg tail
+2. `[UcgVideo]` — 若 stage 卡在 `upload`：`validate fail`、`upload fail`、或 `upload disabled`
 3. `[ApiHttp]` — 若 stage 为 `createPost`：对照 `POST …/posts` 或 `PATCH …/posts/…` 响应
 
 **CDN 播放失败排查**（终端 B 按时间线对齐）：
 
 1. `[UcgPlay]` — `init fail` / `runtime fail` 的 `err=`（ExoPlayer `errorDescription`）
-2. 若内联仍失败 — 浏览器/`curl -I` 验证 CDN URL 与 `Content-Type`；对照同帖 `[UcgVideo] normalize colors`（不应出现 `color_space=gbr`）与 `probe ok`
-3. 新发帖仍 `init fail` — 对照 `[UcgVideo] upload ok transform=v2` 与 probe 是否通过
+2. 若内联仍失败 — 浏览器/`curl -I` 验证 CDN URL 与 `Content-Type`
+3. 新发帖仍 `init fail` — 确认服务端 v1 转码是否已完成；对照 `[UcgVideo] upload ok transform=v1`
 
 ### 语音识别（设置中心）
 
@@ -486,6 +493,7 @@ flutter run -d chrome --dart-define=MOCK_NEWER_VERSION=true --web-browser-flag "
 | `IOS_APP_STORE_ID` | App Store 数字 ID（占位） |
 | `MOCK_NEWER_VERSION` | `true` 时强制出现「发现新版本」提示（联调 UI） |
 | `FORCE_IPV4` | `true` 时 Android/iOS 原生端 HTTP/WebSocket 仅走 IPv4（部分双栈网络连通性止血）；默认 `false` |
+| `UCG_VIDEO_UPLOAD_ENABLED` | `true` 时开放 UCG 本地视频选择与 v1 直传；默认 `false`（隐藏上传入口，保留 CDN 播放） |
 
 示例：
 

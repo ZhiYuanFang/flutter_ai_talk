@@ -13,6 +13,7 @@ import '../../theme/app_visual_tokens.dart';
 import '../theme/ucg_theme.dart';
 import '../data/ucg_media_picker.dart';
 import '../data/ucg_models.dart';
+import '../../config/env.dart';
 import '../data/ucg_video_upload.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_login_gate.dart';
@@ -441,11 +442,12 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
               title: const Text('发送图片'),
               onTap: () => Navigator.pop(ctx, 'image'),
             ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined),
-              title: const Text('发送视频'),
-              onTap: () => Navigator.pop(ctx, 'video'),
-            ),
+            if (AppEnv.ucgVideoUploadEnabled)
+              ListTile(
+                leading: const Icon(Icons.videocam_outlined),
+                title: const Text('发送视频'),
+                onTap: () => Navigator.pop(ctx, 'video'),
+              ),
           ],
         ),
       ),
@@ -1024,7 +1026,11 @@ class _MediaImage extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: GestureDetector(
-        onTap: () => showUcgPhotoLightbox(context, urls: [fullUrl]),
+        onTap: () => showUcgPhotoLightbox(
+          context,
+          urls: [fullUrl],
+          thumbnailUrls: [previewUrl],
+        ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: ConstrainedBox(

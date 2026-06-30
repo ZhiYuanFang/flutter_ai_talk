@@ -18,6 +18,7 @@ import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../ucg/data/ucg_album_picker.dart';
 import '../ucg/data/ucg_location.dart';
+import '../ucg/data/ucg_video_upload.dart';
 import '../ucg/providers/ucg_providers.dart';
 import 'event_logo.dart';
 import 'history_event_media_picker.dart';
@@ -376,6 +377,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
 
       if (syncResult.skippedUcg) {
         showAppToast('请先绑定微信账号后再同步广场', tone: AppToastTone.info);
+      } else if (syncResult.videoUploadSkipped) {
+        showAppToast(kUcgVideoUploadDisabledMessage, tone: AppToastTone.info);
       } else if (syncResult.ucgError != null) {
         showAppToast('媒体同步失败，历史已保存', tone: AppToastTone.info);
       }

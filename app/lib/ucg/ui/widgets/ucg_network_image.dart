@@ -20,6 +20,20 @@ int? _memCacheDimension(double? logical, BuildContext context) {
   return (logical * dpr).round();
 }
 
+/// 全屏 lightbox 等场景的远程图加载指示；列表缩略图默认不展示。
+class UcgNetworkImageLoadingIndicator extends StatelessWidget {
+  const UcgNetworkImageLoadingIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 28,
+      height: 28,
+      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+    );
+  }
+}
+
 /// 圆形头像：ClipOval + [UcgNetworkImage]，规避 Web 上 CircleAvatar/DecorationImage 的 CORS 限制。
 class UcgAvatar extends StatelessWidget {
   const UcgAvatar({
@@ -83,6 +97,7 @@ class UcgNetworkImage extends StatelessWidget {
     this.fit,
     this.alignment = Alignment.center,
     this.errorBuilder,
+    this.showLoadingIndicator = false,
   });
 
   final String url;
@@ -91,6 +106,9 @@ class UcgNetworkImage extends StatelessWidget {
   final BoxFit? fit;
   final AlignmentGeometry alignment;
   final ImageErrorWidgetBuilder? errorBuilder;
+  final bool showLoadingIndicator;
+
+  static Widget _loadingIndicator() => const UcgNetworkImageLoadingIndicator();
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +120,12 @@ class UcgNetworkImage extends StatelessWidget {
         fit: fit,
         alignment: alignment,
         errorBuilder: errorBuilder,
+        loadingBuilder: showLoadingIndicator
+            ? (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return _loadingIndicator();
+              }
+            : null,
         webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
       );
     }
@@ -115,6 +139,9 @@ class UcgNetworkImage extends StatelessWidget {
       // 不需要修改图片尺寸，url本身已经附带了尺寸
       // memCacheWidth: _memCacheDimension(width, context),
       // memCacheHeight: _memCacheDimension(height, context),
+      placeholder: showLoadingIndicator ? (_, __) => _loadingIndicator() : null,
+      progressIndicatorBuilder:
+          showLoadingIndicator ? (_, __, ___) => _loadingIndicator() : null,
       errorWidget: errorBuilder == null
           ? null
           : (context, imageUrl, error) =>

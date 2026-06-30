@@ -15,11 +15,11 @@ abstract final class UcgMediaLimits {
 /// 图片 prepared bytes 哈希管线版本。
 const kUcgMediaTransformVersionImage = 'v1';
 
-/// Web 端视频直传（服务端转码前）。
-const kUcgMediaTransformVersionVideoWeb = 'v1';
+/// 全平台视频直传（服务端转码前）。
+const kUcgMediaTransformVersionVideo = 'v1';
 
-/// 原生 ffmpeg normalize 后视频。
-const kUcgMediaTransformVersionVideoNative = 'v2';
+/// @deprecated 使用 [kUcgMediaTransformVersionVideo]。
+const kUcgMediaTransformVersionVideoWeb = kUcgMediaTransformVersionVideo;
 
 /// 图片默认 transform_version（向后兼容别名）。
 const kUcgMediaTransformVersion = kUcgMediaTransformVersionImage;
