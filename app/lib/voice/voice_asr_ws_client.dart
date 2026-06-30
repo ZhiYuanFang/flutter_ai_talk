@@ -213,6 +213,9 @@ class VoiceAsrWsClient {
     _emitReady(false);
   }
 
+  /// 登出或离开 Home：断开 ASR WebSocket，保留 client 供下次 connect。
+  Future<void> disconnect() => _tearDownSocket();
+
   Future<void> _stopPcm() async {
     _onLevel = null;
     _onPcmDiagnostics = null;

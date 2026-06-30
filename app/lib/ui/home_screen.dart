@@ -23,6 +23,7 @@ import '../ucg/providers/ucg_providers.dart';
 import '../data/event_branding.dart';
 import '../bootstrap/cold_start_background_sync.dart';
 import '../bootstrap/gateway_bootstrap_gate.dart';
+import '../bootstrap/pangbao_transport_release.dart';
 import '../data/event_catalog_state.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
@@ -164,7 +165,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _recordingDiagnosticsNotifier =
         ValueNotifier(const RecordingDiagnosticsSnapshot());
     if (ref.read(sessionProvider).isLoggedIn) {
-      ref.read(ucgRepositoryProvider);
       unawaited(ref.read(deviceNoNotifierProvider.notifier).refresh());
       unawaited(ref.read(signInChannelProvider.notifier).restoreFromPrefs());
     }
@@ -516,7 +516,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       unawaited(_initMobileSpeech());
     }
-    _scheduleVoiceAsrConnectIfNeeded();
     final feed = ref.read(feedRepositoryProvider);
     _wsReady = feed.isHistoryWebSocketReady;
     _historyWsPhase = feed.historyWsPhase;
@@ -545,13 +544,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!mounted) return;
     _scheduleDeferredCatalogLogoDownloads();
     if (!mounted) return;
-    await _delayBeforeHistoryWebSocketOnIos();
-    if (!mounted) return;
-    _subscribeHistoryWebSocketIfNeeded();
+    await _startHomePangbaoTransportsAfterGate();
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_runHomeDialogBootstrap());
     });
+  }
+
+  Future<void> _startHomePangbaoTransportsAfterGate() async {
+    mountUcgHomeTransportsIfEligible(ref);
+    await _delayBeforeHistoryWebSocketOnIos();
+    if (!mounted) return;
+    _subscribeHistoryWebSocketIfNeeded();
+    _scheduleVoiceAsrConnectIfNeeded();
   }
 
   static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
@@ -607,10 +612,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!mounted) return;
     _scheduleDeferredCatalogLogoDownloads();
     if (!mounted) return;
-    await _delayBeforeHistoryWebSocketOnIos();
-    if (!mounted) return;
-    _subscribeHistoryWebSocketIfNeeded();
-    _scheduleVoiceAsrConnectIfNeeded();
+    await _startHomePangbaoTransportsAfterGate();
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_runHomeDialogBootstrap());
@@ -1235,6 +1237,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _wsReadySub?.cancel();
     _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();
+    unawaited(releasePangbaoHomeTransports(ref));
     _webFocusNode.dispose();
     _webController.dispose();
     _voiceLevelNotifier.dispose();
@@ -1260,9 +1263,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    // 登录后停留喂养页即初始化 UCG repo 与未读同步，无需先进入广场。
-    ref.watch(ucgRepositoryProvider);
-
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
       if (prev != true || !loggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {

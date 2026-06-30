@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bootstrap/gateway_bootstrap_gate.dart';
+import '../bootstrap/pangbao_transport_release.dart';
 import '../config/env.dart';
 import '../data/remote_auth_repository.dart';
 import '../data/remote_feed_repository.dart';
@@ -14,7 +15,6 @@ import '../session/session_controller.dart';
 import '../network/ws_session_binding.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
-import 'event_catalog_notifier.dart';
 import 'session_provider.dart';
 import 'sign_in_channel_provider.dart';
 import 'toast_bus.dart';
@@ -49,9 +49,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
     sessionProvider.select((s) => s.isLoggedIn),
     (prev, loggedIn) {
       if (prev == true && !loggedIn) {
-        remote.disconnectHistoryWebSocket();
-        ref.read(eventCatalogProvider.notifier).cancelLogoDownloads();
-        GatewayBootstrapGate.reset();
+        unawaited(releasePangbaoHomeTransports(ref));
       }
     },
   );

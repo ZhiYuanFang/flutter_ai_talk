@@ -75,3 +75,11 @@
 - [x] 13.3 仍不 mount `feedRepositoryProvider` / `ucgRepositoryProvider`；logo 可调数量/并发
 - [ ] 13.4 iOS 真机（wxId）：二分最小复现集 + CLEAN vs POST-HOME 对比记录
 - [x] 13.5 logo **全量 catalog + 全并发/6 并发**；**Home 真实并行**（init 旁路 ∥ gate，logo 不 await）
+
+## 14. pangbao 传输生命周期（POST-HOME 污染 fix）
+
+- [x] 14.1 `releasePangbaoHomeTransports`：history WS + UCG chat WS + Voice ASR disconnect + cancel logo + gate reset
+- [x] 14.2 登出 / 切账号 / `HomeScreen.dispose`（离开 Home）统一 release
+- [x] 14.3 UCG repo **gate 后** `mountUcgHomeTransportsIfEligible`；移除 initState/build 抢先 mount
+- [x] 14.4 Voice ASR 建连移至 gate 后（与 history WS 同 `_startHomePangbaoTransportsAfterGate`）
+- [ ] 14.5 iOS 真机：进 Home → 回探针 / 设置 version/check 仍 ✓；不杀 App 不复现 POLLUTED
