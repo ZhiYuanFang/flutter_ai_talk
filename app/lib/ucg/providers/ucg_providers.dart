@@ -88,13 +88,13 @@ void _syncUcgWsDesired(dynamic ref, UcgRepository repo) {
   }
 }
 
-Future<void> syncUcgUnreadAndBadge(Ref ref) async {
+Future<void> syncUcgUnreadAndBadge(dynamic ref) async {
   await syncUcgUnreadFromServer(ref);
   await syncUcgLauncherBadgeFromUnread(ref);
 }
 
 /// HTTP 校准未读（会话 + 互动 OR）；WS ready baseline / resume / 登录 / 已读 reconcile 使用。
-Future<void> syncUcgUnreadFromServer(Ref ref) async {
+Future<void> syncUcgUnreadFromServer(dynamic ref) async {
   if (_syncUcgUnreadInFlight != null) {
     await _syncUcgUnreadInFlight;
     return;
@@ -110,7 +110,7 @@ Future<void> syncUcgUnreadFromServer(Ref ref) async {
   }
 }
 
-Future<void> _syncUcgUnreadFromServerOnce(Ref ref) async {
+Future<void> _syncUcgUnreadFromServerOnce(dynamic ref) async {
   if (!ref.read(sessionProvider).isLoggedIn) return;
   if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
   try {
@@ -164,7 +164,7 @@ void maybeSyncUcgUnreadBaselineOnWsReady(Ref ref) {
   }());
 }
 
-Future<void> syncUcgLauncherBadgeFromUnread(Ref ref) async {
+Future<void> syncUcgLauncherBadgeFromUnread(dynamic ref) async {
   if (kIsWeb) return;
   final count = ref.read(ucgUnreadCountProvider);
   try {

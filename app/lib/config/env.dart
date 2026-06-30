@@ -212,7 +212,7 @@ abstract final class AppEnv {
   /// 为 `true` 时登录/冷启动已登录跳转 HTTP 探针页（`--dart-define=IOS_LOGIN_HTTP_PROBE=true`）。
   static const iosLoginHttpProbe = bool.fromEnvironment(
     'IOS_LOGIN_HTTP_PROBE',
-    defaultValue: true,
+    defaultValue: false,
   );
 
   static String get postLoginRoute =>
