@@ -249,7 +249,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _afterLoginSuccess() async {
     await ref.read(deviceNoNotifierProvider.notifier).refresh();
-    if (mounted) context.go('/home');
+    if (mounted) context.go(AppEnv.postLoginRoute);
   }
 
   bool get _canRedirectWebWeChatAuthorize {

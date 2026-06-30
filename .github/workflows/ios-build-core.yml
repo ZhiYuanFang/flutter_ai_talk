@@ -538,7 +538,7 @@ jobs:
           args+=("--dart-define=WECHAT_APP_ID=$WECHAT_APP_ID")
           args+=("--dart-define=WECHAT_UNIVERSAL_LINK=$WECHAT_UNIVERSAL_LINK")
           if [[ "$TARGET_CHANNEL" == "adhoc" ]]; then
-            ADHOC_API_BASE_URL="https://test.pangbao.cuplay.top"
+            ADHOC_API_BASE_URL="https://pangbao.cuplay.top"
             args+=("--dart-define=API_BASE_URL=$ADHOC_API_BASE_URL")
             echo "[Build] API_BASE_URL=$ADHOC_API_BASE_URL"
           fi

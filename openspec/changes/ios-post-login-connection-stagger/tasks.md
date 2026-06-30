@@ -56,3 +56,14 @@
 - [x] 11.2 iOS 已登录：catalog refresh **不**立即 logo 下载；gate + version 后 `runDeferredLogoDownloads()`
 - [x] 11.3 iOS logo 并发 6→2；登出 `cancelLogoDownloads()` 释放 in-flight HTTP
 - [x] 11.4 KeepAlive 登录路径补 `_runHomeDialogBootstrap`（notify）
+
+## 12. iOS 登录 HTTP 探针页（诊断）
+
+- [x] 12.1 `IOS_LOGIN_HTTP_PROBE` + `/dev/ios-login-http-probe` 路由（须已登录）
+- [x] 12.2 登录与冷启动已登录跳转 `AppEnv.postLoginRoute`（不 mount Home）
+- [x] 12.3 4 接口（options/list/user/get/version）**并发/串行**测试 + 结果展示
+- [ ] 12.4 iOS 真机记录：并发 vs 串行 vs 进 home 对比结论
+- [x] 12.5 探针页增加 **history WS** + **ucg/chat WS**（独立 `ResilientWebSocketClient`，不 `watch(ucgRepositoryProvider)`）
+- [x] 12.6 模式：**先 WS 再 HTTP 并发**、**WS+HTTP 同时并发**；账号/Apple 用户可「强制 chat WS」
+- [x] 12.7 探针 dispose / 「断开 WS」释放连接槽位
+- [ ] 12.8 iOS 真机记录：HTTP-only vs HTTP+2WS 并发 vs 串行对比结论

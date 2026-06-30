@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/session_provider.dart';
+import '../config/env.dart';
 import 'focus_cleanup_observer.dart';
 import '../ucg/ui/ucg_home_shell.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
+import '../ui/dev/ios_login_http_probe_screen.dart';
 import '../ui/login_screen.dart';
 import '../ui/register_screen.dart';
 import '../ui/policy_screen.dart';
@@ -49,7 +51,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           loc == '/pangbao' ||
           loc == '/settings';
       if (guestAllowed) {
-        if (session.isLoggedIn && (loggingIn || registering)) return '/home';
+        if (session.isLoggedIn && (loggingIn || registering)) {
+          return AppEnv.postLoginRoute;
+        }
+        return null;
+      }
+      if (loc == '/dev/ios-login-http-probe') {
+        if (!session.isLoggedIn) return '/login';
         return null;
       }
       if (!session.isLoggedIn && settingsPathsRequiringLogin.contains(loc)) {
@@ -66,6 +74,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/auth/wechat/callback',
         builder: (context, state) => const WeChatOAuthCallbackScreen(),
+      ),
+      GoRoute(
+        path: '/dev/ios-login-http-probe',
+        builder: (context, state) => const IosLoginHttpProbeScreen(),
       ),
       GoRoute(
         path: '/login',

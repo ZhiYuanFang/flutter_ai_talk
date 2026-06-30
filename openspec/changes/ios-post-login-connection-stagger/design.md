@@ -49,6 +49,10 @@
 - 登出 `cancelLogoDownloads()` 取消 in-flight logo HTTP。
 - `tryReconnectHistoryWs` 须 `GatewayBootstrapGate.isLoggedInComplete`。
 
+### 11. iOS 登录 HTTP 探针页（12.x）
+
+**决策**：`IOS_LOGIN_HTTP_PROBE=true` 时登录/冷启动跳转 `/dev/ios-login-http-probe`，仅手动触发 4 路 pangbao HTTP（并发/串行），不 bootstrap、不 WS。用于二分「槽位/并发 vs Home 附加连接」。
+
 ## Decisions
 
 ### 1. 已登录 ColdStartBackgroundSync 改为串行 HTTP

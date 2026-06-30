@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/env.dart';
 import '../data/models.dart';
 import '../session/session_controller.dart';
 import '../theme/custom_background_persist.dart';
@@ -33,7 +34,7 @@ class ColdStartBootstrap {
     ]);
     final themePrefs = loaded[1] as ThemePreferences;
     return ColdStartResult(
-      route: '/home',
+      route: AppEnv.postLoginRoute,
       cachedSex: loaded[0] as BabySex?,
       cachedBg: themePrefs.seed,
       cachedPreset: themePrefs.preset,
