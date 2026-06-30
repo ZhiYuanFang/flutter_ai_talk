@@ -21,3 +21,8 @@
 - [ ] 5.1 **iOS 真机**：未登录可开隐私政策 → 登录 → 设置「检查更新」成功、隐私政策 WebView 可加载、首页历史 WS 在 bootstrap 后就绪（允许 1–2s 延迟）
 - [ ] 5.2 **Android 冒烟**：登录、添加历史事件、WS 推送、登出后 WS 关闭无异常
 - [ ] 5.3 确认 notify banner 在未登录/已登录均正常（独立 host 不受影响）
+
+## 6. 账号管理网络异常逃生
+
+- [x] 6.1 `account_management_sheet`：profile 加载失败时展示友好文案、「重试」与「切换账号」（不依赖 profile 接口成功）
+- [x] 6.2 `_switchAccount` 切换前调用 `disconnectHistoryWebSocket()`，尽快释放 pangbao 连接槽位

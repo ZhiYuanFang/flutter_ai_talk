@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -66,27 +68,16 @@ class _AccountManagementSheetBodyState
         padding: EdgeInsets.symmetric(vertical: 32),
         child: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Text(
-          '加载账号信息失败：$e',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: glassLabel, fontSize: 14),
-        ),
+      error: (e, _) => _buildProfileLoadErrorContent(
+        error: e,
+        glassText: glassText,
+        glassLabel: glassLabel,
       ),
       data: (profile) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '账号管理',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: glassText,
-            ),
-          ),
+          _buildSheetTitle(glassText),
           const SizedBox(height: 16),
           if (profile.hasAccount)
             _AccountActionTile(
@@ -133,12 +124,7 @@ class _AccountManagementSheetBodyState
                   : () => _bindWeChat(context),
             ),
           Divider(color: glassLabel.withValues(alpha: 0.2), height: 24),
-          _AccountActionTile(
-            icon: Icons.swap_horiz,
-            title: '切换账号',
-            glassText: glassText,
-            onTap: () => _switchAccount(),
-          ),
+          _buildSwitchAccountTile(glassText),
           _AccountActionTile(
             icon: Icons.delete_forever,
             title: '注销账户',
@@ -159,6 +145,72 @@ class _AccountManagementSheetBodyState
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSheetTitle(Color glassText) {
+    return Text(
+      '账号管理',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        color: glassText,
+      ),
+    );
+  }
+
+  String _profileLoadErrorMessage(Object error) {
+    if (error is ApiHttpException) {
+      return '网络异常，请检查网络后重试';
+    }
+    if (error is ApiBusinessException) {
+      return error.message;
+    }
+    if (error is SocketException || error is IOException) {
+      return '网络异常，请检查网络后重试';
+    }
+    return '加载账号信息失败，请稍后重试';
+  }
+
+  Widget _buildProfileLoadErrorContent({
+    required Object error,
+    required Color glassText,
+    required Color glassLabel,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSheetTitle(glassText),
+        const SizedBox(height: 16),
+        Text(
+          _profileLoadErrorMessage(error),
+          textAlign: TextAlign.center,
+          style: TextStyle(color: glassLabel, fontSize: 14),
+        ),
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: () => ref.invalidate(userProfileProvider),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(double.infinity, 44),
+            shape: const StadiumBorder(),
+          ),
+          child: const Text('重试'),
+        ),
+        const SizedBox(height: 8),
+        Divider(color: glassLabel.withValues(alpha: 0.2), height: 24),
+        _buildSwitchAccountTile(glassText),
+      ],
+    );
+  }
+
+  Widget _buildSwitchAccountTile(Color glassText) {
+    return _AccountActionTile(
+      icon: Icons.swap_horiz,
+      title: '切换账号',
+      glassText: glassText,
+      onTap: () => _switchAccount(),
     );
   }
 
@@ -292,6 +344,7 @@ class _AccountManagementSheetBodyState
     try {
       await ref.read(authRepositoryProvider).signOut();
     } finally {
+      ref.read(feedRepositoryProvider).disconnectHistoryWebSocket();
       await ref.read(sessionProvider).signOut();
       await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await ref.read(signInChannelProvider.notifier).clear();
