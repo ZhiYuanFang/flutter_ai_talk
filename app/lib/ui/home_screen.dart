@@ -516,11 +516,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       unawaited(_initMobileSpeech());
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_runHomeDialogBootstrap());
-    });
     _scheduleVoiceAsrConnectIfNeeded();
-    unawaited(_bootstrapHomeData());
     final feed = ref.read(feedRepositoryProvider);
     _wsReady = feed.isHistoryWebSocketReady;
     _historyWsPhase = feed.historyWsPhase;
@@ -543,6 +539,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         _maybeShowGaveUpSnackbar();
       }
     });
+    await _bootstrapHomeData();
+    if (!mounted) return;
+    await _runPostLoginBootstrap();
+    if (!mounted) return;
     _sseSub = feed.watchLatest().listen((payload) {
       final removed = payload.removedRecordId;
       if (removed != null) {
@@ -557,6 +557,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         _onWsNewHistoryRecord(r);
         _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
       }
+    });
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_runHomeDialogBootstrap());
     });
   }
 
@@ -663,8 +667,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         repo: const NotifyBannerRepository(),
       );
     } catch (_) {}
-    if (!mounted) return;
-    await _runPostLoginBootstrap();
   }
 
   /// 版本检查与宝宝信息：Splash 已做本地门禁后进主页，此处后台补全。

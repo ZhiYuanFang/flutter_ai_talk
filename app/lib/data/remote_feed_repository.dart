@@ -196,6 +196,12 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
+  void disconnectHistoryWebSocket() {
+    _wsClient.setSubscribeActive(false);
+    _wsClient.setConnectionDesired(false);
+  }
+
+  @override
   Future<void> clearCache() async {
     _cache.clear();
     await HomeHistoryStore.clearAll();

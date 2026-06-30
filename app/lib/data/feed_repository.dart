@@ -62,6 +62,9 @@ abstract class FeedRepository {
   /// 断开并重新建立历史 WebSocket；[resetStrike] 为 true 时先清零 strike 并退出 gave-up。
   Future<void> reconnectHistoryWebSocket({bool resetStrike = false});
 
+  /// 登出或 tearDown：关闭订阅与连接，不发起新 connect。
+  void disconnectHistoryWebSocket();
+
   /// App 从后台 resume；gave-up 态下不得自动重连。
   void onAppLifecycleResumed();
 

@@ -9,6 +9,8 @@ import 'package:go_router/go_router.dart';
 import '../config/env.dart';
 import '../config/event_media_local_store.dart';
 import '../data/models.dart';
+import '../data/repositories.dart' show readPackageVersion;
+import '../providers/repositories.dart' show versionRepositoryProvider;
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
@@ -20,6 +22,7 @@ import '../theme/theme_custom_color_wheel.dart';
 import '../theme/theme_preset.dart';
 import 'account_management_sheet.dart';
 import 'speech_engine_tile.dart';
+import 'version_prompt.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/settings_glass_panel.dart';
@@ -32,6 +35,51 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  String? _currentVersion;
+  var _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentVersion();
+  }
+
+  Future<void> _loadCurrentVersion() async {
+    try {
+      final version = await readPackageVersion();
+      if (mounted) setState(() => _currentVersion = version);
+    } catch (_) {}
+  }
+
+  Future<void> _onCheckUpdateTap() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      final version = _currentVersion ?? await readPackageVersion();
+      if (!mounted) return;
+      if (_currentVersion == null) {
+        setState(() => _currentVersion = version);
+      }
+      final info = await ref.read(versionRepositoryProvider).checkForUpdate(version);
+      if (!mounted) return;
+      if (info != null) {
+        await maybeShowVersionPrompt(
+          context: context,
+          repo: ref.read(versionRepositoryProvider),
+          currentVersion: version,
+        );
+      } else {
+        ref.showApiToast('已是最新版本', tone: AppToastTone.success);
+      }
+    } catch (_) {
+      if (mounted) {
+        ref.showApiToast('检查失败，请稍后重试', tone: AppToastTone.error);
+      }
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final babyAsync = ref.watch(settingsBabyProvider);
@@ -113,6 +161,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              _buildGlassTile(
+                context,
+                leading: Icons.system_update_outlined,
+                title: '检查更新',
+                subtitle: _currentVersion == null ? '加载中…' : '当前版本 $_currentVersion',
+                checking: _checking,
+                onTap: _onCheckUpdateTap,
+              ),
+              const SizedBox(height: 12),
               if (loggedIn) ...[
                 _buildGlassTile(
                   context,
@@ -166,6 +223,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required IconData leading,
     required String title,
     String? subtitle,
+    bool checking = false,
     required VoidCallback onTap,
   }) {
     final tokens = visualTokensOf(context);
@@ -184,8 +242,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         subtitle: subtitle != null
             ? Text(subtitle, style: TextStyle(color: onShell.withValues(alpha: 0.7)))
             : null,
-        trailing: Icon(Icons.chevron_right, size: 20, color: onShell.withValues(alpha: 0.5)),
-        onTap: onTap,
+        trailing: checking
+            ? SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+              )
+            : Icon(Icons.chevron_right, size: 20, color: onShell.withValues(alpha: 0.5)),
+        onTap: checking ? null : onTap,
       ),
     );
   }

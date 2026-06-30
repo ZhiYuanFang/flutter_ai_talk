@@ -44,16 +44,10 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
   ref.listen<bool>(
     sessionProvider.select((s) => s.isLoggedIn),
     (prev, loggedIn) {
-      if (loggedIn) {
-        tryReconnectHistoryWs(resetStrike: true);
-      } else {
-        tryReconnectHistoryWs();
+      if (prev == true && !loggedIn) {
+        remote.disconnectHistoryWebSocket();
       }
     },
-  );
-  ref.listen<AsyncValue<String?>>(
-    deviceNoNotifierProvider,
-    (_, __) => tryReconnectHistoryWs(resetStrike: true),
   );
   ref.listen<String?>(
     sessionProvider.select((s) => s.accessToken),

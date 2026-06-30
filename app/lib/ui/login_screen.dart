@@ -8,12 +8,9 @@ import '../api/api_exceptions.dart';
 import '../config/env.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart';
-import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
 import '../session/credential_history_store.dart';
-import '../theme/app_theme_scope.dart';
-import '../theme/theme_bootstrap_cache.dart';
 import 'auth/auth_field_scroll.dart';
 import 'auth/auth_ui.dart';
 import 'widgets/keyboard_lift.dart';
@@ -252,10 +249,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _afterLoginSuccess() async {
     await ref.read(deviceNoNotifierProvider.notifier).refresh();
-    ref.invalidate(settingsBabyProvider);
-    final baby = await ref.read(settingsRepositoryProvider).loadBaby();
-    ref.read(babySexProvider.notifier).state = baby.sex;
-    await persistCachedBabySex(baby.sex);
     if (mounted) context.go('/home');
   }
 

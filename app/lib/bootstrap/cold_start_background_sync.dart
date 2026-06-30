@@ -24,10 +24,9 @@ class ColdStartBackgroundSync {
       return;
     }
     await ref.read(deviceNoNotifierProvider.notifier).refresh();
-    await Future.wait<void>([
-      ref.read(eventCatalogProvider.notifier).bootstrap(),
-      ref.read(homeHistoryProvider.notifier).refreshFromRemote(),
-    ]);
+    // 串行 HTTP，避免 iOS 同 host 连接槽与历史 WS 握手并行占满。
+    await ref.read(eventCatalogProvider.notifier).bootstrap();
+    await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
     ref.read(homeHistoryProvider.notifier).markInitialLoadComplete();
   }
 }
