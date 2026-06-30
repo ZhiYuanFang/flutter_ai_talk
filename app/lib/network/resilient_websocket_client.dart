@@ -76,6 +76,7 @@ class ResilientWebSocketClient {
   }
 
   void setConnectionDesired(bool desired) {
+    return;//历史测试
     final wasDesired = _connectionDesired;
     _connectionDesired = desired;
     if (desired) {

@@ -657,12 +657,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   /// 维护公告优先于版本弹窗；未登录用户也会拉取 notify banner。
   Future<void> _runHomeDialogBootstrap() async {
-    // try {
-    //   await maybeShowNotifyBannerPrompt(
-    //     context: context,
-    //     repo: const NotifyBannerRepository(),
-    //   );
-    // } catch (_) {}
+    try {
+      await maybeShowNotifyBannerPrompt(
+        context: context,
+        repo: const NotifyBannerRepository(),
+      );
+    } catch (_) {}
     if (!mounted) return;
     await _runPostLoginBootstrap();
   }
