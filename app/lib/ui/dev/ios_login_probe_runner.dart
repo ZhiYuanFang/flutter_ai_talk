@@ -216,12 +216,12 @@ class IosLoginProbeRunner {
               skipped: true,
             );
           }
-          realMounts?.mountUcgRepo(ref);
+          await realMounts?.mountUcgRepo(ref);
           return ProbeRunResult(
             label: item.label,
             ok: true,
             elapsedMs: sw.elapsedMilliseconds,
-            detail: 'ucgRepository mounted · mountUcgHomeTransportsIfEligible',
+            detail: 'activateUcgHomeSession: unread → WS → push',
           );
         case HomeProbeItem.realLogoDeferredBackground:
           realMounts?.startLogoDeferredUnawaited(ref);

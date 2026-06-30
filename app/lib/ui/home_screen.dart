@@ -553,7 +553,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Future<void> _startHomePangbaoTransportsAfterGate() async {
-    mountUcgHomeTransportsIfEligible(ref);
+    await mountUcgHomeTransportsIfEligible(ref);
     await _delayBeforeHistoryWebSocketOnIos();
     if (!mounted) return;
     _subscribeHistoryWebSocketIfNeeded();

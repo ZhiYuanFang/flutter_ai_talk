@@ -6,8 +6,6 @@ import '../../bootstrap/pangbao_transport_release.dart';
 import '../../providers/event_catalog_notifier.dart';
 import '../../providers/home_history_notifier.dart';
 import '../../providers/repositories.dart';
-import '../../providers/session_provider.dart';
-import '../../session/token_expiry.dart';
 import '../../ucg/providers/ucg_providers.dart';
 
 /// 探针页挂载真实 Home Riverpod provider（与 fake transports 对照）。
@@ -24,14 +22,8 @@ class IosLoginProbeRealMounts {
     feed.ensureHistoryWebSocketConnected();
   }
 
-  void mountUcgRepo(WidgetRef ref) {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
-    final wxId = readJwtWxId(ref.read(sessionProvider).accessToken);
-    if (!isUcgWxAccountBound(wxId)) return;
-    ref.read(ucgRepositoryProvider);
-    // 探针页非 Home 挂载：直接 desired=true，绕过 PangbaoHomeTransportGate。
-    ref.read(ucgRepositoryProvider).setWsConnectionDesired(true);
-    unawaited(syncUcgUnreadFromServer(ref as Ref));
+  Future<void> mountUcgRepo(WidgetRef ref) async {
+    await activateUcgHomeSession(ref as Ref, requireHomeMounted: false);
   }
 
   void startLogoDeferredUnawaited(WidgetRef ref) {

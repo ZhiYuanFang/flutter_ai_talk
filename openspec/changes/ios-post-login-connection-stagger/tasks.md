@@ -90,3 +90,10 @@
 - [x] 15.2 `PangbaoHomeTransportGate`：Home 挂载计数；`release` 用 `ref.exists(feedRepositoryProvider)`；token/refresh reconnect 仅 Home 挂载时
 - [x] 15.3 探针 v3：**REAL** feed/ucg/logo deferred/home watch 项 + 「污染检测」+ 「释放 REAL mounts」
 - [ ] 15.4 iOS 真机：REAL 项二分最小复现集；release 后进 Home 再回探针 version/check 仍 ✓
+
+## 16. UCG provider 副作用 gate（探针定位：REAL ucgRepo 污染）
+
+- [x] 16.1 `activateUcgHomeSession` / `deactivateUcgHomeSession`：provider 创建不 push/WS/unread；gate 后串行 unread → WS → push
+- [x] 16.2 `ucgRepositoryProvider` 监听仅在 `_ucgHomeSessionActive` 时 reconnect / push / unread；wsReady baseline 去重
+- [x] 16.3 Home `await mountUcgHomeTransportsIfEligible`；探针 REAL ucg 走 `activateUcgHomeSession(requireHomeMounted: false)`
+- [ ] 16.4 iOS 真机：REAL ucgRepo 后污染检测 ✓；进 Home → 回探针 version/check + notify ✓
