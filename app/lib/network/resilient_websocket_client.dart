@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../api/app_debug_log.dart';
@@ -13,6 +15,15 @@ class ResilientWebSocketClient {
   ResilientWebSocketClient(this._config);
 
   static const _maxPreconditionRetries = 12;
+
+  static bool get _iosWsBackoff => !kIsWeb && Platform.isIOS;
+
+  static Duration get _postCloseSettleDelay =>
+      Duration(milliseconds: _iosWsBackoff ? 300 : 50);
+
+  static int get _reconnectBaseMs => _iosWsBackoff ? 3000 : 1000;
+
+  static int get _preconditionBaseMs => _iosWsBackoff ? 1500 : 500;
 
   final WsConnectionConfig _config;
   final _rng = Random();
@@ -233,6 +244,7 @@ class ResilientWebSocketClient {
       await _ws?.sink.close();
     } catch (_) {}
     _ws = null;
+    await Future<void>.delayed(_postCloseSettleDelay);
 
     _log('connect start gen=$gen url=${_config.url}');
     try {
@@ -483,7 +495,7 @@ class ResilientWebSocketClient {
     if (_handshakeAttemptActive) return;
     if (_reconnectTimer != null) return;
     _emitPhase(WsConnectionPhase.autoReconnecting);
-    final baseMs = min(500 * (1 << _preconditionRetryIndex), 5000);
+    final baseMs = min(_preconditionBaseMs * (1 << _preconditionRetryIndex), 5000);
     final jitterMs = _rng.nextInt(251);
     final delay = Duration(milliseconds: baseMs + jitterMs);
     _preconditionRetryIndex++;
@@ -506,7 +518,7 @@ class ResilientWebSocketClient {
     if (!_mayAutoReconnect()) return;
     if (_reconnectTimer != null) return;
     _emitPhase(WsConnectionPhase.autoReconnecting);
-    final baseMs = min(1000 * (1 << _backoffIndex), 30000);
+    final baseMs = min(_reconnectBaseMs * (1 << _backoffIndex), 30000);
     final jitterMs = _rng.nextInt(501);
     final delay = Duration(milliseconds: baseMs + jitterMs);
     _backoffIndex++;

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../bootstrap/gateway_bootstrap_gate.dart';
 import '../config/env.dart';
 import '../data/remote_auth_repository.dart';
 import '../data/remote_feed_repository.dart';
@@ -46,6 +47,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
     (prev, loggedIn) {
       if (prev == true && !loggedIn) {
         remote.disconnectHistoryWebSocket();
+        GatewayBootstrapGate.reset();
       }
     },
   );

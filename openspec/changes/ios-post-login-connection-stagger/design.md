@@ -19,10 +19,22 @@
 
 **Non-Goals:**
 
-- 不修改 notify 独立基址、网关 API 契约、`ResilientWebSocketClient` 内部 backoff 算法（除非实现中发现必须 await close）。
+- 不修改 notify 独立基址、网关 API 契约。
 - 不为 WKWebView 安装 `HttpOverrides`；不改为 Safari 外链打开隐私政策。
 - 不调整 `FORCE_IPV4` 默认值（可后续独立 change）。
 - 不重构全局 HTTP Client 单例（除非 stagger 不足时再评估）。
+
+### 6. Gateway Bootstrap Gate（P2）
+
+**决策**：新增 `GatewayBootstrapGate.ensureLoggedInComplete`：串行 `ColdStartBackgroundSync` + `loadBaby`；登出 `reset()`。`HomeScreen` 在 `isLoggedIn` false→true（KeepAlive 不重跑 `_init`）时 MUST await gate 后再建 WS，且 MUST NOT 在 listen 中并行 `_refreshEventCatalogIfReady`。
+
+### 7. 拆分 watchLatest 订阅与建连（P0）
+
+**决策**：`watchLatest()` 仅 `setSubscribeActive(true)`；`ensureHistoryWebSocketConnected()` 在 gate + `_runPostLoginBootstrap` 完成后调用。iOS 额外 `await Future.delayed(2s)` 再建连。
+
+### 8. iOS WS 重连 backoff（P1）
+
+**决策**：`ResilientWebSocketClient` 在 `sink.close()` 后 brief settle delay（iOS 300ms）；iOS 首包 reconnect 3s、precondition 1.5s（Android 不变）。
 
 ## Decisions
 

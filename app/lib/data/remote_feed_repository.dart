@@ -424,8 +424,12 @@ class RemoteFeedRepository implements FeedRepository {
   @override
   Stream<SseHistoryPayload> watchLatest() {
     _wsClient.setSubscribeActive(true);
-    _ensureWs();
     return _controller.stream;
+  }
+
+  @override
+  void ensureHistoryWebSocketConnected() {
+    _ensureWs();
   }
 
   void dispose() {

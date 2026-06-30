@@ -22,6 +22,7 @@ import '../providers/voice_asr_ws_provider.dart';
 import '../ucg/providers/ucg_providers.dart';
 import '../data/event_branding.dart';
 import '../bootstrap/cold_start_background_sync.dart';
+import '../bootstrap/gateway_bootstrap_gate.dart';
 import '../data/event_catalog_state.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
@@ -70,7 +71,6 @@ import 'widgets/managed_keyboard_text_field.dart';
 import '../ucg/ui/widgets/ucg_visual_widgets.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
-import '../theme/theme_bootstrap_cache.dart';
 import 'notify_banner_prompt.dart';
 import 'version_prompt.dart';
 
@@ -539,29 +539,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         _maybeShowGaveUpSnackbar();
       }
     });
-    await _bootstrapHomeData();
+    await _runLoggedInGatewayBootstrap();
     if (!mounted) return;
     await _runPostLoginBootstrap();
     if (!mounted) return;
-    _sseSub = feed.watchLatest().listen((payload) {
-      final removed = payload.removedRecordId;
-      if (removed != null) {
-        _history.removeRecord(removed);
-        return;
-      }
-      final r = payload.record!;
-      final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
-      final flySuppressed = _shouldScheduleWsFly(r.id);
-      _history.upsertRecord(r);
-      if (isNew && !flySuppressed) {
-        _onWsNewHistoryRecord(r);
-        _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
-      }
-    });
+    await _delayBeforeHistoryWebSocketOnIos();
+    if (!mounted) return;
+    _subscribeHistoryWebSocketIfNeeded();
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_runHomeDialogBootstrap());
     });
+  }
+
+  static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
+
+  Future<void> _runLoggedInGatewayBootstrap() async {
+    if (ref.read(sessionProvider).isLoggedIn) {
+      await GatewayBootstrapGate.ensureLoggedInComplete(ref);
+    } else {
+      await _bootstrapHomeData();
+    }
+  }
+
+  Future<void> _delayBeforeHistoryWebSocketOnIos() async {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    if (kIsWeb || !Platform.isIOS) return;
+    await Future<void>.delayed(_iosHistoryWsConnectDelay);
+  }
+
+  void _onHistoryWebSocketPayload(SseHistoryPayload payload) {
+    final removed = payload.removedRecordId;
+    if (removed != null) {
+      _history.removeRecord(removed);
+      return;
+    }
+    final r = payload.record!;
+    final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
+    final flySuppressed = _shouldScheduleWsFly(r.id);
+    _history.upsertRecord(r);
+    if (isNew && !flySuppressed) {
+      _onWsNewHistoryRecord(r);
+      _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
+    }
+  }
+
+  void _subscribeHistoryWebSocketIfNeeded() {
+    final feed = ref.read(feedRepositoryProvider);
+    _sseSub ??= feed.watchLatest().listen(_onHistoryWebSocketPayload);
+    if (ref.read(sessionProvider).isLoggedIn) {
+      feed.ensureHistoryWebSocketConnected();
+    }
+  }
+
+  Future<void> _onLoggedInWhileHomeMounted() async {
+    await _runLoggedInGatewayBootstrap();
+    if (!mounted) return;
+    await _runPostLoginBootstrap();
+    if (!mounted) return;
+    await _delayBeforeHistoryWebSocketOnIos();
+    if (!mounted) return;
+    _subscribeHistoryWebSocketIfNeeded();
+    _scheduleVoiceAsrConnectIfNeeded();
   }
 
   bool _shouldScheduleWsFly(String recordId) {
@@ -669,7 +708,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     } catch (_) {}
   }
 
-  /// 版本检查与宝宝信息：Splash 已做本地门禁后进主页，此处后台补全。
+  /// 版本检查：Splash 已做本地门禁后进主页，此处后台补全（loadBaby 由 GatewayBootstrapGate 负责）。
   Future<void> _runPostLoginBootstrap() async {
     if (!ref.read(sessionProvider).isLoggedIn) return;
     try {
@@ -680,12 +719,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         repo: ref.read(versionRepositoryProvider),
         currentVersion: currentVersion,
       );
-    } catch (_) {}
-    if (!mounted) return;
-    try {
-      final baby = await ref.read(settingsRepositoryProvider).loadBaby();
-      ref.read(babySexProvider.notifier).state = baby.sex;
-      await persistCachedBabySex(baby.sex);
     } catch (_) {}
   }
 
@@ -1217,12 +1250,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     ref.watch(ucgRepositoryProvider);
 
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
-      if (!loggedIn) return;
+      if (prev != true || !loggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(_refreshEventCatalogIfReady());
-        _reloadHistoryIfLoggedIn();
-        _scheduleVoiceAsrConnectIfNeeded();
+        unawaited(_onLoggedInWhileHomeMounted());
       });
     });
     ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {

@@ -26,3 +26,19 @@
 
 - [x] 6.1 `account_management_sheet`：profile 加载失败时展示友好文案、「重试」与「切换账号」（不依赖 profile 接口成功）
 - [x] 6.2 `_switchAccount` 切换前调用 `disconnectHistoryWebSocket()`，尽快释放 pangbao 连接槽位
+
+## 7. Gateway Bootstrap Gate（P2）
+
+- [x] 7.1 新增 `GatewayBootstrapGate`：`ensureLoggedInComplete` 串行 `ColdStartBackgroundSync` + `loadBaby`；登出 `reset()`
+- [x] 7.2 `HomeScreen`：`isLoggedIn` false→true 时 `await _onLoggedInWhileHomeMounted()`（gate → version → WS），**不**再并行 `_refreshEventCatalogIfReady` / `_reloadHistoryIfLoggedIn`
+- [x] 7.3 `_init` 已登录路径改走 gate；游客仍 `_bootstrapHomeData()`
+
+## 8. 历史 WS 延迟建连（P0）
+
+- [x] 8.1 `watchLatest()` 仅 `setSubscribeActive(true)`；新增 `ensureHistoryWebSocketConnected()` 显式建连
+- [x] 8.2 gate + postLogin 完成后 iOS `await Future.delayed(2s)` 再 `ensureHistoryWebSocketConnected()`
+
+## 9. iOS WS 重连风暴缓解（P1）
+
+- [x] 9.1 `ResilientWebSocketClient`：close 后 brief settle delay（iOS 300ms）
+- [x] 9.2 iOS 首包 reconnect backoff 3s、precondition retry 1.5s（Android 保持 1s / 500ms）

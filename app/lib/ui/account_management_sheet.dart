@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../api/api_exceptions.dart';
 import '../apple/apple_sign_in_client.dart';
 import '../providers/home_history_notifier.dart';
+import '../bootstrap/gateway_bootstrap_gate.dart';
 import '../providers/repositories.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/session_provider.dart';
@@ -345,6 +346,7 @@ class _AccountManagementSheetBodyState
       await ref.read(authRepositoryProvider).signOut();
     } finally {
       ref.read(feedRepositoryProvider).disconnectHistoryWebSocket();
+      GatewayBootstrapGate.reset();
       await ref.read(sessionProvider).signOut();
       await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
       await ref.read(signInChannelProvider.notifier).clear();

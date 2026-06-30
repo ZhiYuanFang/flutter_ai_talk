@@ -9,9 +9,15 @@ The client MUST NOT invoke history WebSocket connect (`setConnectionDesired(true
 #### Scenario: 登录成功进主页
 
 - **WHEN** 用户登录成功并导航至 `/home`
-- **THEN** `ColdStartBackgroundSync`（或等价）MUST 先完成已登录 catalog/history HTTP sync
-- **AND** 历史 WebSocket connect handshake MUST 在上述 sync 完成且 `watchLatest()` 已订阅之后才开始
+- **THEN** `GatewayBootstrapGate`（或等价）MUST 先完成已登录 catalog/history HTTP sync 与 `loadBaby`
+- **AND** 历史 WebSocket connect handshake MUST 在上述 sync 完成、`_runPostLoginBootstrap`（version/check）完成、`watchLatest()` 已订阅且（iOS 上）冷却延迟之后才开始
 - **AND** `feedRepositoryProvider` MUST NOT 因 `isLoggedIn` 变为 true 而抢先调用 `reconnectHistoryWebSocket`
+
+#### Scenario: KeepAlive 下游客转登录
+
+- **WHEN** 用户以游客身份已在 `/home`（HomeScreen KeepAlive）并完成登录
+- **THEN** 客户端 MUST await `GatewayBootstrapGate.ensureLoggedInComplete` 后再 `ensureHistoryWebSocketConnected`
+- **AND** MUST NOT 在 `isLoggedIn` listen 中并行发起 catalog/history HTTP refresh 与 WS 建连
 
 #### Scenario: 登出 tearDown
 

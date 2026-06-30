@@ -44,6 +44,9 @@ abstract class FeedRepository {
   Future<String?> sendCommand(String text);
   Stream<SseHistoryPayload> watchLatest();
 
+  /// 在 [watchLatest] 订阅后显式建连；须晚于 gateway HTTP bootstrap 完成。
+  void ensureHistoryWebSocketConnected();
+
   /// 历史 WebSocket 已鉴权且完成首次 JSON ping/pong（可发聊天、依赖推送增量）。
   bool get isHistoryWebSocketReady;
 
