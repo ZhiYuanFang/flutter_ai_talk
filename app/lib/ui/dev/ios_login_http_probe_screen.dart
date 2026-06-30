@@ -21,7 +21,7 @@ class IosLoginHttpProbeScreen extends ConsumerStatefulWidget {
   ConsumerState<IosLoginHttpProbeScreen> createState() => _IosLoginHttpProbeScreenState();
 }
 
-enum _RunMode { parallel, homeTimeline }
+enum _RunMode { parallel, homeTimeline, homeActualBurst }
 
 class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScreen> {
   static const _defaultDeviceNo = 'PANGAIDEV';
@@ -33,8 +33,8 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
   var _running = false;
   var _mode = '';
   var _forceChatWs = false;
-  var _logoCount = 2;
-  var _logoConcurrency = 2;
+  var _logoCount = kProbeLogoCountAll;
+  var _logoConcurrency = kProbeLogoConcurrencyHomeLegacy;
   List<ProbeRunResult> _results = const [];
   String? _version;
 
@@ -53,6 +53,8 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
       final wxBound = isUcgWxAccountBound(readJwtWxId(ref.read(sessionProvider).accessToken));
       if (wxBound) {
         _applyPreset(homeProbeWxPreset());
+        _logoCount = kProbeLogoCountAll;
+        _logoConcurrency = kProbeLogoConcurrencyHomeLegacy;
       }
       unawaited(_loadVersion());
     });
@@ -83,13 +85,24 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
       .map((e) => e.key)
       .toSet();
 
-  int _estimatePangbaoSlots(Set<HomeProbeItem> items) {
+  int _effectiveLogoConcurrencyForSlots() {
+    if (_logoConcurrency <= kProbeLogoConcurrencyUnlimited) {
+      return kProbeLogoConcurrencyHomeLegacy;
+    }
+    return _logoConcurrency;
+  }
+
+  String _slotSummary(Set<HomeProbeItem> items) {
     var n = 0;
     for (final item in items) {
       if (item.isNotifyHost || item.isDelayOnly) continue;
-      n += item.slotWeight(logoConcurrency: _logoConcurrency);
+      n += item.slotWeight(logoConcurrency: _effectiveLogoConcurrencyForSlots());
     }
-    return n;
+    final logoPart = items.contains(HomeProbeItem.logoDownload)
+        ? ' · logo=${_logoCount <= kProbeLogoCountAll ? '全量' : '$_logoCount'}×'
+            '${_logoConcurrency <= kProbeLogoConcurrencyUnlimited ? '全并发' : _logoConcurrency}'
+        : '';
+    return 'pangbao 槽≈$n$logoPart / ~6';
   }
 
   IosLoginProbeRunner _buildRunner({
@@ -111,7 +124,8 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
 
   String _modeLabel(_RunMode mode) => switch (mode) {
         _RunMode.parallel => '已选并发',
-        _RunMode.homeTimeline => 'Home 时序',
+        _RunMode.homeTimeline => 'Home 时序（理想错峰）',
+        _RunMode.homeActualBurst => 'Home 真实并行（init∥gate）',
       };
 
   Future<void> _run(_RunMode mode) async {
@@ -134,6 +148,7 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     final out = switch (mode) {
       _RunMode.parallel => await runner.runParallel(selected),
       _RunMode.homeTimeline => await runner.runHomeTimeline(selected),
+      _RunMode.homeActualBurst => await runner.runHomeActualBurst(selected),
     };
 
     if (!mounted) return;
@@ -184,7 +199,7 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     final wxId = readJwtWxId(token);
     final wxBound = isUcgWxAccountBound(wxId);
     final checked = _checkedItems;
-    final slots = _estimatePangbaoSlots(checked);
+    final slotSummary = _slotSummary(checked);
 
     return Scaffold(
       appBar: AppBar(
@@ -203,7 +218,7 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
           Text('notify: ${AppEnv.notifyBaseUrl}', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
           Text('loggedIn=$loggedIn wxId=${wxId ?? '–'} wxBound=$wxBound'),
-          Text('version=${_version ?? '…'} · 已选 pangbao 槽≈$slots / ~6'),
+          Text('version=${_version ?? '…'} · $slotSummary'),
           const SizedBox(height: 12),
           TextField(
             controller: _deviceNoCtrl,
@@ -250,11 +265,14 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
                         isExpanded: true,
                         value: _logoCount,
                         items: const [
+                          DropdownMenuItem(value: kProbeLogoCountAll, child: Text('全量 catalog')),
                           DropdownMenuItem(value: 1, child: Text('1')),
                           DropdownMenuItem(value: 2, child: Text('2')),
                           DropdownMenuItem(value: 6, child: Text('6')),
                         ],
-                        onChanged: _running ? null : (v) => setState(() => _logoCount = v ?? 2),
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(() => _logoCount = v ?? kProbeLogoCountAll),
                       ),
                     ),
                   ),
@@ -268,10 +286,22 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
                         isExpanded: true,
                         value: _logoConcurrency,
                         items: const [
+                          DropdownMenuItem(
+                            value: kProbeLogoConcurrencyUnlimited,
+                            child: Text('全并发（=logo数）'),
+                          ),
                           DropdownMenuItem(value: 1, child: Text('1')),
-                          DropdownMenuItem(value: 2, child: Text('2')),
+                          DropdownMenuItem(value: 2, child: Text('2（Home iOS 现网）')),
+                          DropdownMenuItem(
+                            value: kProbeLogoConcurrencyHomeLegacy,
+                            child: Text('6（Home 改前）'),
+                          ),
                         ],
-                        onChanged: _running ? null : (v) => setState(() => _logoConcurrency = v ?? 2),
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(
+                                  () => _logoConcurrency = v ?? kProbeLogoConcurrencyHomeLegacy,
+                                ),
                       ),
                     ),
                   ),
@@ -294,6 +324,15 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
           FilledButton.tonal(
             onPressed: _running || checked.isEmpty ? null : () => _run(_RunMode.homeTimeline),
             child: const Text('运行已选（Home 时序）'),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.tonal(
+            onPressed: _running || checked.isEmpty ? null : () => _run(_RunMode.homeActualBurst),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.errorContainer,
+              foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+            child: const Text('Home 真实并行（init∥gate，logo 全量）'),
           ),
           if (_mode.isNotEmpty) ...[
             const SizedBox(height: 16),

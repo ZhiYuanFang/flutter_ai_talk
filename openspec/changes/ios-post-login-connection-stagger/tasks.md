@@ -74,3 +74,4 @@
 - [x] 13.2 逐项勾选 + **并发已选** / **Home 时序**；`全选 Home(wx)` 预设；槽位预估
 - [x] 13.3 仍不 mount `feedRepositoryProvider` / `ucgRepositoryProvider`；logo 可调数量/并发
 - [ ] 13.4 iOS 真机（wxId）：二分最小复现集 + CLEAN vs POST-HOME 对比记录
+- [x] 13.5 logo **全量 catalog + 全并发/6 并发**；**Home 真实并行**（init 旁路 ∥ gate，logo 不 await）

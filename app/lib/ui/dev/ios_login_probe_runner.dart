@@ -56,6 +56,57 @@ class IosLoginProbeRunner {
     return Future.wait(items.map(_runOne));
   }
 
+  /// 复刻 Home **真实重叠**：initState 旁路（UCG/Voice）与 gate 并行；logo 不 await；2s 后再 history WS。
+  Future<List<ProbeRunResult>> runHomeActualBurst(Set<HomeProbeItem> selected) async {
+    final out = <ProbeRunResult>[];
+    final inflight = <Future<ProbeRunResult>>[];
+
+    for (final item in homeProbeInitBypass) {
+      if (selected.contains(item)) inflight.add(_runOne(item));
+    }
+
+    for (final item in homeProbeGateSerial) {
+      if (!selected.contains(item)) continue;
+      out.add(await _runOne(item));
+    }
+
+    if (selected.contains(HomeProbeItem.versionCheck)) {
+      out.add(await _runOne(HomeProbeItem.versionCheck));
+    }
+
+    if (selected.contains(HomeProbeItem.logoDownload)) {
+      inflight.add(_runOne(HomeProbeItem.logoDownload));
+    }
+
+    final needsDelay = selected.contains(HomeProbeItem.iosDelay2s) ||
+        selected.contains(HomeProbeItem.historyWs);
+    if (needsDelay && selected.contains(HomeProbeItem.iosDelay2s)) {
+      final sw = Stopwatch()..start();
+      await Future<void>.delayed(const Duration(seconds: 2));
+      out.add(ProbeRunResult(
+        label: HomeProbeItem.iosDelay2s.label,
+        ok: true,
+        elapsedMs: sw.elapsedMilliseconds,
+        detail: 'wait 2s (overlap gate/init)',
+      ));
+    } else if (needsDelay) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+
+    if (selected.contains(HomeProbeItem.historyWs)) {
+      out.add(await _runOne(HomeProbeItem.historyWs));
+    }
+
+    if (selected.contains(HomeProbeItem.notifyBanner)) {
+      inflight.add(_runOne(HomeProbeItem.notifyBanner));
+    }
+
+    if (inflight.isNotEmpty) {
+      out.addAll(await Future.wait(inflight));
+    }
+    return out;
+  }
+
   Future<List<ProbeRunResult>> runHomeTimeline(Set<HomeProbeItem> selected) async {
     final out = <ProbeRunResult>[];
     for (final phase in homeProbeTimeline) {
@@ -248,10 +299,12 @@ class IosLoginProbeRunner {
       withAuthorization: true,
     );
     final list = envelopeListOrEmpty(data);
-    final events = parseEventOptionsList(list)
+    final allWithLogo = parseEventOptionsList(list)
         .where((e) => e.logoUrl != null && e.logoUrl!.isNotEmpty)
-        .take(logoCount)
         .toList();
+    final events = logoCount <= kProbeLogoCountAll
+        ? allWithLogo
+        : allWithLogo.take(logoCount).toList();
     if (events.isEmpty) return;
 
     var index = 0;
@@ -264,7 +317,9 @@ class IosLoginProbeRunner {
       }
     }
 
-    final workers = logoConcurrency.clamp(1, events.length);
+    final workers = logoConcurrency <= kProbeLogoConcurrencyUnlimited
+        ? events.length
+        : logoConcurrency.clamp(1, events.length);
     await Future.wait(List.generate(workers, (_) => worker()));
   }
 }

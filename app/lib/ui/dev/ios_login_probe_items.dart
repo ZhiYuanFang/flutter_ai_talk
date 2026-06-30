@@ -97,6 +97,28 @@ const homeProbeTimeline = <List<HomeProbeItem>>[
   [HomeProbeItem.notifyBanner],
 ];
 
+/// logo 数量：0 = catalog 全量（与 Home `runDeferredLogoDownloads` 一致）。
+const kProbeLogoCountAll = 0;
+
+/// logo 并发：0 = 不限制（worker 数 = logo 事件数，复刻改前 Home 6 并发时可选手动选 6）。
+const kProbeLogoConcurrencyUnlimited = 0;
+
+/// 改前 Home iOS logo 并发上限。
+const kProbeLogoConcurrencyHomeLegacy = 6;
+
+const homeProbeInitBypass = [
+  HomeProbeItem.voiceAsrWs,
+  HomeProbeItem.ucgChatWs,
+  HomeProbeItem.ucgUnreadNotif,
+  HomeProbeItem.ucgUnreadConv,
+];
+
+const homeProbeGateSerial = [
+  HomeProbeItem.eventOptions,
+  HomeProbeItem.historyList,
+  HomeProbeItem.userGet,
+];
+
 Set<HomeProbeItem> homeProbeWxPreset() => {
       HomeProbeItem.voiceAsrWs,
       HomeProbeItem.ucgChatWs,
