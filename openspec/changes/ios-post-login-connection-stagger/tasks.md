@@ -97,3 +97,10 @@
 - [x] 16.2 `ucgRepositoryProvider` 监听仅在 `_ucgHomeSessionActive` 时 reconnect / push / unread；wsReady baseline 去重
 - [x] 16.3 Home `await mountUcgHomeTransportsIfEligible`；探针 REAL ucg 走 `activateUcgHomeSession(requireHomeMounted: false)`
 - [ ] 16.4 iOS 真机：REAL ucgRepo 后污染检测 ✓；进 Home → 回探针 version/check + notify ✓
+
+## 17. UCG chat WS await ready（稳态污染 fix）
+
+- [x] 17.1 `ResilientWebSocketClient.waitForReadyOrTerminal`；`activateUcgHomeSession` await WS ready 后再 push；失败则 `desired=false` 停 reconnect
+- [x] 17.2 探针路径 `_ucgHomeSessionIgnoresMountGate`：Home 未挂载时仍保持 chat WS desired
+- [x] 17.3 探针 REAL ucg 展示 WS 激活摘要（ready / timeout / gaveUp）
+- [ ] 17.4 iOS 真机：REAL ucg ✓ → 污染检测 ✓（无需 release）；释放后仍 ✓

@@ -22,8 +22,8 @@ class IosLoginProbeRealMounts {
     feed.ensureHistoryWebSocketConnected();
   }
 
-  Future<void> mountUcgRepo(WidgetRef ref) async {
-    await activateUcgHomeSession(ref, requireHomeMounted: false);
+  Future<String> mountUcgRepo(WidgetRef ref) async {
+    return activateUcgHomeSession(ref, requireHomeMounted: false);
   }
 
   void startLogoDeferredUnawaited(WidgetRef ref) {

@@ -31,39 +31,60 @@ Future<void>? _syncUcgUnreadInFlight;
 /// UCG Home 会话是否已激活（WS + unread + push）；provider 创建时不自动激活。
 var _ucgHomeSessionActive = false;
 
+/// 探针等路径激活 UCG 时 Home 未挂载，仍应保持 chat WS desired。
+var _ucgHomeSessionIgnoresMountGate = false;
+
 /// 本会话 UCG WS 首次 ready 后 baseline HTTP 是否已触发。
 var _ucgUnreadBaselineSynced = false;
 
 bool get ucgHomeSessionActive => _ucgHomeSessionActive;
 
+bool _ucgTransportMountAllowed() =>
+    PangbaoHomeTransportGate.isHomeMounted || _ucgHomeSessionIgnoresMountGate;
+
 void resetUcgHomeSessionState() {
   _ucgHomeSessionActive = false;
+  _ucgHomeSessionIgnoresMountGate = false;
   _ucgUnreadBaselineSynced = false;
 }
 
-/// gate 后串行激活 UCG：unread HTTP → chat WS → push register（避免 iOS 同 host burst）。
+/// gate 后串行激活 UCG：unread HTTP → await chat WS ready → push register。
 ///
-/// [ref] 接受 Riverpod [Ref] 或 [WidgetRef]。
-Future<void> activateUcgHomeSession(
+/// [ref] 接受 Riverpod [Ref] 或 [WidgetRef]；返回激活摘要（探针展示用）。
+Future<String> activateUcgHomeSession(
   dynamic ref, {
   bool requireHomeMounted = true,
 }) async {
-  if (requireHomeMounted && !PangbaoHomeTransportGate.isHomeMounted) return;
-  if (!ref.read(sessionProvider).isLoggedIn) return;
-  if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) return;
+  if (requireHomeMounted && !PangbaoHomeTransportGate.isHomeMounted) {
+    return 'skipped: home not mounted';
+  }
+  if (!ref.read(sessionProvider).isLoggedIn) return 'skipped: not logged in';
+  if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) {
+    return 'skipped: no wxId';
+  }
 
   final repo = ref.read(ucgRepositoryProvider);
   if (_ucgHomeSessionActive) {
     _syncUcgWsDesired(ref, repo);
-    return;
+    return 'already active · wsReady=${repo.isWsConnected} phase=${repo.chatWsPhase.name}';
   }
+
+  _ucgHomeSessionIgnoresMountGate = !requireHomeMounted;
   _ucgHomeSessionActive = true;
 
   await syncUcgUnreadFromServer(ref);
   await syncUcgLauncherBadgeFromUnread(ref);
   _ucgUnreadBaselineSynced = true;
+
   repo.setWsConnectionDesired(true);
+  final ws = await repo.waitForChatWebSocketReady();
+  if (!ws.ready) {
+    repo.setWsConnectionDesired(false);
+    return 'unread ok · WS ${ws.detail} (${ws.elapsedMs}ms) · push skipped';
+  }
+
   await _syncUcgPushRegistration(ref);
+  return 'unread → WS ready (${ws.elapsedMs}ms) → push registered';
 }
 
 /// 离开 Home / release：关闭 chat WS，重置会话标记（不 dispose provider）。
@@ -75,7 +96,7 @@ Future<void> deactivateUcgHomeSession(dynamic ref) async {
 }
 
 void _syncUcgWsDesired(dynamic ref, UcgRepository repo) {
-  if (!_ucgHomeSessionActive || !PangbaoHomeTransportGate.isHomeMounted) {
+  if (!_ucgHomeSessionActive || !_ucgTransportMountAllowed()) {
     repo.setWsConnectionDesired(false);
     return;
   }
@@ -262,7 +283,7 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
   });
   ref.listen<String?>(sessionProvider.select((s) => s.accessToken), (prev, next) {
     if (next == null || next.isEmpty) return;
-    if (!_ucgHomeSessionActive || !PangbaoHomeTransportGate.isHomeMounted) return;
+    if (!_ucgHomeSessionActive || !_ucgTransportMountAllowed()) return;
     final loggedIn = ref.read(sessionProvider).isLoggedIn;
     final wxId = ref.read(ucgCurrentUserIdProvider);
     if (SessionController.isAccessTokenRotation(prev, next) &&
@@ -276,7 +297,7 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
     reconnect: ({bool resetStrike = false}) => repo.reconnectChatWebSocket(resetStrike: resetStrike),
     shouldReconnect: () {
       if (!_ucgHomeSessionActive) return false;
-      if (!PangbaoHomeTransportGate.isHomeMounted) return false;
+      if (!_ucgTransportMountAllowed()) return false;
       if (!ref.read(sessionProvider).isLoggedIn) return false;
       return isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider));
     },

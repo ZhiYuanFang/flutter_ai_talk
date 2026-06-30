@@ -603,4 +603,64 @@ class ResilientWebSocketClient {
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
     return null;
   }
+
+  /// 等到 ready、gaveUp 或 [timeout]（供 UCG/Home 激活确认 WS 就绪，避免后台 reconnect 污染 HTTP）。
+  Future<({bool ready, WsConnectionPhase phase, int elapsedMs, String detail})>
+      waitForReadyOrTerminal({
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final sw = Stopwatch()..start();
+    if (isReady) {
+      return (
+        ready: true,
+        phase: phase,
+        elapsedMs: sw.elapsedMilliseconds,
+        detail: 'ready',
+      );
+    }
+    if (phase == WsConnectionPhase.gaveUp) {
+      return (
+        ready: false,
+        phase: phase,
+        elapsedMs: sw.elapsedMilliseconds,
+        detail: 'gaveUp',
+      );
+    }
+
+    final completer =
+        Completer<({bool ready, WsConnectionPhase phase, int elapsedMs, String detail})>();
+    StreamSubscription<bool>? readySub;
+    StreamSubscription<WsConnectionPhase>? phaseSub;
+    Timer? timer;
+
+    void finish({
+      required bool ready,
+      required String detail,
+    }) {
+      if (completer.isCompleted) return;
+      timer?.cancel();
+      readySub?.cancel();
+      phaseSub?.cancel();
+      completer.complete((
+        ready: ready,
+        phase: phase,
+        elapsedMs: sw.elapsedMilliseconds,
+        detail: detail,
+      ));
+    }
+
+    timer = Timer(timeout, () {
+      finish(ready: false, detail: 'timeout phase=$phase');
+    });
+    readySub = readyStream.listen((ready) {
+      if (ready) finish(ready: true, detail: 'ready');
+    });
+    phaseSub = phaseStream.listen((next) {
+      if (next == WsConnectionPhase.gaveUp) {
+        finish(ready: false, detail: 'gaveUp');
+      }
+    });
+
+    return completer.future;
+  }
 }

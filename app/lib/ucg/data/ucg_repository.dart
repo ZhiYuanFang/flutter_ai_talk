@@ -9,6 +9,7 @@ import '../../config/env.dart';
 import '../../network/resilient_websocket_client.dart';
 import '../../network/ws_auth_error_handler.dart';
 import '../../network/ws_connection_config.dart';
+import '../../network/ws_connection_phase.dart';
 import '../../providers/ai_quota_dialog_bus.dart';
 import '../../session/token_expiry.dart';
 import 'ucg_api_client.dart';
@@ -87,6 +88,13 @@ class UcgRepository {
   Stream<String> get messageAckClientIds => _messageAckController.stream;
   Stream<String> get auditFailedClientIds => _auditFailedController.stream;
   bool get isWsConnected => _wsConnected;
+  WsConnectionPhase get chatWsPhase => _wsClient.phase;
+
+  Future<({bool ready, WsConnectionPhase phase, int elapsedMs, String detail})>
+      waitForChatWebSocketReady({
+    Duration timeout = const Duration(seconds: 15),
+  }) =>
+      _wsClient.waitForReadyOrTerminal(timeout: timeout);
 
   void dispose() {
     _wsClient.dispose();
