@@ -193,7 +193,7 @@ abstract final class AppEnv {
   /// 为 `true` 时原生端 HTTP/WebSocket 仅使用 IPv4（`HttpOverrides`）；默认双栈。
   static const forceIpv4 = bool.fromEnvironment(
     'FORCE_IPV4',
-    defaultValue: true,
+    defaultValue: false,
   );
 
   /// 为 `true` 时允许 UCG 本地视频选择与 v1 直传；默认关闭（服务端转码资源未就绪）。
