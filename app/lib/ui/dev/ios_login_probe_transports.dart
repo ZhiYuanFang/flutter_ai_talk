@@ -9,11 +9,13 @@ import '../../network/ws_connection_config.dart';
 import '../../network/ws_connection_phase.dart';
 import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
+import '../../voice/voice_asr_ws_client.dart';
 
 /// 探针页专用 WS 传输（不 mount UCG repo，避免 unread/push 副作用）。
 class IosLoginProbeTransports {
   ResilientWebSocketClient? _historyClient;
   ResilientWebSocketClient? _chatClient;
+  VoiceAsrWsClient? _voiceAsrClient;
 
   Future<ProbeWsOutcome> connectHistory({
     required WidgetRef ref,
@@ -50,6 +52,30 @@ class IosLoginProbeTransports {
     client.setSubscribeActive(true);
     client.setConnectionDesired(true);
     return _awaitReady(client);
+  }
+
+  Future<ProbeWsOutcome> connectVoiceAsr({required String deviceNo}) async {
+    if (AppEnv.disablePangbaoWebSocketSpike) {
+      return ProbeWsOutcome.skipped('DISABLE_PANGBAO_WS');
+    }
+    if (AppEnv.wsVoiceAsrUrlEffective.isEmpty) {
+      return ProbeWsOutcome.skipped('voice asr url empty');
+    }
+    if (deviceNo.isEmpty) {
+      return ProbeWsOutcome.skipped('deviceNo empty');
+    }
+    _tearDownVoiceAsr();
+    final client = VoiceAsrWsClient(
+      wsUrl: AppEnv.wsVoiceAsrUrlEffective,
+      deviceNoGetter: () => deviceNo,
+    );
+    _voiceAsrClient = client;
+    final sw = Stopwatch()..start();
+    final ok = await client.connect();
+    if (ok) {
+      return ProbeWsOutcome.ok('ready', sw.elapsedMilliseconds);
+    }
+    return ProbeWsOutcome.fail('connect failed', sw.elapsedMilliseconds);
   }
 
   Future<ProbeWsOutcome> connectChat({
@@ -129,6 +155,7 @@ class IosLoginProbeTransports {
   void disconnectAll() {
     _tearDownHistory();
     _tearDownChat();
+    _tearDownVoiceAsr();
   }
 
   void dispose() => disconnectAll();
@@ -144,6 +171,14 @@ class IosLoginProbeTransports {
     _chatClient?.setConnectionDesired(false);
     _chatClient?.dispose();
     _chatClient = null;
+  }
+
+  void _tearDownVoiceAsr() {
+    final client = _voiceAsrClient;
+    _voiceAsrClient = null;
+    if (client != null) {
+      unawaited(client.dispose());
+    }
   }
 }
 

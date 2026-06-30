@@ -67,3 +67,10 @@
 - [x] 12.6 模式：**先 WS 再 HTTP 并发**、**WS+HTTP 同时并发**；账号/Apple 用户可「强制 chat WS」
 - [x] 12.7 探针 dispose / 「断开 WS」释放连接槽位
 - [ ] 12.8 iOS 真机记录：HTTP-only vs HTTP+2WS 并发 vs 串行对比结论
+
+## 13. Home 全量探针（wx 用户定位）
+
+- [x] 13.1 探针项注册表：Home 进房 HTTP/WS（含 Voice ASR、UCG unread×2、logo、notify）+ Home 时序分组
+- [x] 13.2 逐项勾选 + **并发已选** / **Home 时序**；`全选 Home(wx)` 预设；槽位预估
+- [x] 13.3 仍不 mount `feedRepositoryProvider` / `ucgRepositoryProvider`；logo 可调数量/并发
+- [ ] 13.4 iOS 真机（wxId）：二分最小复现集 + CLEAN vs POST-HOME 对比记录

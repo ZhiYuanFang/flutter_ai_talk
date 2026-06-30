@@ -4,17 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../api/api_exceptions.dart';
 import '../../config/env.dart';
-import '../../data/history_list_page.dart';
 import '../../data/repositories.dart';
-import '../../providers/authorized_api_client_provider.dart';
 import '../../providers/device_no_notifier.dart';
 import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
+import 'ios_login_probe_items.dart';
+import 'ios_login_probe_runner.dart';
 import 'ios_login_probe_transports.dart';
 
-/// iOS 登录后 pangbao HTTP/WS 隔离探针：不 mount Home、不 bootstrap。
+/// iOS 登录后 Home 全量探针：逐项勾选，复刻进房 HTTP/WS，不 mount Home。
 class IosLoginHttpProbeScreen extends ConsumerStatefulWidget {
   const IosLoginHttpProbeScreen({super.key});
 
@@ -22,51 +21,38 @@ class IosLoginHttpProbeScreen extends ConsumerStatefulWidget {
   ConsumerState<IosLoginHttpProbeScreen> createState() => _IosLoginHttpProbeScreenState();
 }
 
-enum _ProbeScenario {
-  httpParallel,
-  httpSerial,
-  wsFirstThenHttpParallel,
-  wsAndHttpParallel,
-}
-
-class _ProbeResult {
-  const _ProbeResult({
-    required this.label,
-    required this.ok,
-    required this.elapsedMs,
-    this.detail,
-    this.skipped = false,
-  });
-
-  final String label;
-  final bool ok;
-  final int elapsedMs;
-  final String? detail;
-  final bool skipped;
-}
+enum _RunMode { parallel, homeTimeline }
 
 class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScreen> {
   static const _defaultDeviceNo = 'PANGAIDEV';
 
   final _deviceNoCtrl = TextEditingController(text: _defaultDeviceNo);
   final _transports = IosLoginProbeTransports();
+  final _selected = <HomeProbeItem, bool>{};
 
   var _running = false;
   var _mode = '';
-  var _includeHistoryWs = true;
-  var _includeChatWs = true;
   var _forceChatWs = false;
-  List<_ProbeResult> _results = const [];
+  var _logoCount = 2;
+  var _logoConcurrency = 2;
+  List<ProbeRunResult> _results = const [];
   String? _version;
 
   @override
   void initState() {
     super.initState();
+    for (final item in HomeProbeItem.values) {
+      _selected[item] = false;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final cached = ref.read(deviceNoNotifierProvider).asData?.value;
       if (cached != null && cached.isNotEmpty) {
         _deviceNoCtrl.text = cached;
+      }
+      final wxBound = isUcgWxAccountBound(readJwtWxId(ref.read(sessionProvider).accessToken));
+      if (wxBound) {
+        _applyPreset(homeProbeWxPreset());
       }
       unawaited(_loadVersion());
     });
@@ -79,6 +65,12 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     super.dispose();
   }
 
+  void _applyPreset(Set<HomeProbeItem> items) {
+    for (final item in HomeProbeItem.values) {
+      _selected[item] = items.contains(item);
+    }
+  }
+
   Future<void> _loadVersion() async {
     try {
       final v = await readPackageVersion();
@@ -86,186 +78,63 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     } catch (_) {}
   }
 
-  Future<_ProbeResult> _probe({
-    required String label,
-    required Future<void> Function() run,
-  }) async {
-    final sw = Stopwatch()..start();
-    try {
-      await run();
-      return _ProbeResult(label: label, ok: true, elapsedMs: sw.elapsedMilliseconds);
-    } on ApiHttpException catch (e) {
-      return _ProbeResult(
-        label: label,
-        ok: false,
-        elapsedMs: sw.elapsedMilliseconds,
-        detail: 'HTTP ${e.statusCode}',
-      );
-    } on ApiBusinessException catch (e) {
-      return _ProbeResult(
-        label: label,
-        ok: false,
-        elapsedMs: sw.elapsedMilliseconds,
-        detail: 'code=${e.code} ${e.message}',
-      );
-    } catch (e) {
-      return _ProbeResult(
-        label: label,
-        ok: false,
-        elapsedMs: sw.elapsedMilliseconds,
-        detail: e.runtimeType.toString(),
-      );
+  Set<HomeProbeItem> get _checkedItems => _selected.entries
+      .where((e) => e.value)
+      .map((e) => e.key)
+      .toSet();
+
+  int _estimatePangbaoSlots(Set<HomeProbeItem> items) {
+    var n = 0;
+    for (final item in items) {
+      if (item.isNotifyHost || item.isDelayOnly) continue;
+      n += item.slotWeight(logoConcurrency: _logoConcurrency);
     }
+    return n;
   }
 
-  _ProbeResult _wsOutcomeToResult(String label, ProbeWsOutcome o) {
-    if (o.skipped) {
-      return _ProbeResult(
-        label: label,
-        ok: true,
-        elapsedMs: o.elapsedMs,
-        detail: 'skipped: ${o.detail}',
-        skipped: true,
-      );
-    }
-    return _ProbeResult(
-      label: label,
-      ok: o.ok,
-      elapsedMs: o.elapsedMs,
-      detail: o.detail,
+  IosLoginProbeRunner _buildRunner({
+    required String deviceNo,
+    required String version,
+    required bool wxBound,
+  }) {
+    return IosLoginProbeRunner(
+      ref: ref,
+      transports: _transports,
+      deviceNo: deviceNo,
+      version: version,
+      wxBound: wxBound,
+      forceChatWs: _forceChatWs,
+      logoCount: _logoCount,
+      logoConcurrency: _logoConcurrency,
     );
   }
 
-  Future<void> _runOptions(String deviceNo) {
-    final api = ref.read(authorizedApiClientProvider);
-    return api.getEnvelope(
-      '/device/history/api/event/options',
-      query: {'deviceNo': deviceNo},
-      withAuthorization: true,
-    ).then((_) {});
-  }
+  String _modeLabel(_RunMode mode) => switch (mode) {
+        _RunMode.parallel => '已选并发',
+        _RunMode.homeTimeline => 'Home 时序',
+      };
 
-  Future<void> _runHistoryList(String deviceNo) {
-    final api = ref.read(authorizedApiClientProvider);
-    return api.getEnvelope(
-      '/device/history/api/list',
-      query: {
-        'deviceNo': deviceNo,
-        'page': '1',
-        'pageSize': '$kHomeHistoryPageSize',
-      },
-      withAuthorization: true,
-    ).then((_) {});
-  }
-
-  Future<void> _runUserGet(String deviceNo) {
-    final api = ref.read(authorizedApiClientProvider);
-    return api.getEnvelope(
-      '/device/app/api/user/get',
-      query: {'deviceNo': deviceNo},
-      withAuthorization: true,
-    ).then((_) {});
-  }
-
-  Future<void> _runVersionCheck(String currentVersion) {
-    final api = ref.read(authorizedApiClientProvider);
-    return api.getEnvelope(
-      '/device/app/api/version/check',
-      query: {'currentVersion': currentVersion},
-      withAuthorization: false,
-    ).then((_) {});
-  }
-
-  List<Future<_ProbeResult> Function()> _buildHttpProbes(String deviceNo, String version) {
-    return [
-      () => _probe(label: 'HTTP event/options', run: () => _runOptions(deviceNo)),
-      () => _probe(label: 'HTTP history/list', run: () => _runHistoryList(deviceNo)),
-      () => _probe(label: 'HTTP user/get', run: () => _runUserGet(deviceNo)),
-      () => _probe(label: 'HTTP version/check', run: () => _runVersionCheck(version)),
-    ];
-  }
-
-  Future<List<_ProbeResult>> _runHttpProbes({
-    required String deviceNo,
-    required String version,
-    required bool parallel,
-  }) async {
-    final probes = _buildHttpProbes(deviceNo, version);
-    if (parallel) {
-      return Future.wait(probes.map((p) => p()));
-    }
-    final out = <_ProbeResult>[];
-    for (final p in probes) {
-      out.add(await p());
-    }
-    return out;
-  }
-
-  Future<List<_ProbeResult>> _runWsProbes(String deviceNo) async {
-    final out = <_ProbeResult>[];
-    if (_includeHistoryWs && _includeChatWs) {
-      final pair = await Future.wait([
-        _transports.connectHistory(ref: ref, deviceNo: deviceNo),
-        _transports.connectChat(ref: ref, forceIgnoreWxId: _forceChatWs),
-      ]);
-      out.add(_wsOutcomeToResult('WS history', pair[0]));
-      out.add(_wsOutcomeToResult('WS ucg/chat', pair[1]));
-      return out;
-    }
-    if (_includeHistoryWs) {
-      final o = await _transports.connectHistory(ref: ref, deviceNo: deviceNo);
-      out.add(_wsOutcomeToResult('WS history', o));
-    }
-    if (_includeChatWs) {
-      final o = await _transports.connectChat(ref: ref, forceIgnoreWxId: _forceChatWs);
-      out.add(_wsOutcomeToResult('WS ucg/chat', o));
-    }
-    return out;
-  }
-
-  String _scenarioLabel(_ProbeScenario scenario) {
-    switch (scenario) {
-      case _ProbeScenario.httpParallel:
-        return 'HTTP 并发';
-      case _ProbeScenario.httpSerial:
-        return 'HTTP 串行';
-      case _ProbeScenario.wsFirstThenHttpParallel:
-        return '先 WS 再 HTTP 并发';
-      case _ProbeScenario.wsAndHttpParallel:
-        return 'WS + HTTP 同时并发';
-    }
-  }
-
-  Future<void> _runScenario(_ProbeScenario scenario) async {
+  Future<void> _run(_RunMode mode) async {
     if (_running) return;
     final deviceNo = _deviceNoCtrl.text.trim();
     if (deviceNo.isEmpty) return;
+    final selected = _checkedItems;
+    if (selected.isEmpty) return;
     final version = _version ?? await readPackageVersion();
     if (!mounted) return;
 
+    final wxBound = isUcgWxAccountBound(readJwtWxId(ref.read(sessionProvider).accessToken));
     setState(() {
       _running = true;
-      _mode = _scenarioLabel(scenario);
+      _mode = _modeLabel(mode);
       _results = const [];
     });
 
-    List<_ProbeResult> out;
-    switch (scenario) {
-      case _ProbeScenario.httpParallel:
-        out = await _runHttpProbes(deviceNo: deviceNo, version: version, parallel: true);
-      case _ProbeScenario.httpSerial:
-        out = await _runHttpProbes(deviceNo: deviceNo, version: version, parallel: false);
-      case _ProbeScenario.wsFirstThenHttpParallel:
-        out = [
-          ...await _runWsProbes(deviceNo),
-          ...await _runHttpProbes(deviceNo: deviceNo, version: version, parallel: true),
-        ];
-      case _ProbeScenario.wsAndHttpParallel:
-        final wsFuture = _runWsProbes(deviceNo);
-        final httpFuture = _runHttpProbes(deviceNo: deviceNo, version: version, parallel: true);
-        final pair = await Future.wait([wsFuture, httpFuture]);
-        out = [...pair[0], ...pair[1]];
-    }
+    final runner = _buildRunner(deviceNo: deviceNo, version: version, wxBound: wxBound);
+    final out = switch (mode) {
+      _RunMode.parallel => await runner.runParallel(selected),
+      _RunMode.homeTimeline => await runner.runHomeTimeline(selected),
+    };
 
     if (!mounted) return;
     setState(() {
@@ -274,25 +143,52 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
     });
   }
 
-  void _disconnectWs() {
+  void _disconnectAll() {
     _transports.disconnectAll();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('WS 已断开')),
+      const SnackBar(content: Text('WS / Voice ASR 已断开')),
     );
+  }
+
+  List<Widget> _buildItemCheckboxes(bool wxBound) {
+    final widgets = <Widget>[];
+    String? lastPhase;
+    for (final item in HomeProbeItem.values) {
+      if (item.phaseTitle != lastPhase) {
+        lastPhase = item.phaseTitle;
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Text(lastPhase, style: Theme.of(context).textTheme.titleSmall),
+        ));
+      }
+      final needsWx = item.requiresWx && !wxBound;
+      widgets.add(CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        title: Text(item.label),
+        subtitle: needsWx ? const Text('需 wxId（chat 可强制）') : null,
+        value: _selected[item] ?? false,
+        onChanged: _running
+            ? null
+            : (v) => setState(() => _selected[item] = v ?? false),
+      ));
+    }
+    return widgets;
   }
 
   @override
   Widget build(BuildContext context) {
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final token = ref.watch(sessionProvider.select((s) => s.accessToken));
-    final hasToken = token != null && token.isNotEmpty;
     final wxId = readJwtWxId(token);
     final wxBound = isUcgWxAccountBound(wxId);
+    final checked = _checkedItems;
+    final slots = _estimatePangbaoSlots(checked);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('iOS Login HTTP Probe'),
+        title: const Text('iOS Home Probe'),
         actions: [
           TextButton(
             onPressed: _running ? null : () => context.go('/home'),
@@ -303,12 +199,11 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('base: ${AppEnv.apiBaseUrl}', style: Theme.of(context).textTheme.bodySmall),
-          Text('history WS: ${AppEnv.wsHistoryUrlEffective}', style: Theme.of(context).textTheme.bodySmall),
-          Text('ucg chat WS: ${AppEnv.wsUcgChatUrlEffective}', style: Theme.of(context).textTheme.bodySmall),
+          Text('pangbao: ${AppEnv.apiBaseUrl}', style: Theme.of(context).textTheme.bodySmall),
+          Text('notify: ${AppEnv.notifyBaseUrl}', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
-          Text('loggedIn=$loggedIn token=${hasToken ? 'yes' : 'no'} wxBound=$wxBound'),
-          Text('version=${_version ?? '…'}'),
+          Text('loggedIn=$loggedIn wxId=${wxId ?? '–'} wxBound=$wxBound'),
+          Text('version=${_version ?? '…'} · 已选 pangbao 槽≈$slots / ~6'),
           const SizedBox(height: 12),
           TextField(
             controller: _deviceNoCtrl,
@@ -318,71 +213,94 @@ class _IosLoginHttpProbeScreenState extends ConsumerState<IosLoginHttpProbeScree
             ),
             enabled: !_running,
           ),
-          const SizedBox(height: 12),
-          Text('WebSocket（独立 client，不 mount UCG repo）', style: Theme.of(context).textTheme.titleSmall),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('history WS'),
-            value: _includeHistoryWs,
-            onChanged: _running
-                ? null
-                : (v) => setState(() => _includeHistoryWs = v ?? true),
-          ),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('ucg/chat WS'),
-            subtitle: wxBound
-                ? null
-                : const Text('账号/Apple 登录无 wxId，需勾选「强制 chat WS」'),
-            value: _includeChatWs,
-            onChanged: _running ? null : (v) => setState(() => _includeChatWs = v ?? true),
-          ),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('强制 chat WS（忽略 wxId）'),
-            value: _forceChatWs,
-            onChanged: _running ? null : (v) => setState(() => _forceChatWs = v ?? false),
-          ),
-          OutlinedButton(
-            onPressed: _running ? null : _disconnectWs,
-            child: const Text('断开 WS'),
-          ),
-          const SizedBox(height: 16),
-          Text('HTTP 4 接口', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(
-                child: FilledButton(
-                  onPressed: _running ? null : () => _runScenario(_ProbeScenario.httpParallel),
-                  child: const Text('并发 4 HTTP'),
-                ),
+              TextButton(
+                onPressed: _running ? null : () => setState(() => _applyPreset(homeProbeWxPreset())),
+                child: const Text('全选 Home(wx)'),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _running ? null : () => _runScenario(_ProbeScenario.httpSerial),
-                  child: const Text('串行 4 HTTP'),
-                ),
+              TextButton(
+                onPressed: _running
+                    ? null
+                    : () => setState(() {
+                          for (final item in HomeProbeItem.values) {
+                            _selected[item] = false;
+                          }
+                        }),
+                child: const Text('全不选'),
               ),
             ],
           ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('强制 ucg/chat WS（无 wxId 时）'),
+            value: _forceChatWs,
+            onChanged: _running ? null : (v) => setState(() => _forceChatWs = v ?? false),
+          ),
+          if (_selected[HomeProbeItem.logoDownload] == true) ...[
+            Text('Logo 探针', style: Theme.of(context).textTheme.titleSmall),
+            Row(
+              children: [
+                Expanded(
+                  child: InputDecorator(
+                    decoration: const InputDecoration(labelText: 'logo 数量'),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        isExpanded: true,
+                        value: _logoCount,
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('1')),
+                          DropdownMenuItem(value: 2, child: Text('2')),
+                          DropdownMenuItem(value: 6, child: Text('6')),
+                        ],
+                        onChanged: _running ? null : (v) => setState(() => _logoCount = v ?? 2),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: InputDecorator(
+                    decoration: const InputDecoration(labelText: '并发 HttpClient'),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        isExpanded: true,
+                        value: _logoConcurrency,
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('1')),
+                          DropdownMenuItem(value: 2, child: Text('2')),
+                        ],
+                        onChanged: _running ? null : (v) => setState(() => _logoConcurrency = v ?? 2),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          ..._buildItemCheckboxes(wxBound),
           const SizedBox(height: 12),
-          Text('HTTP + WS（4+2=6 槽位）', style: Theme.of(context).textTheme.titleSmall),
-          FilledButton.tonal(
-            onPressed: _running ? null : () => _runScenario(_ProbeScenario.wsFirstThenHttpParallel),
-            child: const Text('先 WS 再 HTTP 并发'),
+          OutlinedButton(
+            onPressed: _running ? null : _disconnectAll,
+            child: const Text('断开 WS / Voice ASR'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _running || checked.isEmpty ? null : () => _run(_RunMode.parallel),
+            child: const Text('运行已选（并发）'),
           ),
           const SizedBox(height: 8),
           FilledButton.tonal(
-            onPressed: _running ? null : () => _runScenario(_ProbeScenario.wsAndHttpParallel),
-            child: const Text('WS + HTTP 同时并发'),
+            onPressed: _running || checked.isEmpty ? null : () => _run(_RunMode.homeTimeline),
+            child: const Text('运行已选（Home 时序）'),
           ),
           if (_mode.isNotEmpty) ...[
             const SizedBox(height: 16),
             Text('模式: $_mode', style: Theme.of(context).textTheme.titleSmall),
           ],
           for (final r in _results) ...[
-            const Divider(height: 24),
+            const Divider(height: 20),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(r.label),
