@@ -23,7 +23,7 @@ class IosLoginProbeRealMounts {
   }
 
   Future<void> mountUcgRepo(WidgetRef ref) async {
-    await activateUcgHomeSession(ref as Ref, requireHomeMounted: false);
+    await activateUcgHomeSession(ref, requireHomeMounted: false);
   }
 
   void startLogoDeferredUnawaited(WidgetRef ref) {

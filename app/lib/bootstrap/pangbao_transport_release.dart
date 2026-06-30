@@ -33,11 +33,11 @@ Future<void> releasePangbaoHomeTransports(dynamic ref) async {
   if (ref.exists(voiceAsrWsClientProvider)) {
     await ref.read(voiceAsrWsClientProvider).disconnect();
   }
-  await deactivateUcgHomeSession(ref as Ref);
+  await deactivateUcgHomeSession(ref);
   GatewayBootstrapGate.reset();
 }
 
 /// gate 完成后串行激活 UCG（unread → WS → push）；须 Home 仍挂载。
 Future<void> mountUcgHomeTransportsIfEligible(dynamic ref) async {
-  await activateUcgHomeSession(ref as Ref);
+  await activateUcgHomeSession(ref);
 }

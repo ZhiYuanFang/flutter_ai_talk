@@ -42,8 +42,10 @@ void resetUcgHomeSessionState() {
 }
 
 /// gate 后串行激活 UCG：unread HTTP → chat WS → push register（避免 iOS 同 host burst）。
+///
+/// [ref] 接受 Riverpod [Ref] 或 [WidgetRef]。
 Future<void> activateUcgHomeSession(
-  Ref ref, {
+  dynamic ref, {
   bool requireHomeMounted = true,
 }) async {
   if (requireHomeMounted && !PangbaoHomeTransportGate.isHomeMounted) return;
@@ -65,14 +67,14 @@ Future<void> activateUcgHomeSession(
 }
 
 /// 离开 Home / release：关闭 chat WS，重置会话标记（不 dispose provider）。
-Future<void> deactivateUcgHomeSession(Ref ref) async {
+Future<void> deactivateUcgHomeSession(dynamic ref) async {
   resetUcgHomeSessionState();
   if (ref.exists(ucgRepositoryProvider)) {
     ref.read(ucgRepositoryProvider).setWsConnectionDesired(false);
   }
 }
 
-void _syncUcgWsDesired(Ref ref, UcgRepository repo) {
+void _syncUcgWsDesired(dynamic ref, UcgRepository repo) {
   if (!_ucgHomeSessionActive || !PangbaoHomeTransportGate.isHomeMounted) {
     repo.setWsConnectionDesired(false);
     return;
@@ -174,7 +176,7 @@ Future<void> syncUcgLauncherBadgeFromUnread(Ref ref) async {
   } catch (_) {}
 }
 
-Future<void> _syncUcgPushRegistration(Ref ref) async {
+Future<void> _syncUcgPushRegistration(dynamic ref) async {
   if (kIsWeb) return;
   final session = ref.read(sessionProvider);
   final wxId = ref.read(ucgCurrentUserIdProvider);
