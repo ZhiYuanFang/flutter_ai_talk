@@ -37,6 +37,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
   ref.onDispose(remote.dispose);
 
   void tryReconnectHistoryWs({bool resetStrike = false}) {
+    if (AppEnv.disablePangbaoWebSocketSpike) return;
     if (AppEnv.wsHistoryUrlEffective.isEmpty) return;
     // reconnect 先断开旧连接，再在 token / deviceNo 就绪时建链；登出或解绑时也会关掉 WS。
     unawaited(remote.reconnectHistoryWebSocket(resetStrike: resetStrike));

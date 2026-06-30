@@ -201,4 +201,11 @@ abstract final class AppEnv {
     'UCG_VIDEO_UPLOAD_ENABLED',
     defaultValue: false,
   );
+
+  /// **SPIKE / iOS 探针**：为 `true` 时不建 pangbao 同 host WebSocket（历史 + 语音 ASR）。
+  /// 验证登录后 HTTP/WebView 是否恢复；诊断完成后 MUST 改回 `false` 或去掉 `--dart-define`。
+  static const disablePangbaoWebSocketSpike = bool.fromEnvironment(
+    'DISABLE_PANGBAO_WS',
+    defaultValue: true,
+  );
 }

@@ -6,6 +6,7 @@ import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../audio/pcm_level.dart';
+import '../config/env.dart';
 
 typedef DeviceNoGetter = String? Function();
 
@@ -54,6 +55,10 @@ class VoiceAsrWsClient {
   }
 
   Future<bool> connect() async {
+    if (AppEnv.disablePangbaoWebSocketSpike) {
+      _emitReady(false);
+      return false;
+    }
     if (wsUrl.isEmpty) {
       _emitReady(false);
       return false;

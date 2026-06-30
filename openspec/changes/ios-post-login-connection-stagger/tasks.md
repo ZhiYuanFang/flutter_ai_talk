@@ -42,3 +42,10 @@
 
 - [x] 9.1 `ResilientWebSocketClient`：close 后 brief settle delay（iOS 300ms）
 - [x] 9.2 iOS 首包 reconnect backoff 3s、precondition retry 1.5s（Android 保持 1s / 500ms）
+
+## 10. iOS 槽位探针（临时）
+
+- [x] 10.1 `AppEnv.disablePangbaoWebSocketSpike`（`--dart-define=DISABLE_PANGBAO_WS`，**当前默认 true**）：历史 WS `_ensureWs` / `reconnect` / `ensureHistoryWebSocketConnected` 与 provider `tryReconnectHistoryWs` 全跳过
+- [x] 10.2 语音 ASR WS `VoiceAsrWsClient.connect()` 同开关跳过（同 host）
+- [ ] 10.3 **iOS 真机探针**：登录后检查更新 + 隐私政策 WebView；记录是否与禁 WS 前不同
+- [ ] 10.4 探针结论后：若确认 WS 为因，补 reconnect gate；并将 `DISABLE_PANGBAO_WS` 默认改回 `false`

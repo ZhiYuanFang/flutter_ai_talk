@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/ai_quota_codes.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../config/env.dart';
 import '../network/resilient_websocket_client.dart';
 import '../network/ws_auth_error_handler.dart';
 import '../network/ws_connect_context.dart';
@@ -186,11 +187,13 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   void _ensureWs() {
+    if (AppEnv.disablePangbaoWebSocketSpike) return;
     _wsClient.setConnectionDesired(true);
   }
 
   @override
   Future<void> reconnectHistoryWebSocket({bool resetStrike = false}) async {
+    if (AppEnv.disablePangbaoWebSocketSpike) return;
     _wsClient.setConnectionDesired(true);
     await _wsClient.reconnect(resetStrike: resetStrike);
   }
@@ -429,6 +432,7 @@ class RemoteFeedRepository implements FeedRepository {
 
   @override
   void ensureHistoryWebSocketConnected() {
+    if (AppEnv.disablePangbaoWebSocketSpike) return;
     _ensureWs();
   }
 

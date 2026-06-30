@@ -36,6 +36,10 @@
 
 **决策**：`ResilientWebSocketClient` 在 `sink.close()` 后 brief settle delay（iOS 300ms）；iOS 首包 reconnect 3s、precondition 1.5s（Android 不变）。
 
+### 9. pangbao WS 探针（临时 SPIKE）
+
+**决策**：`AppEnv.disablePangbaoWebSocketSpike`（`DISABLE_PANGBAO_WS`，**当前默认 true**）跳过历史 WS 全入口与 Voice ASR WS，用于 iOS 二分法验证槽位假设。诊断完成后 MUST 改回 `false`。
+
 ## Decisions
 
 ### 1. 已登录 ColdStartBackgroundSync 改为串行 HTTP
