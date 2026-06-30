@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/event_catalog_state.dart';
@@ -17,12 +19,22 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
   }
 
   static const _logoDownloadConcurrency = 6;
+  static const _iosLogoDownloadConcurrency = 2;
 
   final Ref _ref;
   Future<void>? _warmFuture;
   Future<void>? _refreshFuture;
   Future<void>? _logoDownloadFuture;
   Timer? _saveDebounce;
+  var _logoDownloadGeneration = 0;
+
+  int get _effectiveLogoDownloadConcurrency {
+    if (!kIsWeb && Platform.isIOS) return _iosLogoDownloadConcurrency;
+    return _logoDownloadConcurrency;
+  }
+
+  bool _shouldDeferLogoDownloads(bool loggedIn) =>
+      loggedIn && !kIsWeb && Platform.isIOS;
 
   List<EventDefinition> get items => state.items;
 
@@ -92,7 +104,7 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
         withAuthorization: loggedIn,
       );
       _applyRefreshResult(updated, dn);
-      if (updated != null && updated.isNotEmpty) {
+      if (updated != null && updated.isNotEmpty && !_shouldDeferLogoDownloads(loggedIn)) {
         unawaited(_downloadLogosInBackground(updated));
       }
     } finally {
@@ -118,6 +130,18 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
     });
   }
 
+  /// iOS 已登录：gate 与 version/check 完成后再拉 logo，避免与 bootstrap 并行占满连接槽。
+  Future<void> runDeferredLogoDownloads() {
+    if (state.items.isEmpty) return Future.value();
+    return _downloadLogosInBackground(state.items);
+  }
+
+  /// 登出时取消进行中的 logo 下载，尽快释放 pangbao HTTP 连接。
+  void cancelLogoDownloads() {
+    _logoDownloadGeneration++;
+    _logoDownloadFuture = null;
+  }
+
   Future<void> _downloadLogosInBackground(List<EventDefinition> base) {
     return _logoDownloadFuture ??= _downloadLogosImpl(base).whenComplete(() {
       _logoDownloadFuture = null;
@@ -126,18 +150,22 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
 
   Future<void> _downloadLogosImpl(List<EventDefinition> base) async {
     if (base.isEmpty) return;
+    final generation = _logoDownloadGeneration;
     try {
       final local = await EventCatalogStore.loadFromDisk();
+      if (generation != _logoDownloadGeneration) return;
       final prevById = {for (final e in local) e.id: e};
       var index = 0;
 
       Future<void> worker() async {
         while (true) {
+          if (generation != _logoDownloadGeneration) return;
           final i = index++;
           if (i >= base.length) return;
           final event = base[i];
           final resolved =
               await EventCatalogStore.downloadLogoIfNeeded(event, prevById);
+          if (generation != _logoDownloadGeneration) return;
           prevById[event.id] = resolved;
           final path = resolved.localLogoPath;
           if (path != null && path != event.localLogoPath) {
@@ -147,13 +175,14 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
         }
       }
 
-      final workerCount = base.length < _logoDownloadConcurrency
-          ? base.length
-          : _logoDownloadConcurrency;
+      final concurrency = _effectiveLogoDownloadConcurrency;
+      final workerCount =
+          base.length < concurrency ? base.length : concurrency;
       if (workerCount > 0) {
         await Future.wait(List.generate(workerCount, (_) => worker()));
       }
 
+      if (generation != _logoDownloadGeneration) return;
       _saveDebounce?.cancel();
       await EventCatalogStore.saveToDisk(state.items);
       final keepPaths =

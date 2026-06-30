@@ -91,7 +91,10 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     if (!mounted) return;
     ref.read(goRouterProvider).go(result.route);
     setState(() => _showStartupOverlay = false);
-    unawaited(ColdStartBackgroundSync.run(ref));
+    // 已登录 bootstrap 由 HomeScreen GatewayBootstrapGate 单飞负责，避免与 gate 双跑占满 iOS 连接槽。
+    if (!ref.read(sessionProvider).isLoggedIn) {
+      unawaited(ColdStartBackgroundSync.run(ref));
+    }
   }
 
   @override

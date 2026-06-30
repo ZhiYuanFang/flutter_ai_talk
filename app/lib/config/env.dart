@@ -206,6 +206,6 @@ abstract final class AppEnv {
   /// 验证登录后 HTTP/WebView 是否恢复；诊断完成后 MUST 改回 `false` 或去掉 `--dart-define`。
   static const disablePangbaoWebSocketSpike = bool.fromEnvironment(
     'DISABLE_PANGBAO_WS',
-    defaultValue: true,
+    defaultValue: false,
   );
 }

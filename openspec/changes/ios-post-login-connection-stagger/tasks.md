@@ -45,7 +45,14 @@
 
 ## 10. iOS 槽位探针（临时）
 
-- [x] 10.1 `AppEnv.disablePangbaoWebSocketSpike`（`--dart-define=DISABLE_PANGBAO_WS`，**当前默认 true**）：历史 WS `_ensureWs` / `reconnect` / `ensureHistoryWebSocketConnected` 与 provider `tryReconnectHistoryWs` 全跳过
+- [x] 10.1 `AppEnv.disablePangbaoWebSocketSpike`（`--dart-define=DISABLE_PANGBAO_WS`）：历史 WS 全入口跳过（**默认 false**；探针时 `--dart-define=DISABLE_PANGBAO_WS=true`）
 - [x] 10.2 语音 ASR WS `VoiceAsrWsClient.connect()` 同开关跳过（同 host）
-- [ ] 10.3 **iOS 真机探针**：登录后检查更新 + 隐私政策 WebView；记录是否与禁 WS 前不同
-- [ ] 10.4 探针结论后：若确认 WS 为因，补 reconnect gate；并将 `DISABLE_PANGBAO_WS` 默认改回 `false`
+- [x] 10.3 **iOS 真机探针结论**：禁 WS 后登录 HTTP 仍失败 → 根因含 **登录 HTTP burst + logo 6 并发占槽**，不单是历史 WS
+- [x] 10.4 探针结论后：`DISABLE_PANGBAO_WS` 默认改回 `false`；`tryReconnectHistoryWs` 须 `GatewayBootstrapGate.isLoggedInComplete`
+
+## 11. 登录 HTTP 错峰（探针后）
+
+- [x] 11.1 `app.dart`：已登录时不 `unawaited(ColdStartBackgroundSync)`，仅游客冷启动补 sync
+- [x] 11.2 iOS 已登录：catalog refresh **不**立即 logo 下载；gate + version 后 `runDeferredLogoDownloads()`
+- [x] 11.3 iOS logo 并发 6→2；登出 `cancelLogoDownloads()` 释放 in-flight HTTP
+- [x] 11.4 KeepAlive 登录路径补 `_runHomeDialogBootstrap`（notify）

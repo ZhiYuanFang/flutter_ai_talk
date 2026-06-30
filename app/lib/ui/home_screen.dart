@@ -543,6 +543,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!mounted) return;
     await _runPostLoginBootstrap();
     if (!mounted) return;
+    _scheduleDeferredCatalogLogoDownloads();
+    if (!mounted) return;
     await _delayBeforeHistoryWebSocketOnIos();
     if (!mounted) return;
     _subscribeHistoryWebSocketIfNeeded();
@@ -566,6 +568,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!ref.read(sessionProvider).isLoggedIn) return;
     if (kIsWeb || !Platform.isIOS) return;
     await Future<void>.delayed(_iosHistoryWsConnectDelay);
+  }
+
+  void _scheduleDeferredCatalogLogoDownloads() {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    if (kIsWeb || !Platform.isIOS) return;
+    unawaited(ref.read(eventCatalogProvider.notifier).runDeferredLogoDownloads());
   }
 
   void _onHistoryWebSocketPayload(SseHistoryPayload payload) {
@@ -597,10 +605,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (!mounted) return;
     await _runPostLoginBootstrap();
     if (!mounted) return;
+    _scheduleDeferredCatalogLogoDownloads();
+    if (!mounted) return;
     await _delayBeforeHistoryWebSocketOnIos();
     if (!mounted) return;
     _subscribeHistoryWebSocketIfNeeded();
     _scheduleVoiceAsrConnectIfNeeded();
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_runHomeDialogBootstrap());
+    });
   }
 
   bool _shouldScheduleWsFly(String recordId) {

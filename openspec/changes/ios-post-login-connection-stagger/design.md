@@ -38,7 +38,16 @@
 
 ### 9. pangbao WS 探针（临时 SPIKE）
 
-**决策**：`AppEnv.disablePangbaoWebSocketSpike`（`DISABLE_PANGBAO_WS`，**当前默认 true**）跳过历史 WS 全入口与 Voice ASR WS，用于 iOS 二分法验证槽位假设。诊断完成后 MUST 改回 `false`。
+**结论（10.3）**：禁 WS 后登录 HTTP 仍失败 → 根因含登录 HTTP burst + logo 6 并发，不单是历史 WS。开关默认 `false`；诊断时 `--dart-define=DISABLE_PANGBAO_WS=true`。
+
+### 10. 登录 HTTP 错峰（11.x）
+
+**决策**：
+
+- 已登录时 `app.dart` **不**再 `ColdStartBackgroundSync`，由 `GatewayBootstrapGate` 单飞。
+- iOS 已登录 catalog refresh **推迟** logo 下载至 gate + version/check 之后；并发 **2**（Android 仍 6）。
+- 登出 `cancelLogoDownloads()` 取消 in-flight logo HTTP。
+- `tryReconnectHistoryWs` 须 `GatewayBootstrapGate.isLoggedInComplete`。
 
 ## Decisions
 

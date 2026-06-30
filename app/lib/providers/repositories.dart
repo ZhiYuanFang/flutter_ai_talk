@@ -14,6 +14,7 @@ import '../session/session_controller.dart';
 import '../network/ws_session_binding.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
+import 'event_catalog_notifier.dart';
 import 'session_provider.dart';
 import 'sign_in_channel_provider.dart';
 import 'toast_bus.dart';
@@ -38,6 +39,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
 
   void tryReconnectHistoryWs({bool resetStrike = false}) {
     if (AppEnv.disablePangbaoWebSocketSpike) return;
+    if (!GatewayBootstrapGate.isLoggedInComplete) return;
     if (AppEnv.wsHistoryUrlEffective.isEmpty) return;
     // reconnect 先断开旧连接，再在 token / deviceNo 就绪时建链；登出或解绑时也会关掉 WS。
     unawaited(remote.reconnectHistoryWebSocket(resetStrike: resetStrike));
@@ -48,6 +50,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
     (prev, loggedIn) {
       if (prev == true && !loggedIn) {
         remote.disconnectHistoryWebSocket();
+        ref.read(eventCatalogProvider.notifier).cancelLogoDownloads();
         GatewayBootstrapGate.reset();
       }
     },
