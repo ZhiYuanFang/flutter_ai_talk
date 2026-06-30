@@ -923,12 +923,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
   }
 
-  /// 回前台：先单飞 ensureFreshSession，再并行 WS 重连与 UCG 未读同步。
+  /// 回前台：先单飞 ensureFreshSession，再 WS resume，最后 unread HTTP（push 仅 activate/token 路径）。
   Future<void> _onAppLifecycleResumed() async {
     await ref.read(sessionProvider).ensureFreshSession();
     ref.read(feedRepositoryProvider).onAppLifecycleResumed();
     ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
-    unawaited(ref.read(ucgUnreadSyncProvider)());
+    await ref.read(ucgUnreadSyncProvider)();
   }
 
   Future<void> _reloadHistoryIfLoggedIn() async {

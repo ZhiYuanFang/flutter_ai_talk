@@ -27,6 +27,13 @@ final ucgPushRegistrationServiceProvider = Provider<UcgPushRegistrationService>(
 });
 
 Future<void>? _syncUcgUnreadInFlight;
+Future<void>? _syncUcgPushRegistrationInFlight;
+
+const _kUcgPushRegisterFailThreshold = 2;
+
+var _ucgPushRegisterGaveUp = false;
+var _ucgPushRegisterFailCount = 0;
+var _ucgPushTokenRefreshDeferred = false;
 
 /// UCG Home 会话是否已激活（WS + unread + push）；provider 创建时不自动激活。
 var _ucgHomeSessionActive = false;
@@ -42,10 +49,17 @@ bool get ucgHomeSessionActive => _ucgHomeSessionActive;
 bool _ucgTransportMountAllowed() =>
     PangbaoHomeTransportGate.isHomeMounted || _ucgHomeSessionIgnoresMountGate;
 
+void resetUcgPushRegisterState() {
+  _ucgPushRegisterGaveUp = false;
+  _ucgPushRegisterFailCount = 0;
+  _ucgPushTokenRefreshDeferred = false;
+}
+
 void resetUcgHomeSessionState() {
   _ucgHomeSessionActive = false;
   _ucgHomeSessionIgnoresMountGate = false;
   _ucgUnreadBaselineSynced = false;
+  resetUcgPushRegisterState();
 }
 
 /// gate 后串行激活 UCG：unread HTTP → await chat WS ready → push register。
@@ -199,14 +213,50 @@ Future<void> syncUcgLauncherBadgeFromUnread(dynamic ref) async {
 
 Future<void> _syncUcgPushRegistration(dynamic ref) async {
   if (kIsWeb) return;
+  if (_ucgPushRegisterGaveUp) return;
+  if (_syncUcgPushRegistrationInFlight != null) {
+    await _syncUcgPushRegistrationInFlight;
+    return;
+  }
+  final run = _syncUcgPushRegistrationOnce(ref);
+  _syncUcgPushRegistrationInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (identical(_syncUcgPushRegistrationInFlight, run)) {
+      _syncUcgPushRegistrationInFlight = null;
+    }
+    if (_ucgPushTokenRefreshDeferred) {
+      _ucgPushTokenRefreshDeferred = false;
+      if (!_ucgPushRegisterGaveUp && _ucgHomeSessionActive) {
+        unawaited(_syncUcgPushRegistration(ref));
+      }
+    }
+  }
+}
+
+Future<void> _syncUcgPushRegistrationOnce(dynamic ref) async {
   final session = ref.read(sessionProvider);
   final wxId = ref.read(ucgCurrentUserIdProvider);
   final push = ref.read(ucgPushRegistrationServiceProvider);
   if (!session.isLoggedIn || !isUcgWxAccountBound(wxId)) {
+    resetUcgPushRegisterState();
     await push.unregister();
     return;
   }
-  await push.registerIfEligible(isLoggedIn: true, wxBound: true);
+  try {
+    await push.registerIfEligible(isLoggedIn: true, wxBound: true);
+    _ucgPushRegisterFailCount = 0;
+  } catch (e) {
+    _ucgPushRegisterFailCount++;
+    AppDebugLog.ucgPush(
+      'register fail count=$_ucgPushRegisterFailCount err=$e',
+    );
+    if (_ucgPushRegisterFailCount >= _kUcgPushRegisterFailThreshold) {
+      _ucgPushRegisterGaveUp = true;
+      AppDebugLog.ucgPush('gaveUp after $_ucgPushRegisterFailCount failures');
+    }
+  }
 }
 
 /// Resume / 前台恢复时 HTTP 校准未读并同步启动器角标。
@@ -258,6 +308,11 @@ final ucgRepositoryProvider = Provider<UcgRepository>((ref) {
   final push = ref.read(ucgPushRegistrationServiceProvider);
   unawaited(push.bindTokenRefreshListener(() async {
     if (!_ucgHomeSessionActive) return;
+    if (_syncUcgPushRegistrationInFlight != null) {
+      _ucgPushTokenRefreshDeferred = true;
+      return;
+    }
+    if (_ucgPushRegisterGaveUp) return;
     await _syncUcgPushRegistration(ref);
   }));
 

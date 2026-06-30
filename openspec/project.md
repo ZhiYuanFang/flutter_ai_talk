@@ -65,6 +65,33 @@
 - **禁止**：仅 `flutter run` debug 验证就合并 Android 原生改动。
 - **参考**：`app/android/app/proguard-rules.pro`、`app/android/build.gradle.kts`（子模块 `compileSdkVersion` 兜底）、`app/README.md`「打包与发布 → Android」。
 
+### 副作用 HTTP 治理（强制）
+
+当 HTTP 请求由 **Riverpod `ref.listen`、原生/SDK 回调、`Stream.listen`、App lifecycle** 等**非用户直接点击**路径触发（下称「副作用 HTTP」）时，**必须**满足下列防护，避免 iOS 等同 host 连接槽被重试环占满（典型：`POST /push/register` 失败 → APNs `onTokenRefresh` → 再 register）。
+
+1. **Single-flight（in-flight 去重）**  
+   同一逻辑操作的并发触发 **必须** 合并为单次 in-flight `Future`；后续调用 **必须** `await` 该 Future，**不得** `unawaited` 并行重复建连。  
+   **范例**：`syncUcgUnreadFromServer`（`_syncUcgUnreadInFlight`）、`SessionController.ensureFreshSession`（`_refreshInFlight`）、`GatewayBootstrapGate.ensureLoggedInComplete`。
+
+2. **失败熔断（circuit-breaker）**  
+   同一会话内连续失败达到阈值后，**必须**停止该操作的自动重试，直至 reset 条件：登出、显式 session/transport deactivate、或输入**实质变更**（如新 push token）。  
+   **禁止** 无 reset 条件下的无限重试环。
+
+3. **自触发防护**  
+   若原生/SDK 回调可能由当前 HTTP 操作本身触发（如 register 过程中 `registerForRemoteNotifications` → `onTokenRefresh`），在该操作 **in-flight 期间必须 ignore** 回调；完成后 **最多** 处理一次 deferred 事件（且仅当输入实质变更）。
+
+4. **成功缓存（幂等跳过）**  
+   成功 POST 后 **应** 缓存稳定请求身份（如 push 的 `channel + token + deviceKey`）；身份未变时 **必须** 跳过重复 POST；登出/unregister **必须** 清缓存。
+
+5. **Provider 创建 vs 会话激活**  
+   全局 Riverpod provider 的 `create` / `build` **不得** 自动发起副作用 HTTP（push register、未读校准、WS 建连等）；**必须** 由显式 session 激活（如 `activateUcgHomeSession`、`GatewayBootstrapGate`）或用户动作触发。Widget 为读 derived state **不得** `watch` 会挂载副作用 transport 的 provider（例：`UcgEnterSquareTab` 不得 premature `watch(ucgRepositoryProvider)`）。
+
+6. **OpenSpec**  
+   新增或修改 listener 触发的 pangbao/notify HTTP **须** 在 change spec 中落到 Requirement/Scenario，或引用 capability `side-effect-http-governance`。
+
+- **参考**：`openspec/changes/side-effect-http-governance/`、`app/lib/ucg/providers/ucg_providers.dart`（unread single-flight 范例）。
+- **禁止**：在 `ref.listen` / token 回调中 `unawaited` 重复 POST 且无 in-flight 去重与失败熔断。
+
 ### OpenSpec 归档约定（强制）
 
 - 执行 **`/opsx-archive`** 或 **`openspec-archive-change` skill** 时，合并成功后 **必须**带 **`--remove-changes`** 调用 `scripts/sync_specs_to_version.py`。
@@ -82,4 +109,5 @@
 - **Debug 日志**：是否引入裸 `debugPrint`/`print`；新 tag 是否三联改。
 - **Android 原生**：是否已 release 构建通过；`proguard-rules.pro` 是否按需更新。
 - **测试文件**：是否未经用户明确要求而新增 `*_test.dart`。
+- **副作用 HTTP**：listener/回调/lifecycle 触发的 HTTP 是否有 single-flight、失败熔断、自触发 ignore、成功缓存；provider 创建是否误发副作用 HTTP。
 - **归档**：收版是否默认 `--remove-changes`；`project.md` 基线版本是否已更新。

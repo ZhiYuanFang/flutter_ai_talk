@@ -38,6 +38,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[UcgCompose]` | compose 槽位上传、ensure 重试、发布各阶段（upload / location / createPost） |
 | `[UcgPlay]` | CDN 内联播放 init/play/runtime 失败（ExoPlayer `errorDescription`） |
 | `[UcgUnread]` | UCG 未读 HTTP 校准失败（`sync err=`） |
+| `[UcgPush]` | UCG push register 失败 / gaveUp（`register fail` / `gaveUp`） |
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 

@@ -37,6 +37,11 @@ OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 proje
 - 不自动新建 `**/test/**` 下测试文件；用户明确要求时例外。
 - 细则见 **`openspec/project.md`**「测试文件约定」。
 
+## 副作用 HTTP（强制）
+
+- Riverpod `listen`、原生/SDK 回调、lifecycle 触发的 HTTP **必须** single-flight、失败熔断、自触发 ignore、成功幂等跳过；provider 创建 **不得** 自动 push/未读/WS。
+- 细则见 **`openspec/project.md`**「副作用 HTTP 治理」；范例见 `syncUcgUnreadFromServer`、`_syncUcgUnreadInFlight`。
+
 ## OpenSpec 工作流
 
 - 新变更前对照 **`openspec/specs/v2.0.3.md`**；行为变更须有 spec delta。

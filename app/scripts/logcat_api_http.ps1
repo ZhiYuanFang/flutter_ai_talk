@@ -1,6 +1,6 @@
 # 过滤 Dart debugPrint 白名单 tag（需 adb 在 PATH，设备已连接）
 # 增删 tag：修改下方 $Tags 数组
-$Tags = @('[ApiHttp]', '[UcgFeed]', '[UcgLocation]', '[UcgVideo]', '[UcgCompose]', '[UcgPlay]', '[UcgUnread]', '[PangbaoClinic]', '[WsTransport]')
+$Tags = @('[ApiHttp]', '[UcgFeed]', '[UcgLocation]', '[UcgVideo]', '[UcgCompose]', '[UcgPlay]', '[UcgUnread]', '[UcgPush]', '[PangbaoClinic]', '[WsTransport]')
 
 $ErrorActionPreference = 'Stop'
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {

@@ -34,6 +34,11 @@ abstract final class AppDebugLog {
     debugPrint('[UcgUnread] ${_ts()} $message');
   }
 
+  static void ucgPush(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[UcgPush] ${_ts()} $message');
+  }
+
   static void pangbaoClinic(String message) {
     if (!kDebugMode) return;
     debugPrint('[PangbaoClinic] ${_ts()} $message');

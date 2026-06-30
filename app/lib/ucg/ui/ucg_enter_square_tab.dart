@@ -39,8 +39,6 @@ class _UcgEnterSquareTabState extends ConsumerState<UcgEnterSquareTab>
 
   @override
   Widget build(BuildContext context) {
-    // 确保登录后未进广场也会初始化 UCG repo 与未读同步。
-    ref.watch(ucgRepositoryProvider);
     final scheme = Theme.of(context).colorScheme;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final primary = scheme.primary;

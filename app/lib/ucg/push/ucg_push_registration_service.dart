@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../api/app_debug_log.dart';
 import '../data/ucg_api_client.dart';
 import 'ucg_push_channel.dart';
 import 'ucg_push_native.dart';
@@ -22,6 +23,9 @@ class UcgPushRegistrationService {
   final FlutterSecureStorage _secureStorage;
   StreamSubscription<UcgPushTokenEvent>? _tokenSub;
   UcgPushChannel? _activeChannel;
+  UcgPushChannel? _cachedChannel;
+  String? _cachedToken;
+  String? _cachedDeviceKey;
 
   Future<String> deviceKey() async {
     final existing = await _secureStorage.read(key: _kDeviceKeyStorage);
@@ -58,13 +62,22 @@ class UcgPushRegistrationService {
     await UcgPushNative.requestNotificationPermission();
     final token = await UcgPushNative.fetchToken(channel);
     if (token == null || token.isEmpty) return false;
-    _activeChannel = channel;
     final key = await deviceKey();
+    if (_matchesCachedRegistration(channel, token, key)) {
+      _activeChannel = channel;
+      AppDebugLog.ucgPush('register skip cached channel=${channel.apiValue}');
+      return true;
+    }
+    _activeChannel = channel;
     await _api.post('/push/register', {
       'channel': channel.apiValue,
       'token': token,
       'deviceKey': key,
     });
+    _cachedChannel = channel;
+    _cachedToken = token;
+    _cachedDeviceKey = key;
+    AppDebugLog.ucgPush('register ok channel=${channel.apiValue}');
     return true;
   }
 
@@ -78,7 +91,22 @@ class UcgPushRegistrationService {
     }
     try {
       await _api.post('/push/unregister', body);
-    } catch (_) {}
+    } catch (e) {
+      AppDebugLog.ucgPush('unregister err=$e');
+    }
     _activeChannel = null;
+    _clearRegistrationCache();
+  }
+
+  bool _matchesCachedRegistration(UcgPushChannel channel, String token, String deviceKey) {
+    return _cachedChannel == channel &&
+        _cachedToken == token &&
+        _cachedDeviceKey == deviceKey;
+  }
+
+  void _clearRegistrationCache() {
+    _cachedChannel = null;
+    _cachedToken = null;
+    _cachedDeviceKey = null;
   }
 }
