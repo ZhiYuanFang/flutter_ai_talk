@@ -106,7 +106,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   StreamSubscription<bool>? _wsReadySub;
   StreamSubscription<HistoryWsPhase>? _wsPhaseSub;
   StreamSubscription<bool>? _voiceAsrReadySub;
-  var _wsReady = false;
   HistoryWsPhase _historyWsPhase = HistoryWsPhase.disconnected;
   var _historyWsManualReconnecting = false;
   var _gaveUpSnackbarShown = false;
@@ -518,14 +517,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       unawaited(_initMobileSpeech());
     }
     final feed = ref.read(feedRepositoryProvider);
-    _wsReady = feed.isHistoryWebSocketReady;
     _historyWsPhase = feed.historyWsPhase;
     _wsReadySub = feed.historyWsReadyStream.listen((v) {
-      if (!mounted) return;
-      setState(() {
-        _wsReady = v;
-        if (v) _gaveUpSnackbarShown = false;
-      });
+      if (!mounted || !v) return;
+      setState(() => _gaveUpSnackbarShown = false);
     });
     _wsPhaseSub = feed.historyWsPhaseStream.listen((phase) {
       if (!mounted) return;
@@ -892,16 +887,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       if (ref.read(sessionProvider).isRefreshInFlight) return;
       ref.showApiToastError(kHomeHistoryWsGaveUpMessage);
     });
-  }
-
-  String _historyWsBannerMessage() {
-    return switch (_historyWsPhase) {
-      HistoryWsPhase.gaveUp => kHomeHistoryWsGaveUpMessage,
-      HistoryWsPhase.ready ||
-      HistoryWsPhase.disconnected ||
-      HistoryWsPhase.autoReconnecting =>
-        kHomeHistoryWsDisconnectMessage,
-    };
   }
 
   Future<void> _reconnectHistoryWs() async {
@@ -1332,25 +1317,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
     final refreshInFlight = ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
-    final showWsRefreshBanner = loggedIn &&
+    // 方案 B：仅 transport 3-strike gaveUp 时展示连接失败横幅；初次进入/disconnected/refresh 期间静默。
+    final showWsBanner = loggedIn &&
         !needsDeviceBind &&
-        !_wsReady &&
-        refreshInFlight &&
-        _historyWsPhase != HistoryWsPhase.autoReconnecting;
-    final showWsDisconnectBanner = loggedIn &&
-        !needsDeviceBind &&
-        !_wsReady &&
-        !refreshInFlight &&
-        _historyWsPhase != HistoryWsPhase.autoReconnecting;
-    final showWsBanner = showWsRefreshBanner || showWsDisconnectBanner;
-    final wsBannerMessage = showWsRefreshBanner
-        ? kHomeHistoryWsRefreshRecoveryMessage
-        : _historyWsBannerMessage();
-    final wsBannerVariant =
-        showWsRefreshBanner ? HomeHistoryWsBannerVariant.info : HomeHistoryWsBannerVariant.error;
-    final wsBannerReconnecting =
-        _historyWsPhase == HistoryWsPhase.autoReconnecting || _historyWsManualReconnecting;
-    final wsBannerTapEnabled = !showWsRefreshBanner;
+        _historyWsPhase == HistoryWsPhase.gaveUp &&
+        !refreshInFlight;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
@@ -1490,10 +1461,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     ),
                     HomeHistoryWsStatusBanner(
                       visible: showWsBanner,
-                      message: wsBannerMessage,
-                      reconnecting: wsBannerReconnecting,
-                      tapEnabled: wsBannerTapEnabled,
-                      variant: wsBannerVariant,
+                      message: kHomeHistoryWsGaveUpMessage,
+                      reconnecting: _historyWsManualReconnecting,
+                      tapEnabled: true,
+                      variant: HomeHistoryWsBannerVariant.error,
                       onReconnect: () => unawaited(_reconnectHistoryWs()),
                     ),
                     _buildInputModuleTopShadow(context),

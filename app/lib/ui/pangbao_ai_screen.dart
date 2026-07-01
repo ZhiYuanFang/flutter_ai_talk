@@ -69,7 +69,6 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   StreamSubscription<bool>? _clinicWsReadySub;
   StreamSubscription<HistoryWsPhase>? _clinicWsPhaseSub;
   var _consented = false;
-  var _clinicWsReady = false;
   HistoryWsPhase _clinicWsPhase = HistoryWsPhase.disconnected;
   var _clinicWsManualReconnecting = false;
   var _gaveUpSnackbarShown = false;
@@ -207,15 +206,11 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     final client = _client;
     if (client == null) return;
     if (_clinicWsReadySub == null && _clinicWsPhaseSub == null) {
-      _clinicWsReady = client.isClinicWebSocketReady;
       _clinicWsPhase = client.clinicWsPhase;
     }
     _clinicWsReadySub ??= client.clinicWsReadyStream.listen((v) {
-      if (!mounted) return;
-      setState(() {
-        _clinicWsReady = v;
-        if (v) _gaveUpSnackbarShown = false;
-      });
+      if (!mounted || !v) return;
+      setState(() => _gaveUpSnackbarShown = false);
     });
     _clinicWsPhaseSub ??= client.clinicWsPhaseStream.listen((phase) {
       if (!mounted) return;
@@ -241,16 +236,6 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       if (ref.read(sessionProvider).isRefreshInFlight) return;
       ref.showApiToastError(kHomeHistoryWsGaveUpMessage);
     });
-  }
-
-  String _clinicWsBannerMessage() {
-    return switch (_clinicWsPhase) {
-      HistoryWsPhase.gaveUp => kHomeHistoryWsGaveUpMessage,
-      HistoryWsPhase.ready ||
-      HistoryWsPhase.disconnected ||
-      HistoryWsPhase.autoReconnecting =>
-        kHomeHistoryWsDisconnectMessage,
-    };
   }
 
   Future<void> _reconnectClinicWsFromBanner() async {
@@ -755,27 +740,12 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     final canUseInput = _consented && loggedIn && !_needsDeviceBind(dnAsync);
     final needsDeviceBind = loggedIn && _needsDeviceBind(dnAsync);
     final refreshInFlight = ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
-    final showWsRefreshBanner = _consented &&
+    // 与主页对齐：仅 gaveUp 时展示连接失败横幅。
+    final showWsBanner = _consented &&
         loggedIn &&
         !needsDeviceBind &&
-        !_clinicWsReady &&
-        refreshInFlight &&
-        _clinicWsPhase != HistoryWsPhase.autoReconnecting;
-    final showWsDisconnectBanner = _consented &&
-        loggedIn &&
-        !needsDeviceBind &&
-        !_clinicWsReady &&
-        !refreshInFlight &&
-        _clinicWsPhase != HistoryWsPhase.autoReconnecting;
-    final showWsBanner = showWsRefreshBanner || showWsDisconnectBanner;
-    final wsBannerMessage = showWsRefreshBanner
-        ? kHomeHistoryWsRefreshRecoveryMessage
-        : _clinicWsBannerMessage();
-    final wsBannerVariant =
-        showWsRefreshBanner ? HomeHistoryWsBannerVariant.info : HomeHistoryWsBannerVariant.error;
-    final wsBannerReconnecting =
-        _clinicWsPhase == HistoryWsPhase.autoReconnecting || _clinicWsManualReconnecting;
-    final wsBannerTapEnabled = !showWsRefreshBanner;
+        _clinicWsPhase == HistoryWsPhase.gaveUp &&
+        !refreshInFlight;
     final inputHint = !_consented
         ? '请先同意告知'
         : !loggedIn
@@ -817,10 +787,10 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
           ),
           HomeHistoryWsStatusBanner(
             visible: showWsBanner,
-            message: wsBannerMessage,
-            reconnecting: wsBannerReconnecting,
-            tapEnabled: wsBannerTapEnabled,
-            variant: wsBannerVariant,
+            message: kHomeHistoryWsGaveUpMessage,
+            reconnecting: _clinicWsManualReconnecting,
+            tapEnabled: true,
+            variant: HomeHistoryWsBannerVariant.error,
             onReconnect: () => unawaited(_reconnectClinicWsFromBanner()),
           ),
           Expanded(
