@@ -76,14 +76,21 @@ def ensure_embed_extension_phase(runner, project, widget_target)
     runner.build_phases << embed_phase
   end
 
-  # 放到最后，确保在 [CP] Embed Pods Frameworks 之后执行
-  runner.build_phases.delete(embed_phase)
-  runner.build_phases << embed_phase
-
   appex_ref = widget_target.product_reference
   existing = embed_phase.files.find { |f| f.file_ref == appex_ref }
   build_file = existing || embed_phase.add_file_reference(appex_ref)
   build_file.settings = { 'ATTRIBUTES' => ['CodeSignOnCopy'] }
+
+  # Flutter #135056：Embed Foundation Extensions 必须在 Thin Binary 之前，否则 Info.plist 构建循环
+  thin_phase = runner.build_phases.find { |phase|
+    phase.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase) && phase.name == 'Thin Binary'
+  }
+  runner.build_phases.delete(embed_phase)
+  if thin_phase
+    runner.build_phases.insert(runner.build_phases.index(thin_phase), embed_phase)
+  else
+    runner.build_phases << embed_phase
+  end
 end
 
 def ensure_scheme_builds_widget(_project, widget_target)
