@@ -52,6 +52,30 @@ def validate_team_id() -> None:
         fail('[Secret] IOS_TEAM_ID 格式应为 10 位大写字母或数字')
 
 
+def default_widget_bundle_id(main_bundle_id: str) -> str:
+    return f'{main_bundle_id}.widget'
+
+
+def validate_widget_bundle_id() -> None:
+    main_bundle_id = os.environ.get('IOS_BUNDLE_ID', '').strip()
+    widget_bundle_id = os.environ.get(
+        'IOS_WIDGET_BUNDLE_ID',
+        default_widget_bundle_id(main_bundle_id),
+    ).strip()
+    prefix = f'{main_bundle_id}.'
+    if not widget_bundle_id.startswith(prefix):
+        fail(
+            '[Config] IOS_WIDGET_BUNDLE_ID 必须以 IOS_BUNDLE_ID 为前缀 — '
+            f'主 App={main_bundle_id} Widget={widget_bundle_id}'
+        )
+    suffix = widget_bundle_id[len(prefix):]
+    if not suffix or '.' in suffix:
+        fail(
+            '[Config] IOS_WIDGET_BUNDLE_ID 在主 App ID 后只能有一段后缀 — '
+            f'期望形如 {main_bundle_id}.widget 实际={widget_bundle_id}'
+        )
+
+
 def validate_bundle_id() -> None:
     bundle_id = os.environ.get('IOS_BUNDLE_ID', '').strip()
     if '_' in bundle_id:
@@ -348,7 +372,7 @@ def validate_widget_profile(export_method: str) -> None:
     main_bundle_id = os.environ.get('IOS_BUNDLE_ID', '').strip()
     expected_widget_bundle_id = os.environ.get(
         'IOS_WIDGET_BUNDLE_ID',
-        f'{main_bundle_id}.PangbaoWidget',
+        default_widget_bundle_id(main_bundle_id),
     ).strip()
     expected_team_id = os.environ.get('IOS_TEAM_ID', '').strip()
     actual_bundle_id = profile_bundle_id(profile)
@@ -444,6 +468,7 @@ def main() -> None:
 
     validate_team_id()
     validate_bundle_id()
+    validate_widget_bundle_id()
     validate_p12()
     validate_profile(export_method)
     validate_widget_profile(export_method)

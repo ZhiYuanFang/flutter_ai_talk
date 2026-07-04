@@ -15,8 +15,8 @@ Flutter 侧已通过 `home_widget` 写入 App Group `group.com.fzy.pangbao.widge
 | 步骤 | 操作 |
 |------|------|
 | 1 | **App Groups** → 新建 `group.com.fzy.pangbao.widget` |
-| 2 | App ID `com.fzy.pangbaoApp` → 启用 **App Groups** → 勾选上述 group → **重新生成** `pangbao-appstore` 等主 App 描述文件 |
-| 3 | 新建 App ID `com.fzy.pangbaoApp.PangbaoWidget` → 启用 **App Groups**（同一 group） |
+| 2 | App ID `com.fzy.pangbao` → 启用 **App Groups** → 勾选上述 group → **重新生成** `pangbao-appstore` 等主 App 描述文件 |
+| 3 | 新建 App ID `com.fzy.pangbao.widget` → 启用 **App Groups**（同一 group） |
 | 4 | **Profiles** → 为 Extension App ID 新建 App Store 描述文件（如 `pangbao-widget-appstore`） |
 | 5 | 更新 GitHub Secrets（见下） |
 
@@ -26,7 +26,7 @@ Flutter 侧已通过 `home_widget` 写入 App Group `group.com.fzy.pangbao.widge
 |--------|------|
 | `IOS_MOBILEPROVISION_APPSTORE_BASE64` | 主 App App Store 描述文件（**须含 App Groups**） |
 | `IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64` | Widget Extension App Store 描述文件 |
-| `IOS_WIDGET_BUNDLE_ID` | 可选；默认 `com.fzy.pangbaoApp.PangbaoWidget` |
+| `IOS_WIDGET_BUNDLE_ID` | 可选；默认 `com.fzy.pangbao.widget`（即 `{IOS_BUNDLE_ID}.widget`） |
 
 Ad Hoc / Development 分发同理：`IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64` 等。
 

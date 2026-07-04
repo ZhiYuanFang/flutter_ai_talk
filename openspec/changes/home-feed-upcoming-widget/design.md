@@ -143,7 +143,8 @@ Type 1：有 active 则仅 1 条 active；否则 top-1 predict。
 
 ### 9. iOS 架构
 
-- 新建 **Widget Extension** target `PangbaoWidget`。
+- 新建 **Widget Extension** target `PangbaoWidget`（WidgetKit kind 仍为 `PangbaoWidget`）。
+- 主 App Bundle ID：`com.fzy.pangbao`；Extension Bundle ID：`com.fzy.pangbao.widget`（`{IOS_BUNDLE_ID}.widget`，满足 Apple 90347 前缀规则）。
 - Runner + Extension 共享 App Group（如 `group.com.fzy.pangbao.widget`）。
 - `home_widget` 写 Group UserDefaults；Timeline Provider 按 `nextAt` 排 refresh entry。
 

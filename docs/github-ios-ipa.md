@@ -238,8 +238,8 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 **Apple Developer 网页（无 Mac）：**
 
 1. **Identifiers → App Groups** → 新建 `group.com.fzy.pangbao.widget`
-2. App ID **`IOS_BUNDLE_ID`**（如 `com.fzy.pangbaoApp`）→ Capabilities → **App Groups** → 勾选上述 group → Save → **Profiles 里重新生成** `pangbao-appstore`（旧 profile 不含 App Groups 会导致 Archive 失败）
-3. 新建 App ID **`IOS_WIDGET_BUNDLE_ID`**（默认 `com.fzy.pangbaoApp.PangbaoWidget`）→ 同样启用 **App Groups**
+2. App ID **`IOS_BUNDLE_ID`**（如 `com.fzy.pangbao`）→ Capabilities → **App Groups** → 勾选上述 group → Save → **Profiles 里重新生成** `pangbao-appstore`（旧 profile 不含 App Groups 会导致 Archive 失败）
+3. 新建 App ID **`IOS_WIDGET_BUNDLE_ID`**（默认 `com.fzy.pangbao.widget`，即 `{IOS_BUNDLE_ID}.widget`）→ 同样启用 **App Groups**
 4. **Profiles → +** → App Store → 选 Extension App ID → 生成如 `pangbao-widget-appstore` → 下载
 
 **GitHub Secrets（Base64 编码 `.mobileprovision`）：**
@@ -248,7 +248,7 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 |--------|------|
 | `IOS_MOBILEPROVISION_APPSTORE_BASE64` | 主 App（已含 App Groups 的新 profile） |
 | `IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64` | Widget Extension |
-| `IOS_WIDGET_BUNDLE_ID` | 可选；默认 `{IOS_BUNDLE_ID}.PangbaoWidget` |
+| `IOS_WIDGET_BUNDLE_ID` | 可选；默认 `{IOS_BUNDLE_ID}.widget`（如 `com.fzy.pangbao.widget`） |
 
 Ad Hoc / Development 同理：`IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64` 等。
 

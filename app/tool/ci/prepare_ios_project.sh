@@ -145,7 +145,7 @@ if not has_pangbao:
     url_types.append(
         {
             'CFBundleTypeRole': 'Editor',
-            'CFBundleURLName': os.getenv('IOS_BUNDLE_ID', 'com.fzy.pangbaoApp'),
+            'CFBundleURLName': os.getenv('IOS_BUNDLE_ID', 'com.fzy.pangbao'),
             'CFBundleURLSchemes': ['pangbao'],
         }
     )

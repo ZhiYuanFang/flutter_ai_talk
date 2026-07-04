@@ -4,7 +4,7 @@
 require 'xcodeproj'
 
 bundle_id = ENV.fetch('IOS_BUNDLE_ID')
-widget_bundle_id = ENV.fetch('IOS_WIDGET_BUNDLE_ID', "#{bundle_id}.PangbaoWidget")
+widget_bundle_id = ENV.fetch('IOS_WIDGET_BUNDLE_ID', "#{bundle_id}.widget")
 team_id = ENV.fetch('IOS_TEAM_ID')
 profile_name = ENV.fetch('PROFILE_NAME')
 profile_uuid = ENV['PROFILE_UUID']
