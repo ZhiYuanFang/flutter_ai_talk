@@ -431,7 +431,7 @@ class RemoteFeedRepository implements FeedRepository {
     try {
       final data = await _api.postJsonEnvelope(
         '/device/history/api/chat',
-        {'deviceNo': dn, 'transcript': '有什么喂养建议'},
+        {'deviceNo': dn, 'transcript': '接下来需要注意什么？'},
       );
       return data?['reply'] as String?;
     } catch (_) {
