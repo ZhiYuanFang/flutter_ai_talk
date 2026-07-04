@@ -278,21 +278,6 @@ post_install do |installer|
       config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
     end
   end
-
-  frameworks_sh = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
-  if File.exist?(frameworks_sh)
-    content = File.read(frameworks_sh)
-    unless content.include?('CI_PATCH_CODESIGN_CHMOD')
-      marker = 'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"'
-      if content.include?(marker)
-        patched = content.sub(
-          marker,
-          marker + "\n    chmod -R +w \"$1\" 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD",
-        )
-        File.write(frameworks_sh, patched)
-      end
-    end
-  end
 end
 """,
         encoding='utf-8',
@@ -342,31 +327,15 @@ if 'CODE_SIGNING_ALLOWED' not in text and 'post_install do |installer|' in text:
         1,
     )
 
-embed_chmod_snippet = r"""
-  frameworks_sh = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
-  if File.exist?(frameworks_sh)
-    content = File.read(frameworks_sh)
-    unless content.include?('CI_PATCH_CODESIGN_CHMOD')
-      marker = 'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"'
-      if content.include?(marker)
-        patched = content.sub(
-          marker,
-          marker + "\n    chmod -R +w \"$1\" 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD",
-        )
-        File.write(frameworks_sh, patched)
-      end
-    end
-  end"""
-
-if 'CI_PATCH_CODESIGN_CHMOD' not in text and 'post_install do |installer|' in text:
+# 移除曾误写入 Podfile 的 embed chmod 块（Ruby 双引号内 $1 会语法错误）
+if 'CI_PATCH_CODESIGN_CHMOD' in text and 'Pods-Runner-frameworks.sh' in text:
     text = re.sub(
-        r'(post_install do \|installer\|[\s\S]*?)(\nend)',
-        lambda m: m.group(1) + embed_chmod_snippet + m.group(2)
-        if 'CI_PATCH_CODESIGN_CHMOD' not in m.group(1)
-        else m.group(0),
+        r'\n  frameworks_sh = File\.join\(installer\.sandbox\.root[\s\S]*?CI_PATCH_CODESIGN_CHMOD[\s\S]*?\n  end\n  end',
+        '',
         text,
         count=1,
     )
+    print('Patched Podfile: removed invalid embed-chmod Ruby block')
 
 wechat_pod = "  pod 'WechatOpenSDK-XCFramework', :path => 'Vendor/WechatOpenSDK-XCFramework'"
 if 'WechatOpenSDK-XCFramework' not in text and "target 'Runner' do" in text:
