@@ -69,6 +69,14 @@ on:
         required: false
       IOS_MOBILEPROVISION_BASE64:
         required: false
+      IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64:
+        required: false
+      IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64:
+        required: false
+      IOS_MOBILEPROVISION_WIDGET_DEVELOPMENT_BASE64:
+        required: false
+      IOS_WIDGET_BUNDLE_ID:
+        required: false
       IOS_APP_DISPLAY_NAME:
         required: false
       IOS_MICROPHONE_USAGE_DESCRIPTION:
@@ -120,6 +128,10 @@ jobs:
       IOS_MOBILEPROVISION_ADHOC_BASE64: ${{ secrets.IOS_MOBILEPROVISION_ADHOC_BASE64 }}
       IOS_MOBILEPROVISION_DEVELOPMENT_BASE64: ${{ secrets.IOS_MOBILEPROVISION_DEVELOPMENT_BASE64 }}
       IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
+      IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64: ${{ secrets.IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64 }}
+      IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64: ${{ secrets.IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64 }}
+      IOS_MOBILEPROVISION_WIDGET_DEVELOPMENT_BASE64: ${{ secrets.IOS_MOBILEPROVISION_WIDGET_DEVELOPMENT_BASE64 }}
+      IOS_WIDGET_BUNDLE_ID: ${{ secrets.IOS_WIDGET_BUNDLE_ID }}
       IOS_APP_DISPLAY_NAME: ${{ secrets.IOS_APP_DISPLAY_NAME }}
       IOS_MICROPHONE_USAGE_DESCRIPTION: ${{ secrets.IOS_MICROPHONE_USAGE_DESCRIPTION }}
       IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION: ${{ secrets.IOS_SPEECH_RECOGNITION_USAGE_DESCRIPTION }}
@@ -135,6 +147,7 @@ jobs:
       MACOS_RUNNER: ${{ inputs.macos_runner }}
       XCODE_VERSION: ${{ inputs.xcode_version }}
       IOS_DEPLOYMENT_TARGET: '14.0'
+      IOS_WIDGET_BUNDLE_ID: ${{ secrets.IOS_WIDGET_BUNDLE_ID }}
 
     steps:
       - name: Checkout
@@ -364,20 +377,32 @@ jobs:
         working-directory: ${{ env.APP_DIR }}/ios
         run: pod install --repo-update
 
+      - name: Ensure PangbaoWidget Extension target
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          sudo gem install xcodeproj -N
+          export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget}"
+          ruby tool/ci/ensure_pangbao_widget_target.rb
+
       - name: Import signing certificate and provisioning profile
         run: |
           set -euo pipefail
 
           SELECTED_MOBILEPROVISION_BASE64=""
+          SELECTED_WIDGET_MOBILEPROVISION_BASE64=""
           case "$EFFECTIVE_EXPORT_METHOD" in
             app-store)
               SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_APPSTORE_BASE64:-}"
+              SELECTED_WIDGET_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64:-}"
               ;;
             ad-hoc)
               SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_ADHOC_BASE64:-}"
+              SELECTED_WIDGET_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64:-}"
               ;;
             development)
               SELECTED_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_DEVELOPMENT_BASE64:-}"
+              SELECTED_WIDGET_MOBILEPROVISION_BASE64="${IOS_MOBILEPROVISION_WIDGET_DEVELOPMENT_BASE64:-}"
               ;;
           esac
 
@@ -386,7 +411,13 @@ jobs:
           fi
 
           if [[ -z "$SELECTED_MOBILEPROVISION_BASE64" ]]; then
-            echo "::error::未找到可用的描述文件 Secret，请配置与导出方式匹配的三套 Secret。"
+            echo "::error::未找到可用的主 App 描述文件 Secret，请配置与导出方式匹配的三套 Secret。"
+            exit 1
+          fi
+
+          if [[ -z "$SELECTED_WIDGET_MOBILEPROVISION_BASE64" ]]; then
+            echo "::error::缺少 Widget Extension 描述文件 Secret（如 IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64）。"
+            echo "::error::请在 Apple Developer 为 ${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget} 创建描述文件并更新 GitHub Secret。"
             exit 1
           fi
 
@@ -394,15 +425,18 @@ jobs:
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
           CERT_PATH="$RUNNER_TEMP/signing_certificate.p12"
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          WIDGET_PROFILE_PATH="$RUNNER_TEMP/widget_profile.mobileprovision"
           PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
+          WIDGET_PROFILE_PLIST="$RUNNER_TEMP/widget_profile.plist"
 
-          CERT_PATH="$CERT_PATH" PROFILE_PATH="$PROFILE_PATH" SELECTED_MOBILEPROVISION_BASE64="$SELECTED_MOBILEPROVISION_BASE64" python3 <<'PY'
+          CERT_PATH="$CERT_PATH" PROFILE_PATH="$PROFILE_PATH" WIDGET_PROFILE_PATH="$WIDGET_PROFILE_PATH" SELECTED_MOBILEPROVISION_BASE64="$SELECTED_MOBILEPROVISION_BASE64" SELECTED_WIDGET_MOBILEPROVISION_BASE64="$SELECTED_WIDGET_MOBILEPROVISION_BASE64" python3 <<'PY'
           import base64
           import os
           from pathlib import Path
 
           Path(os.environ['CERT_PATH']).write_bytes(base64.b64decode(os.environ['IOS_CERTIFICATE_P12_BASE64']))
           Path(os.environ['PROFILE_PATH']).write_bytes(base64.b64decode(os.environ['SELECTED_MOBILEPROVISION_BASE64']))
+          Path(os.environ['WIDGET_PROFILE_PATH']).write_bytes(base64.b64decode(os.environ['SELECTED_WIDGET_MOBILEPROVISION_BASE64']))
           PY
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -415,9 +449,12 @@ jobs:
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          security cms -D -i "$WIDGET_PROFILE_PATH" > "$WIDGET_PROFILE_PLIST"
 
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
+          WIDGET_PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$WIDGET_PROFILE_PLIST")
+          WIDGET_PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$WIDGET_PROFILE_PLIST")
 
           PROFILE_HAS_DEVICES="false"
           if /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices:0' "$PROFILE_PLIST" >/dev/null 2>&1; then
@@ -430,13 +467,17 @@ jobs:
           fi
 
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          cp "$WIDGET_PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$WIDGET_PROFILE_UUID.mobileprovision"
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "WIDGET_PROFILE_UUID=$WIDGET_PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "WIDGET_PROFILE_NAME=$WIDGET_PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_HAS_DEVICES=$PROFILE_HAS_DEVICES" >> "$GITHUB_ENV"
           echo "PROFILE_GET_TASK_ALLOW=$PROFILE_GET_TASK_ALLOW" >> "$GITHUB_ENV"
+          echo "IOS_WIDGET_BUNDLE_ID=${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget}" >> "$GITHUB_ENV"
 
       - name: Validate provisioning profile compatibility
         run: |
@@ -514,6 +555,8 @@ jobs:
             <dict>
               <key>$IOS_BUNDLE_ID</key>
               <string>$PROFILE_NAME</string>
+              <key>${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget}</key>
+              <string>$WIDGET_PROFILE_NAME</string>
             </dict>
           </dict>
           </plist>
