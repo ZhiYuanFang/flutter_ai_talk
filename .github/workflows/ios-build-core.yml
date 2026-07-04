@@ -372,10 +372,6 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: bash tool/ci/check_ios_icon_parity.sh
 
-      - name: Install CocoaPods dependencies
-        working-directory: ${{ env.APP_DIR }}/ios
-        run: pod install --repo-update
-
       - name: Ensure PangbaoWidget Extension target
         working-directory: ${{ env.APP_DIR }}
         run: |
@@ -383,6 +379,14 @@ jobs:
           sudo gem install xcodeproj -N
           export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget}"
           ruby tool/ci/ensure_pangbao_widget_target.rb
+
+      - name: Install CocoaPods dependencies
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: pod install --repo-update
+
+      - name: Patch Pods embed frameworks script (archive codesign)
+        working-directory: ${{ env.APP_DIR }}
+        run: bash tool/ci/patch_pods_embed_frameworks.sh
 
       - name: Import signing certificate and provisioning profile
         run: |
@@ -563,6 +567,10 @@ jobs:
 
           echo "EXPORT_DESTINATION=$EXPORT_DESTINATION" >> "$GITHUB_ENV"
           echo "EXPORT_OPTIONS_PLIST=$RUNNER_TEMP/ExportOptions.plist" >> "$GITHUB_ENV"
+
+      - name: Patch Pods embed frameworks script (before archive)
+        working-directory: ${{ env.APP_DIR }}
+        run: bash tool/ci/patch_pods_embed_frameworks.sh
 
       - name: Build signed IPA
         working-directory: ${{ env.APP_DIR }}

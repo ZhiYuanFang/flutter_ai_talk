@@ -273,6 +273,25 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+      config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+    end
+  end
+
+  frameworks_sh = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
+  if File.exist?(frameworks_sh)
+    content = File.read(frameworks_sh)
+    unless content.include?('CI_PATCH_CODESIGN_CHMOD')
+      marker = 'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"'
+      if content.include?(marker)
+        patched = content.sub(
+          marker,
+          marker + "\n    chmod -R +w \"$1\" 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD",
+        )
+        File.write(frameworks_sh, patched)
+      end
+    end
   end
 end
 """,
@@ -304,11 +323,49 @@ deployment_snippet = f"""      target.build_configurations.each do |config|
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '{target}'
       end"""
 
+pod_sign_snippet = """      target.build_configurations.each do |config|
+        config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+      end"""
+
 if 'IPHONEOS_DEPLOYMENT_TARGET' not in text and 'post_install do |installer|' in text:
     text = text.replace(
         'flutter_additional_ios_build_settings(target)',
         'flutter_additional_ios_build_settings(target)\n' + deployment_snippet,
         1,
+    )
+
+if 'CODE_SIGNING_ALLOWED' not in text and 'post_install do |installer|' in text:
+    text = text.replace(
+        'flutter_additional_ios_build_settings(target)',
+        'flutter_additional_ios_build_settings(target)\n' + pod_sign_snippet,
+        1,
+    )
+
+embed_chmod_snippet = r"""
+  frameworks_sh = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
+  if File.exist?(frameworks_sh)
+    content = File.read(frameworks_sh)
+    unless content.include?('CI_PATCH_CODESIGN_CHMOD')
+      marker = 'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"'
+      if content.include?(marker)
+        patched = content.sub(
+          marker,
+          marker + "\n    chmod -R +w \"$1\" 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD",
+        )
+        File.write(frameworks_sh, patched)
+      end
+    end
+  end"""
+
+if 'CI_PATCH_CODESIGN_CHMOD' not in text and 'post_install do |installer|' in text:
+    text = re.sub(
+        r'(post_install do \|installer\|[\s\S]*?)(\nend)',
+        lambda m: m.group(1) + embed_chmod_snippet + m.group(2)
+        if 'CI_PATCH_CODESIGN_CHMOD' not in m.group(1)
+        else m.group(0),
+        text,
+        count=1,
     )
 
 wechat_pod = "  pod 'WechatOpenSDK-XCFramework', :path => 'Vendor/WechatOpenSDK-XCFramework'"

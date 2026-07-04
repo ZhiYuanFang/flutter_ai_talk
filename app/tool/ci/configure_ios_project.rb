@@ -32,7 +32,10 @@ def apply_manual_signing(target, team_id:, signing_identity:, profile_name:, pro
     settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
     settings['DEVELOPMENT_TEAM'] = team_id
     settings['CODE_SIGN_STYLE'] = 'Manual'
+    settings['CODE_SIGN_IDENTITY'] = signing_identity
     settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = signing_identity
+    settings['CODE_SIGNING_REQUIRED'] = 'YES'
+    settings['CODE_SIGNING_ALLOWED'] = 'YES'
     settings['PROVISIONING_PROFILE_SPECIFIER'] = profile_name
     settings['PROVISIONING_PROFILE'] = profile_uuid if profile_uuid && !profile_uuid.empty?
   end
