@@ -147,7 +147,6 @@ jobs:
       MACOS_RUNNER: ${{ inputs.macos_runner }}
       XCODE_VERSION: ${{ inputs.xcode_version }}
       IOS_DEPLOYMENT_TARGET: '14.0'
-      IOS_WIDGET_BUNDLE_ID: ${{ secrets.IOS_WIDGET_BUNDLE_ID }}
 
     steps:
       - name: Checkout
