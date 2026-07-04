@@ -29,10 +29,15 @@ def add_system_framework(target, project, name)
 end
 
 def apply_widget_build_settings(widget_target, runner_target)
-  runner_by_name = runner_target.build_configuration_list.build_configurations.index_by(&:name)
+  runner_by_name = {}
+  runner_target.build_configuration_list.build_configurations.each do |cfg|
+    runner_by_name[cfg.name] = cfg
+  end
   widget_target.build_configuration_list.build_configurations.each do |config|
     runner_config = runner_by_name[config.name]
-    config.base_configuration_reference = runner_config.base_configuration_reference if runner_config&.base_configuration_reference
+    if runner_config && runner_config.base_configuration_reference
+      config.base_configuration_reference = runner_config.base_configuration_reference
+    end
 
     settings = config.build_settings
     settings['INFOPLIST_FILE'] = "#{WIDGET_NAME}/Info.plist"
