@@ -118,6 +118,7 @@ struct PangbaoWidgetEntryView: View {
             mediumBody
         } else {
             largeBody
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -166,59 +167,67 @@ struct PangbaoWidgetEntryView: View {
 
     @ViewBuilder
     private var largeBody: some View {
-        if let tip = entry.payload?.tip?.text, !tip.isEmpty {
-            HStack(alignment: .top, spacing: 4) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("喂养小贴士")
+        let items = entry.payload?.recentLast ?? []
+        let hasHero = entry.payload?.hero != nil
+        let hasRecent = !items.isEmpty
+
+        VStack(alignment: .leading, spacing: 6) {
+            if let tip = entry.payload?.tip?.text, !tip.isEmpty {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "speaker.wave.2.fill")
                         .font(.system(size: 10))
                         .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
-                    Text(tip)
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(red: 0.24, green: 0.29, blue: 0.30))
-                        .lineLimit(5)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("喂养小贴士")
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
+                        Text(tip)
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(red: 0.24, green: 0.29, blue: 0.30))
+                            .lineLimit(5)
+                    }
                 }
             }
-            Divider().opacity(0.3)
-        }
-        if let hero = entry.payload?.hero {
-            Text("即将发生")
-                .font(.system(size: 10))
-                .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
-                .frame(maxWidth: .infinity, alignment: .center)
-            HStack(alignment: .center, spacing: 12) {
-                eventOrb(size: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(hero.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
-                    Text(predictSubtitle(for: hero))
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
-                        .lineLimit(1)
+
+            if hasHero || hasRecent {
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 10) {
+                    if let hero = entry.payload?.hero {
+                        Text("即将发生")
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        HStack(alignment: .center, spacing: 12) {
+                            eventOrb(size: 56)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(hero.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .lineLimit(1)
+                                Text(predictSubtitle(for: hero))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    if hasRecent {
+                        Text("上次记录")
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
+                        HStack(alignment: .center, spacing: 0) {
+                            ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
+                                recentCell(row, logoSize: 32, nameSize: 10, timeSize: 9)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            } else {
+                fallbackMessage
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-            Divider().opacity(0.3)
-        }
-        let items = entry.payload?.recentLast ?? []
-        if !items.isEmpty {
-            Text("上次记录")
-                .font(.system(size: 10))
-                .foregroundColor(Color(red: 0.48, green: 0.53, blue: 0.56))
-            HStack(alignment: .center, spacing: 0) {
-                ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
-                    recentCell(row, logoSize: 32, nameSize: 10, timeSize: 9)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        if entry.payload?.hero == nil && items.isEmpty {
-            fallbackMessage
-        } else {
-            Spacer(minLength: 0)
         }
     }
 

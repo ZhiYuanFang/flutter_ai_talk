@@ -196,6 +196,9 @@ object PangbaoWidgetRenderer {
                 if (hero != null && kind != WidgetLayoutKind.MEDIUM) {
                     bindHero(context, views, hero, scale, textPrimary, textSecondary)
                     views.setViewVisibility(R.id.widget_hero_section, View.VISIBLE)
+                    if (kind == WidgetLayoutKind.LARGE) {
+                        views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
+                    }
                     hasContent = true
                 }
 
@@ -203,6 +206,9 @@ object PangbaoWidgetRenderer {
                     val slots = minOf(recent.length(), 3)
                     if (slots > 0) {
                         views.setViewVisibility(R.id.widget_recent_section, View.VISIBLE)
+                        if (kind == WidgetLayoutKind.LARGE) {
+                            views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
+                        }
                         for (i in 0 until 3) {
                             if (i < slots) {
                                 bindRecentItem(
@@ -239,6 +245,7 @@ object PangbaoWidgetRenderer {
 
     private fun hideContentSections(views: RemoteViews, kind: WidgetLayoutKind) {
         setOptionalVisibility(views, R.id.widget_tip_section, View.GONE)
+        setOptionalVisibility(views, R.id.widget_events_block, View.GONE)
         setOptionalVisibility(views, R.id.widget_hero_section, View.GONE)
         setOptionalVisibility(views, R.id.widget_recent_section, View.GONE)
         for (i in 0..2) {
@@ -356,6 +363,7 @@ object PangbaoWidgetRenderer {
             clickTargets.add(R.id.widget_section_upcoming_title)
         }
         if (kind == WidgetLayoutKind.LARGE) {
+            clickTargets.add(R.id.widget_events_block)
             clickTargets.add(R.id.widget_tip_section)
             clickTargets.add(R.id.widget_tip_title)
             clickTargets.add(R.id.widget_tip_text)

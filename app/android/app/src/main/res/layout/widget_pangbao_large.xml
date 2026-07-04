@@ -83,10 +83,19 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/widget_events_block"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+        <LinearLayout
             android:id="@+id/widget_hero_section"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
             android:gravity="center_horizontal"
             android:orientation="vertical"
             android:visibility="gone"
@@ -300,6 +309,8 @@
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
+        </LinearLayout>
+
         </LinearLayout>
 
         <TextView
