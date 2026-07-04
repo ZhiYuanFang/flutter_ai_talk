@@ -23,19 +23,17 @@ import sys
 
 path = Path("ios/Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh")
 text = path.read_text(encoding="utf-8")
-markers = [
+needles = [
     'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"',
-    "echo \"Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}\"",
+    'code_sign_if_enabled() {',
 ]
-for marker in markers:
-    if marker in text:
-        insert = (
-            marker
-            + '\n    chmod -R +w "$1" 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD'
-        )
-        path.write_text(text.replace(marker, insert, 1), encoding="utf-8")
-        print("Patched Pods-Runner-frameworks.sh: chmod before codesign")
-        sys.exit(0)
+for needle in needles:
+    if needle not in text:
+        continue
+    insert = needle + '\n    chmod -R +w "$1" 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD'
+    path.write_text(text.replace(needle, insert, 1), encoding="utf-8")
+    print(f"Patched Pods-Runner-frameworks.sh via marker: {needle[:40]}...")
+    sys.exit(0)
 
 print("warning: Pods-Runner-frameworks.sh layout unexpected; skip chmod patch", file=sys.stderr)
 PY

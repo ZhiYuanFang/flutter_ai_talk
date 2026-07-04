@@ -259,7 +259,7 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  use_frameworks! :linkage => :static
 
   # Local vendored WeChat OpenSDK (fluwx); avoids CocoaPods downloading from dldir1.qq.com.
   pod 'WechatOpenSDK-XCFramework', :path => 'Vendor/WechatOpenSDK-XCFramework'
@@ -276,6 +276,18 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
       config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+    end
+  end
+
+  frameworks_sh = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
+  if File.exist?(frameworks_sh)
+    content = File.read(frameworks_sh)
+    unless content.include?('CI_PATCH_CODESIGN_CHMOD')
+      needle = 'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"'
+      if content.include?(needle)
+        insert = needle + "\n    chmod -R +w " + '$1' + " 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD"
+        File.write(frameworks_sh, content.sub(needle, insert))
+      end
     end
   end
 end
@@ -328,7 +340,7 @@ if 'CODE_SIGNING_ALLOWED' not in text and 'post_install do |installer|' in text:
     )
 
 # 移除曾误写入 Podfile 的 embed chmod 块（Ruby 双引号内 $1 会语法错误）
-if 'CI_PATCH_CODESIGN_CHMOD' in text and 'Pods-Runner-frameworks.sh' in text:
+if 'CI_PATCH_CODESIGN_CHMOD' in text and 'Pods-Runner-frameworks.sh' in text and '\\"$1\\"' in text:
     text = re.sub(
         r'\n  frameworks_sh = File\.join\(installer\.sandbox\.root[\s\S]*?CI_PATCH_CODESIGN_CHMOD[\s\S]*?\n  end\n  end',
         '',
@@ -336,6 +348,39 @@ if 'CI_PATCH_CODESIGN_CHMOD' in text and 'Pods-Runner-frameworks.sh' in text:
         count=1,
     )
     print('Patched Podfile: removed invalid embed-chmod Ruby block')
+
+embed_chmod_post_install = r"""
+  frameworks_sh = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
+  if File.exist?(frameworks_sh)
+    content = File.read(frameworks_sh)
+    unless content.include?('CI_PATCH_CODESIGN_CHMOD')
+      needle = 'echo "Code Signing $1 with Identity ${EXPANDED_CODE_SIGN_IDENTITY_NAME}"'
+      if content.include?(needle)
+        insert = needle + "\n    chmod -R +w " + '$1' + " 2>/dev/null || true  # CI_PATCH_CODESIGN_CHMOD"
+        File.write(frameworks_sh, content.sub(needle, insert))
+      end
+    end
+  end"""
+
+if 'CI_PATCH_CODESIGN_CHMOD' not in text and 'post_install do |installer|' in text:
+    text = re.sub(
+        r'(post_install do \|installer\|[\s\S]*?)(\nend)',
+        lambda m: m.group(1) + embed_chmod_post_install + m.group(2)
+        if 'CI_PATCH_CODESIGN_CHMOD' not in m.group(1)
+        else m.group(0),
+        text,
+        count=1,
+    )
+
+if 'use_frameworks! :linkage => :static' not in text:
+    text = re.sub(
+        r'^\s*use_frameworks!\s*$',
+        '  use_frameworks! :linkage => :static',
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    print('Patched Podfile: use_frameworks! :linkage => :static')
 
 wechat_pod = "  pod 'WechatOpenSDK-XCFramework', :path => 'Vendor/WechatOpenSDK-XCFramework'"
 if 'WechatOpenSDK-XCFramework' not in text and "target 'Runner' do" in text:
