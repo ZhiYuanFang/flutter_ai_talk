@@ -41,7 +41,8 @@
 - [x] 6.2 SwiftUI：small/medium/large 三布局，假玻璃 token 常量与 Android 对齐
 - [x] 6.3 TimelineProvider：读 App Group JSON；按 nextAt 排 refresh entry
 - [x] 6.4 点击 `widgetURL` 打开 App（未登录→登录）
-- [ ] 6.5 Xcode 真机/TestFlight 验证三尺寸与跨日月龄（须 Xcode 添加 Extension target，见 `ios/PangbaoWidget/README.md`）
+- [ ] 6.5 TestFlight 验证三尺寸与跨日月龄（CI 自动添加 Extension；见 `ios/PangbaoWidget/README.md`）
+- [x] 6.6 无 Mac CI：ensure_pangbao_widget_target + 双描述文件签名 + pangbao URL Scheme + Secret 校验
 
 ## 7. 手工验收
 
@@ -73,6 +74,7 @@
 - [x] 10.4 iOS SwiftUI 对齐 v3 三尺寸布局
 - [ ] 10.5 真机验收三尺寸 + tip 日更（待 7.x）
 - [x] 10.6 Vivo 大组件修复：扁平布局、accent 色条替代 recent logo Bitmap、居中与字号调整
+- [x] 10.7 Large 双端：header/tip 顶对齐；即将发生+上次记录在剩余区域垂直居中（不做 resize）
 
 
 - [x] 8.1 `app/README.md` 补充「桌面小组件」章节（添加方式、三尺寸、数据隐私说明）

@@ -231,6 +231,31 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 3. 选择测试设备
 4. 下载 `.mobileprovision`
 
+### 桌面小组件（App Groups + Widget Extension，2026-03 起必需）
+
+若仓库已启用 `PangbaoWidget`，Archive **必须**主 App 与 Extension **各一份**描述文件，且均含 App Group `group.com.fzy.pangbao.widget`。
+
+**Apple Developer 网页（无 Mac）：**
+
+1. **Identifiers → App Groups** → 新建 `group.com.fzy.pangbao.widget`
+2. App ID **`IOS_BUNDLE_ID`**（如 `com.fzy.pangbaoApp`）→ Capabilities → **App Groups** → 勾选上述 group → Save → **Profiles 里重新生成** `pangbao-appstore`（旧 profile 不含 App Groups 会导致 Archive 失败）
+3. 新建 App ID **`IOS_WIDGET_BUNDLE_ID`**（默认 `com.fzy.pangbaoApp.PangbaoWidget`）→ 同样启用 **App Groups**
+4. **Profiles → +** → App Store → 选 Extension App ID → 生成如 `pangbao-widget-appstore` → 下载
+
+**GitHub Secrets（Base64 编码 `.mobileprovision`）：**
+
+| Secret | 说明 |
+|--------|------|
+| `IOS_MOBILEPROVISION_APPSTORE_BASE64` | 主 App（已含 App Groups 的新 profile） |
+| `IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64` | Widget Extension |
+| `IOS_WIDGET_BUNDLE_ID` | 可选；默认 `{IOS_BUNDLE_ID}.PangbaoWidget` |
+
+Ad Hoc / Development 同理：`IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64` 等。
+
+CI 会在构建前运行 `validate_ios_workflow_secrets.py` 校验 Bundle ID、Team、App Group 与过期时间。Extension target 由 `app/tool/ci/ensure_pangbao_widget_target.rb` 在 macOS Runner 上自动创建，**无需本地 Xcode**。
+
+详见 `app/ios/PangbaoWidget/README.md`。
+
 ## 第 5 步：准备 App Store Connect API Key（用于自动上传）
 
 如果你只想让 GitHub 生成 `.ipa`，这一步可以先不做。
