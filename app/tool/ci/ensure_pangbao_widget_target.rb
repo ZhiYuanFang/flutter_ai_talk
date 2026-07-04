@@ -28,16 +28,20 @@ def add_system_framework(target, project, name)
   target.frameworks_build_phase.add_file_reference(ref)
 end
 
-def apply_widget_build_settings(widget_target, runner_target)
-  runner_by_name = {}
-  runner_target.build_configuration_list.build_configurations.each do |cfg|
-    runner_by_name[cfg.name] = cfg
-  end
+def read_pubspec_version
+  path = File.expand_path('../pubspec.yaml', IOS_DIR)
+  text = File.read(path)
+  ver = text[/^version:\s*(\S+)/, 1] || '1.0.0+1'
+  name, _, number = ver.partition('+')
+  number = '1' if number.empty?
+  [name.strip, number.strip]
+end
+
+def apply_widget_build_settings(widget_target, _runner_target)
+  marketing_version, current_version = read_pubspec_version
   widget_target.build_configuration_list.build_configurations.each do |config|
-    runner_config = runner_by_name[config.name]
-    if runner_config && runner_config.base_configuration_reference
-      config.base_configuration_reference = runner_config.base_configuration_reference
-    end
+    # Extension 不得继承 Flutter Release.xcconfig（会链接 Flutter.framework，导致 undefined symbol）
+    config.base_configuration_reference = nil
 
     settings = config.build_settings
     settings['INFOPLIST_FILE'] = "#{WIDGET_NAME}/Info.plist"
@@ -51,11 +55,10 @@ def apply_widget_build_settings(widget_target, runner_target)
     settings['WRAPPER_EXTENSION'] = 'appex'
     settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
     settings['APPLICATION_EXTENSION_API_ONLY'] = 'YES'
-    settings['CURRENT_PROJECT_VERSION'] = '$(FLUTTER_BUILD_NUMBER)'
-    settings['MARKETING_VERSION'] = '$(FLUTTER_BUILD_NAME)'
+    settings['MARKETING_VERSION'] = marketing_version
+    settings['CURRENT_PROJECT_VERSION'] = current_version
     settings['GENERATE_INFOPLIST_FILE'] = 'NO'
     settings['LD_RUNPATH_SEARCH_PATHS'] = [
-      '$(inherited)',
       '@executable_path/Frameworks',
       '@executable_path/../../Frameworks',
     ]
@@ -156,5 +159,5 @@ project.save
 if created
   puts "已添加 PangbaoWidget Extension target（#{WIDGET_BUNDLE_ID}）并嵌入 Runner"
 else
-  puts "PangbaoWidget target 已存在，已补全 Flutter 配置 / embed / scheme"
+  puts "PangbaoWidget target 已存在，已补全 Extension 配置 / embed / scheme"
 end
