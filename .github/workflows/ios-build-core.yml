@@ -579,6 +579,15 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: bash tool/ci/patch_pods_embed_frameworks.sh
 
+      - name: Preflight PangbaoWidget target
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: |
+          set -euo pipefail
+          xcodebuild -list -project Runner.xcodeproj
+          xcodebuild -showBuildSettings -target PangbaoWidget -configuration Release 2>/dev/null \
+            | grep -E 'PRODUCT_BUNDLE_IDENTIFIER|INFOPLIST_FILE|CODE_SIGN|SKIP_INSTALL|WRAPPER_EXTENSION' \
+            | head -20 || echo "::warning::无法读取 PangbaoWidget Release 构建设置"
+
       - name: Build signed IPA
         working-directory: ${{ env.APP_DIR }}
         run: |

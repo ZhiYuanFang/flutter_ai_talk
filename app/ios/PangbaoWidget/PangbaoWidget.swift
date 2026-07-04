@@ -315,7 +315,7 @@ struct PangbaoWidgetEntryView: View {
 }
 
 @main
-struct PangbaoWidget: Widget {
+struct PangbaoWidgetMain: Widget {
     let kind: String = "PangbaoWidget"
 
     var body: some WidgetConfiguration {

@@ -43,6 +43,8 @@ def apply_widget_build_settings(widget_target, runner_target)
     settings['IPHONEOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET
     settings['TARGETED_DEVICE_FAMILY'] = '1'
     settings['SKIP_INSTALL'] = 'YES'
+    settings['WRAPPER_EXTENSION'] = 'appex'
+    settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
     settings['APPLICATION_EXTENSION_API_ONLY'] = 'YES'
     settings['CURRENT_PROJECT_VERSION'] = '$(FLUTTER_BUILD_NUMBER)'
     settings['MARKETING_VERSION'] = '$(FLUTTER_BUILD_NAME)'
@@ -73,29 +75,30 @@ def ensure_embed_extension_phase(runner, project, widget_target)
   appex_ref = widget_target.product_reference
   existing = embed_phase.files.find { |f| f.file_ref == appex_ref }
   build_file = existing || embed_phase.add_file_reference(appex_ref)
-  build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy', 'CodeSignOnCopy'] }
+  build_file.settings = { 'ATTRIBUTES' => ['CodeSignOnCopy'] }
 end
 
-def ensure_scheme_builds_widget(project, widget_target)
+def ensure_scheme_builds_widget(_project, widget_target)
   return unless File.exist?(SCHEME_PATH)
 
   scheme = Xcodeproj::XCScheme.new(SCHEME_PATH)
   widget_uuid = widget_target.uuid
-  already_listed = scheme.build_action.entries.any? do |entry|
+  before = scheme.build_action.entries.size
+  scheme.build_action.entries.reject! do |entry|
     entry.buildable_references.any? { |ref| ref.target_uuid == widget_uuid }
   end
-  return if already_listed
+  if scheme.build_action.entries.size != before
+    scheme.save!
+    puts 'Runner.xcscheme: 已移除 PangbaoWidget 独立 build 条目（改由 Runner dependency 串行构建）'
+  end
+end
 
-  entry = Xcodeproj::XCScheme::BuildAction::Entry.new
-  entry.build_for_archiving = true
-  entry.build_for_running = true
-  entry.build_for_profiling = true
-  entry.build_for_testing = true
-  entry.build_for_analyzing = true
-  entry.buildable_references << Xcodeproj::XCScheme::BuildableReference.new(project, widget_target)
-  scheme.build_action.entries << entry
-  scheme.save!
-  puts 'Runner.xcscheme: 已加入 PangbaoWidget build 条目'
+def disable_parallel_target_builds(project)
+  attrs = project.root_object.attributes
+  if attrs['BuildIndependentTargetsInParallel'] != 'NO'
+    attrs['BuildIndependentTargetsInParallel'] = 'NO'
+    puts 'Runner.xcodeproj: BuildIndependentTargetsInParallel=NO（Extension embed 需串行构建）'
+  end
 end
 
 def apply_team_attributes(project, widget_target)
@@ -129,8 +132,11 @@ unless widget_target
 
   widget_target = project.new_target(:app_extension, WIDGET_NAME, :ios, DEPLOYMENT_TARGET)
   widget_target.add_file_references([swift_ref])
-  runner.add_dependency(widget_target)
   created = true
+end
+
+unless runner.dependencies.any? { |dep| dep.target == widget_target }
+  runner.add_dependency(widget_target)
 end
 
 add_system_framework(widget_target, project, 'WidgetKit')
@@ -138,6 +144,7 @@ add_system_framework(widget_target, project, 'SwiftUI')
 apply_widget_build_settings(widget_target, runner)
 ensure_embed_extension_phase(runner, project, widget_target)
 apply_team_attributes(project, widget_target)
+disable_parallel_target_builds(project)
 ensure_scheme_builds_widget(project, widget_target)
 
 project.save
