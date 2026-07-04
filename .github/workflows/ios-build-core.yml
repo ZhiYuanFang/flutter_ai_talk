@@ -372,6 +372,10 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: bash tool/ci/check_ios_icon_parity.sh
 
+      - name: Install CocoaPods dependencies
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: pod install --repo-update
+
       - name: Ensure PangbaoWidget Extension target
         working-directory: ${{ env.APP_DIR }}
         run: |
@@ -379,10 +383,6 @@ jobs:
           sudo gem install xcodeproj -N
           export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget}"
           ruby tool/ci/ensure_pangbao_widget_target.rb
-
-      - name: Install CocoaPods dependencies
-        working-directory: ${{ env.APP_DIR }}/ios
-        run: pod install --repo-update
 
       - name: Patch Pods embed frameworks script (archive codesign)
         working-directory: ${{ env.APP_DIR }}
@@ -519,6 +519,13 @@ jobs:
           export EXPORT_METHOD="$EFFECTIVE_EXPORT_METHOD"
           sudo gem install xcodeproj -N
           ruby tool/ci/configure_ios_project.rb
+
+      - name: Finalize PangbaoWidget embed (post-signing)
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.PangbaoWidget}"
+          ruby tool/ci/ensure_pangbao_widget_target.rb
 
       - name: Create export options plist
         run: |
