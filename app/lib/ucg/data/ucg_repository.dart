@@ -325,7 +325,20 @@ class UcgRepository {
     String? videoKey,
     double? lat,
     double? lng,
+    String? debateLeft,
+    String? debateRight,
   }) async {
+    final left = debateLeft?.trim() ?? '';
+    final right = debateRight?.trim() ?? '';
+    if (left.isNotEmpty != right.isNotEmpty) {
+      throw StateError('请补全另一方立场');
+    }
+    if (left.isNotEmpty && left.runes.length > 5) {
+      throw StateError('立场标签最多 5 字');
+    }
+    if (right.isNotEmpty && right.runes.length > 5) {
+      throw StateError('立场标签最多 5 字');
+    }
     final mediaType = videoKey != null && videoKey.isNotEmpty
         ? 2
         : (imageKeys.isNotEmpty ? 1 : 0);
@@ -344,10 +357,26 @@ class UcgRepository {
       if (media.isNotEmpty) 'media': media,
       if (lat != null) 'lat': lat,
       if (lng != null) 'lng': lng,
+      if (left.isNotEmpty && right.isNotEmpty) ...{
+        'debateLeft': left,
+        'debateRight': right,
+      },
     };
-    final data = await _api.post('/v2/posts', body);
+    final data = await _api.post('/posts', body);
     return UcgPost.fromJson(data ?? body);
   }
+
+  @Deprecated('Use createPost with debateLeft/debateRight')
+  Future<UcgPost> createDebatePost({
+    required String topic,
+    required String debateLeft,
+    required String debateRight,
+  }) =>
+      createPost(
+        text: topic,
+        debateLeft: debateLeft,
+        debateRight: debateRight,
+      );
 
   Future<UcgPost> updatePost({
     required String postId,
@@ -575,11 +604,17 @@ class UcgRepository {
     }
   }
 
-  Future<void> likePost(String postId) async {
+  Future<void> votePost(String postId, {required String side}) async {
+    await _api.post('/posts/$postId/vote', {'side': side});
+  }
+
+  Future<void> likePost(String postId, {UcgPost? post}) async {
+    if (post?.isDebate == true) return;
     await _api.post('/posts/$postId/like', {});
   }
 
-  Future<void> unlikePost(String postId) async {
+  Future<void> unlikePost(String postId, {UcgPost? post}) async {
+    if (post?.isDebate == true) return;
     await _api.delete('/posts/$postId/like');
   }
 

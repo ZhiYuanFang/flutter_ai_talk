@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/ai_quota_errors.dart';
@@ -20,7 +21,9 @@ import '../data/ucg_video_playback.dart';
 import '../providers/ucg_providers.dart';
 import '../../config/ucg_ai_polish_consent_store.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../../ui/auth/auth_field_scroll.dart';
 import '../../ui/widgets/app_glass_overlay.dart';
+import '../../ui/widgets/keyboard_input_bridge.dart';
 import '../../ui/widgets/managed_keyboard_text_field.dart';
 import 'widgets/ucg_compose_local_preview.dart';
 import 'widgets/ucg_compose_entry_sheet.dart';
@@ -59,6 +62,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   static const _bodyHint = '这一刻的想法…';
 
   late final TextEditingController _text;
+  late final TextEditingController _debateLeft;
+  late final TextEditingController _debateRight;
   final _imageSlots = <UcgComposeMediaSlot>[];
   UcgComposeMediaSlot? _videoSlot;
   final _sessionUploadedKeys = <String>{};
@@ -66,6 +71,9 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   var _polishing = false;
   var _draggingImage = false;
   final _slotsRevision = ValueNotifier(0);
+  final _scrollCtrl = ScrollController();
+  final _debatePanelAnchorKey = GlobalKey();
+  var _debateEnabled = false;
 
   void _notifySlotsChanged() => _slotsRevision.value++;
 
@@ -122,6 +130,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     super.initState();
     final post = widget.editingPost;
     _text = TextEditingController(text: post?.text ?? '');
+    _debateLeft = TextEditingController(text: post?.debateLeft ?? '');
+    _debateRight = TextEditingController(text: post?.debateRight ?? '');
     if (post != null) {
       for (var i = 0; i < post.imageKeys.length; i++) {
         final key = post.imageKeys[i];
@@ -232,7 +242,10 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final draft = await ref.read(ucgComposeDraftStoreProvider).load();
     if (draft == null || draft.isEmpty || !mounted) return;
     _text.text = draft.text;
+    _debateLeft.text = draft.debateLeft;
+    _debateRight.text = draft.debateRight;
     setState(() {
+      _debateEnabled = draft.debateEnabled;
       _imageSlots
         ..clear()
         ..addAll(draft.imageKeys.map((k) => UcgComposeMediaSlot.remoteImage(objectKey: k)));
@@ -264,6 +277,9 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
             imageKeys: uploaded.imageKeys,
             videoKey: uploaded.videoKey,
             editingPostId: widget.editingPost?.id,
+            debateEnabled: _debateEnabled,
+            debateLeft: _debateLeft.text,
+            debateRight: _debateRight.text,
           ),
         );
   }
@@ -435,6 +451,27 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
       _toast('请输入内容或添加媒体');
       return;
     }
+    final leftRaw = _debateLeft.text.trim();
+    final rightRaw = _debateRight.text.trim();
+    var left = leftRaw;
+    var right = rightRaw;
+    if (!_debateEnabled) {
+      left = '';
+      right = '';
+    } else {
+      if (left.isEmpty && right.isEmpty) {
+        _toast('请填写双方立场');
+        return;
+      }
+      if (left.isEmpty != right.isEmpty) {
+        _toast('请补全另一方立场');
+        return;
+      }
+    }
+    if (left.runes.length > 5 || right.runes.length > 5) {
+      _toast('立场标签最多 5 字');
+      return;
+    }
     if (_busy) {
       _toast('请稍候');
       return;
@@ -474,6 +511,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
               videoKey: uploaded.videoKey,
               lat: coords?.lat,
               lng: coords?.lng,
+              debateLeft: left.isEmpty ? null : left,
+              debateRight: right.isEmpty ? null : right,
             );
       }
       AppDebugLog.ucgCompose('compose publish ok editing=${widget.editingPost != null}');
@@ -510,8 +549,11 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
 
   @override
   void dispose() {
+    _scrollCtrl.dispose();
     _slotsRevision.dispose();
     _text.dispose();
+    _debateLeft.dispose();
+    _debateRight.dispose();
     super.dispose();
   }
 
@@ -522,6 +564,20 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
     final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     final shellFg = tokens?.onShell ?? scheme.onSurface;
     final hintColor = ucgComposeLightHintColor(context);
+    final sideFormatter = [LengthLimitingTextInputFormatter(5)];
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final bridge = keyboardInputBridgeController;
+    final binding = bridge.binding;
+    final rawKeyboardBottom = readRawViewInsetBottom(context);
+    final overlayChrome =
+        bridge.overlayVisible(rawKeyboardBottom) ? bridge.accessoryChromeHeight.toDouble() : 0.0;
+    scheduleInlineAuthScrollOnInset(
+      context,
+      focusedNode: binding?.focusNode,
+      scrollController: _scrollCtrl,
+      anchorKey: binding?.anchorKey,
+      keyboardOverlayChrome: overlayChrome,
+    );
 
     return PopScope(
       canPop: false,
@@ -590,7 +646,13 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                   ),
                   Expanded(
                     child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      controller: _scrollCtrl,
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        0,
+                        16,
+                        24 + bottomInset + overlayChrome,
+                      ),
                       children: [
                         UcgComposeLightGlassPanel(
                           eventAccent: scheme.primary,
@@ -793,6 +855,98 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                             ],
                           ),
                         ),
+                        if (widget.editingPost == null) ...[
+                          const SizedBox(height: 12),
+                          KeyedSubtree(
+                            key: _debatePanelAnchorKey,
+                            child: UcgComposeLightGlassPanel(
+                              eventAccent: scheme.primary,
+                              contentPadding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        '辩论',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: shellFg,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Switch.adaptive(
+                                        value: _debateEnabled,
+                                        onChanged: _busy
+                                            ? null
+                                            : (v) => setState(() => _debateEnabled = v),
+                                      ),
+                                    ],
+                                  ),
+                                  if (_debateEnabled) ...[
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: ManagedKeyboardTextField(
+                                            controller: _debateLeft,
+                                            hint: '左方立场',
+                                            anchorKey: _debatePanelAnchorKey,
+                                            scene: 'ucg.compose.debate',
+                                            inputFormatters: sideFormatter,
+                                            onConfirm: () => unawaited(_persistDraft()),
+                                            style: TextStyle(color: shellFg, fontSize: 15),
+                                            decoration: InputDecoration(
+                                              labelText: '左方立场',
+                                              counterText: '',
+                                              border: InputBorder.none,
+                                              labelStyle: TextStyle(
+                                                color: ucgComposeLightSecondaryColor(context),
+                                              ),
+                                              hintStyle: TextStyle(color: hintColor),
+                                            ),
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 28, left: 8, right: 8),
+                                          child: Text(
+                                            'VS',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              color: shellFg.withValues(alpha: 0.45),
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: ManagedKeyboardTextField(
+                                            controller: _debateRight,
+                                            hint: '右方立场',
+                                            anchorKey: _debatePanelAnchorKey,
+                                            scene: 'ucg.compose.debate',
+                                            inputFormatters: sideFormatter,
+                                            onConfirm: () => unawaited(_persistDraft()),
+                                            style: TextStyle(color: shellFg, fontSize: 15),
+                                            decoration: InputDecoration(
+                                              labelText: '右方立场',
+                                              counterText: '',
+                                              border: InputBorder.none,
+                                              labelStyle: TextStyle(
+                                                color: ucgComposeLightSecondaryColor(context),
+                                              ),
+                                              hintStyle: TextStyle(color: hintColor),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

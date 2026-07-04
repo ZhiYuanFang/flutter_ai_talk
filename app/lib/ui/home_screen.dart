@@ -769,7 +769,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         );
     if (!mounted) return false;
     if (ok) {
-      _history.replaceRecord(_recordWithEndTime(record, end));
+      _history.replaceRecordImmediate(_recordWithEndTime(record, end));
     } else if (!_isRecordActivelyTiming(record.id)) {
       // 接口失败但 WS/本地已写入结束时间时，仍视为成功以便关闭提醒框。
       ok = true;

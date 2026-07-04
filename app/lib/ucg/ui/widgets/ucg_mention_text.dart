@@ -28,6 +28,14 @@ class UcgMentionText {
     return (display: display, nick: nick, wxId: wxId);
   }
 
+  /// 回复评论时预填 wire mention：`@昵称#wxId `。
+  static String replyWirePrefix(String nickname, {String? authorId}) {
+    final nick = nickname.trim().isEmpty ? '用户' : nickname.trim();
+    final id = authorId?.trim() ?? '';
+    if (id.isNotEmpty) return '@$nick#$id ';
+    return '@$nick ';
+  }
+
   /// 发送前：将展示层开头 `@昵称 ` 还原为 wire `@昵称#wxId `。
   /// 若 [selfWxId] 与 mention 相同则 strip @，不允许 @ 自己。
   static String toWire(

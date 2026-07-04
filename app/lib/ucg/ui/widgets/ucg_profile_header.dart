@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/ucg_theme.dart';
+import 'ucg_force_tier_icon.dart';
 
 /// 左对齐头像 + 右上昵称/关注数/IP 属地；简介在头像行下方；可选操作按钮行。
 class UcgProfileHeader extends StatelessWidget {
@@ -13,6 +14,8 @@ class UcgProfileHeader extends StatelessWidget {
     this.onBioTap,
     this.followingCount,
     this.onFollowingTap,
+    this.forceValue = 0,
+    this.forceTier,
     this.ipLocationText,
     this.nicknameTrailing,
     this.actions,
@@ -27,6 +30,8 @@ class UcgProfileHeader extends StatelessWidget {
   final VoidCallback? onBioTap;
   final int? followingCount;
   final VoidCallback? onFollowingTap;
+  final int forceValue;
+  final String? forceTier;
   final String? ipLocationText;
   final Widget? nicknameTrailing;
   final Widget? actions;
@@ -78,9 +83,16 @@ class UcgProfileHeader extends StatelessWidget {
                   ),
                   if (followingCount != null) ...[
                     const SizedBox(height: 6),
-                    UcgFollowingCountChip(
-                      count: followingCount!,
-                      onTap: onFollowingTap,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        UcgForceTierIcon(forceValue: forceValue, forceTier: forceTier, size: 12),
+                        if (forceValue >= 500) const SizedBox(width: 4),
+                        UcgFollowingCountChip(
+                          count: followingCount!,
+                          onTap: onFollowingTap,
+                        ),
+                      ],
                     ),
                   ],
                   if (ipLocationText != null && ipLocationText!.isNotEmpty) ...[

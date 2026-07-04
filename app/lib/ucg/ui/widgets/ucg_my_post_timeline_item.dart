@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/ucg_models.dart';
 import '../../theme/ucg_theme.dart';
+import 'ucg_debate_vs_bar.dart';
 import 'ucg_feed_moments_widgets.dart';
 
 const _kTimelineDateColumnWidth = 64.0;
@@ -58,6 +59,7 @@ class UcgMyPostTimelineItem extends StatelessWidget {
     final muted = fg.withValues(alpha: 0.45);
     final dividerColor = fg.withValues(alpha: 0.18);
     final timeLabel = formatTime(date);
+    final hasMedia = post.imageUrls.isNotEmpty || post.videoUrl != null;
 
     final content = Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -119,20 +121,35 @@ class UcgMyPostTimelineItem extends StatelessWidget {
                     const SizedBox(height: 8),
                   Text(
                     post.text,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: post.isDebate ? null : 2,
+                    overflow: post.isDebate ? null : TextOverflow.ellipsis,
                     style: TextStyle(
                       color: fg.withValues(alpha: 0.9),
                       height: 1.45,
                       fontSize: 15,
+                      fontWeight: post.isDebate ? FontWeight.w600 : FontWeight.normal,
                     ),
                   ),
                 ],
-                UcgPostMediaSection(
-                  post: post,
-                  topSpacing: 8,
-                  openLightboxOnTap: false,
-                ),
+                if (hasMedia)
+                  UcgPostMediaSection(
+                    post: post,
+                    topSpacing: 8,
+                    maxPreviewImages: post.isDebate ? 3 : null,
+                    openLightboxOnTap: false,
+                  ),
+                if (post.isDebate) ...[
+                  if (hasMedia || post.text.isNotEmpty) const SizedBox(height: 10),
+                  UcgDebateVsBar(
+                    leftLabel: post.debateLeft,
+                    rightLabel: post.debateRight,
+                    leftRatio: post.debateLeftRatio,
+                    rightRatio: post.debateRightRatio,
+                    totalVotes: post.leftVoteCount + post.rightVoteCount,
+                    myVoteSide: post.myVoteSide,
+                    interactive: false,
+                  ),
+                ],
                 const SizedBox(height: 6),
                 Text(
                   timeLabel,

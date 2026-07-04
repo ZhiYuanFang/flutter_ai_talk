@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/app_debug_log.dart';
 import '../api/gateway_json.dart';
 import '../config/env.dart';
 import 'token_expiry.dart';
@@ -167,11 +168,12 @@ class SessionController extends ChangeNotifier {
       final path =
           AppEnv.refreshTokenPath.startsWith('/') ? AppEnv.refreshTokenPath : '/${AppEnv.refreshTokenPath}';
       final uri = Uri.parse('$base$path');
-      final res = await http.post(
-        uri,
-        headers: const {'Content-Type': 'application/json'},
-        body: jsonEncode({'refreshToken': rt}),
-      );
+      // Web 上 inline Map  literal 传入 http.post 可能触发 LegacyJavaScriptObject；用 Request 逐条设 header。
+      final request = http.Request('POST', uri)
+        ..headers['Content-Type'] = 'application/json'
+        ..body = jsonEncode({'refreshToken': rt});
+      final streamed = await request.send();
+      final res = await http.Response.fromStream(streamed);
 
       if (res.statusCode >= 500) return _RefreshOutcome.transientFailure;
 
@@ -211,7 +213,8 @@ class SessionController extends ChangeNotifier {
       return _RefreshOutcome.transientFailure;
     } on IOException {
       return _RefreshOutcome.transientFailure;
-    } catch (_) {
+    } catch (e) {
+      AppDebugLog.wsTransport('token refresh err=$e');
       return _RefreshOutcome.transientFailure;
     }
   }

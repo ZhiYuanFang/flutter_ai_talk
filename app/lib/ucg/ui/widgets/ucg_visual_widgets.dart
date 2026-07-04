@@ -530,6 +530,7 @@ class UcgBottomDock extends StatelessWidget {
     required this.onComposeTap,
     this.onComposeLongPress,
     this.showMessageBadge = false,
+    this.showComposeEntry = false,
   });
 
   final int currentIndex;
@@ -537,6 +538,7 @@ class UcgBottomDock extends StatelessWidget {
   final VoidCallback onComposeTap;
   final VoidCallback? onComposeLongPress;
   final bool showMessageBadge;
+  final bool showComposeEntry;
 
   @override
   Widget build(BuildContext context) {
@@ -551,13 +553,14 @@ class UcgBottomDock extends StatelessWidget {
             _DockItem(icon: Icons.auto_awesome_rounded, label: '广场', selected: currentIndex == 0, onTap: () => onTap(0)),
             if (kUcgTreasureEnabled)
               _DockItem(icon: Icons.diamond_outlined, label: '宝藏', selected: currentIndex == 1, onTap: () => onTap(1)),
-            _DockItem(
-              icon: Icons.add_rounded,
-              label: '发布',
-              selected: false,
-              onTap: onComposeTap,
-              onLongPress: onComposeLongPress,
-            ),
+            if (showComposeEntry)
+              _DockItem(
+                icon: Icons.add_rounded,
+                label: '发布',
+                selected: false,
+                onTap: onComposeTap,
+                onLongPress: onComposeLongPress,
+              ),
             _DockItem(
               icon: Icons.chat_bubble_rounded,
               label: '消息',

@@ -285,6 +285,8 @@ class _UcgProfileHeaderDelegate extends SliverPersistentHeaderDelegate {
                           nickname: profile.nickname,
                           bio: profile.bio.isNotEmpty ? profile.bio : null,
                           followingCount: profile.followingCount,
+                          forceValue: profile.forceValue,
+                          forceTier: profile.forceTier,
                           ipLocationText: profile.ipLocationDisplay,
                           actions: onFollow != null
                               ? UcgProfileActionRow(
@@ -728,6 +730,8 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
           bioPlaceholder: '点击编辑个人简介',
           onBioTap: _saving ? null : () => unawaited(_startBioEdit()),
           followingCount: widget.profile.followingCount,
+          forceValue: widget.profile.forceValue,
+          forceTier: widget.profile.forceTier,
           onFollowingTap: widget.wxBound
               ? () {
                   Navigator.of(context).push(

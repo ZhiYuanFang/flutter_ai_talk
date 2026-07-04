@@ -3,6 +3,11 @@
 
 -keep class com.fzy.pangbao.UcgHmsMessageService { *; }
 -keep class com.fzy.pangbao.UcgMiPushReceiver { *; }
+-keep class com.fzy.pangbao.PangbaoWidgetSmallProvider { *; }
+-keep class com.fzy.pangbao.PangbaoWidgetMediumProvider { *; }
+-keep class com.fzy.pangbao.PangbaoWidgetLargeProvider { *; }
+-keep class com.fzy.pangbao.PangbaoWidgetRenderer { *; }
+-keep class com.fzy.pangbao.PangbaoWidgetBitmaps { *; }
 -keep class com.huawei.hms.** { *; }
 -keep class com.xiaomi.mipush.sdk.** { *; }
 

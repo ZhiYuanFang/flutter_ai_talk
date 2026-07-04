@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -14,6 +15,7 @@ import '../providers/repositories.dart' show versionRepositoryProvider;
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
+import '../home_widget/home_widget_sync.dart';
 import '../theme/app_theme_schedule.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
@@ -26,6 +28,7 @@ import 'version_prompt.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/settings_glass_panel.dart';
+import 'home_widget_settings_section.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -161,6 +164,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (!kIsWeb && (Platform.isAndroid || Platform.isIOS) && loggedIn)
+                SettingsGlassPanel(
+                  child: const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: HomeWidgetSettingsSection(),
+                  ),
+                ),
+              if (!kIsWeb && (Platform.isAndroid || Platform.isIOS) && loggedIn)
+                const SizedBox(height: 12),
               _buildGlassTile(
                 context,
                 leading: Icons.system_update_outlined,
@@ -433,6 +445,7 @@ class _ThemePresetSectionState extends ConsumerState<_ThemePresetSection> {
     ref.read(themePresetProvider.notifier).state = preset;
     ref.read(customBackgroundProvider.notifier).state = seed;
     refreshScheduledTheme(ref);
+    unawaited(scheduleHomeWidgetSync(ref));
   }
 
   Future<void> _clearToClassic(WidgetRef ref) async {
@@ -441,6 +454,7 @@ class _ThemePresetSectionState extends ConsumerState<_ThemePresetSection> {
     ref.read(customBackgroundProvider.notifier).state = null;
     setState(() => _colorWheelExpanded = false);
     refreshScheduledTheme(ref);
+    unawaited(scheduleHomeWidgetSync(ref));
   }
 
   void _toggleColorWheel() {

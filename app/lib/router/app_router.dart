@@ -31,6 +31,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: session,
     observers: [focusObserver],
     redirect: (context, state) {
+      final uri = state.uri;
+      if (uri.scheme == 'pangbao' &&
+          (uri.host == 'home' || uri.path == '/home' || uri.path == '/')) {
+        return '/home';
+      }
       final loc = state.matchedLocation;
       final splash = loc == '/splash';
       final loggingIn = loc == '/login';

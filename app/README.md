@@ -39,8 +39,10 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[UcgPlay]` | CDN 内联播放 init/play/runtime 失败（ExoPlayer `errorDescription`） |
 | `[UcgUnread]` | UCG 未读 HTTP 校准失败（`sync err=`） |
 | `[UcgPush]` | UCG push register 失败 / gaveUp（`register fail` / `gaveUp`） |
+| `[UcgShare]` | 辩论帖微信分享截图上传/分享失败（`upload fail` / `share fail`） |
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
+| `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
 
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
@@ -78,6 +80,18 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 **下拉刷新排查**：在终端 B 对齐 `[UcgFeed] onRefresh fired` → `fetchRecommendedFeed calling` → `[ApiHttp] -> GET …/feed/recommend` 的时间戳，可拆分「触发刷新 → 发 HTTP」各段耗时。
 
 临时排查微信 SDK 问题时，可将 `pubspec.yaml` 的 `fluwx.debug_logging` 改回 `true` 后重新 `flutter pub get`。
+
+### 桌面小组件（Android / iOS）
+
+- **能力**：根据本地喂养历史推断各事件下次触发时间，在系统桌面展示即将发生的事件（进行中计时优先）。
+- **尺寸**：添加时选择标准 **小（1 行）/ 中（3 行）/ 大（6 行）** 三种 widget。
+- **数据**：仅读 App 写入的本地 JSON（`home_widget`）；小组件进程 **不** 发起 HTTP/WebSocket。
+- **首次启用**：App 后台预拉约 30 天或 15 页历史，期间展示「正在准备数据…」。
+- **空态**：未登录或无预测数据时展示「打开胖宝记录」；登出后立即清空 widget 内容。
+- **设置页**：「桌面小组件」区块可预览即将发生列表并手动「刷新小组件数据」。
+- **Android**：Manifest 已注册 `PangbaoWidgetSmall/Medium/LargeProvider`；Release 合并前须 `flutter build apk --release`。
+- **iOS**：源码位于 `ios/PangbaoWidget/`；须在 Xcode 中为 Runner 与 Extension 启用 App Group `group.com.fzy.pangbao.widget` 并添加 Widget Extension target（见 `ios/PangbaoWidget/README.md`）。
+- **隐私**：widget 仅展示本机已缓存的喂养事件与宝宝昵称/月龄，不含 token。
 
 ### WebSocket 架构
 

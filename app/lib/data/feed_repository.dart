@@ -42,6 +42,9 @@ abstract class FeedRepository {
   Future<String?> addHistoryEvent(Map<String, dynamic> body);
   /// 提交自然语言指令；服务端在 `data.reply` 返回文本回复（可为空）。
   Future<String?> sendCommand(String text);
+
+  /// 小组件每日喂养建议；纯 HTTP、不依赖 WS、失败不 Toast。
+  Future<String?> fetchWidgetFeedingTip();
   Stream<SseHistoryPayload> watchLatest();
 
   /// 在 [watchLatest] 订阅后显式建连；须晚于 gateway HTTP bootstrap 完成。

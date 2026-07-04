@@ -11,8 +11,10 @@ import 'ucg_network_image.dart';
 
 const _kMediaGap = 3.0;
 const _kMediaRadius = 4.0;
-const _kEngagementMaxLines = 5;
-const _kEngagementLineHeight = 1.35;
+const kUcgEngagementMaxLines = 1;
+const kUcgEngagementLineHeight = 1.35;
+const _kEngagementMaxLines = kUcgEngagementMaxLines;
+const _kEngagementLineHeight = kUcgEngagementLineHeight;
 const _kLikerAvatarSize = 19.0; // 28 × 2/3
 const _kLikerAvatarRadius = 5.0;
 const _kLikerAvatarGap = 2.0;
@@ -73,6 +75,16 @@ class UcgPostAuditBadge extends StatelessWidget {
       post.status == UcgPostStatus.pendingAudit || post.status == UcgPostStatus.rejected;
 }
 
+/// 广场 Feed 帖子 meta：`MM-dd HH:mm · 属地 · 距离`（缺项省略）。
+String ucgPostFeedMetaLine(UcgPost post, String time, {String? currentUserId}) {
+  final loc = post.ipLocationDisplay;
+  final dist = post.shouldShowDistance(currentUserId) ? post.distanceDisplay : '';
+  if (loc.isNotEmpty && dist.isNotEmpty) return '$time · $loc · $dist';
+  if (loc.isNotEmpty) return '$time · $loc';
+  if (dist.isNotEmpty) return '$time · $dist';
+  return time;
+}
+
 /// 帖子图片/视频区，供广场 Feed 与「我的动态」时间轴复用。
 class UcgPostMediaSection extends StatelessWidget {
   const UcgPostMediaSection({
@@ -80,11 +92,17 @@ class UcgPostMediaSection extends StatelessWidget {
     required this.post,
     this.topSpacing = 10,
     this.openLightboxOnTap = true,
+    this.maxPreviewImages,
+    this.onVideoTap,
   });
 
   final UcgPost post;
   final double topSpacing;
   final bool openLightboxOnTap;
+  /// 非 null 时广场预览：最多展示 N 张横排图，超出在第 N 张标 +剩余数。
+  final int? maxPreviewImages;
+  /// 视频预览点击（广场 moment 卡可进详情；profile 不传则走外层 InkWell）。
+  final VoidCallback? onVideoTap;
 
   @override
   Widget build(BuildContext context) {
@@ -98,22 +116,191 @@ class UcgPostMediaSection extends StatelessWidget {
       children: [
         if (post.imageUrls.isNotEmpty) ...[
           SizedBox(height: topSpacing),
-          UcgMomentsMediaGrid(
-            fullUrls: post.imageUrls,
-            thumbnailUrls: post.imageThumbnailUrls,
-            openLightboxOnTap: openLightboxOnTap,
-          ),
-        ],
-        if (post.videoUrl != null) ...[
+          if (maxPreviewImages != null)
+            UcgSquareFeedMediaPreview(
+              post: post,
+              maxImages: maxPreviewImages!,
+              openLightboxOnTap: openLightboxOnTap,
+              onVideoTap: onVideoTap,
+            )
+          else
+            UcgMomentsMediaGrid(
+              fullUrls: post.imageUrls,
+              thumbnailUrls: post.imageThumbnailUrls,
+              openLightboxOnTap: openLightboxOnTap,
+            ),
+        ] else if (post.videoUrl != null) ...[
           SizedBox(height: topSpacing),
-          UcgMomentsVideoTile(
-            videoUrl: post.videoUrl!,
-            posterUrl: post.videoThumbnailUrl,
-            videoWidth: post.videoWidth,
-            videoHeight: post.videoHeight,
+          if (maxPreviewImages != null)
+            UcgSquareFeedMediaPreview(
+              post: post,
+              maxImages: maxPreviewImages!,
+              openLightboxOnTap: openLightboxOnTap,
+              onVideoTap: onVideoTap,
+            )
+          else
+            UcgMomentsVideoTile(
+              videoUrl: post.videoUrl!,
+              posterUrl: post.videoThumbnailUrl,
+              videoWidth: post.videoWidth,
+              videoHeight: post.videoHeight,
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 广场纵向 Feed 媒体预览：最多 [maxImages] 张横排；超出时末格角标 +剩余数。
+class UcgSquareFeedMediaPreview extends StatelessWidget {
+  const UcgSquareFeedMediaPreview({
+    super.key,
+    required this.post,
+    this.maxImages = 3,
+    this.openLightboxOnTap = false,
+    this.onVideoTap,
+  });
+
+  final UcgPost post;
+  final int maxImages;
+  final bool openLightboxOnTap;
+  final VoidCallback? onVideoTap;
+
+  String _thumbnailAt(int index) {
+    final thumbs = post.imageThumbnailUrls;
+    if (index < thumbs.length && thumbs[index].isNotEmpty) {
+      return thumbs[index];
+    }
+    return post.imageUrls[index];
+  }
+
+  Widget _wrapTap(Widget child, VoidCallback? onTap) {
+    if (onTap == null) return child;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: child,
+    );
+  }
+
+  void _openLightbox(BuildContext context, int index) {
+    final urls = post.imageUrls;
+    unawaited(
+      showUcgPhotoLightbox(
+        context,
+        urls: urls,
+        thumbnailUrls: List.generate(urls.length, _thumbnailAt),
+        initialIndex: index.clamp(0, urls.length - 1),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (post.videoUrl != null) {
+      return _wrapTap(
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: UcgVideoSnapshotPoster(
+              posterUrl: post.videoThumbnailUrl,
+              videoUrl: post.videoUrl,
+              aspectRatio: 16 / 9,
+              borderRadius: 8,
+            ),
+          ),
+        ),
+        onVideoTap,
+      );
+    }
+
+    final urls = post.imageUrls;
+    if (urls.isEmpty) return const SizedBox.shrink();
+
+    final total = urls.length;
+    final showCount = total.clamp(1, maxImages);
+    final overflow = total > maxImages ? total - maxImages : 0;
+
+    Widget cell(int index, {required int overflowBadge}) {
+      final image = ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            UcgNetworkImage(url: _thumbnailAt(index), fit: BoxFit.cover),
+            if (overflowBadge > 0)
+              Positioned(
+                right: 6,
+                bottom: 6,
+                child: _FeedOverflowBadge(count: overflowBadge),
+              ),
+          ],
+        ),
+      );
+      return _wrapTap(
+        image,
+        openLightboxOnTap ? () => _openLightbox(context, index) : null,
+      );
+    }
+
+    if (showCount == 1) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final size = constraints.maxWidth / 3;
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: cell(0, overflowBadge: overflow),
+            ),
+          );
+        },
+      );
+    }
+
+    return Row(
+      children: [
+        for (var i = 0; i < showCount; i++) ...[
+          if (i > 0) const SizedBox(width: _kMediaGap),
+          Expanded(
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: cell(
+                i,
+                overflowBadge: i == showCount - 1 ? overflow : 0,
+              ),
+            ),
           ),
         ],
       ],
+    );
+  }
+}
+
+class _FeedOverflowBadge extends StatelessWidget {
+  const _FeedOverflowBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '+$count',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withValues(alpha: 0.92),
+          height: 1.2,
+        ),
+      ),
     );
   }
 }
@@ -301,6 +488,7 @@ class UcgMomentsActionMenu extends StatefulWidget {
     required this.onLikeTap,
     this.onLikeLongPress,
     this.onCommentTap,
+    this.onShareTap,
     this.onEditTap,
     this.onDeleteTap,
   });
@@ -309,6 +497,7 @@ class UcgMomentsActionMenu extends StatefulWidget {
   final VoidCallback? onLikeTap;
   final VoidCallback? onLikeLongPress;
   final VoidCallback? onCommentTap;
+  final VoidCallback? onShareTap;
   final VoidCallback? onEditTap;
   final VoidCallback? onDeleteTap;
 
@@ -458,6 +647,16 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
                                 widget.onCommentTap?.call();
                               },
                             ),
+                          if (widget.onShareTap != null)
+                            _ActionIcon(
+                              icon: Icons.ios_share_rounded,
+                              label: '分享',
+                              color: fg.withValues(alpha: 0.75),
+                              onTap: () {
+                                _collapse();
+                                widget.onShareTap?.call();
+                              },
+                            ),
                           if (widget.onEditTap != null)
                             _ActionIcon(
                               icon: Icons.edit_outlined,
@@ -495,6 +694,8 @@ class _UcgMomentsActionMenuState extends State<UcgMomentsActionMenu>
   Widget build(BuildContext context) {
     if (widget.onLikeTap == null &&
         widget.onCommentTap == null &&
+        widget.onShareTap == null &&
+        widget.onEditTap == null &&
         widget.onDeleteTap == null) {
       return const SizedBox.shrink();
     }
@@ -632,9 +833,16 @@ class _UcgMomentsEngagementBlockState extends ConsumerState<UcgMomentsEngagement
     if (widget.post.likeCount > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_loadLikers()));
     }
-    if (widget.post.commentCount > 0) {
+    _seedCommentsFromPost();
+    if (widget.post.commentCount > 0 && !_commentsLoaded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_loadComments()));
     }
+  }
+
+  void _seedCommentsFromPost() {
+    if (widget.post.comments.isEmpty) return;
+    _comments = List<UcgComment>.from(widget.post.comments);
+    _commentsLoaded = true;
   }
 
   @override
@@ -651,7 +859,8 @@ class _UcgMomentsEngagementBlockState extends ConsumerState<UcgMomentsEngagement
       if (widget.post.likeCount > 0) {
         unawaited(_loadLikers());
       }
-      if (widget.post.commentCount > 0) {
+      _seedCommentsFromPost();
+      if (widget.post.commentCount > 0 && !_commentsLoaded) {
         unawaited(_loadComments());
       }
     } else {
@@ -864,7 +1073,15 @@ class _UcgMomentsEngagementBlockState extends ConsumerState<UcgMomentsEngagement
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: GestureDetector(
-                onTap: () => setState(() => _expanded = !_expanded),
+                onTap: () {
+                  if (!_expanded && widget.post.commentCount > _comments.length) {
+                    unawaited(_loadComments(force: true).then((_) {
+                      if (mounted) setState(() => _expanded = true);
+                    }));
+                    return;
+                  }
+                  setState(() => _expanded = !_expanded);
+                },
                 child: Text(
                   _expanded ? '折叠' : '展开',
                   style: TextStyle(fontSize: 13, color: fg.withValues(alpha: 0.45)),
@@ -973,6 +1190,7 @@ class _CommentLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final author = comment.authorNickname.isEmpty ? '用户' : comment.authorNickname;
+    final labelPrefix = comment.voteSideLabel?.trim();
     final bodyStyle = TextStyle(fontSize: 13, height: _kEngagementLineHeight, color: fg.withValues(alpha: 0.82));
     final authorStyle = TextStyle(
       fontSize: 13,
@@ -980,6 +1198,29 @@ class _CommentLine extends StatelessWidget {
       color: primary.withValues(alpha: 0.92),
       fontWeight: FontWeight.w600,
     );
+    const avatarSize = 20.0;
+
+    Widget avatar = ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        width: avatarSize,
+        height: avatarSize,
+        child: comment.authorAvatarThumbnailUrl != null &&
+                comment.authorAvatarThumbnailUrl!.isNotEmpty
+            ? UcgNetworkImage(url: comment.authorAvatarThumbnailUrl!, fit: BoxFit.cover)
+            : ColoredBox(
+                color: primary.withValues(alpha: 0.12),
+                child: Icon(Icons.person_rounded, size: 12, color: primary),
+              ),
+      ),
+    );
+    if (onUserTap != null && comment.authorId.isNotEmpty) {
+      avatar = GestureDetector(
+        onTap: () => onUserTap!(comment.authorId),
+        behavior: HitTestBehavior.opaque,
+        child: avatar,
+      );
+    }
 
     Widget authorWidget = Text(author, style: authorStyle);
     if (onUserTap != null && comment.authorId.isNotEmpty) {
@@ -990,22 +1231,33 @@ class _CommentLine extends StatelessWidget {
       );
     }
 
+    final spans = <InlineSpan>[
+      if (labelPrefix != null && labelPrefix.isNotEmpty)
+        TextSpan(text: '【$labelPrefix】', style: bodyStyle),
+      WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: authorWidget,
+      ),
+      TextSpan(text: '：${comment.text}', style: bodyStyle),
+    ];
+
     return GestureDetector(
       onTap: onReplyToComment == null ? null : () => onReplyToComment!(comment),
       behavior: HitTestBehavior.opaque,
-      child: Text.rich(
-        TextSpan(
-          children: [
-            WidgetSpan(
-              alignment: PlaceholderAlignment.baseline,
-              baseline: TextBaseline.alphabetic,
-              child: authorWidget,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          avatar,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text.rich(
+              TextSpan(children: spans),
+              maxLines: expanded ? null : 2,
+              overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
             ),
-            TextSpan(text: '：${comment.text}', style: bodyStyle),
-          ],
-        ),
-        maxLines: expanded ? null : 2,
-        overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }

@@ -49,6 +49,8 @@ class UcgProfile {
     this.postCount = 0,
     this.isFollowing = false,
     this.ipLocation,
+    this.forceValue = 0,
+    this.forceTier,
   });
 
   final String userId;
@@ -62,6 +64,8 @@ class UcgProfile {
   final int postCount;
   final bool isFollowing;
   final String? ipLocation;
+  final int forceValue;
+  final String? forceTier;
 
   String get ipLocationDisplay {
     final loc = ipLocation?.trim();
@@ -99,6 +103,8 @@ class UcgProfile {
       postCount: _int(json['postCount']),
       isFollowing: json['isFollowing'] == true,
       ipLocation: _nullableString(json['ipLocation'] ?? json['location'] ?? json['region']),
+      forceValue: _int(json['forceValue']),
+      forceTier: _nullableString(json['forceTier']),
     );
   }
 
@@ -189,6 +195,15 @@ class UcgPost {
     this.likedByMe = false,
     this.ipLocation,
     this.distanceMeters,
+    this.type = 'moment',
+    this.debateLeft = '',
+    this.debateRight = '',
+    this.leftVoteCount = 0,
+    this.rightVoteCount = 0,
+    this.myVoteSide,
+    this.authorForceValue = 0,
+    this.authorForceTier,
+    this.comments = const [],
   });
 
   final String id;
@@ -218,6 +233,27 @@ class UcgPost {
   final bool likedByMe;
   final String? ipLocation;
   final String? distanceMeters;
+  final String type;
+  final String debateLeft;
+  final String debateRight;
+  final int leftVoteCount;
+  final int rightVoteCount;
+  final String? myVoteSide;
+  final int authorForceValue;
+  final String? authorForceTier;
+  final List<UcgComment> comments;
+
+  bool get isDebate =>
+      debateLeft.trim().isNotEmpty && debateRight.trim().isNotEmpty;
+
+  /// VS 条左方视觉占比（0~1），总票为 0 时 0.5。
+  double get debateLeftRatio {
+    final total = leftVoteCount + rightVoteCount;
+    if (total <= 0) return 0.5;
+    return leftVoteCount / total;
+  }
+
+  double get debateRightRatio => 1.0 - debateLeftRatio;
 
   String get distanceDisplay => formatDistance(distanceMeters);
 
@@ -299,6 +335,9 @@ class UcgPost {
     bool? likedByMe,
     String? authorBio,
     String? authorNickname,
+    int? leftVoteCount,
+    int? rightVoteCount,
+    String? myVoteSide,
   }) {
     return UcgPost(
       id: id,
@@ -328,6 +367,15 @@ class UcgPost {
       likedByMe: likedByMe ?? this.likedByMe,
       ipLocation: ipLocation,
       distanceMeters: distanceMeters,
+      type: type,
+      debateLeft: debateLeft,
+      debateRight: debateRight,
+      leftVoteCount: leftVoteCount ?? this.leftVoteCount,
+      rightVoteCount: rightVoteCount ?? this.rightVoteCount,
+      myVoteSide: myVoteSide ?? this.myVoteSide,
+      authorForceValue: authorForceValue,
+      authorForceTier: authorForceTier,
+      comments: comments,
     );
   }
 
@@ -387,6 +435,8 @@ class UcgPost {
     var authorAvatarCdnUrl = json['authorAvatarUrl'] as String? ?? json['avatarUrl'] as String?;
     var authorAvatarThumbnailCdnUrl = json['authorAvatarThumbnailUrl'] as String?;
     var authorBio = json['authorBio'] as String? ?? '';
+    var authorForceValue = _int(json['authorForceValue']);
+    var authorForceTier = _nullableString(json['authorForceTier']);
     if (author is Map<String, dynamic>) {
       authorId = author['wxId']?.toString() ?? authorId;
       authorNickname = author['nickname'] as String? ?? authorNickname;
@@ -395,6 +445,8 @@ class UcgPost {
       authorAvatarThumbnailCdnUrl =
           author['avatarThumbnailUrl'] as String? ?? authorAvatarThumbnailCdnUrl;
       authorBio = author['bio'] as String? ?? authorBio;
+      authorForceValue = _int(author['forceValue'] ?? authorForceValue);
+      authorForceTier = _nullableString(author['forceTier']) ?? authorForceTier;
     }
     authorBio = authorBio.trim();
     return UcgPost(
@@ -425,6 +477,15 @@ class UcgPost {
       likedByMe: json['likedByMe'] == true || json['liked'] == true,
       ipLocation: _nullableString(json['ipLocation'] ?? json['location'] ?? json['region']),
       distanceMeters: _nullableString(json['distanceMeters']),
+      type: json['type'] as String? ?? 'moment',
+      debateLeft: json['debateLeft'] as String? ?? json['debateLeftLabel'] as String? ?? '',
+      debateRight: json['debateRight'] as String? ?? json['debateRightLabel'] as String? ?? '',
+      leftVoteCount: _int(json['leftVoteCount']),
+      rightVoteCount: _int(json['rightVoteCount']),
+      myVoteSide: _nullableString(json['myVoteSide']),
+      authorForceValue: authorForceValue,
+      authorForceTier: authorForceTier,
+      comments: parseCommentList(json['comments']),
     );
   }
 }
@@ -584,6 +645,9 @@ class UcgComment {
     required this.text,
     required this.createdAt,
     this.isMine = false,
+    this.authorAvatarThumbnailUrl,
+    this.voteSide,
+    this.voteSideLabel,
   });
 
   final String id;
@@ -593,11 +657,17 @@ class UcgComment {
   final String text;
   final DateTime createdAt;
   final bool isMine;
+  final String? authorAvatarThumbnailUrl;
+  final String? voteSide;
+  final String? voteSideLabel;
 
   UcgComment copyWith({
     String? authorNickname,
     String? text,
     bool? isMine,
+    String? authorAvatarThumbnailUrl,
+    String? voteSide,
+    String? voteSideLabel,
   }) {
     return UcgComment(
       id: id,
@@ -607,6 +677,9 @@ class UcgComment {
       text: text ?? this.text,
       createdAt: createdAt,
       isMine: isMine ?? this.isMine,
+      authorAvatarThumbnailUrl: authorAvatarThumbnailUrl ?? this.authorAvatarThumbnailUrl,
+      voteSide: voteSide ?? this.voteSide,
+      voteSideLabel: voteSideLabel ?? this.voteSideLabel,
     );
   }
 
@@ -617,10 +690,14 @@ class UcgComment {
         json['userId']?.toString() ??
         '';
     var authorNickname = json['authorNickname'] as String? ?? json['nickname'] as String? ?? '';
+    String? avatarThumb;
     if (author is Map<String, dynamic>) {
       authorId = author['wxId']?.toString() ?? authorId;
       authorNickname = author['nickname'] as String? ?? authorNickname;
+      avatarThumb = author['avatarThumbnailUrl'] as String? ??
+          author['avatarThumbnailCdnUrl'] as String?;
     }
+    avatarThumb ??= json['authorAvatarThumbnailUrl'] as String?;
     return UcgComment(
       id: json['id']?.toString() ?? '',
       postId: json['postId']?.toString() ?? '',
@@ -629,6 +706,9 @@ class UcgComment {
       text: json['content'] as String? ?? json['text'] as String? ?? '',
       createdAt: _date(json['createdAt']),
       isMine: currentUserId != null && authorId == currentUserId,
+      authorAvatarThumbnailUrl: avatarThumb,
+      voteSide: _nullableString(json['voteSide']),
+      voteSideLabel: _nullableString(json['voteSideLabel']),
     );
   }
 }
@@ -849,6 +929,9 @@ class UcgComposeDraft {
     this.videoKey,
     this.editingPostId,
     this.updatedAt,
+    this.debateEnabled = false,
+    this.debateLeft = '',
+    this.debateRight = '',
   });
 
   final String text;
@@ -856,9 +939,17 @@ class UcgComposeDraft {
   final String? videoKey;
   final String? editingPostId;
   final DateTime? updatedAt;
+  final bool debateEnabled;
+  final String debateLeft;
+  final String debateRight;
 
   bool get isEmpty =>
-      text.trim().isEmpty && imageKeys.isEmpty && (videoKey == null || videoKey!.isEmpty);
+      text.trim().isEmpty &&
+      imageKeys.isEmpty &&
+      (videoKey == null || videoKey!.isEmpty) &&
+      !debateEnabled &&
+      debateLeft.trim().isEmpty &&
+      debateRight.trim().isEmpty;
 
   Map<String, dynamic> toJson() => {
         'text': text,
@@ -866,6 +957,9 @@ class UcgComposeDraft {
         if (videoKey != null) 'videoKey': videoKey,
         if (editingPostId != null) 'editingPostId': editingPostId,
         if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+        'debateEnabled': debateEnabled,
+        'debateLeft': debateLeft,
+        'debateRight': debateRight,
       };
 
   factory UcgComposeDraft.fromJson(Map<String, dynamic> json) {
@@ -882,6 +976,9 @@ class UcgComposeDraft {
       videoKey: json['videoKey'] as String?,
       editingPostId: json['editingPostId'] as String?,
       updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt'] as String) : null,
+      debateEnabled: json['debateEnabled'] == true,
+      debateLeft: json['debateLeft'] as String? ?? '',
+      debateRight: json['debateRight'] as String? ?? '',
     );
   }
 }
@@ -922,6 +1019,14 @@ DateTime? _dateOrNull(dynamic v) {
     return DateTime.fromMillisecondsSinceEpoch(sec * 1000, isUtc: true).toLocal();
   }
   return null;
+}
+
+List<UcgComment> parseCommentList(dynamic raw, {String? currentUserId}) {
+  if (raw is! List) return const [];
+  return raw
+      .whereType<Map<String, dynamic>>()
+      .map((e) => UcgComment.fromJson(e, currentUserId: currentUserId))
+      .toList();
 }
 
 List<UcgPost> parsePostList(dynamic raw, {bool publicFeedOnly = false}) {

@@ -160,6 +160,11 @@ class _UcgInteractionInboxScreenState extends ConsumerState<UcgInteractionInboxS
     final nick = n.actorNickname.trim().isEmpty ? '用户' : n.actorNickname.trim();
     return switch (n.type) {
       'mention_in_comment' => '$nick 在评论中提到了你',
+      'debate_vote' => () {
+        final side = n.preview.trim();
+        final label = side.isNotEmpty ? '「$side」' : '你的观点';
+        return '$nick 支持了$label';
+      }(),
       _ => '$nick 评论了你的动态',
     };
   }
@@ -299,7 +304,11 @@ class _PostThumb extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(
-          mediaKind == 2 ? Icons.videocam_outlined : Icons.image_outlined,
+          mediaKind == 3
+              ? Icons.balance_rounded
+              : mediaKind == 2
+                  ? Icons.videocam_outlined
+                  : Icons.image_outlined,
           size: 22,
           color: fg.withValues(alpha: 0.35),
         ),

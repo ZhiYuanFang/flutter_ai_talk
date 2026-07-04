@@ -13,6 +13,7 @@ OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 proje
 
 - OpenSpec 制品（proposal / design / specs / tasks）默认使用中文；Requirement 正文须含英文 **SHALL** 或 **MUST**。
 - 代码符号、包名、路由、环境变量可保留英文。
+- 在代码实现过程中，尽可能用中文描述每一行代码的含义。
 
 ## WebSocket（强制）
 

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../home_widget/home_widget_sync.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../theme/app_theme_scope.dart';
@@ -28,6 +29,7 @@ class GatewayBootstrapGate {
       ref.read(babySexProvider.notifier).state = baby.sex;
       await persistCachedBabySex(baby.sex);
     } catch (_) {}
+    await ensureWidgetReadyFromRef(ref);
     _loggedInComplete = true;
   }
 

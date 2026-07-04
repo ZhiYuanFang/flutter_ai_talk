@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_pangbao_description">胖宝即将发生的喂养事件</string>
+    <string name="widget_pangbao_small_label">胖宝·小</string>
+    <string name="widget_pangbao_medium_label">胖宝·中</string>
+    <string name="widget_pangbao_large_label">胖宝·大</string>
+    <string name="widget_section_upcoming">即将发生</string>
+    <string name="widget_section_recent">上次记录</string>
+    <string name="widget_section_tip">喂养小贴士</string>
+    <string name="widget_last_at_none">暂无</string>
+</resources>

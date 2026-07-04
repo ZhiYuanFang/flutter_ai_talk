@@ -8,6 +8,7 @@ import '../data/history_mapper.dart';
 import '../data/home_history_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/models.dart';
+import '../home_widget/home_widget_sync.dart';
 import 'device_no_notifier.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
@@ -61,8 +62,19 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
 
   final Ref _ref;
   Future<void>? _warmFuture;
+  Future<bool>? _loadPageInFlight;
   var _flyAnimationFrozen = false;
+  var _consecutiveLoadMoreFailures = 0;
   final List<void Function()> _queuedWhileFlyFrozen = [];
+
+  int get consecutiveLoadMoreFailures => _consecutiveLoadMoreFailures;
+
+  bool get isLoadMoreCircuitOpen =>
+      _consecutiveLoadMoreFailures >= HomeWidgetConstants.maxConsecutivePageFailures;
+
+  void resetLoadMoreCircuit() {
+    _consecutiveLoadMoreFailures = 0;
+  }
 
   /// 飞行动画期间冻结列表变更，结束后再依次应用队列。
   void setFlyAnimationFrozen(bool frozen) {
@@ -173,7 +185,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) return;
     if (!_ref.read(sessionProvider).isLoggedIn) return;
-    unawaited(HomeHistoryStore.saveSnapshot(dn, _currentSnapshot()));
+    await HomeHistoryStore.saveSnapshot(dn, _currentSnapshot());
   }
 
   void setItems(List<HistoryRecord> items, {bool persist = true, String source = 'setItems'}) {
@@ -185,7 +197,16 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
 
   void _setItemsNow(List<HistoryRecord> items, {bool persist = true}) {
     _applyItems(items);
+    if (_ref.read(sessionProvider).isLoggedIn) {
+      unawaited(scheduleHomeWidgetSync(_ref));
+    }
     if (persist) unawaited(persistToDisk());
+  }
+
+  /// 结束计时时立即落 state（绕过飞行动画冻结），并触发小组件 sync。
+  void replaceRecordImmediate(HistoryRecord record) {
+    final next = state.items.map((e) => e.id == record.id ? record : e).toList();
+    _setItemsNow(next);
   }
 
   void upsertRecord(HistoryRecord record) {
@@ -345,14 +366,29 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   }
 
   Future<void> loadMoreHistory() async {
+    await loadNextHistoryPage();
+  }
+
+  /// 加载下一页历史；成功返回 true。与 widget 预拉共用 in-flight。
+  Future<bool> loadNextHistoryPage() async {
     if (_flyAnimationFrozen) {
-      _enqueueIfFrozen(() => unawaited(loadMoreHistory()));
-      return;
+      _enqueueIfFrozen(() => unawaited(loadNextHistoryPage()));
+      return false;
     }
-    if (!state.hasMore || state.loadingMore) return;
-    if (!_ref.read(sessionProvider).isLoggedIn) return;
+    if (_loadPageInFlight != null) {
+      return _loadPageInFlight!;
+    }
+    return _loadPageInFlight = _loadNextHistoryPageImpl().whenComplete(() {
+      _loadPageInFlight = null;
+    });
+  }
+
+  Future<bool> _loadNextHistoryPageImpl() async {
+    if (!state.hasMore || state.loadingMore) return false;
+    if (!_ref.read(sessionProvider).isLoggedIn) return false;
+    if (isLoadMoreCircuitOpen) return false;
     final dn = _deviceNo();
-    if (dn == null || dn.isEmpty) return;
+    if (dn == null || dn.isEmpty) return false;
 
     final nextPage = state.highestPageLoaded + 1;
     state = state.copyWith(loadingMore: true);
@@ -360,9 +396,11 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     final page = await _ref.read(feedRepositoryProvider).tryLoadHistoryPage(page: nextPage);
     if (page == null) {
       state = state.copyWith(loadingMore: false);
-      return;
+      _consecutiveLoadMoreFailures += 1;
+      return false;
     }
 
+    _consecutiveLoadMoreFailures = 0;
     final olderAsc = historyListToHomeAsc(page.listDesc);
     final existingIds = state.items.map((e) => e.id).toSet();
     final newOnes = olderAsc.where((e) => !existingIds.contains(e.id)).toList();
@@ -383,6 +421,8 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         highestPageLoaded: nextPage,
       ),
     );
+    unawaited(scheduleHomeWidgetSync(_ref));
+    return true;
   }
 
   Future<void> bootstrap() async {

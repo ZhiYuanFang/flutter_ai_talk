@@ -39,6 +39,11 @@ abstract final class AppDebugLog {
     debugPrint('[UcgPush] ${_ts()} $message');
   }
 
+  static void ucgShare(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[UcgShare] ${_ts()} $message');
+  }
+
   static void pangbaoClinic(String message) {
     if (!kDebugMode) return;
     debugPrint('[PangbaoClinic] ${_ts()} $message');
@@ -47,5 +52,10 @@ abstract final class AppDebugLog {
   static void wsTransport(String message) {
     if (!kDebugMode) return;
     debugPrint('[WsTransport] ${_ts()} $message');
+  }
+
+  static void homeWidget(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[HomeWidget] ${_ts()} $message');
   }
 }

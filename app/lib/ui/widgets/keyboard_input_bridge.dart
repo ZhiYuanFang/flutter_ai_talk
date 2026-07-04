@@ -83,6 +83,7 @@ KeyboardOverlayConfig resolveOverlayConfig(String scene) {
     case 'baby-profile.nickname':
       return KeyboardOverlayConfig.none;
     case 'ucg.compose.body':
+    case 'ucg.compose.debate':
     case 'home.history-edit.remark':
     case 'home.number.remark':
       return const KeyboardOverlayConfig(showEmoji: true);

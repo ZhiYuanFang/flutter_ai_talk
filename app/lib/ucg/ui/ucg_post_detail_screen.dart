@@ -13,10 +13,11 @@ import '../theme/ucg_theme.dart';
 import 'ucg_compose_screen.dart';
 import 'ucg_login_gate.dart';
 import 'ucg_profile_screens.dart';
+import 'widgets/ucg_debate_vs_bar.dart';
 import 'widgets/ucg_feed_moments_widgets.dart';
 import 'widgets/ucg_network_image.dart';
-import 'widgets/ucg_mention_composer_field.dart';
 import 'widgets/ucg_mention_text.dart';
+import 'widgets/ucg_post_comment_sheet.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 /// 沉浸式帖子详情：模糊背景、全量点赞/评论、长按 @ 回复。
@@ -245,7 +246,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
       return;
     }
     await _openCommentSheet(
-      initialText: _mentionPrefix(
+      initialText: UcgMentionText.replyWirePrefix(
         comment.authorNickname,
         authorId: comment.authorId,
       ),
@@ -255,8 +256,17 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
   Future<void> _loadAncillary(UcgPost post) async {
     final repo = ref.read(ucgRepositoryProvider);
     try {
-      final likers = await repo.fetchPostLikes(post.id);
-      final commentsResult = await repo.fetchComments(post.id);
+      UcgCommentsList? commentsResult;
+      final votedDebate = post.isDebate &&
+          post.myVoteSide != null &&
+          post.myVoteSide!.isNotEmpty;
+      if (!post.isDebate || votedDebate) {
+        commentsResult = await repo.fetchComments(post.id);
+      }
+      List<UcgLiker> likers = const [];
+      if (!post.isDebate) {
+        likers = await repo.fetchPostLikes(post.id);
+      }
       var following = false;
       final selfId = ref.read(ucgCurrentUserIdProvider);
       if (selfId != null &&
@@ -269,8 +279,8 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
       if (!mounted) return;
       setState(() {
         _likers = likers;
-        _comments = commentsResult.items;
-        _commentsTruncated = commentsResult.truncated;
+        _comments = commentsResult?.items ?? const [];
+        _commentsTruncated = commentsResult?.truncated ?? false;
         _authorFollowing = following;
         _ancillaryForPostId = post.id;
       });
@@ -289,15 +299,15 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
 
   Future<void> _toggleLike() async {
     final post = _post;
-    if (post == null) return;
+    if (post == null || post.isDebate) return;
     if (!await requireUcgWxAccount(context, ref)) return;
     final repo = ref.read(ucgRepositoryProvider);
     final liked = post.likedByMe;
     try {
       if (liked) {
-        await repo.unlikePost(post.id);
+        await repo.unlikePost(post.id, post: post);
       } else {
-        await repo.likePost(post.id);
+        await repo.likePost(post.id, post: post);
       }
       final likers = await repo.fetchPostLikes(post.id);
       if (!mounted) return;
@@ -309,6 +319,40 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
         _likers = likers;
       });
     } catch (_) {}
+  }
+
+  Future<void> _voteOnDebate(String side) async {
+    final post = _post;
+    if (post == null || !post.isDebate) return;
+    if (!await requireUcgWxAccount(context, ref)) return;
+    try {
+      await ref.read(ucgRepositoryProvider).votePost(post.id, side: side);
+      if (!mounted) return;
+      var left = post.leftVoteCount;
+      var right = post.rightVoteCount;
+      final prev = post.myVoteSide;
+      if (prev == 'left') left = (left - 1).clamp(0, 1 << 30);
+      if (prev == 'right') right = (right - 1).clamp(0, 1 << 30);
+      if (side == 'left') {
+        left += 1;
+      } else {
+        right += 1;
+      }
+      setState(() {
+        _post = post.copyWith(
+          myVoteSide: side,
+          leftVoteCount: left,
+          rightVoteCount: right,
+        );
+      });
+      await _loadAncillary(_post!);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('投票失败，请稍后重试')),
+        );
+      }
+    }
   }
 
   Future<void> _toggleFollow() async {
@@ -327,41 +371,33 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
     } catch (_) {}
   }
 
-  String _mentionPrefix(String nickname, {String? authorId}) {
-    final nick = nickname.trim().isEmpty ? '用户' : nickname.trim();
-    final id = authorId?.trim() ?? '';
-    if (id.isNotEmpty) {
-      return '@$nick#$id ';
-    }
-    return '@$nick ';
-  }
-
   /// 评论展示时隐藏 @昵称#wxId 中的 wxId 后缀。
   String _displayCommentText(String text) => UcgMentionText.displayComment(text);
 
-  Future<void> _openCommentSheet({String? initialText}) async {
+  Future<void> _openCommentSheet({String? initialText, String? title, String? hint}) async {
     _removeCommentDeleteOverlay();
     if (!await requireUcgWxAccount(context, ref)) return;
+    final post = _post;
+    if (post != null &&
+        post.isDebate &&
+        (post.myVoteSide == null || post.myVoteSide!.isEmpty)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先投票后再发表论点')),
+      );
+      return;
+    }
     if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            16,
-            16,
-            MediaQuery.paddingOf(ctx).bottom + 16,
-          ),
-          child: _DetailCommentSheet(
-            postId: widget.postId,
-            initialText: initialText,
-            onCommentAdded: _applyCommentsAfterSend,
-          ),
-        );
-      },
+    await showUcgPostCommentSheet(
+      context,
+      ref,
+      postId: widget.postId,
+      initialText: initialText,
+      title: title,
+      hint: hint,
+      isDebate: post?.isDebate ?? false,
+      myVoteSide: post?.myVoteSide,
+      onCommentAdded: _applyCommentsAfterSend,
     );
   }
 
@@ -439,6 +475,7 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
     final isAuthor = selfId != null && post != null && post.authorId == selfId;
+    final isDebate = post?.isDebate ?? false;
 
     if (post == null && postAsync.isLoading) {
       return Scaffold(
@@ -560,13 +597,29 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                               color: fg.withValues(alpha: 0.92),
                               height: 1.5,
                               fontSize: 16,
+                              fontWeight: isDebate ? FontWeight.w600 : FontWeight.normal,
                             ),
                             linkColor: fg.withValues(alpha: 0.45),
+                            allowExpand: !isDebate,
                           ),
-                        UcgPostMediaSection(
-                          post: post,
-                          openLightboxOnTap: true,
-                        ),
+                        if (isDebate) ...[
+                          UcgPostMediaSection(post: post, openLightboxOnTap: true),
+                          const SizedBox(height: 14),
+                          UcgDebateVsBar(
+                            leftLabel: post.debateLeft,
+                            rightLabel: post.debateRight,
+                            leftRatio: post.debateLeftRatio,
+                            rightRatio: post.debateRightRatio,
+                            totalVotes: post.leftVoteCount + post.rightVoteCount,
+                            myVoteSide: post.myVoteSide,
+                            interactive: true,
+                            onVote: (side) => unawaited(_voteOnDebate(side)),
+                          ),
+                        ] else
+                          UcgPostMediaSection(
+                            post: post,
+                            openLightboxOnTap: true,
+                          ),
                         const SizedBox(height: 10),
                         Row(
                           children: [
@@ -576,15 +629,18 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                             ),
                             const Spacer(),
                             UcgMomentsActionMenu(
-                              likedByMe: post.likedByMe,
-                              onLikeTap: _toggleLike,
-                              onCommentTap: () => unawaited(_openCommentSheet()),
-                              onEditTap: isAuthor ? _openEdit : null,
+                              likedByMe: isDebate ? false : post.likedByMe,
+                              onLikeTap: isDebate ? null : _toggleLike,
+                              onCommentTap: () => unawaited(_openCommentSheet(
+                                title: isDebate ? '发表论点' : null,
+                                hint: isDebate ? '说说你的观点…' : null,
+                              )),
+                              onEditTap: isAuthor && !isDebate ? _openEdit : null,
                               onDeleteTap: isAuthor ? _confirmDelete : null,
                             ),
                           ],
                         ),
-                        if (_likers.isNotEmpty || post.likedByMe) ...[
+                        if (!isDebate && (_likers.isNotEmpty || post.likedByMe)) ...[
                           const SizedBox(height: 14),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
@@ -625,7 +681,10 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
                             ],
                           ),
                         ],
-                        if (_comments.isNotEmpty) ...[
+                        if (_comments.isNotEmpty &&
+                            (!isDebate ||
+                                (post.myVoteSide != null &&
+                                    post.myVoteSide!.isNotEmpty))) ...[
                           const SizedBox(height: 16),
                           for (final comment in _comments)
                             CompositedTransformTarget(
@@ -716,6 +775,7 @@ class _DetailExpandablePostText extends StatefulWidget {
     required this.text,
     required this.style,
     required this.linkColor,
+    this.allowExpand = true,
   });
 
   static const _collapsedMaxLines = 5;
@@ -723,6 +783,7 @@ class _DetailExpandablePostText extends StatefulWidget {
   final String text;
   final TextStyle style;
   final Color linkColor;
+  final bool allowExpand;
 
   @override
   State<_DetailExpandablePostText> createState() => _DetailExpandablePostTextState();
@@ -745,7 +806,7 @@ class _DetailExpandablePostTextState extends State<_DetailExpandablePostText> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final showExpand =
-            !_expanded && _exceedsCollapsedLines(constraints.maxWidth);
+            widget.allowExpand && !_expanded && _exceedsCollapsedLines(constraints.maxWidth);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -753,8 +814,10 @@ class _DetailExpandablePostTextState extends State<_DetailExpandablePostText> {
             Text(
               widget.text,
               style: widget.style,
-              maxLines: _expanded ? null : _DetailExpandablePostText._collapsedMaxLines,
-              overflow: _expanded ? null : TextOverflow.ellipsis,
+              maxLines: widget.allowExpand && !_expanded
+                  ? _DetailExpandablePostText._collapsedMaxLines
+                  : null,
+              overflow: widget.allowExpand && !_expanded ? TextOverflow.ellipsis : null,
             ),
             if (showExpand)
               GestureDetector(
@@ -802,98 +865,6 @@ class _FollowPill extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _DetailCommentSheet extends ConsumerStatefulWidget {
-  const _DetailCommentSheet({
-    required this.postId,
-    this.initialText,
-    this.onCommentAdded,
-  });
-
-  final String postId;
-  final String? initialText;
-  final Future<void> Function(UcgComment added)? onCommentAdded;
-
-  @override
-  ConsumerState<_DetailCommentSheet> createState() => _DetailCommentSheetState();
-}
-
-class _DetailCommentSheetState extends ConsumerState<_DetailCommentSheet> {
-  final _composerKey = GlobalKey<UcgMentionComposerFieldWithHighlightState>();
-  final _commentPreviewAnchorKey = GlobalKey();
-  late final TextEditingController _controller;
-  var _sending = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    final text = (_composerKey.currentState?.wireText ?? _controller.text).trim();
-    if (text.isEmpty || _sending) return;
-    setState(() => _sending = true);
-    try {
-      final added = await ref.read(ucgRepositoryProvider).addComment(widget.postId, text);
-      if (!mounted) return;
-      await widget.onCommentAdded?.call(added);
-      if (!mounted) return;
-      Navigator.of(context).pop();
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
-        Theme.of(context).colorScheme.onSurface;
-    final isReply = widget.initialText != null && widget.initialText!.trim().isNotEmpty;
-    final hint = isReply ? '回复…' : '写评论…';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          isReply ? '回复评论' : '写评论',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: fg),
-        ),
-        const SizedBox(height: 12),
-        UcgPageComposerChrome(
-          controller: _controller,
-          enabled: !_sending,
-          busy: _sending,
-          confirmLabel: '发送',
-          onConfirm: _sending ? null : () => unawaited(_send()),
-          padding: EdgeInsets.zero,
-          field: UcgMentionComposerFieldWithHighlight(
-            key: _composerKey,
-            controller: _controller,
-            initialWireText: widget.initialText,
-            selfWxId: ref.watch(ucgCurrentUserIdProvider),
-            autofocus: true,
-            enabled: !_sending,
-            hint: hint,
-            scene: 'ucg.post.comment',
-            anchorKey: _commentPreviewAnchorKey,
-            onConfirm: _sending ? null : () => unawaited(_send()),
-            style: TextStyle(color: fg),
-            textInputAction: TextInputAction.newline,
-            decoration: ucgComposerFieldDecoration(context, hint: hint),
-          ),
-        ),
-      ],
     );
   }
 }

@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:intl/intl.dart';
 
 import '../../providers/session_provider.dart';
@@ -10,8 +9,10 @@ import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_location.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
+import 'ucg_login_gate.dart';
 import 'ucg_post_detail_screen.dart';
 import 'ucg_profile_screens.dart';
+import 'widgets/ucg_debate_feed_card.dart';
 import 'widgets/ucg_location_settings_hint.dart';
 import 'widgets/ucg_masonry_feed_card.dart';
 import 'widgets/ucg_network_image.dart';
@@ -132,7 +133,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   var _pullRefreshing = false;
   var _loadPhase = _SquareLoadPhase.idle;
   var _initialLoaded = false;
-  var _didEmptyRetry = false;
+  var _emptyAutoRetryUsed = false;
   String? _error;
   double? _followingLat;
   double? _followingLng;
@@ -153,7 +154,12 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
 
   void _onScroll() {
     if (!_hasMore || _loading) return;
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions) return;
+    // 内容未超出视口时不触发分页，避免 maxScrollExtent≈0 时反复 loadMore。
+    if (position.maxScrollExtent <= 0) return;
+    if (position.pixels >= position.maxScrollExtent - 200) {
       unawaited(_load(refresh: false));
     }
   }
@@ -174,7 +180,9 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       if (refresh) {
         _nextCursor = null;
         _hasMore = true;
-        _didEmptyRetry = false;
+        if (fromPullRefresh) {
+          _emptyAutoRetryUsed = false;
+        }
       }
     });
     try {
@@ -207,8 +215,8 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
             result.items.isEmpty &&
             !result.hasMore &&
             sw.elapsed.inSeconds < 3 &&
-            !_didEmptyRetry) {
-          _didEmptyRetry = true;
+            !_emptyAutoRetryUsed) {
+          _emptyAutoRetryUsed = true;
           unawaited(
             Future<void>.delayed(const Duration(seconds: 2), () {
               if (mounted) unawaited(_load(refresh: true));
@@ -259,6 +267,14 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     await _load(refresh: true);
   }
 
+  void _openDetail(UcgPost post) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => UcgPostDetailScreen(postId: post.id, seedPost: post),
+      ),
+    );
+  }
+
   void _openUserProfile(String userId) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -267,12 +283,72 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     );
   }
 
-  void _openDetail(UcgPost post) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => UcgPostDetailScreen(postId: post.id, seedPost: post),
-      ),
+  Future<void> _toggleLikeOnPost(UcgPost post) async {
+    if (post.isDebate) return;
+    if (!await requireUcgWxAccount(context, ref)) return;
+    final idx = _items.indexWhere((p) => p.id == post.id);
+    if (idx < 0) return;
+    final liked = post.likedByMe;
+    final optimistic = post.copyWith(
+      likedByMe: !liked,
+      likeCount: (post.likeCount + (liked ? -1 : 1)).clamp(0, 1 << 30),
     );
+    setState(() => _items[idx] = optimistic);
+    try {
+      final repo = ref.read(ucgRepositoryProvider);
+      if (liked) {
+        await repo.unlikePost(post.id, post: post);
+      } else {
+        await repo.likePost(post.id, post: post);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _items[idx] = post);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('操作失败，请稍后重试')),
+      );
+    }
+  }
+
+  Future<void> _voteOnPost(UcgPost post, String side) async {
+    if (!await requireUcgWxAccount(context, ref)) return;
+    try {
+      await ref.read(ucgRepositoryProvider).votePost(post.id, side: side);
+      if (!mounted) return;
+      setState(() {
+        final idx = _items.indexWhere((p) => p.id == post.id);
+        if (idx < 0) return;
+        var left = post.leftVoteCount;
+        var right = post.rightVoteCount;
+        final prev = post.myVoteSide;
+        if (prev == 'left') left = (left - 1).clamp(0, 1 << 30);
+        if (prev == 'right') right = (right - 1).clamp(0, 1 << 30);
+        if (side == 'left') {
+          left += 1;
+        } else {
+          right += 1;
+        }
+        _items[idx] = post.copyWith(
+          myVoteSide: side,
+          leftVoteCount: left,
+          rightVoteCount: right,
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('投票失败，请稍后重试')),
+      );
+    }
+  }
+
+  void _onPostCommentAdded(String postId, UcgComment added) {
+    setState(() {
+      final idx = _items.indexWhere((p) => p.id == postId);
+      if (idx < 0) return;
+      final post = _items[idx];
+      _items[idx] = post.copyWith(commentCount: post.commentCount + 1);
+    });
   }
 
   @override
@@ -385,38 +461,63 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         ],
       );
     }
+    final selfId = ref.watch(ucgCurrentUserIdProvider);
+    final showLoadFooter =
+        _loading && !_pullRefreshing && _loadPhase == _SquareLoadPhase.fetchingFeed;
+    final itemCount = _items.length + (showLoadFooter ? 1 : 0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_loading && !_pullRefreshing && _loadPhase != _SquareLoadPhase.idle)
           _SquareLoadStatusPanel(phase: _loadPhase, mode: _mode, compact: true),
         Expanded(
-          child: MasonryGridView.count(
+          child: CustomScrollView(
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-            crossAxisCount: 2,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            itemCount: _items.length +
-                (_loading && !_pullRefreshing && _loadPhase == _SquareLoadPhase.fetchingFeed ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index >= _items.length) {
-                return _SquareLoadStatusPanel(
-                  phase: _loadPhase,
-                  mode: _mode,
-                  compact: true,
-                );
-              }
-              final post = _items[index];
-              final selfId = ref.watch(ucgCurrentUserIdProvider);
-              return UcgMasonryFeedCard(
-                post: post,
-                currentUserId: selfId,
-                onTap: () => _openDetail(post),
-                onAvatarTap: () => _openUserProfile(post.authorId),
-              );
-            },
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      if (index >= _items.length) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: _SquareLoadStatusPanel(
+                            phase: _loadPhase,
+                            mode: _mode,
+                            compact: true,
+                          ),
+                        );
+                      }
+                      final post = _items[index];
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: index < _items.length - 1 ? 10 : 0),
+                        child: post.isDebate
+                            ? UcgDebateFeedCard(
+                                post: post,
+                                currentUserId: selfId,
+                                onAvatarTap: () => _openUserProfile(post.authorId),
+                                onUserTap: _openUserProfile,
+                                onVote: (side) => unawaited(_voteOnPost(post, side)),
+                                onCommentAdded: (added) async =>
+                                    _onPostCommentAdded(post.id, added),
+                              )
+                            : UcgMasonryFeedCard(
+                                post: post,
+                                currentUserId: selfId,
+                                onTap: () => _openDetail(post),
+                                onAvatarTap: () => _openUserProfile(post.authorId),
+                                onLikeTap: () => unawaited(_toggleLikeOnPost(post)),
+                              ),
+                      );
+                    },
+                    childCount: itemCount,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],

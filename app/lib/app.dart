@@ -8,6 +8,7 @@ import 'bootstrap/cold_start_background_sync.dart';
 import 'bootstrap/cold_start_bootstrap.dart';
 import 'bootstrap/ios_network_permission_probe.dart';
 import 'platform/native_splash.dart';
+import 'home_widget/home_widget_sync.dart';
 import 'providers/event_catalog_notifier.dart';
 import 'providers/home_history_notifier.dart';
 import 'providers/session_provider.dart';
@@ -21,6 +22,7 @@ import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme_schedule.dart';
 import 'theme/app_theme_scope.dart';
+import 'theme/custom_background_persist.dart';
 import 'ui/widgets/keyboard_dismiss_scope.dart';
 import 'ui/widgets/splash_logo_pulse.dart';
 
@@ -57,6 +59,9 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       refreshScheduledTheme(ref);
+      if (ref.read(sessionProvider).isLoggedIn) {
+        unawaited(syncHomeWidgetFromRef(ref));
+      }
     }
   }
 
@@ -84,6 +89,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
         ref.read(eventCatalogProvider.notifier).loadFromDisk(),
         ref.read(homeHistoryProvider.notifier).hydrateFromDiskForSplash(),
       ]);
+      unawaited(ensureWidgetReadyFromRef(ref));
     } else {
       await ref.read(signInChannelProvider.notifier).clear();
     }
@@ -119,6 +125,21 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
         await handleAiQuotaBusinessCode(context, next.code);
         ref.read(aiQuotaDialogProvider.notifier).state = null;
       });
+    });
+    // ChangeNotifier 同一实例：须 select isLoggedIn，否则 notifyListeners 后 previous/next 同为已登录。
+    ref.listen<bool>(
+      sessionProvider.select((s) => s.isLoggedIn),
+      (previous, isLoggedIn) {
+        if (isLoggedIn) {
+          unawaited(ensureWidgetReadyFromRef(ref));
+        } else if (previous == true) {
+          unawaited(onLogoutClearHomeWidget());
+          ref.read(homeHistoryProvider.notifier).resetLoadMoreCircuit();
+        }
+      },
+    );
+    ref.listen<ThemePreferences>(effectiveThemeProvider, (previous, next) {
+      unawaited(scheduleHomeWidgetSyncIfThemeChanged(ref, previous, next));
     });
     final router = ref.watch(goRouterProvider);
     final sex = ref.watch(babySexProvider);

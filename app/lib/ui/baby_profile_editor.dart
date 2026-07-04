@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../data/models.dart';
+import '../../home_widget/home_widget_sync.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../theme/app_theme_scope.dart';
@@ -89,6 +90,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
       ref.invalidate(settingsBabyProvider);
       ref.read(babySexProvider.notifier).state = profile.sex;
       await persistCachedBabySex(profile.sex);
+      await syncHomeWidgetFromRef(ref);
       if (!mounted) return;
       showAppToast('宝宝信息已保存', tone: AppToastTone.success);
       widget.onSaved?.call();

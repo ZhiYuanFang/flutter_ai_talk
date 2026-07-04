@@ -28,6 +28,9 @@ class UcgComposeDraftStore {
       videoKey: draft.videoKey,
       editingPostId: draft.editingPostId,
       updatedAt: DateTime.now(),
+      debateEnabled: draft.debateEnabled,
+      debateLeft: draft.debateLeft,
+      debateRight: draft.debateRight,
     );
     await prefs.setString(_draftKey, jsonEncode(next.toJson()));
   }

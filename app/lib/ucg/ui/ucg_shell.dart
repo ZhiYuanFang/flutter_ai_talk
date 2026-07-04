@@ -13,7 +13,6 @@ import 'ucg_login_gate.dart';
 import 'ucg_messages_tab.dart';
 import 'ucg_profile_shell.dart';
 import 'ucg_square_tab.dart';
-import 'widgets/ucg_compose_entry_sheet.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
 class UcgShell extends ConsumerStatefulWidget {
@@ -74,7 +73,6 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       return;
     }
     if (index == 2) {
-      unawaited(_openCompose());
       return;
     }
     if (!ref.read(sessionProvider).isLoggedIn && (index == 3 || index == 4)) {
@@ -122,16 +120,8 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       return;
     }
 
-    final repo = ref.read(ucgRepositoryProvider);
-    if (!mounted) return;
-    final initial = await showUcgComposeEntrySheet(context, repo: repo);
-    if (!mounted) return;
-    if (initial == null || initial.isEmpty) return;
-
     final result = await Navigator.of(context).push<UcgComposePopResult>(
-      MaterialPageRoute(
-        builder: (_) => UcgComposeScreen(initialMedia: initial),
-      ),
+      MaterialPageRoute(builder: (_) => const UcgComposeScreen()),
     );
     if (!mounted) return;
     if (result?.publishedNewPost == true) {
@@ -182,6 +172,7 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       bottomNavigationBar: UcgBottomDock(
         currentIndex: _tabIndex,
         showMessageBadge: unread,
+        showComposeEntry: true,
         onTap: _onTabTap,
         onComposeTap: () => unawaited(_openCompose()),
         onComposeLongPress: () => unawaited(_openCompose(textOnly: true)),

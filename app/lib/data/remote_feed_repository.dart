@@ -425,6 +425,21 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
+  Future<String?> fetchWidgetFeedingTip() async {
+    final dn = _deviceNoGetter();
+    if (dn == null || dn.isEmpty) return null;
+    try {
+      final data = await _api.postJsonEnvelope(
+        '/device/history/api/chat',
+        {'deviceNo': dn, 'transcript': '有什么喂养建议'},
+      );
+      return data?['reply'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Stream<SseHistoryPayload> watchLatest() {
     _wsClient.setSubscribeActive(true);
     return _controller.stream;

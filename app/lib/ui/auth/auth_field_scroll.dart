@@ -31,15 +31,17 @@ void scheduleInlineAuthScrollOnInset(
   required FocusNode? focusedNode,
   ScrollController? scrollController,
   GlobalKey? anchorKey,
+  double keyboardOverlayChrome = 0,
 }) {
   if (focusedNode == null || !focusedNode.hasFocus) return;
-  if (MediaQuery.viewInsetsOf(context).bottom <= 0) return;
+  if (MediaQuery.viewInsetsOf(context).bottom <= 0 && keyboardOverlayChrome <= 0) return;
   WidgetsBinding.instance.addPostFrameCallback((_) {
     performKeyboardLift(
       context: context,
       focusNode: focusedNode,
       anchorKey: anchorKey,
       scrollController: scrollController,
+      keyboardOverlayChrome: keyboardOverlayChrome,
       allowInsetRetry: true,
     );
   });

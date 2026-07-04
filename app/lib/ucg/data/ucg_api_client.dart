@@ -7,6 +7,7 @@ class UcgApiClient {
   final ApiClient _api;
 
   static const basePath = '/ucg/app/api';
+  static const v2BasePath = '/ucg/app/api/v2';
 
   String _path(String suffix) {
     if (suffix.isEmpty) return basePath;
@@ -14,14 +15,21 @@ class UcgApiClient {
     return '$basePath$s';
   }
 
+  String v2Path(String suffix) {
+    if (suffix.isEmpty) return v2BasePath;
+    final s = suffix.startsWith('/') ? suffix : '/$suffix';
+    return '$v2BasePath$s';
+  }
+
   Future<Map<String, dynamic>?> get(
     String path, {
     Map<String, String>? query,
     bool withAuthorization = true,
     Duration? timeout,
+    bool v2 = false,
   }) {
     return _api.getEnvelope(
-      _path(path),
+      v2 ? v2Path(path) : _path(path),
       query: query,
       withAuthorization: withAuthorization,
       timeout: timeout,
@@ -33,9 +41,10 @@ class UcgApiClient {
     Map<String, dynamic> body, {
     Map<String, String>? query,
     bool withAuthorization = true,
+    bool v2 = false,
   }) {
     return _api.postJsonEnvelope(
-      _path(path),
+      v2 ? v2Path(path) : _path(path),
       body,
       query: query,
       withAuthorization: withAuthorization,
