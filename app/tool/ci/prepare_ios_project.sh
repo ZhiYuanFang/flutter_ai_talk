@@ -131,6 +131,29 @@ if display_name:
 info['CFBundleDevelopmentRegion'] = 'zh-Hans'
 info['CFBundleLocalizations'] = ['zh-Hans']
 
+# 小组件点击 widgetURL(pangbao://home) 需在主 App 注册 URL Scheme。
+url_types = info.get('CFBundleURLTypes')
+if not isinstance(url_types, list):
+    url_types = []
+has_pangbao = any(
+    isinstance(item, dict)
+    and isinstance(item.get('CFBundleURLSchemes'), list)
+    and 'pangbao' in item.get('CFBundleURLSchemes', [])
+    for item in url_types
+)
+if not has_pangbao:
+    url_types.append(
+        {
+            'CFBundleTypeRole': 'Editor',
+            'CFBundleURLName': os.getenv('IOS_BUNDLE_ID', 'com.fzy.pangbaoApp'),
+            'CFBundleURLSchemes': ['pangbao'],
+        }
+    )
+    info['CFBundleURLTypes'] = url_types
+    print('Info.plist CFBundleURLTypes: added pangbao:// scheme')
+else:
+    print('Info.plist CFBundleURLTypes: pangbao scheme already present')
+
 with plist_path.open('wb') as file:
     plistlib.dump(info, file)
 
@@ -180,6 +203,19 @@ else:
         print('Patched Runner.entitlements: Sign in with Apple enabled')
     else:
         print('Runner.entitlements already has Sign in with Apple')
+
+    widget_group = 'group.com.fzy.pangbao.widget'
+    app_groups = data.get('com.apple.security.application-groups')
+    if not isinstance(app_groups, list):
+        app_groups = []
+    if widget_group not in app_groups:
+        app_groups.append(widget_group)
+        data['com.apple.security.application-groups'] = app_groups
+        with entitlements_path.open('wb') as file:
+            plistlib.dump(data, file)
+        print(f'Patched Runner.entitlements: App Group {widget_group}')
+    else:
+        print(f'Runner.entitlements already has App Group {widget_group}')
 PY
 
 python3 <<'PY'

@@ -294,9 +294,111 @@ def validate_profile(export_method: str) -> None:
         if not has_devices or not get_task_allow:
             fail('[Profile] development 导出需要 iOS App Development 描述文件')
 
+    if not profile_has_app_group(profile, 'group.com.fzy.pangbao.widget'):
+        fail(
+            '[Profile] 主 App 描述文件未包含 App Group group.com.fzy.pangbao.widget，'
+            '请在 Apple Developer 为 IOS_BUNDLE_ID 启用 App Groups 并重新生成描述文件'
+        )
+
     expiry_text = expiration.date().isoformat() if expiration else 'unknown'
     notice(
         f'[Profile] 校验通过 name={profile_name} bundle={actual_bundle_id} '
+        f'team={expected_team_id} expires={expiry_text}'
+    )
+
+
+def selected_widget_profile_base64(export_method: str) -> tuple[str, str]:
+    mapping = {
+        'app-store': 'IOS_MOBILEPROVISION_WIDGET_APPSTORE_BASE64',
+        'ad-hoc': 'IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64',
+        'development': 'IOS_MOBILEPROVISION_WIDGET_DEVELOPMENT_BASE64',
+    }
+    secret_name = mapping.get(export_method, '')
+    if not secret_name:
+        fail(f'[WidgetProfile] 未知 export_method: {export_method}')
+
+    value = os.environ.get(secret_name, '').strip()
+    if value:
+        return secret_name, value
+
+    fail(
+        f'[WidgetProfile] 缺少 Widget Extension 描述文件 Secret：{secret_name}。'
+        '请在 Apple Developer 为 Extension App ID 创建描述文件并填入 GitHub Secret。'
+    )
+    raise AssertionError('unreachable')
+
+
+def profile_has_app_group(profile: dict, group_id: str) -> bool:
+    entitlements = profile.get('Entitlements', {})
+    if not isinstance(entitlements, dict):
+        return False
+    groups = entitlements.get('com.apple.security.application-groups', [])
+    if isinstance(groups, str):
+        return groups == group_id
+    if isinstance(groups, list):
+        return group_id in groups
+    return False
+
+
+def validate_widget_profile(export_method: str) -> None:
+    secret_name, raw = selected_widget_profile_base64(export_method)
+    data = decode_base64(secret_name, raw)
+    profile = read_mobileprovision(data)
+
+    main_bundle_id = os.environ.get('IOS_BUNDLE_ID', '').strip()
+    expected_widget_bundle_id = os.environ.get(
+        'IOS_WIDGET_BUNDLE_ID',
+        f'{main_bundle_id}.PangbaoWidget',
+    ).strip()
+    expected_team_id = os.environ.get('IOS_TEAM_ID', '').strip()
+    actual_bundle_id = profile_bundle_id(profile)
+    actual_team_ids = profile_team_ids(profile)
+    profile_name = str(profile.get('Name', 'unknown'))
+    expiration = parse_profile_expiration(profile)
+
+    if actual_bundle_id != expected_widget_bundle_id:
+        fail(
+            '[WidgetProfile] Bundle ID 不匹配 — '
+            f'描述文件={actual_bundle_id or "(无法解析)"} '
+            f'期望={expected_widget_bundle_id}'
+        )
+
+    if expected_team_id not in actual_team_ids:
+        fail(
+            '[WidgetProfile] Team ID 不匹配 — '
+            f'描述文件 TeamIdentifier={",".join(actual_team_ids) or "(空)"} '
+            f'Secret IOS_TEAM_ID={expected_team_id}'
+        )
+
+    if expiration is not None and expiration < datetime.now(timezone.utc):
+        fail(
+            f'[WidgetProfile] 描述文件已过期 — name={profile_name} '
+            f'ExpirationDate={expiration.date().isoformat()}'
+        )
+
+    if not profile_has_app_group(profile, 'group.com.fzy.pangbao.widget'):
+        fail(
+            '[WidgetProfile] 描述文件未包含 App Group group.com.fzy.pangbao.widget，'
+            '请在 Apple Developer 为 Extension App ID 启用 App Groups 并重新生成描述文件'
+        )
+
+    has_devices = profile_has_devices(profile)
+    get_task_allow = profile_get_task_allow(profile)
+    if export_method == 'app-store':
+        if has_devices:
+            fail('[WidgetProfile] app-store 导出需要 App Store 类型 Widget 描述文件')
+    elif export_method == 'ad-hoc':
+        if not has_devices:
+            fail('[WidgetProfile] ad-hoc 导出需要 Ad Hoc Widget 描述文件')
+        if get_task_allow:
+            fail('[WidgetProfile] ad-hoc Widget 描述文件不得为 development')
+    elif export_method == 'development':
+        if not has_devices or not get_task_allow:
+            fail('[WidgetProfile] development 导出需要 iOS App Development Widget 描述文件')
+
+    expiry_text = expiration.date().isoformat() if expiration else 'unknown'
+    notice(
+        f'[WidgetProfile] 校验通过 name={profile_name} bundle={actual_bundle_id} '
         f'team={expected_team_id} expires={expiry_text}'
     )
 
@@ -344,6 +446,7 @@ def main() -> None:
     validate_bundle_id()
     validate_p12()
     validate_profile(export_method)
+    validate_widget_profile(export_method)
 
     if target_channel in {'testflight', 'appstore'}:
         validate_asc_formats()
