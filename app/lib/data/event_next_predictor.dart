@@ -122,7 +122,6 @@ EventNextPrediction? predictNextForEventKey({
 }) {
   final times = <DateTime>[];
   for (final r in records) {
-    if (historyRecordEventKey(r) != eventKey) continue;
     final t = occurrenceInstant(r);
     if (t != null) times.add(t);
   }
@@ -181,16 +180,48 @@ List<EventNextPrediction> predictAllUpcoming({
   Set<String> activeEventKeys = const {},
 }) {
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
+  // Build a quick lookup for catalog by id
+  final idToDef = <String, EventDefinition>{};
+  for (final d in catalog) {
+    if (d.id.isNotEmpty) idToDef[d.id] = d;
+  }
+
+  String rootIdFor(String id) {
+    var cur = id.trim();
+    if (cur.isEmpty) return cur;
+    final seen = <String>{};
+    while (true) {
+      if (seen.contains(cur)) return cur;
+      seen.add(cur);
+      final def = idToDef[cur];
+      final p = def?.parentId?.trim();
+      if (p == null || p.isEmpty) return cur;
+      cur = p;
+    }
+  }
+
   final byKey = <String, List<HistoryRecord>>{};
   for (final r in history) {
-    final k = historyRecordEventKey(r);
-    if (k.isEmpty) continue;
-    byKey.putIfAbsent(k, () => []).add(r);
+    final id = historyRecordEventId(r);
+    String key;
+    if (id.isNotEmpty) {
+      key = rootIdFor(id);
+    } else {
+      // no id on record: try to resolve by name to a catalog entry then to its root,
+      // otherwise fall back to the record's eventName (name-based grouping).
+      final def = lookupEventForRecord(catalog, r);
+      if (def != null && def.id.isNotEmpty) {
+        key = rootIdFor(def.id);
+      } else {
+        key = historyRecordEventKey(r);
+      }
+    }
+    if (key.isEmpty) continue;
+    byKey.putIfAbsent(key, () => []).add(r);
   }
 
   final out = <EventNextPrediction>[];
   for (final entry in byKey.entries) {
-    if (activeEventKeys.contains(entry.key)) continue;
     final def = lookupEventById(catalog, entry.key);
     final name = def?.name.trim().isNotEmpty == true
         ? def!.name.trim()

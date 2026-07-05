@@ -88,7 +88,7 @@ HomeWidgetRowPayload? buildWidgetHero({
 /// v3：上次记录 top-N predict 的 lastAt。
 List<HomeWidgetRowPayload> buildWidgetRecentLast({
   required List<EventNextPrediction> predictions,
-  int count = 3,
+  int count = 4,
 }) {
   return predictions.take(count).map((p) {
     return HomeWidgetRowPayload(

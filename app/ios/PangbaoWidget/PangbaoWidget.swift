@@ -146,7 +146,7 @@ struct PangbaoWidgetEntryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // 占位10高度
-            Spacer(minLength: 10)
+            Spacer(minLength: 3)
             headerRow
             contentBody
         }
@@ -197,11 +197,11 @@ struct PangbaoWidgetEntryView: View {
                 sectionTitle("预测即将发生", size: 10, centered: true)
                 eventLogo(path: hero.logoFile, color: hero.color, size: 50)
                 Text(hero.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 14))
                     .foregroundColor(textPrimary)
                     .lineLimit(1)
-                Text(predictSubtitle(for: hero))
-                    .font(.system(size: 18))
+                Text(predictSubtitle(for: hero, semibold: true))
+                    .font(.system(size: 14))
                     .foregroundColor(textSecondary)
                     .lineLimit(1)
             }
@@ -235,12 +235,11 @@ struct PangbaoWidgetEntryView: View {
             if items.isEmpty {
                  fallbackMessage
              } else {
-                Spacer(minLength: 0)
-                VStack(spacing: 6) {
-                    sectionTitle("", size: 10)
+                Spacer(minLength: 3)
+                VStack(spacing: 3) {
                     HStack(alignment: .center, spacing: 0) {
                         ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
-                            recentCell(row, logoSize: 50, nameSize: 14, timeSize: 18)
+                            recentCell(row, logoSize: 45, nameSize: 14, timeSize: 18)
                                 .frame(maxWidth: .infinity)
                         }
                     }
@@ -253,7 +252,7 @@ struct PangbaoWidgetEntryView: View {
 
     @ViewBuilder
     private var largeBody: some View {
-        let items = entry.payload?.recentLast ?? []
+        let items = recentExcludingHero
         let hasHero = entry.payload?.hero != nil
         let hasRecent = !items.isEmpty
 
@@ -270,7 +269,7 @@ struct PangbaoWidgetEntryView: View {
                         Text(tip)
                             .font(.system(size: 12))
                             .foregroundColor(textPrimary)
-                            .lineLimit(5)
+                            .lineLimit(8)
                     }
                 }
             }
@@ -284,12 +283,13 @@ struct PangbaoWidgetEntryView: View {
                             eventLogo(path: hero.logoFile, color: hero.color, size: 66)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(hero.name)
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(textPrimary)
+                                    .font(.system(size: 18))
+                                    // 随事件颜色
+                                    .foregroundColor(parseColor(hero.color ?? textPrimary))
                                     .lineLimit(1)
                                 Text(predictSubtitle(for: hero))
-                                    .font(.system(size: 28))
-                                    .foregroundColor(textSecondary)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(parseColor(hero.color ?? textSecondary))
                                     .lineLimit(1)
                             }
                         }
@@ -299,7 +299,7 @@ struct PangbaoWidgetEntryView: View {
                         sectionTitle("后续留意·上次记录", size: 10)
                         HStack(alignment: .center, spacing: 0) {
                             ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
-                                recentCell(row, logoSize: 50, nameSize: 14, timeSize: 18)
+                                recentCell(row, logoSize: 45, nameSize: 14, timeSize: 14)
                                     .frame(maxWidth: .infinity)
                             }
                         }
@@ -349,11 +349,12 @@ struct PangbaoWidgetEntryView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.name)
                     .font(.system(size: nameSize, weight: .semibold))
-                    .foregroundColor(textPrimary)
+                    .foregroundColor(parseColor(row.color ?? textPrimary))
                     .lineLimit(1)
                 Text(lastAtSubtitle(for: row))
-                    .font(.system(size: timeSize))
-                    .foregroundColor(textSecondary)
+                    .font(.system(size: timeSize, weight: .semibold))
+                    // 随事件颜色
+                    .foregroundColor(parseColor(row.color ?? textSecondary))
                     .lineLimit(1)
             }
         }
@@ -494,4 +495,13 @@ func formatUpcoming(until date: Date) -> String {
     if mins < 60 { return "约 \(mins) 分钟后" }
     if mins < 1440 { return "约 \(mins / 60) 小时后" }
     return "约 \(mins / 1440) 天后"
+}
+
+// MARK: - 过滤掉 hero 的最近记录
+private var recentExcludingHero: [WidgetRow] {
+    guard let hero = entry.payload?.hero else {
+        return entry.payload?.recentLast ?? []
+    }
+    return (entry.payload?.recentLast ?? [])
+        .filter { $0.kind != hero.kind }
 }

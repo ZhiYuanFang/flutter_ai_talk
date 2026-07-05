@@ -202,33 +202,41 @@ object PangbaoWidgetRenderer {
                     hasContent = true
                 }
 
-                if (kind != WidgetLayoutKind.SMALL) {
-                    val slots = minOf(recent.length(), 3)
-                    if (slots > 0) {
-                        views.setViewVisibility(R.id.widget_recent_section, View.VISIBLE)
-                        if (kind == WidgetLayoutKind.LARGE) {
-                            views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
-                        }
-                        for (i in 0 until 3) {
-                            if (i < slots) {
-                                bindRecentItem(
-                                    context,
-                                    views,
-                                    i,
-                                    recent.optJSONObject(i) ?: continue,
-                                    scale,
-                                    kind,
-                                    textPrimary,
-                                    textSecondary,
-                                )
-                            } else {
-                                hideRecentSlot(views, i)
-                            }
-                        }
-                        hasContent = true
-                    }
-                }
-
+if (kind != WidgetLayoutKind.SMALL) {
+    val filteredRecent = if (kind == WidgetLayoutKind.LARGE && hero != null) {
+        val heroEventId = hero.optString("eventId")
+        (0 until recent.length())
+            .mapNotNull { recent.optJSONObject(it) }
+            .filter { it.optString("eventId") != heroEventId }
+    } else {
+        (0 until recent.length())
+            .mapNotNull { recent.optJSONObject(it) }
+    }
+    val slots = minOf(filteredRecent.size, 3)
+    if (slots > 0) {
+        views.setViewVisibility(R.id.widget_recent_section, View.VISIBLE)
+        if (kind == WidgetLayoutKind.LARGE) {
+            views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
+        }
+        for (i in 0 until 3) {
+            if (i < slots) {
+                bindRecentItem(
+                    context,
+                    views,
+                    i,
+                    filteredRecent[i],
+                    scale,
+                    kind,
+                    textPrimary,
+                    textSecondary,
+                )
+            } else {
+                hideRecentSlot(views, i)
+            }
+        }
+        hasContent = true
+    }
+}
                 if (!hasContent) {
                     views.setViewVisibility(R.id.widget_message, View.VISIBLE)
                     views.setTextViewText(R.id.widget_message, message.ifBlank { "打开胖宝记录" })
