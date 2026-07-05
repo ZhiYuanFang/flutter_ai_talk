@@ -1,9 +1,7 @@
 ## 1. Dart 预测与文案基础
 
-- [x] 1.1 新增 `baby_age.dart`：`babyAgeInMonths`、`formatWidgetHeaderLine`（昵称截断、0 月/岁文案）
-- [x] 1.2 新增 `event_next_predictor.dart`：分 6 时段桶、15min 过滤、加权中位数、月龄半衰期、`nextAt`/overdue
-- [x] 1.3 新增 `widget_row_builder.dart`：active 优先 + 全局 nextAt 排序 + small/medium/large 行数预算
-- [x] 1.4 新增 `format_widget_relative_time.dart`：overdue/upcoming/elapsed 单位规则（供 App 预览与 native 文档对齐）
+- [x] 1.2.1 在预测时把进行中记录视为已发生（父级聚合时使用）
+- [x] 1.2.2 确保 large widget 的 `recentLast` 不包含 hero 且最多 3 项（修复 native 端显示少于 3 项的问题）
 
 ## 2. 历史深度预拉与副作用治理
 

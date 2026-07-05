@@ -250,6 +250,14 @@ struct PangbaoWidgetEntryView: View {
         
     }
 
+// MARK: - 过滤掉 hero 的最近记录
+private var recentExcludingHero: [WidgetRow] {
+    guard let hero = entry.payload?.hero else {
+        return entry.payload?.recentLast ?? []
+    }
+    return (entry.payload?.recentLast ?? [])
+        .filter { $0.kind != hero.kind }
+}
     @ViewBuilder
     private var largeBody: some View {
         let items = recentExcludingHero
@@ -497,11 +505,3 @@ func formatUpcoming(until date: Date) -> String {
     return "约 \(mins / 1440) 天后"
 }
 
-// MARK: - 过滤掉 hero 的最近记录
-private var recentExcludingHero: [WidgetRow] {
-    guard let hero = entry.payload?.hero else {
-        return entry.payload?.recentLast ?? []
-    }
-    return (entry.payload?.recentLast ?? [])
-        .filter { $0.kind != hero.kind }
-}
