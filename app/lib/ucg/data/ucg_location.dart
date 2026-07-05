@@ -15,22 +15,24 @@ typedef UcgCoords = ({double lat, double lng});
 /// 广场顶部定位提示类型。
 enum UcgLocationHintKind {
   none,
+
   /// 系统定位/GPS 总开关未开。
   gpsServiceOff,
+
   /// App 位置权限未授予或被 session 拒绝。
   appPermissionDenied,
 }
 
 /// Session 内用户拒绝 UCG 定位后不再 request。
-final ucgLocationDeniedThisSessionProvider = StateProvider<bool>((ref) => false);
+final ucgLocationDeniedThisSessionProvider =
+    StateProvider<bool>((ref) => false);
 
 /// 广场横幅提示类型（GPS 关 vs App 权限）。
 final ucgLocationHintKindProvider =
     StateProvider<UcgLocationHintKind>((ref) => UcgLocationHintKind.none);
 
 const _ucgLocationRationaleTitle = '使用定位';
-const _ucgLocationRationaleBody =
-    '用于展示动态与你的距离。拒绝后仍可使用广场，只是不显示距离。';
+const _ucgLocationRationaleBody = '用于展示动态与你的距离。拒绝后仍可使用广场，只是不显示距离。';
 
 const _ucgLocationBackgroundInterval = Duration(minutes: 10);
 
@@ -82,22 +84,24 @@ class UcgLocationCoordinator extends Notifier<UcgCachedCoords?> {
     return result;
   }
 
-  /// consent 完成后：有缓存立即返回，否则同步等待首次 GPS。
+  bool _refreshTriggered = false;
+
   Future<UcgCoords?> getOrWaitInitial() async {
     final existing = cached;
     if (existing != null) {
       final entry = state!;
       final ageSec = DateTime.now().difference(entry.updatedAt).inSeconds;
-      AppDebugLog.ucgLocation('cache hit age=${ageSec}s lat=${entry.lat} lng=${entry.lng}');
+      AppDebugLog.ucgLocation(
+          'cache hit age=${ageSec}s lat=${entry.lat} lng=${entry.lng}');
       return existing;
     }
+
     AppDebugLog.ucgLocation('cache miss, refreshing GPS');
-    final sw = Stopwatch()..start();
-    final result = await refreshOnce();
-    AppDebugLog.ucgLocation(
-      'refresh done ${sw.elapsedMilliseconds}ms hasCoords=${result != null}',
-    );
-    return result;
+    if (!_refreshTriggered) {
+      _refreshTriggered = true;
+      refreshOnce();
+    }
+    return null;
   }
 
   Future<UcgCoords?> refreshOnce({
@@ -284,4 +288,5 @@ Future<UcgCoords?> ensureUcgLocationForDistance(
 
 Future<void> openUcgAppLocationSettings() => Geolocator.openAppSettings();
 
-Future<void> openUcgLocationServiceSettings() => Geolocator.openLocationSettings();
+Future<void> openUcgLocationServiceSettings() =>
+    Geolocator.openLocationSettings();
