@@ -77,13 +77,19 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
   var recentLast = <HomeWidgetRowPayload>[];
   if (loggedIn && state == 'ready') {
     hero = buildWidgetHero(predictions: predictions, now: t);
-    recentLast = buildWidgetRecentLast(predictions: predictions);
+    // Exclude hero from recent list so native widget can fill up to 3 recent slots.
+    final heroEventId = hero?.eventId;
+    final predsForRecent = heroEventId != null
+      ? predictions.where((p) => p.eventId != heroEventId).toList()
+      : predictions;
+    recentLast = buildWidgetRecentLast(predictions: predsForRecent, count: 3);
     if (hero != null) {
       hero = await enrichWidgetRow(hero, catalog);
     }
     if (recentLast.isNotEmpty) {
       recentLast = await enrichWidgetRows(recentLast, catalog);
     }
+    AppDebugLog.homeWidget('build payload preds=${predictions.length} hero=${hero?.eventId ?? ''} predsForRecent=${predsForRecent.length} recentAfterEnrich=${recentLast.length}');
   }
 
   return HomeWidgetPayload(

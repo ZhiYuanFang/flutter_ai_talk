@@ -46,9 +46,14 @@ double recencyWeight(double ageDays, int halfLifeDays) {
   return math.exp(-math.ln2 * ageDays / halfLifeDays);
 }
 
-DateTime? occurrenceInstant(HistoryRecord record) {
-  if (isActiveTimingRecord(record)) return null;
+DateTime? occurrenceInstant(HistoryRecord record, {bool includeActive = false}) {
   final p = record.rawPayload;
+  if (isActiveTimingRecord(record)) {
+    if (!includeActive) return null;
+    // Treat an active timing record as an occurrence: prefer startTime, fall back to createdAt.
+    final start = parseHistoryInstant(p['startTime']);
+    return start ?? record.createdAt;
+  }
   final n = historyPayloadInt(p, 'eventNumber');
   if (n == 0) {
     final end = parseHistoryInstant(p['endTime']);
@@ -119,10 +124,11 @@ EventNextPrediction? predictNextForEventKey({
   required DateTime now,
   required int halfLifeDays,
   String colorHex = '#5BA3E8',
+  bool includeActive = false,
 }) {
   final times = <DateTime>[];
   for (final r in records) {
-    final t = occurrenceInstant(r);
+    final t = occurrenceInstant(r, includeActive: includeActive);
     if (t != null) times.add(t);
   }
   if (times.length < 2) return null;
@@ -233,6 +239,7 @@ List<EventNextPrediction> predictAllUpcoming({
       now: now,
       halfLifeDays: halfLife,
       colorHex: colorHexFromEvent(def),
+      includeActive: true,
     );
     if (p != null) out.add(p);
   }
