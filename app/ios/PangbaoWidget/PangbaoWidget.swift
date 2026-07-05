@@ -156,6 +156,14 @@ struct PangbaoWidgetEntryView: View {
         .widgetURL(URL(string: "pangbao://home"))
     }
 
+// MARK: - 过滤掉 hero 的最近记录
+private var recentExcludingHero: [WidgetRow] {
+    guard let hero = entry.payload?.hero else {
+        return entry.payload?.recentLast ?? []
+    }
+    return (entry.payload?.recentLast ?? [])
+        .filter { $0.kind != hero.kind }
+}
     @ViewBuilder
     private var headerRow: some View {
         if let header = entry.payload?.header, entry.payload?.state != "empty" {
@@ -250,14 +258,6 @@ struct PangbaoWidgetEntryView: View {
         
     }
 
-// MARK: - 过滤掉 hero 的最近记录
-private var recentExcludingHero: [WidgetRow] {
-    guard let hero = entry.payload?.hero else {
-        return entry.payload?.recentLast ?? []
-    }
-    return (entry.payload?.recentLast ?? [])
-        .filter { $0.kind != hero.kind }
-}
     @ViewBuilder
     private var largeBody: some View {
         let items = recentExcludingHero
