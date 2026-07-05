@@ -116,6 +116,23 @@ class HomeWidgetRowPayload {
   final String color;
   final String? logoFile;
 
+  /// 所有暴露给 iOS / Android Widget 的时间字符串，必须使用此方法
+  static String isoUtc(DateTime dt) {
+    final s = dt.toUtc().toIso8601String();
+    // 截断微秒，防止 iOS NSISO8601DateFormatter 解析失败
+    return s.replaceFirstMapped(
+      RegExp(r'(\.\d{3})\d*([+-Z])'),
+      (m) => '${m.group(1)}${m.group(2)}',
+    );
+  }
+
+  static String isoDateUtc(DateTime dt) {
+    final utc = dt.toUtc();
+    return '${utc.year.toString().padLeft(4, '0')}-'
+        '${utc.month.toString().padLeft(2, '0')}-'
+        '${utc.day.toString().padLeft(2, '0')}';
+  }
+
   Map<String, dynamic> toJson() => {
         'kind': kind,
         'eventId': eventId,
@@ -156,7 +173,7 @@ class HomeWidgetTipPayload {
 
   Map<String, dynamic> toJson() => {
         'text': text,
-        'fetchedAt': fetchedAt.toIso8601String(),
+        'fetchedAt': HomeWidgetRowPayload.isoUtc(fetchedAt),
       };
 
   static HomeWidgetTipPayload? fromJson(Object? raw) {
@@ -166,7 +183,8 @@ class HomeWidgetTipPayload {
     if (text.isEmpty) return null;
     return HomeWidgetTipPayload(
       text: text,
-      fetchedAt: DateTime.tryParse(map['fetchedAt'] as String? ?? '') ?? DateTime.now(),
+      fetchedAt: DateTime.tryParse(map['fetchedAt'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 }
@@ -249,7 +267,7 @@ class HomeWidgetPayload {
         if (tip != null) 'tip': tip!.toJson(),
         'rows': rows.map((e) => e.toJson()).toList(),
         if (sparkline != null) 'sparkline': sparkline!.toJson(),
-        'updatedAt': updatedAt.toIso8601String(),
+        'updatedAt': HomeWidgetRowPayload.isoUtc(updatedAt),
       };
 
   String toJsonString() => jsonEncode(toJson());
@@ -287,7 +305,8 @@ class HomeWidgetPayload {
         tip: HomeWidgetTipPayload.fromJson(map['tip']),
         rows: rows,
         sparkline: HomeWidgetSparklinePayload.fromJson(map['sparkline']),
-        updatedAt: DateTime.tryParse(map['updatedAt'] as String? ?? '') ?? DateTime.now(),
+        updatedAt: DateTime.tryParse(map['updatedAt'] as String? ?? '') ??
+            DateTime.now(),
       );
     } catch (_) {
       return null;

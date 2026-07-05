@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 
 enum BabySex { male, female, unknown }
 
@@ -34,7 +35,7 @@ class BabyProfile {
         'id': id,
         'nickname': nickname,
         'sex': sex.name,
-        'birthDate': birthDate.toIso8601String(),
+        'birthDate': HomeWidgetRowPayload.isoUtc(birthDate),
       };
 
   static BabyProfile fromJson(Map<String, dynamic> j) {
@@ -74,7 +75,7 @@ class HistoryRecord {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'createdAt': createdAt.toIso8601String(),
+        'createdAt': HomeWidgetRowPayload.isoUtc(createdAt),
         'eventName': eventName,
         'action': action,
         'rawPayload': rawPayload,

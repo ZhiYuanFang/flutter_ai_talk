@@ -138,7 +138,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       );
                     }
                     return _BabyProfileReadonlyCard(
-                      key: ValueKey('${baby.id}-${baby.nickname}-${baby.sex}-${baby.birthDate.toIso8601String()}'),
+                      key: ValueKey('${baby.id}-${baby.nickname}-${baby.sex}-${ HomeWidgetRowPayload.isoDateUtc(baby.birthDate)}'),
                       baby: baby,
                     );
                   },
@@ -305,7 +305,7 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final birthStr = baby.birthDate.toIso8601String().split('T').first;
+    final birthStr = HomeWidgetRowPayload.isoDateUtc(baby.birthDate);
     final tokens = visualTokensOf(context);
     final onShell = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
 

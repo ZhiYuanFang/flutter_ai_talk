@@ -53,7 +53,7 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
   if (loggedIn && baby != null) {
     header = HomeWidgetHeaderPayload(
       nickname: baby.nickname,
-      birthDate: baby.birthDate.toIso8601String().split('T').first,
+      birthDate: HomeWidgetRowPayload.isoDateUtc(baby.birthDate),
       displayLine: formatWidgetHeaderLine(baby, t),
     );
   }

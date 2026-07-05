@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,7 +66,7 @@ class EventMediaLocalStore {
                 'sort': e.sort,
               })
           .toList(),
-      'updatedAt': DateTime.now().toIso8601String(),
+      'updatedAt': HomeWidgetRowPayload.isoUtc(DateTime.now()),
     };
     await prefs.setString('$_keyPrefix$historyId', jsonEncode(payload));
   }

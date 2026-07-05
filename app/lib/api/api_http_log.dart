@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 
 /// Debug 下 ApiClient HTTP 请求/响应 console 日志（脱敏）。
 abstract final class ApiHttpLog {
@@ -20,7 +21,7 @@ abstract final class ApiHttpLog {
     'token',
   };
 
-  static String _ts() => DateTime.now().toIso8601String();
+  static String _ts() => HomeWidgetRowPayload .isoUtc(DateTime.now());
 
   static void request({
     required String method,

@@ -76,7 +76,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:ellipsize="end"
-                android:maxLines="5"
+                android:maxLines="8"
                 android:textColor="#3D454C"
                 android:textSize="11sp"
                 tools:text="根据近期记录，建议保持喂奶间隔…" />
@@ -174,10 +174,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/widget_section_recent"
-                android:textColor="#7A8690"
+                android:textColor="#000000"
                 android:textSize="10sp"
                 android:textStyle="bold" />
 
+            
             <LinearLayout
                 android:id="@+id/widget_recent_row"
                 android:layout_width="match_parent"
@@ -192,13 +193,18 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:orientation="horizontal"
+                    android:paddingHorizontal="2dp"
                     android:visibility="gone">
 
-                    <TextView
-                        android:id="@+id/widget_recent_0_accent"
-                        android:layout_width="3dp"
-                        android:layout_height="32dp"
-                        android:text="" />
+                    <ImageView
+                        android:id="@+id/widget_recent_0_logo"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
+                        android:background="@drawable/widget_tile_bg"
+                        android:contentDescription="@null"
+                        android:padding="3dp"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/widget_event_placeholder" />
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -213,7 +219,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#3D454C"
-                            android:textSize="10sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -223,7 +229,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#7A8690"
-                            android:textSize="9sp" />
+                            android:textSize="18sp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -234,13 +240,18 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:orientation="horizontal"
+                    android:paddingHorizontal="2dp"
                     android:visibility="gone">
 
-                    <TextView
-                        android:id="@+id/widget_recent_1_accent"
-                        android:layout_width="3dp"
-                        android:layout_height="32dp"
-                        android:text="" />
+                    <ImageView
+                        android:id="@+id/widget_recent_1_logo"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
+                        android:background="@drawable/widget_tile_bg"
+                        android:contentDescription="@null"
+                        android:padding="3dp"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/widget_event_placeholder" />
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -255,7 +266,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#3D454C"
-                            android:textSize="10sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -265,7 +276,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#7A8690"
-                            android:textSize="9sp" />
+                            android:textSize="18sp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -276,13 +287,18 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:orientation="horizontal"
+                    android:paddingHorizontal="2dp"
                     android:visibility="gone">
 
-                    <TextView
-                        android:id="@+id/widget_recent_2_accent"
-                        android:layout_width="3dp"
-                        android:layout_height="32dp"
-                        android:text="" />
+                    <ImageView
+                        android:id="@+id/widget_recent_2_logo"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
+                        android:background="@drawable/widget_tile_bg"
+                        android:contentDescription="@null"
+                        android:padding="3dp"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/widget_event_placeholder" />
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -297,7 +313,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#3D454C"
-                            android:textSize="10sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -307,7 +323,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#7A8690"
-                            android:textSize="9sp" />
+                            android:textSize="18sp" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>

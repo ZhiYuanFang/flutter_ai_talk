@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- v3 · medium：header + 上次记录三列（左图右文，全宽等分） -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -28,6 +29,7 @@
             android:id="@+id/widget_header_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -51,6 +53,35 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/widget_tip_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/widget_tip_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_section_tip"
+                android:textColor="#7A8690"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/widget_tip_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="#3D454C"
+                android:textSize="11sp"
+                tools:text="根据近期记录，建议保持喂奶间隔…" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/widget_recent_section"
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -63,7 +94,7 @@
                 android:id="@+id/widget_section_recent_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/widget_section_recent"
+                android:text=""
                 android:textColor="#7A8690"
                 android:textSize="11sp"
                 android:textStyle="bold" />
@@ -87,8 +118,8 @@
 
                     <ImageView
                         android:id="@+id/widget_recent_0_logo"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
                         android:background="@drawable/widget_tile_bg"
                         android:contentDescription="@null"
                         android:padding="3dp"
@@ -108,7 +139,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#3D454C"
-                            android:textSize="10sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -118,7 +149,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#7A8690"
-                            android:textSize="9sp" />
+                            android:textSize="18sp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -134,8 +165,8 @@
 
                     <ImageView
                         android:id="@+id/widget_recent_1_logo"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
                         android:background="@drawable/widget_tile_bg"
                         android:contentDescription="@null"
                         android:padding="3dp"
@@ -155,7 +186,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#3D454C"
-                            android:textSize="10sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -165,7 +196,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#7A8690"
-                            android:textSize="9sp" />
+                            android:textSize="18sp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -181,8 +212,8 @@
 
                     <ImageView
                         android:id="@+id/widget_recent_2_logo"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
                         android:background="@drawable/widget_tile_bg"
                         android:contentDescription="@null"
                         android:padding="3dp"
@@ -202,7 +233,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#3D454C"
-                            android:textSize="10sp"
+                            android:textSize="14sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -212,7 +243,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="#7A8690"
-                            android:textSize="9sp" />
+                            android:textSize="18sp" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>

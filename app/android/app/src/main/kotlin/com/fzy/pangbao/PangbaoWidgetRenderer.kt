@@ -117,7 +117,7 @@ object PangbaoWidgetRenderer {
             heroLogoDp = 52,
             heroNameSp = 14f,
             heroTimeSp = 12f,
-            recentLogoDp = 0,
+            recentLogoDp = 36,
             recentNameSp = 10f,
             recentTimeSp = 9f,
             compactHeader = false,
@@ -178,7 +178,7 @@ object PangbaoWidgetRenderer {
                 val tip = root?.optJSONObject("tip")
                 var hasContent = false
 
-                if (kind == WidgetLayoutKind.LARGE && tip != null) {
+                if ((kind == WidgetLayoutKind.LARGE || kind == WidgetLayoutKind.MEDIUM) && tip != null) {
                     val tipText = tip.optString("text", "").trim()
                     if (tipText.isNotEmpty()) {
                         views.setViewVisibility(R.id.widget_tip_section, View.VISIBLE)
@@ -298,14 +298,8 @@ object PangbaoWidgetRenderer {
         val timeId = recentTimeId(index) ?: return
 
         views.setViewVisibility(containerId, View.VISIBLE)
-        if (kind == WidgetLayoutKind.LARGE) {
-            recentAccentId(index)?.let { accentId ->
-                views.setInt(accentId, "setBackgroundColor", parseColor(row.optString("color", "#5BA3E8")))
-            }
-        } else {
-            val logoId = recentLogoId(index) ?: return
-            bindTileLogo(context, views, logoId, row.optString("logoFile", ""), scale.recentLogoDp)
-        }
+        val logoId = recentLogoId(index) ?: return
+        bindTileLogo(context, views, logoId, row.optString("logoFile", ""), scale.recentLogoDp)
         views.setTextViewText(nameId, row.optString("name", ""))
         views.setTextColor(nameId, textPrimary)
         views.setTextViewTextSize(nameId, TypedValue.COMPLEX_UNIT_SP, scale.recentNameSp)
@@ -360,13 +354,13 @@ object PangbaoWidgetRenderer {
             clickTargets.add(R.id.widget_hero_logo)
             clickTargets.add(R.id.widget_hero_name)
             clickTargets.add(R.id.widget_hero_time)
-            clickTargets.add(R.id.widget_section_upcoming_title)
         }
         if (kind == WidgetLayoutKind.LARGE) {
             clickTargets.add(R.id.widget_events_block)
             clickTargets.add(R.id.widget_tip_section)
             clickTargets.add(R.id.widget_tip_title)
             clickTargets.add(R.id.widget_tip_text)
+            clickTargets.add(R.id.widget_section_upcoming_title)
         }
         if (kind != WidgetLayoutKind.SMALL) {
             clickTargets.add(R.id.widget_recent_section)
@@ -374,11 +368,7 @@ object PangbaoWidgetRenderer {
             clickTargets.add(R.id.widget_section_recent_title)
             for (i in 0..2) {
                 recentContainerId(i)?.let { clickTargets.add(it) }
-                if (kind == WidgetLayoutKind.LARGE) {
-                    recentAccentId(i)?.let { clickTargets.add(it) }
-                } else {
-                    recentLogoId(i)?.let { clickTargets.add(it) }
-                }
+                recentLogoId(i)?.let { clickTargets.add(it) }
                 recentNameId(i)?.let { clickTargets.add(it) }
                 recentTimeId(i)?.let { clickTargets.add(it) }
             }
@@ -417,14 +407,15 @@ object PangbaoWidgetRenderer {
             WidgetLayoutKind.MEDIUM -> dp(context, 110)
             WidgetLayoutKind.SMALL -> dp(context, 110)
         }
-        val bmp = PangbaoWidgetBitmaps.gradientBackground(
+       
+        val bmpOriginal = PangbaoWidgetBitmaps.gradientBackground(
             withAlpha(start, opacity),
             withAlpha(end, opacity),
             w,
             h,
             radiusPx,
         )
-        views.setImageViewBitmap(R.id.widget_bg, bmp)
+        views.setImageViewBitmap(R.id.widget_bg, bmpOriginal)
     }
 
     private fun withAlpha(color: Int, opacity: Float): Int {
@@ -483,13 +474,6 @@ object PangbaoWidgetRenderer {
         0 -> R.id.widget_recent_0
         1 -> R.id.widget_recent_1
         2 -> R.id.widget_recent_2
-        else -> null
-    }
-
-    private fun recentAccentId(index: Int): Int? = when (index) {
-        0 -> R.id.widget_recent_0_accent
-        1 -> R.id.widget_recent_1_accent
-        2 -> R.id.widget_recent_2_accent
         else -> null
     }
 

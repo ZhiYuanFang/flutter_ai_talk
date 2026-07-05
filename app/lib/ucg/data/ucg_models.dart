@@ -1,3 +1,5 @@
+import 'package:pangbao_app/home_widget/home_widget_payload.dart';
+
 import 'ucg_media_url.dart';
 
 const kUcgPageSize = 20;
@@ -956,7 +958,7 @@ class UcgComposeDraft {
         'imageKeys': imageKeys,
         if (videoKey != null) 'videoKey': videoKey,
         if (editingPostId != null) 'editingPostId': editingPostId,
-        if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+        if (updatedAt != null) 'updatedAt':  HomeWidgetRowPayload.isoUtc(updatedAt!),
         'debateEnabled': debateEnabled,
         'debateLeft': debateLeft,
         'debateRight': debateRight,

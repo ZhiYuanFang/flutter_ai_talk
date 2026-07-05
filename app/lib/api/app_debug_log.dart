@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 
 /// Debug 白名单日志（与 [ApiHttpLog] 并列；logcat 脚本按 tag 过滤）。
 abstract final class AppDebugLog {
-  static String _ts() => DateTime.now().toIso8601String();
+  static String _ts() => HomeWidgetRowPayload.isoUtc(DateTime.now());
 
   static void ucgFeed(String message) {
     if (!kDebugMode) return;

@@ -41,7 +41,7 @@ class WidgetActiveRowModel {
         kind: 'active',
         eventId: eventId,
         name: name,
-        startAt: startAt.toIso8601String(),
+        startAt: HomeWidgetRowPayload.isoUtc(startAt),
         color: colorHex,
       );
 }
@@ -79,7 +79,7 @@ HomeWidgetRowPayload? buildWidgetHero({
     kind: 'predict',
     eventId: p.eventId,
     name: p.eventName,
-    nextAt: p.nextAt.toIso8601String(),
+    nextAt: HomeWidgetRowPayload.isoUtc(p.nextAt),
     status: p.isOverdue(now) ? 'overdue' : 'upcoming',
     color: p.colorHex,
   );
@@ -95,7 +95,7 @@ List<HomeWidgetRowPayload> buildWidgetRecentLast({
       kind: 'recent',
       eventId: p.eventId,
       name: p.eventName,
-      lastAt: p.lastAt.toIso8601String(),
+      lastAt:  HomeWidgetRowPayload.isoUtc(p.lastAt),
       color: p.colorHex,
     );
   }).toList();

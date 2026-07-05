@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 
 import '../providers/settings_baby.dart';
 import 'baby_profile_clay_theme.dart';
@@ -43,7 +44,7 @@ class BabyProfileEditScreen extends ConsumerWidget {
               babyAsync.when(
                 data: (baby) => BabyProfileEditor(
                   key: ValueKey(
-                    '${baby.id}-${baby.nickname}-${baby.sex}-${baby.birthDate.toIso8601String()}',
+                    '${baby.id}-${baby.nickname}-${baby.sex}-${ HomeWidgetRowPayload.isoDateUtc(baby.birthDate)}',
                   ),
                   initialBaby: baby,
                   onSaved: () {

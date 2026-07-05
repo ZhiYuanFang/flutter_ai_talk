@@ -145,6 +145,8 @@ struct PangbaoWidgetEntryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // 占位10高度
+            Spacer(minLength: 10)
             headerRow
             contentBody
         }
@@ -192,14 +194,14 @@ struct PangbaoWidgetEntryView: View {
         if let hero = entry.payload?.hero {
             Spacer(minLength: 0)
             VStack(spacing: 4) {
-                sectionTitle("即将发生", size: 10, centered: true)
-                eventLogo(path: hero.logoFile, color: hero.color, size: 40)
+                sectionTitle("预测即将发生", size: 10, centered: true)
+                eventLogo(path: hero.logoFile, color: hero.color, size: 50)
                 Text(hero.name)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(textPrimary)
                     .lineLimit(1)
                 Text(predictSubtitle(for: hero))
-                    .font(.system(size: 9))
+                    .font(.system(size: 18))
                     .foregroundColor(textSecondary)
                     .lineLimit(1)
             }
@@ -212,21 +214,41 @@ struct PangbaoWidgetEntryView: View {
     @ViewBuilder
     private var mediumBody: some View {
         let items = entry.payload?.recentLast ?? []
-        if items.isEmpty {
-            fallbackMessage
-        } else {
-            Spacer(minLength: 0)
-            VStack(spacing: 6) {
-                sectionTitle("上次记录", size: 10)
-                HStack(alignment: .center, spacing: 0) {
-                    ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
-                        recentCell(row, logoSize: 28, nameSize: 9, timeSize: 8)
-                            .frame(maxWidth: .infinity)
+        // 增加喂养小贴士
+        VStack(alignment: .leading, spacing: 6) {
+            if let tip = entry.payload?.tip?.text, !tip.isEmpty {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(textSecondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("喂养小贴士")
+                            .font(.system(size: 10))
+                            .foregroundColor(textSecondary)
+                        Text(tip)
+                            .font(.system(size: 12))
+                            .foregroundColor(textPrimary)
+                            .lineLimit(2)
                     }
                 }
             }
-            Spacer(minLength: 0)
+            if items.isEmpty {
+                 fallbackMessage
+             } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    sectionTitle("", size: 10)
+                    HStack(alignment: .center, spacing: 0) {
+                        ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
+                            recentCell(row, logoSize: 50, nameSize: 14, timeSize: 18)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
         }
+        
     }
 
     @ViewBuilder
@@ -246,7 +268,7 @@ struct PangbaoWidgetEntryView: View {
                             .font(.system(size: 10))
                             .foregroundColor(textSecondary)
                         Text(tip)
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundColor(textPrimary)
                             .lineLimit(5)
                     }
@@ -257,16 +279,16 @@ struct PangbaoWidgetEntryView: View {
                 Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: 10) {
                     if let hero = entry.payload?.hero {
-                        sectionTitle("即将发生", size: 10, centered: true)
+                        sectionTitle("预测即将发生", size: 12, centered: true)
                         HStack(alignment: .center, spacing: 12) {
-                            eventLogo(path: hero.logoFile, color: hero.color, size: 56)
+                            eventLogo(path: hero.logoFile, color: hero.color, size: 66)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(hero.name)
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(textPrimary)
                                     .lineLimit(1)
                                 Text(predictSubtitle(for: hero))
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 28))
                                     .foregroundColor(textSecondary)
                                     .lineLimit(1)
                             }
@@ -274,10 +296,10 @@ struct PangbaoWidgetEntryView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                     }
                     if hasRecent {
-                        sectionTitle("上次记录", size: 10)
+                        sectionTitle("后续留意·上次记录", size: 10)
                         HStack(alignment: .center, spacing: 0) {
                             ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
-                                recentCell(row, logoSize: 32, nameSize: 10, timeSize: 9)
+                                recentCell(row, logoSize: 50, nameSize: 14, timeSize: 18)
                                     .frame(maxWidth: .infinity)
                             }
                         }
