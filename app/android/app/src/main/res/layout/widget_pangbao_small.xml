@@ -12,6 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:contentDescription="@null"
+        android:clipToOutline="false"
         android:scaleType="fitXY" />
 
     <LinearLayout
@@ -22,7 +23,7 @@
         android:focusable="true"
         android:gravity="top|center_horizontal"
         android:orientation="vertical"
-        android:padding="6dp">
+        android:padding="8dp">
 
         <LinearLayout
             android:id="@+id/widget_header_row"

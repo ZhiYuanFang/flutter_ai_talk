@@ -409,7 +409,11 @@ if (kind != WidgetLayoutKind.SMALL) {
         val radiusDp = visual?.optInt("cornerRadius", 18) ?: 18
         val opacity = visual?.optDouble("shellOpacity", 0.7)?.toFloat() ?: 0.7f
         val radiusPx = dp(context, radiusDp.coerceAtLeast(0)).toFloat()
-        val w = dp(context, 320)
+        val w = when (kind) {
+            WidgetLayoutKind.LARGE -> dp(context, 320)
+            WidgetLayoutKind.MEDIUM -> dp(context, 320)
+            WidgetLayoutKind.SMALL -> dp(context, 110)
+        }
         val h = when (kind) {
             WidgetLayoutKind.LARGE -> dp(context, 280)
             WidgetLayoutKind.MEDIUM -> dp(context, 110)
