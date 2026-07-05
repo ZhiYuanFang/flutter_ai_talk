@@ -8,7 +8,6 @@ import '../theme/theme_preset.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
-import '../data/history_mapper.dart';
 import '../data/home_history_list_entries.dart';
 import '../data/models.dart';
 import 'home_history_date_header.dart';
@@ -548,9 +547,7 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
         logoAnchorKey: _logoKeyFor(record.id),
         hideLogoDuringFly: hideLogo,
         onTap: () => widget.onRecordTap(record),
-        onStop: display.isActiveTiming && !isPendingHistoryId(record.id)
-            ? () => widget.onStopActiveTimer(record)
-            : null,
+        onStop: display.isActiveTiming ? () => widget.onStopActiveTimer(record) : null,
         stopInProgress: widget.stoppingRecordIds.contains(record.id),
         showRelativeAgo: showRelativeAgo,
         relativeAgoLabel: showRelativeAgo

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/history_list_page.dart';
 import '../data/history_mapper.dart';
+import '../data/history_outbox_flusher.dart';
 import '../data/home_history_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/models.dart';
@@ -149,6 +150,9 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         highestPageLoaded: cached.highestPageLoaded,
       ),
     );
+    if (_ref.read(feedRepositoryProvider).isHistoryWebSocketReady) {
+      unawaited(_ref.read(feedRepositoryProvider).flushPendingHistoryOutbox());
+    }
   }
 
   String? _deviceNo() => _ref.read(deviceNoNotifierProvider).asData?.value;
@@ -305,6 +309,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (!_ref.read(sessionProvider).isLoggedIn) {
       state = const HomeHistoryState(initialLoadDone: true);
       HomeHistoryMemoryCache.clear();
+      unawaited(clearHistoryUpdateOutbox());
       return;
     }
     await _warmFromDisk();
@@ -328,6 +333,10 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (page == null) return;
 
     final remoteAsc = historyListToHomeAsc(page.listDesc);
+    final mergedAsc = mergeRemoteHistoryAscWithPendingLocal(
+      remoteAsc: remoteAsc,
+      localItems: state.items,
+    );
 
     final firstPageOnlyCached = cachedSnapshot.highestPageLoaded <= 1 &&
         historySnapshotsEqual(cachedSnapshot.items, remoteAsc);
@@ -335,7 +344,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       if (state.items.isEmpty && remoteAsc.isNotEmpty) {
         _applyState(
           state.copyWith(
-            items: remoteAsc,
+            items: mergedAsc,
             total: page.total,
             highestPageLoaded: 1,
           ),
@@ -345,11 +354,12 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
           state.copyWith(total: page.total, highestPageLoaded: 1),
         );
       }
+      _maybeFlushPendingOutboxAfterRefresh();
       return;
     }
 
     final next = state.copyWith(
-      items: remoteAsc,
+      items: mergedAsc,
       total: page.total,
       highestPageLoaded: 1,
       loadingMore: false,
@@ -357,12 +367,19 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     await HomeHistoryStore.saveSnapshot(
       dn,
       HomeHistoryCacheSnapshot(
-        items: remoteAsc,
+        items: mergedAsc,
         total: page.total,
         highestPageLoaded: 1,
       ),
     );
     _applyState(next);
+    _maybeFlushPendingOutboxAfterRefresh();
+  }
+
+  void _maybeFlushPendingOutboxAfterRefresh() {
+    if (listPendingAddsInOrder(state.items).isEmpty) return;
+    if (!_ref.read(feedRepositoryProvider).isHistoryWebSocketReady) return;
+    unawaited(_ref.read(feedRepositoryProvider).flushPendingHistoryOutbox());
   }
 
   Future<void> loadMoreHistory() async {
@@ -429,6 +446,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     try {
       if (!_ref.read(sessionProvider).isLoggedIn) {
         HomeHistoryMemoryCache.clear();
+        unawaited(clearHistoryUpdateOutbox());
         state = const HomeHistoryState(initialLoadDone: true);
         return;
       }

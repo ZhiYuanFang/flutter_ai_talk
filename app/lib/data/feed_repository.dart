@@ -1,4 +1,5 @@
 import 'history_list_page.dart';
+import 'history_post_outcome.dart';
 import 'models.dart';
 
 /// 历史 WebSocket 连接阶段，供首页横幅与重连逻辑绑定。
@@ -38,8 +39,17 @@ abstract class FeedRepository {
   /// `POST /device/history/api/event/delete`，body：`id`、`deviceNo`。成功返回 `true`。
   Future<bool> deleteHistoryRecord(String id);
 
-  /// `POST /device/history/api/event/add`；成功返回 `data.id` 字符串，失败返回 `null`（已 Toast）。
-  Future<String?> addHistoryEvent(Map<String, dynamic> body);
+  /// `POST /device/history/api/event/add`；成功返回 outcome；传输失败静默。
+  Future<HistoryAddPostOutcome> addHistoryEvent(Map<String, dynamic> body);
+
+  /// outbox flush 用 update POST；业务失败已 Toast。
+  Future<HistoryUpdatePostOutcome> postHistoryUpdateBody(Map<String, dynamic> body);
+
+  /// 将 UPDATE 写入本地 outbox（WS 未就绪 stop/update）。
+  Future<void> enqueueHistoryUpdateOutbox(String recordId, Map<String, dynamic> body);
+
+  /// 历史 WebSocket ready 后 flush pending ADD 与 UPDATE outbox（single-flight）。
+  Future<void> flushPendingHistoryOutbox();
   /// 提交自然语言指令；服务端在 `data.reply` 返回文本回复（可为空）。
   Future<String?> sendCommand(String text);
 

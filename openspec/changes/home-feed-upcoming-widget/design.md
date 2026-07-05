@@ -145,7 +145,9 @@ Type 1：有 active 则仅 1 条 active；否则 top-1 predict。
 
 - 新建 **Widget Extension** target `PangbaoWidget`（WidgetKit kind 仍为 `PangbaoWidget`）。
 - 主 App Bundle ID：`com.fzy.pangbao`；Extension Bundle ID：`com.fzy.pangbao.widget`（`{IOS_BUNDLE_ID}.widget`，满足 Apple 90347 前缀规则）。
-- Runner + Extension 共享 App Group（如 `group.com.fzy.pangbao.widget`）。
+- Runner + Extension 共享 App Group（如 `group.com.fzy.pangbao.widget`）；事件 logo 须写入 App Group 目录（Extension 不可读主 App temp）。
+- iOS 17+ 使用 `containerBackground(for: .widget)` + `contentMarginsDisabled()`；读 payload `visual` 渐变与 `shellOpacity`。
+- Extension bundle 含 `BrandLogo.png`（右上角圆形 logo，对齐 Android `app_icon_round`）。
 - `home_widget` 写 Group UserDefaults；Timeline Provider 按 `nextAt` 排 refresh entry。
 
 ### 10. Android 架构

@@ -12,7 +12,11 @@ import '../network/ws_connection_config.dart';
 import '../network/ws_phase_mapping.dart';
 import '../providers/ai_quota_dialog_bus.dart';
 import '../providers/toast_bus.dart';
+import '../api/app_debug_log.dart';
 import 'history_mapper.dart';
+import 'history_outbox_flusher.dart';
+import 'history_outbox_store.dart';
+import 'history_post_outcome.dart';
 import 'history_list_page.dart';
 import 'home_history_store.dart';
 import 'models.dart';
@@ -74,10 +78,14 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   void _emitWsReady(bool v) {
+    final wasReady = _wsReady;
     if (_wsReady == v) return;
     _wsReady = v;
     if (!_wsReadyController.isClosed) {
       _wsReadyController.add(v);
+    }
+    if (!wasReady && v) {
+      unawaited(flushHistoryOutbox(_ref));
     }
   }
 
@@ -208,6 +216,7 @@ class RemoteFeedRepository implements FeedRepository {
   Future<void> clearCache() async {
     _cache.clear();
     await HomeHistoryStore.clearAll();
+    await HistoryOutboxStore.clearAll();
   }
 
   @override
@@ -345,35 +354,62 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
-  Future<String?> addHistoryEvent(Map<String, dynamic> body) async {
+  Future<HistoryAddPostOutcome> addHistoryEvent(Map<String, dynamic> body) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
       _toast('请先绑定宝宝信息');
-      return null;
+      return HistoryAddPostOutcome.failure(HistoryPostFailureKind.deviceUnbound);
     }
-    if (!isHistoryWebSocketReady) return null;
     final payload = Map<String, dynamic>.from(body);
     _ensureDeviceNoOnBody(payload);
     try {
       final data = await _api.postJsonEnvelope('/device/history/api/event/add', payload);
       if (data == null) {
-        _toast('响应无数据');
-        return null;
+        return HistoryAddPostOutcome.failure(HistoryPostFailureKind.transport);
       }
       final idRaw = data['id'];
       if (idRaw == null) {
-        _toast('响应无记录 id');
-        return null;
+        return HistoryAddPostOutcome.failure(HistoryPostFailureKind.transport);
       }
-      return idRaw.toString();
+      return HistoryAddPostOutcome.success(idRaw.toString());
     } on ApiBusinessException catch (e) {
       _toast(e.message);
-      return null;
-    } catch (_) {
-      _toast('网络异常');
-      return null;
+      return HistoryAddPostOutcome.failure(HistoryPostFailureKind.business);
+    } catch (e) {
+      AppDebugLog.historyOutbox('add transport err=$e');
+      return HistoryAddPostOutcome.failure(HistoryPostFailureKind.transport);
     }
   }
+
+  @override
+  Future<HistoryUpdatePostOutcome> postHistoryUpdateBody(Map<String, dynamic> body) async {
+    final payload = Map<String, dynamic>.from(body);
+    _ensureDeviceNoOnBody(payload);
+    try {
+      await _api.postJsonEnvelope('/device/history/api/event/update', payload);
+      return HistoryUpdatePostOutcome.success();
+    } on ApiBusinessException catch (e) {
+      _toast(e.message);
+      return HistoryUpdatePostOutcome.failure(HistoryPostFailureKind.business);
+    } catch (e) {
+      AppDebugLog.historyOutbox('update transport err=$e');
+      return HistoryUpdatePostOutcome.failure(HistoryPostFailureKind.transport);
+    }
+  }
+
+  @override
+  Future<void> enqueueHistoryUpdateOutbox(String recordId, Map<String, dynamic> body) async {
+    final dn = _deviceNoGetter();
+    if (dn == null || dn.isEmpty || recordId.isEmpty) return;
+    await HistoryOutboxStore.enqueueUpdate(
+      deviceNo: dn,
+      recordId: recordId,
+      body: body,
+    );
+  }
+
+  @override
+  Future<void> flushPendingHistoryOutbox() => flushHistoryOutbox(_ref);
 
   @override
   Future<bool> deleteHistoryRecord(String id) async {

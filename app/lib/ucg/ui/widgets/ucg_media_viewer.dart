@@ -1661,7 +1661,7 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
             ),
           )
         else if (showPlayIcon && !(_posterFailed || _playbackFailed))
-          UcgVideoPlayOverlayIcon(),
+          const UcgVideoPlayOverlayIcon(),
       ],
     );
   }

@@ -165,8 +165,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: 12),
               if (!kIsWeb && (Platform.isAndroid || Platform.isIOS) && loggedIn)
-                SettingsGlassPanel(
-                  child: const Padding(
+                const SettingsGlassPanel(
+                  child: Padding(
                     padding: EdgeInsets.all(14),
                     child: HomeWidgetSettingsSection(),
                   ),

@@ -441,16 +441,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       _scheduleFlyForRecord(pendingId, event);
     }
 
-    final serverId = await ref.read(feedRepositoryProvider).addHistoryEvent(body);
+    final feed = ref.read(feedRepositoryProvider);
+
+    final outcome = await feed.addHistoryEvent(body);
     if (!mounted) return;
-    if (serverId != null) {
+    if (outcome.isSuccess) {
+      final serverId = outcome.serverId!;
       _markRecentlyReplaced(serverId);
       _history.replaceRecordId(pendingId, serverId);
       _scheduleActiveTimingReminderAfterAdd(excludeRecordId: serverId);
       unawaited(EventButtonUsageStore.increment(event.id));
-    } else {
-      _cancelFlyAndRemovePending(pendingId);
+      return;
     }
+
+    // Business failure (eg. invalid data) or transport failure: remove optimistic row
+    // and surface a toast. Transport failures previously left pending rows stuck.
+    _cancelFlyAndRemovePending(pendingId);
+    ref.showApiToast('同步失败，稍后请重试');
   }
 
   Future<void> _onEventGridTap(EventDefinition event) async {
@@ -474,7 +481,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   Future<void> _onEventButtonTap(EventDefinition event) async {
     if (!event.hasValidEventType) return;
     if (!await _ensureRemoteGate()) return;
-    if (!_ensureHistoryWsForSend()) return;
 
     final type = event.parsedEventType!;
     switch (type) {
@@ -754,13 +760,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Future<bool> _stopActiveTimer(HistoryRecord record) async {
-    if (isPendingHistoryId(record.id)) return false;
     if (_stoppingRecordIds.contains(record.id)) return false;
     setState(() => _stoppingRecordIds.add(record.id));
+
+    final end = DateTime.now();
     final p = record.rawPayload;
     final remark = (p['remark'] as String?) ?? '';
-    final end = DateTime.now();
-    var ok = await ref.read(feedRepositoryProvider).updateHistoryRecord(
+    final feed = ref.read(feedRepositoryProvider);
+
+    if (isPendingHistoryId(record.id)) {
+      _history.replaceRecordImmediate(_recordWithEndTime(record, end));
+      if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
+      return true;
+    }
+
+    if (!feed.isHistoryWebSocketReady) {
+      final body = buildEventUpdateBody(
+        record: record,
+        remark: remark,
+        startTime: activeTimingStartAt(record),
+        endTime: end,
+      );
+      await feed.enqueueHistoryUpdateOutbox(record.id, body);
+      _history.replaceRecordImmediate(_recordWithEndTime(record, end));
+      if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
+      return true;
+    }
+
+    var ok = await feed.updateHistoryRecord(
           record.id,
           remark: remark,
           startTime: activeTimingStartAt(record),

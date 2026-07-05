@@ -127,6 +127,14 @@ def apply_team_attributes(project, widget_target)
   }
 end
 
+def ensure_widget_resource(widget_group, widget_target, filename)
+  ref = widget_group.files.find { |f| f.path == filename }
+  ref ||= widget_group.new_file(filename)
+  return if widget_target.resources_build_phase.files_references.include?(ref)
+
+  widget_target.resources_build_phase.add_file_reference(ref)
+end
+
 project = Xcodeproj::Project.open(PROJECT_PATH)
 runner = project.targets.find { |t| t.name == 'Runner' }
 abort('未找到 Runner target') unless runner
@@ -148,7 +156,12 @@ unless widget_target
   widget_target = project.new_target(:app_extension, WIDGET_NAME, :ios, DEPLOYMENT_TARGET)
   widget_target.add_file_references([swift_ref])
   created = true
+else
+  widget_group = project.main_group.groups.find { |g| g.display_name == WIDGET_NAME || g.path == WIDGET_NAME }
+  widget_group ||= project.main_group.new_group(WIDGET_NAME, WIDGET_NAME)
 end
+
+ensure_widget_resource(widget_group, widget_target, 'BrandLogo.png')
 
 unless runner.dependencies.any? { |dep| dep.target == widget_target }
   runner.add_dependency(widget_target)

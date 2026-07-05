@@ -748,15 +748,15 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                                             BorderRadius.circular(ucgComposeCellRadius),
                                                         child: ColoredBox(
                                                           color: Colors.black.withValues(alpha: 0.55),
-                                                          child: Center(
+                                                          child: const Center(
                                                             child: Padding(
-                                                              padding: const EdgeInsets.symmetric(
+                                                              padding: EdgeInsets.symmetric(
                                                                 horizontal: 8,
                                                               ),
                                                               child: Text(
                                                                 kUcgVideoUploadUserFailureMessage,
                                                                 textAlign: TextAlign.center,
-                                                                style: const TextStyle(
+                                                                style: TextStyle(
                                                                   color: Colors.white,
                                                                   fontSize: 11,
                                                                 ),

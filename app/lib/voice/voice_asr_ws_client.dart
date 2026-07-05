@@ -274,7 +274,7 @@ class VoiceAsrWsClient {
     return true;
   }
 
-  static final _recordConfig = RecordConfig(
+  static final _recordConfig = const RecordConfig(
     encoder: AudioEncoder.pcm16bits,
     sampleRate: _asrSampleRate,
     numChannels: 1,

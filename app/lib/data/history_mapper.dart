@@ -180,6 +180,45 @@ bool historyRecordMatchesPendingAdd(HistoryRecord pending, HistoryRecord incomin
   return _payloadStartUnix(pa) == _payloadStartUnix(pb);
 }
 
+int _payloadIntField(Map<String, Object?> p, String key, {int fallback = 0}) {
+  final v = p[key];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? fallback;
+}
+
+/// 从 pending 乐观行 `rawPayload` 构造 add 请求体（无 `eventUnit`）。
+Map<String, dynamic> buildEventAddBodyFromPendingRecord(HistoryRecord pending) {
+  final p = pending.rawPayload;
+  return {
+    'deviceNo': readGatewayStr(Map<String, dynamic>.from(p), 'deviceNo', 'device_no') ?? '',
+    'eventId': _payloadIntField(p, 'eventId'),
+    'eventName': pending.eventName,
+    'eventNumber': _payloadIntField(p, 'eventNumber'),
+    'startTime': _payloadIntField(p, 'startTime'),
+    'endTime': _payloadIntField(p, 'endTime'),
+    'remark': p['remark']?.toString() ?? '',
+  };
+}
+
+/// 过滤 `pending:*` 行并保持原列表顺序。
+List<HistoryRecord> listPendingAddsInOrder(List<HistoryRecord> items) {
+  return items.where((e) => isPendingHistoryId(e.id)).toList(growable: false);
+}
+
+/// 远端第一页与本地 pending 合并：保留尚未 flush 的 `pending:*`（追加在末尾）。
+List<HistoryRecord> mergeRemoteHistoryAscWithPendingLocal({
+  required List<HistoryRecord> remoteAsc,
+  required List<HistoryRecord> localItems,
+}) {
+  final remoteIds = remoteAsc.map((e) => e.id).toSet();
+  final pending = listPendingAddsInOrder(localItems)
+      .where((p) => !remoteIds.contains(p.id))
+      .toList(growable: false);
+  if (pending.isEmpty) return remoteAsc;
+  return [...remoteAsc, ...pending];
+}
+
 /// 构造 `POST /device/history/api/event/add` 请求体（无 `eventUnit`）。
 Map<String, dynamic> buildEventAddBody({
   required String deviceNo,

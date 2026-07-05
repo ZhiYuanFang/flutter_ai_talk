@@ -87,10 +87,10 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
       );
     }
     if (media.isEmpty && existingPostId <= 0) {
-      return HistoryEventSquareSyncResult(
+      return const HistoryEventSquareSyncResult(
         postId: 0,
         mediaType: 0,
-        imageKeys: const [],
+        imageKeys: [],
         videoKey: '',
       );
     }

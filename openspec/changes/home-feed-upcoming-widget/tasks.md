@@ -75,6 +75,7 @@
 - [ ] 10.5 真机验收三尺寸 + tip 日更（待 7.x）
 - [x] 10.6 Vivo 大组件修复：扁平布局、accent 色条替代 recent logo Bitmap、居中与字号调整
 - [x] 10.7 Large 双端：header/tip 顶对齐；即将发生+上次记录在剩余区域垂直居中（不做 resize）
+- [x] 10.8 iOS 对齐 Android v3 UI：containerBackground/visual、App Group logo、brand logo、medium 垂直居中、小标题加粗
 
 
 - [x] 8.1 `app/README.md` 补充「桌面小组件」章节（添加方式、三尺寸、数据隐私说明）

@@ -1,4 +1,5 @@
 /// 单 feature 用量快照（voice / ucg 分域 API 共用）。
+library;
 
 class AiQuotaFeatureStatus {
 

@@ -8,7 +8,7 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    secureStorage = FlutterSecureStorage();
+    secureStorage = const FlutterSecureStorage();
     FlutterSecureStorage.setMockInitialValues({});
   });
 

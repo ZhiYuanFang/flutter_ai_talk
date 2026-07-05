@@ -43,6 +43,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
+| `[HistoryOutbox]` | 喂养历史 outbox flush（pending ADD / UPDATE 队列） |
 
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 

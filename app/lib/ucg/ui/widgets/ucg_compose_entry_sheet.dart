@@ -26,7 +26,7 @@ Future<UcgComposeInitialMedia?> showUcgComposeEntrySheet(
     scrollable: true,
     useLightGlass: true,
     glassContentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
-    bodyBuilder: (ctx) => _EntrySheetBody(showCamera: !kIsWeb),
+    bodyBuilder: (ctx) => const _EntrySheetBody(showCamera: !kIsWeb),
   );
   if (pick == null || !context.mounted) return null;
 

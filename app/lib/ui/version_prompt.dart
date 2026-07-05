@@ -26,7 +26,7 @@ Future<void> maybeShowVersionPrompt({
       MaterialBanner(
         content: const Text('新版本可用，请刷新页面'),
         actions: [
-          TextButton(onPressed: reloadPage, child: const Text('刷新')),
+          const TextButton(onPressed: reloadPage, child: Text('刷新')),
           TextButton(
             onPressed: () => messenger.hideCurrentMaterialBanner(),
             child: const Text('关闭'),

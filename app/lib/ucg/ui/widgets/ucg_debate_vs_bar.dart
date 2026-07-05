@@ -124,8 +124,8 @@ class UcgDebateVsBar extends StatelessWidget {
                   Positioned(
                     left: (leftW - _badgeHalf).clamp(0.0, w - _badgeSize),
                     top: (_barHeight - _badgeSize) / 2,
-                    child: IgnorePointer(
-                      child: const _EmojiBadge(
+                    child: const IgnorePointer(
+                      child: _EmojiBadge(
                         emoji: UcgDebateVisualTokens.vsCenterEmoji,
                         size: UcgDebateVsBar._badgeSize,
                       ),

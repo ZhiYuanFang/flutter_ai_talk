@@ -13,13 +13,13 @@ class StartupBrandingOverlay extends StatelessWidget {
     return IgnorePointer(
       child: DecoratedBox(
         decoration: startupPageDecoration(),
-        child: Center(
+        child: const Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const StartupBrandingIcon(),
-              const SizedBox(height: _logoTaglineGap),
-              const StartupTaglineText(),
+              StartupBrandingIcon(),
+              SizedBox(height: _logoTaglineGap),
+              StartupTaglineText(),
             ],
           ),
         ),

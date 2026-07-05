@@ -6,6 +6,7 @@ import '../providers/event_catalog_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../ucg/providers/ucg_providers.dart';
+import '../data/history_outbox_flusher.dart';
 import 'gateway_bootstrap_gate.dart';
 
 /// Home 是否挂载；仅挂载时允许 history/UCG WS desired 与 token 轮换 reconnect。
@@ -29,6 +30,7 @@ Future<void> releasePangbaoHomeTransports(dynamic ref) async {
   if (ref.exists(feedRepositoryProvider)) {
     ref.read(feedRepositoryProvider).disconnectHistoryWebSocket();
   }
+  unawaited(clearHistoryUpdateOutbox());
   ref.read(eventCatalogProvider.notifier).cancelLogoDownloads();
   if (ref.exists(voiceAsrWsClientProvider)) {
     await ref.read(voiceAsrWsClientProvider).disconnect();
