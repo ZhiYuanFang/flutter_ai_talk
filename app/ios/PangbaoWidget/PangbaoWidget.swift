@@ -293,11 +293,11 @@ private var recentExcludingHero: [WidgetRow] {
                                 Text(hero.name)
                                     .font(.system(size: 18))
                                     // 随事件颜色
-                                    .foregroundColor(parseColor(hero.color ?? textPrimary))
+                                    .foregroundColor(parseColor(hero.color))
                                     .lineLimit(1)
                                 Text(predictSubtitle(for: hero))
                                     .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(parseColor(hero.color ?? textSecondary))
+                                    .foregroundColor(parseColor(hero.color))
                                     .lineLimit(1)
                             }
                         }
@@ -357,12 +357,12 @@ private var recentExcludingHero: [WidgetRow] {
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.name)
                     .font(.system(size: nameSize, weight: .semibold))
-                    .foregroundColor(parseColor(row.color ?? textPrimary))
+                    .foregroundColor(parseColor(row.color))
                     .lineLimit(1)
                 Text(lastAtSubtitle(for: row))
                     .font(.system(size: timeSize, weight: .semibold))
                     // 随事件颜色
-                    .foregroundColor(parseColor(row.color ?? textSecondary))
+                    .foregroundColor(parseColor(row.color))
                     .lineLimit(1)
             }
         }
@@ -467,8 +467,8 @@ extension ISO8601DateFormatter {
     }()
 }
 
-private func parseColor(_ raw: String) -> Color {
-    var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+private func parseColor(_ raw: String?) -> Color {
+    var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "#5BA3E8"
     if s.hasPrefix("#") { s.removeFirst() }
     if s.count == 8 { s = String(s.suffix(6)) }
     var rgb: UInt64 = 0
