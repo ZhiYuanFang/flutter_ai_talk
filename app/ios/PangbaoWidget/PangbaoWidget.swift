@@ -208,8 +208,8 @@ private var recentExcludingHero: [WidgetRow] {
                     .font(.system(size: 14))
                     .foregroundColor(textPrimary)
                     .lineLimit(1)
-                Text(predictSubtitle(for: hero, semibold: true))
-                    .font(.system(size: 14))
+                Text(predictSubtitle(for: hero))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(textSecondary)
                     .lineLimit(1)
             }
