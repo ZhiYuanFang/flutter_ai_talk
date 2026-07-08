@@ -127,7 +127,7 @@ class HomeWidgetRowPayload {
   }
 
   static String isoDateUtc(DateTime dt) {
-    final utc = dt.toUtc();
+    final utc = dt;// 使用本地时区，避免时区差异导致的日期偏移问题
     return '${utc.year.toString().padLeft(4, '0')}-'
         '${utc.month.toString().padLeft(2, '0')}-'
         '${utc.day.toString().padLeft(2, '0')}';
