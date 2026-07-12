@@ -31,7 +31,9 @@ class HistoryOutboxUpdateEntry {
     return HistoryOutboxUpdateEntry(
       recordId: json['recordId']?.toString() ?? '',
       body: bodyRaw is Map ? Map<String, dynamic>.from(bodyRaw) : const {},
-      enqueuedAtMs: json['enqueuedAtMs'] is num ? (json['enqueuedAtMs'] as num).toInt() : 0,
+      enqueuedAtMs: json['enqueuedAtMs'] is num
+          ? (json['enqueuedAtMs'] as num).toInt()
+          : 0,
     );
   }
 }
@@ -59,7 +61,9 @@ class HistoryOutboxAddEntry {
     return HistoryOutboxAddEntry(
       pendingId: json['pendingId']?.toString() ?? '',
       body: bodyRaw is Map ? Map<String, dynamic>.from(bodyRaw) : const {},
-      enqueuedAtMs: json['enqueuedAtMs'] is num ? (json['enqueuedAtMs'] as num).toInt() : 0,
+      enqueuedAtMs: json['enqueuedAtMs'] is num
+          ? (json['enqueuedAtMs'] as num).toInt()
+          : 0,
     );
   }
 }
@@ -80,14 +84,16 @@ class HistoryOutboxStore {
     if (deviceNo.isEmpty) return null;
     final root = await _rootDir();
     if (root == null) return null;
-    return File('${root.path}/outbox_${safeHomeHistoryFileStem(deviceNo)}$_outboxFileSuffix');
+    return File(
+        '${root.path}/outbox_${safeHomeHistoryFileStem(deviceNo)}$_outboxFileSuffix');
   }
 
   static Future<File?> _addsFile(String deviceNo) async {
     if (deviceNo.isEmpty) return null;
     final root = await _rootDir();
     if (root == null) return null;
-    return File('${root.path}/outbox_${safeHomeHistoryFileStem(deviceNo)}$_addsFileSuffix');
+    return File(
+        '${root.path}/outbox_${safeHomeHistoryFileStem(deviceNo)}$_addsFileSuffix');
   }
 
   static Future<List<HistoryOutboxUpdateEntry>> load(String deviceNo) async {
@@ -100,7 +106,8 @@ class HistoryOutboxStore {
       final out = <HistoryOutboxUpdateEntry>[];
       for (final e in decoded) {
         if (e is Map) {
-          final entry = HistoryOutboxUpdateEntry.fromJson(Map<String, dynamic>.from(e));
+          final entry =
+              HistoryOutboxUpdateEntry.fromJson(Map<String, dynamic>.from(e));
           if (entry.recordId.isNotEmpty && entry.body.isNotEmpty) {
             out.add(entry);
           }
@@ -112,11 +119,13 @@ class HistoryOutboxStore {
     }
   }
 
-  static Future<void> _save(String deviceNo, List<HistoryOutboxUpdateEntry> entries) async {
+  static Future<void> _save(
+      String deviceNo, List<HistoryOutboxUpdateEntry> entries) async {
     final file = await _outboxFile(deviceNo);
     if (file == null) return;
     try {
-      await file.writeAsString(jsonEncode(entries.map((e) => e.toJson()).toList()));
+      await file
+          .writeAsString(jsonEncode(entries.map((e) => e.toJson()).toList()));
     } catch (_) {}
   }
 
@@ -130,7 +139,8 @@ class HistoryOutboxStore {
       final out = <HistoryOutboxAddEntry>[];
       for (final e in decoded) {
         if (e is Map) {
-          final entry = HistoryOutboxAddEntry.fromJson(Map<String, dynamic>.from(e));
+          final entry =
+              HistoryOutboxAddEntry.fromJson(Map<String, dynamic>.from(e));
           if (entry.pendingId.isNotEmpty && entry.body.isNotEmpty) {
             out.add(entry);
           }
@@ -142,11 +152,13 @@ class HistoryOutboxStore {
     }
   }
 
-  static Future<void> _saveAdds(String deviceNo, List<HistoryOutboxAddEntry> entries) async {
+  static Future<void> _saveAdds(
+      String deviceNo, List<HistoryOutboxAddEntry> entries) async {
     final file = await _addsFile(deviceNo);
     if (file == null) return;
     try {
-      await file.writeAsString(jsonEncode(entries.map((e) => e.toJson()).toList()));
+      await file
+          .writeAsString(jsonEncode(entries.map((e) => e.toJson()).toList()));
     } catch (_) {}
   }
 
@@ -168,13 +180,17 @@ class HistoryOutboxStore {
   }
 
   /// 将一个 pending add 入队到持久化 ADD outbox（FIFO）。
-  static Future<void> enqueueAdd({
+  static Future<bool> enqueueAdd({
     required String deviceNo,
     required String pendingId,
     required Map<String, dynamic> body,
   }) async {
-    if (deviceNo.isEmpty || pendingId.isEmpty) return;
+    if (deviceNo.isEmpty || pendingId.isEmpty) return false;
     final list = await _loadAdds(deviceNo);
+    // ✅ 幂等：pendingId 已存在直接返回
+    if (list.any((e) => e.pendingId == pendingId)) {
+      return false;
+    }
     list.add(
       HistoryOutboxAddEntry(
         pendingId: pendingId,
@@ -183,6 +199,7 @@ class HistoryOutboxStore {
       ),
     );
     await _saveAdds(deviceNo, list);
+    return true;
   }
 
   static Future<HistoryOutboxUpdateEntry?> peek(String deviceNo) async {

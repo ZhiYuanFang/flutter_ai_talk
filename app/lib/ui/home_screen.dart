@@ -91,7 +91,8 @@ const _kVoiceOrbVisualSize = 132.0;
 const _kInputPanelAnimationDuration = Duration(milliseconds: 220);
 const _kImmersiveHeaderContentSpacing = 10.0;
 
-class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   HomeSpeechRecognizer? _recognizer;
   var _voiceReady = false;
   var _listening = false;
@@ -111,9 +112,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   var _gaveUpSnackbarShown = false;
   var _voiceAsrReady = false;
   var _voiceAsrConnecting = false;
+
   /// 语音球按下期间为 true；松手递增 [_voiceHoldSeq] 以取消进行中的连接/开录。
   var _voiceHoldActive = false;
   var _voiceHoldSeq = 0;
+
   /// 当前手势是否在语音圆上按下（用于底部区跟踪移出圆取消）。
   var _activeVoicePointer = false;
   var _slideToCancel = false;
@@ -129,7 +132,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   late final ValueNotifier<double> _voiceLevelNotifier;
   late final VoiceLevelSmoother _voiceLevelSmoother;
-  late final ValueNotifier<RecordingDiagnosticsSnapshot> _recordingDiagnosticsNotifier;
+  late final ValueNotifier<RecordingDiagnosticsSnapshot>
+      _recordingDiagnosticsNotifier;
 
   var _showRecordingDiagnostics = false;
   Timer? _diagnosticsTickTimer;
@@ -308,16 +312,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       }
 
       if (_voiceReady && _recognizer != null) {
-        if (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady) return true;
+        if (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady)
+          return true;
       }
 
       _recognizer ??= await createHomeSpeechRecognizer(ref);
       final ok = await _recognizer!.prepare();
-      _voiceReady = ok && (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady);
+      _voiceReady =
+          ok && (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady);
       if (!ok && mounted) {
-        final failure = _recognizer!.lastPrepareFailure ?? HomeSpeechPrepareFailure.engineError;
+        final failure = _recognizer!.lastPrepareFailure ??
+            HomeSpeechPrepareFailure.engineError;
         showAppToast(failure.message(forWeb: false), tone: AppToastTone.error);
-      } else if (!_voiceReady && mounted && _speechEngine == SpeechEngine.cloudAsr) {
+      } else if (!_voiceReady &&
+          mounted &&
+          _speechEngine == SpeechEngine.cloudAsr) {
         showAppToast('语音转写服务未连接，请稍后再试', tone: AppToastTone.error);
       }
       return _voiceReady;
@@ -329,7 +338,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
   }
 
-  Future<void> _selectInputChannel(HomeInputChannel channel, {bool persist = true}) async {
+  Future<void> _selectInputChannel(HomeInputChannel channel,
+      {bool persist = true}) async {
     if (_inputChannel == channel) return;
     if (channel == HomeInputChannel.voice && !_hasBoundDeviceNo()) {
       return;
@@ -358,7 +368,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       if (!mounted) return;
       final animate = !MediaQuery.disableAnimationsOf(context);
       void runReanchor() {
-        _historyScrollKey.currentState?.reanchorAfterViewportChange(animate: animate);
+        _historyScrollKey.currentState
+            ?.reanchorAfterViewportChange(animate: animate);
       }
 
       runReanchor();
@@ -387,12 +398,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     return false;
   }
 
-  String _newPendingHistoryId() {
-    return 'pending:${DateTime.now().microsecondsSinceEpoch}_${_pendingIdRandom.nextInt(0x7fffffff)}';
+  String _stablePendingId(EventDefinition event, DateTime start) {
+    final ts = start.millisecondsSinceEpoch;
+    return 'pending:${event.id}:$ts';
   }
 
   bool _hasPendingOptimisticRows() {
-    return ref.read(homeHistoryProvider).items.any((e) => isPendingHistoryId(e.id));
+    return ref
+        .read(homeHistoryProvider)
+        .items
+        .any((e) => isPendingHistoryId(e.id));
   }
 
   void _markRecentlyReplaced(String serverId) {
@@ -430,7 +445,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       endTime: endTime,
       remark: remark,
     );
-    final pendingId = _newPendingHistoryId();
+    final pendingId = _stablePendingId(event, startTime);
+    // ✅ 幂等：pendingId 已存在直接返回
+    if (ref.read(homeHistoryProvider).items.any((e) => e.id == pendingId)) {
+      return;
+    }
     final optimistic = historyRecordFromAddBody(body, id: pendingId);
     final scroll = _historyScrollKey.currentState;
     if (scroll != null) {
@@ -580,7 +599,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   void _scheduleDeferredCatalogLogoDownloads() {
     if (!ref.read(sessionProvider).isLoggedIn) return;
     if (kIsWeb || !Platform.isIOS) return;
-    unawaited(ref.read(eventCatalogProvider.notifier).runDeferredLogoDownloads());
+    unawaited(
+        ref.read(eventCatalogProvider.notifier).runDeferredLogoDownloads());
   }
 
   void _onHistoryWebSocketPayload(SseHistoryPayload payload) {
@@ -628,7 +648,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   void _onWsNewHistoryRecord(HistoryRecord record) {
-    final event = lookupEventForRecord(ref.read(eventCatalogProvider).items, record);
+    final event =
+        lookupEventForRecord(ref.read(eventCatalogProvider).items, record);
     _scheduleFlyForRecord(record.id, event);
   }
 
@@ -655,12 +676,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       _pendingReminderExcludeId = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(_presentActiveTimingReminder(excludeRecordId: pendingExclude));
+        unawaited(
+            _presentActiveTimingReminder(excludeRecordId: pendingExclude));
       });
     }
   }
 
-  List<HistoryRecord> _otherActiveTimingCandidates({required String excludeRecordId}) {
+  List<HistoryRecord> _otherActiveTimingCandidates(
+      {required String excludeRecordId}) {
     return ref
         .read(homeHistoryProvider)
         .items
@@ -673,8 +696,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         .toList();
   }
 
-  void _scheduleActiveTimingReminderAfterAdd({required String excludeRecordId}) {
-    if (_otherActiveTimingCandidates(excludeRecordId: excludeRecordId).isEmpty) return;
+  void _scheduleActiveTimingReminderAfterAdd(
+      {required String excludeRecordId}) {
+    if (_otherActiveTimingCandidates(excludeRecordId: excludeRecordId).isEmpty)
+      return;
     if (_activeTimingReminderShowing) return;
 
     if (_flyTargetRecordId != null) {
@@ -688,10 +713,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     });
   }
 
-  Future<void> _presentActiveTimingReminder({required String excludeRecordId}) async {
+  Future<void> _presentActiveTimingReminder(
+      {required String excludeRecordId}) async {
     if (!mounted) return;
     if (_activeTimingReminderShowing) return;
-    final candidates = _otherActiveTimingCandidates(excludeRecordId: excludeRecordId);
+    final candidates =
+        _otherActiveTimingCandidates(excludeRecordId: excludeRecordId);
     if (candidates.isEmpty) return;
 
     _activeTimingReminderShowing = true;
@@ -775,31 +802,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
 
     if (!feed.isHistoryWebSocketReady) {
-      final body = buildEventUpdateBody(
-        record: record,
+      // WS 未就绪时：直接走 HTTP（优先策略）。
+      final ok = await feed.updateHistoryRecord(
+        record.id,
         remark: remark,
         startTime: activeTimingStartAt(record),
         endTime: end,
+        fallbackRecord: record,
       );
-      await feed.enqueueHistoryUpdateOutbox(record.id, body);
-      _history.replaceRecordImmediate(_recordWithEndTime(record, end));
-      if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
-      return true;
+      if (!mounted) return false;
+      if (ok) {
+        _history.replaceRecordImmediate(_recordWithEndTime(record, end));
+        setState(() => _stoppingRecordIds.remove(record.id));
+        return true;
+      }
+      // HTTP 失败：不保留 pending，回退并提示用户
+      ref.showApiToast('同步失败，稍后请重试');
+      setState(() => _stoppingRecordIds.remove(record.id));
+      return false;
     }
 
     var ok = await feed.updateHistoryRecord(
-          record.id,
-          remark: remark,
-          startTime: activeTimingStartAt(record),
-          endTime: end,
-          fallbackRecord: record,
-        );
+      record.id,
+      remark: remark,
+      startTime: activeTimingStartAt(record),
+      endTime: end,
+      fallbackRecord: record,
+    );
     if (!mounted) return false;
     if (ok) {
       _history.replaceRecordImmediate(_recordWithEndTime(record, end));
-    } else if (!_isRecordActivelyTiming(record.id)) {
-      // 接口失败但 WS/本地已写入结束时间时，仍视为成功以便关闭提醒框。
-      ok = true;
+    } else {
+      // HTTP 失败：如实返回失败并提示（不要默默当作成功）。
+      ref.showApiToast('同步失败，稍后请重试');
     }
     setState(() => _stoppingRecordIds.remove(record.id));
     return ok;
@@ -1062,7 +1097,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     _lastDiagnosticsEmit = null;
     _recordingDiagnosticsNotifier.value = const RecordingDiagnosticsSnapshot();
     _diagnosticsTickTimer?.cancel();
-    _diagnosticsTickTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _diagnosticsTickTimer =
+        Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!_listening || _listenStopwatch == null) return;
       final cur = _recordingDiagnosticsNotifier.value;
       _recordingDiagnosticsNotifier.value = RecordingDiagnosticsSnapshot(
@@ -1087,7 +1123,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }) {
     final now = DateTime.now();
     if (_lastDiagnosticsEmit != null &&
-        now.difference(_lastDiagnosticsEmit!) < const Duration(milliseconds: 100)) {
+        now.difference(_lastDiagnosticsEmit!) <
+            const Duration(milliseconds: 100)) {
       return;
     }
     _lastDiagnosticsEmit = now;
@@ -1277,7 +1314,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
+    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),
+        (prev, loggedIn) {
       if (prev != true || !loggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1291,7 +1329,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           if (_inputChannel != HomeInputChannel.buttons) {
-            unawaited(_selectInputChannel(HomeInputChannel.buttons, persist: false));
+            unawaited(
+                _selectInputChannel(HomeInputChannel.buttons, persist: false));
           }
         });
         return;
@@ -1337,27 +1376,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     if (blockHomeInputChrome && _inputChannel != HomeInputChannel.buttons) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(_selectInputChannel(HomeInputChannel.buttons, persist: false));
+        unawaited(
+            _selectInputChannel(HomeInputChannel.buttons, persist: false));
       });
     }
     // 只有当不需要全屏 3D 动画（即不是无历史记录时）才显示 Banner。
     // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
-    final refreshInFlight = ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
+    final refreshInFlight =
+        ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
     // 方案 B：仅 transport 3-strike gaveUp 时展示连接失败横幅；初次进入/disconnected/refresh 期间静默。
     final showWsBanner = loggedIn &&
         !needsDeviceBind &&
         _historyWsPhase == HistoryWsPhase.gaveUp &&
         !refreshInFlight;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
+    final shellBg =
+        tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: shellBg,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final dockBounds = Rect.fromLTWH(0, 0, constraints.maxWidth, constraints.maxHeight);
+            final dockBounds = Rect.fromLTWH(
+                0, 0, constraints.maxWidth, constraints.maxHeight);
             return Stack(
               clipBehavior: Clip.none,
               children: [
@@ -1376,21 +1419,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                         child: InkWell(
                           onTap: _onBindBannerTap,
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
                             child: Row(
                               children: [
-                                Icon(Icons.child_care_outlined, color: Theme.of(context).colorScheme.primary),
+                                Icon(Icons.child_care_outlined,
+                                    color:
+                                        Theme.of(context).colorScheme.primary),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     '请绑定宝宝信息',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w600,
-                                      color: Theme.of(context).colorScheme.primary,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
                                     ),
                                   ),
                                 ),
-                                Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.primary),
+                                Icon(Icons.chevron_right,
+                                    color:
+                                        Theme.of(context).colorScheme.primary),
                               ],
                             ),
                           ),
@@ -1418,7 +1467,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                             child: historyItems.isEmpty
                                 ? (needsGuestLogin
                                     ? AppEmptyStateGallery(
-                                        animationPath: 'assets/images/ani_baby_welcome.json',
+                                        animationPath:
+                                            'assets/images/ani_baby_welcome.json',
                                         title: '尚未登录',
                                         subtitle: '登录后即可记录与查看宝宝日常',
                                         footnote: '左滑可先逛逛广场，看看其他宝妈宝爸的动态',
@@ -1428,7 +1478,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                     : (historyInitialLoadDone
                                         ? (needsDeviceBind
                                             ? AppEmptyStateGallery(
-                                                animationPath: 'assets/images/ani_baby_welcome.json',
+                                                animationPath:
+                                                    'assets/images/ani_baby_welcome.json',
                                                 title: '嗨，我是胖宝！',
                                                 subtitle: '我想更好地陪伴宝宝成长',
                                                 actionLabel: '立即绑定宝宝',
@@ -1436,12 +1487,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                               )
                                             : Consumer(
                                                 builder: (context, ref, _) {
-                                                  final baby = ref.watch(settingsBabyProvider).asData?.value;
-                                                  final name = baby?.nickname ?? '宝宝';
+                                                  final baby = ref
+                                                      .watch(
+                                                          settingsBabyProvider)
+                                                      .asData
+                                                      ?.value;
+                                                  final name =
+                                                      baby?.nickname ?? '宝宝';
                                                   return AppEmptyStateGallery(
-                                                    animationPath: 'assets/images/ani_baby_feeding_guide.json',
+                                                    animationPath:
+                                                        'assets/images/ani_baby_feeding_guide.json',
                                                     title: '还没有为 $name 记录哦',
-                                                    subtitle: '试试点击下方按钮，开始记录第一笔吧',
+                                                    subtitle:
+                                                        '试试点击下方按钮，开始记录第一笔吧',
                                                   );
                                                 },
                                               ))
@@ -1449,7 +1507,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                             child: SizedBox(
                                               width: 24,
                                               height: 24,
-                                              child: CircularProgressIndicator(strokeWidth: 2),
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
                                             ),
                                           )))
                                 : HomeHistoryTopFadeMask(
@@ -1458,14 +1517,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                       itemsAsc: historyItems,
                                       eventCatalog: eventCatalogItems,
                                       flyingRecordId: _flyTargetRecordId,
-                                      flyAnimationInProgress: _flyTargetRecordId != null,
+                                      flyAnimationInProgress:
+                                          _flyTargetRecordId != null,
                                       onRecordTap: _openHistory,
                                       onStopActiveTimer: _stopActiveTimer,
                                       stoppingRecordIds: _stoppingRecordIds,
                                       hasMore: homeHistory.hasMore,
                                       loadingMore: homeHistory.loadingMore,
-                                      onRefresh: () => _history.refreshFromRemote(),
-                                      onLoadMore: () => _history.loadMoreHistory(),
+                                      onRefresh: () =>
+                                          _history.refreshFromRemote(),
+                                      onLoadMore: () =>
+                                          _history.loadMoreHistory(),
                                     ),
                                   ),
                           ),
@@ -1478,7 +1540,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                   ? () {
                                       final reply = _chatReply?.trim() ?? '';
                                       if (reply.isNotEmpty) {
-                                        showHomeReplyBottomSheet(context, reply);
+                                        showHomeReplyBottomSheet(
+                                            context, reply);
                                       }
                                     }
                                   : null,
@@ -1511,7 +1574,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                       currentChannel: _inputChannel,
                       dockCycleChannels: _dockCycleChannels,
                       restrictToHorizontalEdges: kIsWeb,
-                      onChannelSelected: (channel) => unawaited(_selectInputChannel(channel)),
+                      onChannelSelected: (channel) =>
+                          unawaited(_selectInputChannel(channel)),
                       onDraggingChanged: widget.onDockDraggingChanged,
                     ),
                   ),
@@ -1519,12 +1583,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   Positioned.fill(
                     child: RepaintBoundary(
                       child: HomeEventRecordFlyOverlay(
-                      key: ValueKey<int>(_flySession),
-                      event: _flyEvent,
-                      recordId: _flyTargetRecordId!,
-                      historyScrollKey: _historyScrollKey,
-                      onComplete: () => _onFlyOverlayComplete(_flySession),
-                    ),
+                        key: ValueKey<int>(_flySession),
+                        event: _flyEvent,
+                        recordId: _flyTargetRecordId!,
+                        historyScrollKey: _historyScrollKey,
+                        onComplete: () => _onFlyOverlayComplete(_flySession),
+                      ),
                     ),
                   ),
               ],
@@ -1535,7 +1599,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildBottomInputPanel(BuildContext context, EventCatalogState catalogState) {
+  Widget _buildBottomInputPanel(
+      BuildContext context, EventCatalogState catalogState) {
     final inputAlign = _inputChannel == HomeInputChannel.buttons
         ? Alignment.topCenter
         : Alignment.center;
@@ -1614,7 +1679,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildPrimaryHomeInput(BuildContext context, EventCatalogState catalogState) {
+  Widget _buildPrimaryHomeInput(
+      BuildContext context, EventCatalogState catalogState) {
     switch (_inputChannel) {
       case HomeInputChannel.voice:
         return _buildVoiceOrb(context);
@@ -1661,7 +1727,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   Widget _buildInputModuleTopShadow(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final isDark = tokens?.isDarkShell ?? Theme.of(context).brightness == Brightness.dark;
+    final isDark =
+        tokens?.isDarkShell ?? Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
       height: 3,
       width: double.infinity,
@@ -1683,10 +1750,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   Widget _buildVoiceOrb(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final cloudMode = _speechEngine == SpeechEngine.cloudAsr;
-    final cloudDisconnected = cloudMode && !_voiceAsrReady && !_voiceAsrConnecting;
+    final cloudDisconnected =
+        cloudMode && !_voiceAsrReady && !_voiceAsrConnecting;
     final color = cloudDisconnected ? scheme.outline : scheme.primary;
     final orbFill = cloudDisconnected
-        ? Color.alphaBlend(scheme.outline.withValues(alpha: 0.12), Theme.of(context).scaffoldBackgroundColor)
+        ? Color.alphaBlend(scheme.outline.withValues(alpha: 0.12),
+            Theme.of(context).scaffoldBackgroundColor)
         : themePrimaryBlend(context, alpha: 0.14);
     final orbBorderColor = _listening && _slideToCancel
         ? scheme.error
@@ -1756,9 +1825,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   const SizedBox(height: 6),
                 ],
                 Text(
-                  _listening
-                      ? (_slideToCancel ? '松开取消' : '松开结束')
-                      : 'AI 对话',
+                  _listening ? (_slideToCancel ? '松开取消' : '松开结束') : 'AI 对话',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: _listening && _slideToCancel ? scheme.error : color,
@@ -1780,7 +1847,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   shape: BoxShape.circle,
                   color: _voiceAsrConnecting
                       ? scheme.primary
-                      : (_voiceAsrReady ? const Color(0xFF2E7D32) : scheme.error),
+                      : (_voiceAsrReady
+                          ? const Color(0xFF2E7D32)
+                          : scheme.error),
                   border: Border.all(color: scheme.surface, width: 1.5),
                 ),
               ),

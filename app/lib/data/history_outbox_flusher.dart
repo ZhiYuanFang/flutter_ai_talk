@@ -87,6 +87,40 @@ Future<void> _flushHistoryOutboxImpl(Ref ref) async {
   while (true) {
     final head = await HistoryOutboxStore.peek(dn);
     if (head == null) break;
+    // 安全检查：避免在用户已显式回退本地变更后，outbox flush 再次覆盖 UI 导致闪烁。
+    // 如果本地记录存在且其 endTime == 0（未结束），但 outbox 的目标 endTime > 0（表示结束），
+    // 则认为本地用户已回退该变更，丢弃该 outbox 条目以避免后续覆盖。
+    final items = ref.read(homeHistoryProvider).items;
+    final idx = items.indexWhere((e) => e.id == head.recordId);
+    if (idx < 0) {
+      // 本地不存在该记录，删除 outbox 条目。
+      await HistoryOutboxStore.removeHead(dn);
+      AppDebugLog.historyOutbox('update skip missing local ${head.recordId}');
+      continue;
+    }
+
+    final local = items[idx];
+    int localEnd = 0;
+    final payloadEnd = local.rawPayload['endTime'];
+    if (payloadEnd is int) {
+      localEnd = payloadEnd;
+    } else if (payloadEnd is num) {
+      localEnd = payloadEnd.toInt();
+    } else if (payloadEnd is String) {
+      localEnd = int.tryParse(payloadEnd) ?? 0;
+    }
+
+    final desiredEndRaw = head.body['endTime'];
+    final desiredEnd = desiredEndRaw is int
+        ? desiredEndRaw
+        : (desiredEndRaw is num ? desiredEndRaw.toInt() : int.tryParse(desiredEndRaw?.toString() ?? '') ?? 0);
+
+    if (localEnd == 0 && desiredEnd > 0) {
+      // 本地已回退，用户更倾向于保持回退状态，丢弃 outbox 更新以避免覆盖。
+      await HistoryOutboxStore.removeHead(dn);
+      AppDebugLog.historyOutbox('update skipped due to local rollback ${head.recordId}');
+      continue;
+    }
 
     final outcome = await feed.postHistoryUpdateBody(head.body);
     if (outcome.isSuccess) {
