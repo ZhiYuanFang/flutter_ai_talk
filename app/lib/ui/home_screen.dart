@@ -399,7 +399,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   String _stablePendingId(EventDefinition event, DateTime start) {
-    final ts = start.millisecondsSinceEpoch;
+    final ts = start.millisecondsSinceEpoch~/1000;
     return 'pending:${event.id}:$ts';
   }
 
