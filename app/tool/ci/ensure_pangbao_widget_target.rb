@@ -187,12 +187,12 @@ add_system_framework(widget_target, project, 'WidgetKit')
 add_system_framework(widget_target, project, 'SwiftUI')
 add_system_framework(widget_target, project, 'AppIntents')
 
-# 交互「跳过」：Extension 须能 import home_widget（SPM 生成包）
+# 交互「跳过」：优先靠 CocoaPods（ensure_pangbao_widget_home_widget_pod.rb）；
+# 此处 SPM 包链接仅作补充，找不到不阻断（Pods 路径负责 import home_widget）。
 def ensure_flutter_plugin_package_on_widget(project, widget_target)
   pkg_name = 'FlutterGeneratedPluginSwiftPackage'
   ref = project.frameworks_group.files.find { |f| f.display_name == pkg_name || f.path == pkg_name }
   unless ref
-    # flutter pub get 后通常出现在 Runner 的 Frameworks；复用同名引用
     runner_t = project.targets.find { |t| t.name == 'Runner' }
     runner_t&.frameworks_build_phase&.files_references&.each do |fr|
       name = fr.display_name || fr.path || ''
@@ -203,7 +203,7 @@ def ensure_flutter_plugin_package_on_widget(project, widget_target)
     end
   end
   unless ref
-    puts "警告: 未找到 #{pkg_name}，PangbaoWidget 可能无法 import home_widget（跳过链接）"
+    puts "提示: 未找到 #{pkg_name}（CocoaPods 场景常见）；依赖 Podfile 中 PangbaoWidget→home_widget"
     return
   end
   return if widget_target.frameworks_build_phase.files_references.include?(ref)

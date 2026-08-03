@@ -384,6 +384,14 @@ jobs:
           export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.widget}"
           ruby tool/ci/ensure_pangbao_widget_target.rb
 
+      # Extension 创建后才能写入 Podfile target；再 pod install 供 import home_widget
+      - name: Link home_widget to PangbaoWidget (CocoaPods)
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          ruby tool/ci/ensure_pangbao_widget_home_widget_pod.rb
+          (cd ios && pod install)
+
       - name: Patch Pods embed frameworks script (archive codesign)
         working-directory: ${{ env.APP_DIR }}
         run: bash tool/ci/patch_pods_embed_frameworks.sh
@@ -526,6 +534,9 @@ jobs:
           set -euo pipefail
           export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.widget}"
           ruby tool/ci/ensure_pangbao_widget_target.rb
+          # 幂等补 Podfile；若刚补上则再 install
+          ruby tool/ci/ensure_pangbao_widget_home_widget_pod.rb
+          (cd ios && pod install)
 
       - name: Create export options plist
         run: |
