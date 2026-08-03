@@ -8,13 +8,11 @@ class HomeImmersiveHeader extends StatelessWidget {
     super.key,
     required this.title,
     required this.onTrendsTap,
-    required this.onPangbaoTap,
     required this.onSettingsTap,
   });
 
   final String title;
   final VoidCallback onTrendsTap;
-  final VoidCallback onPangbaoTap;
   final VoidCallback onSettingsTap;
 
   @override
@@ -23,8 +21,8 @@ class HomeImmersiveHeader extends StatelessWidget {
     final tokens = theme.extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? theme.colorScheme.onSurface;
 
-    // 趋势 + 胖宝 + 设置三个 IconButton，预留标题居中避让宽度。
-    const actionsWidth = 152.0;
+    // 趋势 + 设置两个 IconButton，预留标题居中避让宽度。
+    const actionsWidth = 104.0;
 
     return SizedBox(
       width: double.infinity,
@@ -60,11 +58,6 @@ class HomeImmersiveHeader extends StatelessWidget {
                     icon: Icon(Icons.insights, color: fg),
                     tooltip: '趋势',
                     onPressed: onTrendsTap,
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.pets, color: fg),
-                    tooltip: '胖宝',
-                    onPressed: onPangbaoTap,
                   ),
                   IconButton(
                     icon: Icon(Icons.settings, color: fg),

@@ -135,6 +135,14 @@ def ensure_widget_resource(widget_group, widget_target, filename)
   widget_target.resources_build_phase.add_file_reference(ref)
 end
 
+def ensure_source_on_target(group, target, filename)
+  ref = group.files.find { |f| f.path == filename }
+  ref ||= group.new_file(filename)
+  return if target.source_build_phase.files_references.include?(ref)
+
+  target.source_build_phase.add_file_reference(ref)
+end
+
 project = Xcodeproj::Project.open(PROJECT_PATH)
 runner = project.targets.find { |t| t.name == 'Runner' }
 abort('未找到 Runner target') unless runner
@@ -163,12 +171,48 @@ end
 
 ensure_widget_resource(widget_group, widget_target, 'BrandLogo.png')
 
+# 跳过按钮 AppIntent：Widget Extension + Runner 双 target
+intent_file = 'WidgetBackgroundIntent.swift'
+if File.exist?(File.join(WIDGET_DIR, intent_file))
+  ensure_source_on_target(widget_group, widget_target, intent_file)
+  ensure_source_on_target(widget_group, runner, intent_file)
+  puts "已确保 #{intent_file} 加入 Runner 与 PangbaoWidget"
+end
+
 unless runner.dependencies.any? { |dep| dep.target == widget_target }
   runner.add_dependency(widget_target)
 end
 
 add_system_framework(widget_target, project, 'WidgetKit')
 add_system_framework(widget_target, project, 'SwiftUI')
+add_system_framework(widget_target, project, 'AppIntents')
+
+# 交互「跳过」：Extension 须能 import home_widget（SPM 生成包）
+def ensure_flutter_plugin_package_on_widget(project, widget_target)
+  pkg_name = 'FlutterGeneratedPluginSwiftPackage'
+  ref = project.frameworks_group.files.find { |f| f.display_name == pkg_name || f.path == pkg_name }
+  unless ref
+    # flutter pub get 后通常出现在 Runner 的 Frameworks；复用同名引用
+    runner_t = project.targets.find { |t| t.name == 'Runner' }
+    runner_t&.frameworks_build_phase&.files_references&.each do |fr|
+      name = fr.display_name || fr.path || ''
+      if name.include?(pkg_name)
+        ref = fr
+        break
+      end
+    end
+  end
+  unless ref
+    puts "警告: 未找到 #{pkg_name}，PangbaoWidget 可能无法 import home_widget（跳过链接）"
+    return
+  end
+  return if widget_target.frameworks_build_phase.files_references.include?(ref)
+
+  widget_target.frameworks_build_phase.add_file_reference(ref)
+  puts "已为 PangbaoWidget 链接 #{pkg_name}"
+end
+
+ensure_flutter_plugin_package_on_widget(project, widget_target)
 apply_widget_build_settings(widget_target, runner)
 ensure_embed_extension_phase(runner, project, widget_target)
 apply_team_attributes(project, widget_target)

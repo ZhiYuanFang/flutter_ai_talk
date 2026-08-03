@@ -59,9 +59,4 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[HomeWidget] ${_ts()} $message');
   }
-
-  static void historyOutbox(String message) {
-    if (!kDebugMode) return;
-    debugPrint('[HistoryOutbox] ${_ts()} $message');
-  }
 }

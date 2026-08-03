@@ -36,6 +36,7 @@ class HomeButtonEventGrid extends StatelessWidget {
     required this.onEventTap,
     this.rootEvents,
     this.isLoading = false,
+    this.enabled = true,
   });
 
   final List<EventDefinition> catalog;
@@ -46,6 +47,9 @@ class HomeButtonEventGrid extends StatelessWidget {
 
   /// 远端目录加载中（避免误显示「暂无可用」）。
   final bool isLoading;
+
+  /// false 时忽略点击（如 add HTTP in-flight）。
+  final bool enabled;
 
   List<EventDefinition> _resolveEvents() {
     final sorted = rootEvents;
@@ -97,7 +101,7 @@ class HomeButtonEventGrid extends StatelessWidget {
             height: kHomeEventButtonRowHeight,
             child: _EventButtonCell(
               event: event,
-              onTap: () => onEventTap(event),
+              onTap: enabled ? () => onEventTap(event) : null,
             ),
           );
         },
@@ -113,38 +117,42 @@ class _EventButtonCell extends StatelessWidget {
   });
 
   final EventDefinition event;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final labelColor = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            EventLogo(
-              definition: event,
-              size: 40,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              event.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: labelColor,
-                    fontWeight: FontWeight.w600,
-                    height: 1.15,
-                  ),
-            ),
-          ],
+    final interactive = onTap != null;
+    return Opacity(
+      opacity: interactive ? 1 : 0.45,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              EventLogo(
+                definition: event,
+                size: 40,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                event.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: labelColor,
+                      fontWeight: FontWeight.w600,
+                      height: 1.15,
+                    ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -8,6 +8,8 @@ import '../theme/theme_bootstrap_cache.dart';
 import 'cold_start_background_sync.dart';
 
 /// 已登录 gateway HTTP bootstrap 门控：catalog/history sync + loadBaby 完成后再建历史 WS。
+///
+/// 入参为 [ProviderContainer]，可安全跨 await（不绑定已 dispose 的 Widget 元素）。
 class GatewayBootstrapGate {
   GatewayBootstrapGate._();
 
@@ -16,20 +18,20 @@ class GatewayBootstrapGate {
 
   static bool get isLoggedInComplete => _loggedInComplete;
 
-  static Future<void> ensureLoggedInComplete(WidgetRef ref) async {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
+  static Future<void> ensureLoggedInComplete(ProviderContainer container) async {
+    if (!container.read(sessionProvider).isLoggedIn) return;
     if (_loggedInComplete) return;
-    await (_inFlight ??= _run(ref).whenComplete(() => _inFlight = null));
+    await (_inFlight ??= _run(container).whenComplete(() => _inFlight = null));
   }
 
-  static Future<void> _run(WidgetRef ref) async {
-    await ColdStartBackgroundSync.run(ref);
+  static Future<void> _run(ProviderContainer container) async {
+    await ColdStartBackgroundSync.run(container);
     try {
-      final baby = await ref.read(settingsRepositoryProvider).loadBaby();
-      ref.read(babySexProvider.notifier).state = baby.sex;
+      final baby = await container.read(settingsRepositoryProvider).loadBaby();
+      container.read(babySexProvider.notifier).state = baby.sex;
       await persistCachedBabySex(baby.sex);
     } catch (_) {}
-    await ensureWidgetReadyFromRef(ref);
+    await ensureWidgetReadyFromRef(container);
     _loggedInComplete = true;
   }
 

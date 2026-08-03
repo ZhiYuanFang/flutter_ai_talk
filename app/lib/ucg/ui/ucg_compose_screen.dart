@@ -9,8 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../api/ai_quota_errors.dart';
 import '../../api/api_exceptions.dart';
 import '../../api/app_debug_log.dart';
-import '../../providers/ai_quota_provider.dart';
-import '../../ui/widgets/ai_quota_remaining_hint.dart';
 import '../data/ucg_location.dart';
 import '../data/ucg_compose_media_slot.dart';
 import '../data/ucg_media_url.dart';
@@ -427,8 +425,8 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
           );
       if (!mounted) return;
       _text.text = result.polishedText;
-      ref.invalidate(polishAiQuotaProvider);
-      _toast(result.quotaDegraded ? '本月润笔额度已用完，已降速' : '已润笔，可继续编辑');
+      // 客户端先行去额度：不展示 quotaDegraded 降速 toast
+      _toast('已润笔，可继续编辑');
     } on ApiBusinessException catch (e) {
       if (!mounted) return;
       if (!await handleAiQuotaException(context, e)) {
@@ -824,13 +822,6 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                               ],
                               if (_showAiPolish) ...[
                                 const SizedBox(height: 8),
-                                const Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: AiQuotaRemainingHint(
-                                    feature: AiQuotaRemainingHintFeature.polish,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
                                 Align(
                                   alignment: Alignment.centerLeft,
                                   child: TextButton.icon(

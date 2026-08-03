@@ -8,10 +8,12 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.net.Uri
 import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
 import org.json.JSONArray
 import org.json.JSONObject
@@ -196,10 +198,13 @@ object PangbaoWidgetRenderer {
                 if (hero != null && kind != WidgetLayoutKind.MEDIUM) {
                     bindHero(context, views, hero, scale, textPrimary, textSecondary)
                     views.setViewVisibility(R.id.widget_hero_section, View.VISIBLE)
+                    attachHeroSkipClick(context, views, hero.optString("eventId", ""))
                     if (kind == WidgetLayoutKind.LARGE) {
                         views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
                     }
                     hasContent = true
+                } else {
+                    setOptionalVisibility(views, R.id.widget_hero_skip, View.GONE)
                 }
 
 if (kind != WidgetLayoutKind.SMALL) {
@@ -255,6 +260,7 @@ if (kind != WidgetLayoutKind.SMALL) {
         setOptionalVisibility(views, R.id.widget_tip_section, View.GONE)
         setOptionalVisibility(views, R.id.widget_events_block, View.GONE)
         setOptionalVisibility(views, R.id.widget_hero_section, View.GONE)
+        setOptionalVisibility(views, R.id.widget_hero_skip, View.GONE)
         setOptionalVisibility(views, R.id.widget_recent_section, View.GONE)
         for (i in 0..2) {
             recentContainerId(i)?.let { views.setViewVisibility(it, View.GONE) }
@@ -289,6 +295,31 @@ if (kind != WidgetLayoutKind.SMALL) {
         views.setTextViewText(R.id.widget_hero_time, subtitle)
         views.setTextColor(R.id.widget_hero_time, textSecondary)
         views.setTextViewTextSize(R.id.widget_hero_time, TypedValue.COMPLEX_UNIT_SP, scale.heroTimeSp)
+
+        // 跳过按钮文案固定「跳过」
+        try {
+            views.setTextViewText(R.id.widget_hero_skip, context.getString(R.string.widget_hero_skip))
+            views.setViewVisibility(R.id.widget_hero_skip, View.VISIBLE)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 跳过：独立 Background Intent，不打开前台 App。 */
+    private fun attachHeroSkipClick(context: Context, views: RemoteViews, eventId: String) {
+        if (eventId.isBlank()) {
+            setOptionalVisibility(views, R.id.widget_hero_skip, View.GONE)
+            return
+        }
+        try {
+            val uri = Uri.parse(
+                "pangbao-widget://skip?eventId=${Uri.encode(eventId)}",
+            )
+            val pending = HomeWidgetBackgroundIntent.getBroadcast(context, uri)
+            views.setOnClickPendingIntent(R.id.widget_hero_skip, pending)
+        } catch (e: Exception) {
+            Log.w(TAG, "attachHeroSkipClick err=$e")
+            setOptionalVisibility(views, R.id.widget_hero_skip, View.GONE)
+        }
     }
 
     private fun bindRecentItem(
@@ -357,8 +388,7 @@ if (kind != WidgetLayoutKind.SMALL) {
             R.id.widget_message,
         )
         if (kind != WidgetLayoutKind.MEDIUM) {
-            clickTargets.add(R.id.widget_hero_section)
-            clickTargets.add(R.id.widget_hero_row)
+            // 不绑 hero_section / hero_row：避免父级 launch 抢占「跳过」子控件
             clickTargets.add(R.id.widget_hero_logo)
             clickTargets.add(R.id.widget_hero_name)
             clickTargets.add(R.id.widget_hero_time)

@@ -20,6 +20,8 @@ import 'widget_history_depth.dart';
 import 'widget_row_builder.dart';
 import 'widget_row_enrich.dart';
 import 'widget_theme_visual.dart';
+import 'widget_hero_skip_store.dart';
+import 'widget_interactivity.dart';
 import 'widget_tip_cache.dart';
 
 export 'format_widget_relative_time.dart';
@@ -31,6 +33,7 @@ Future<void> initHomeWidgetBridge() async {
   if (kIsWeb) return;
   try {
     await HomeWidget.setAppGroupId(HomeWidgetConstants.appGroupId);
+    await registerHomeWidgetInteractivity();
     AppDebugLog.homeWidget('init appGroup=${HomeWidgetConstants.appGroupId}');
   } catch (e) {
     AppDebugLog.homeWidget('init err=$e');
@@ -72,12 +75,18 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
           activeEventKeys: activeKeys,
         )
       : <EventNextPrediction>[];
+  // S1：解除已有新记录的 skip；仅 hero 排除 skip，后续留意仍保留
+  var heroPredictions = predictions;
+  if (loggedIn && predictions.isNotEmpty) {
+    final skipped = await WidgetHeroSkipStore.reconcileAndActiveIds(predictions);
+    heroPredictions = filterPredictionsExcludingSkipped(predictions, skipped);
+  }
 
   HomeWidgetRowPayload? hero;
   var recentLast = <HomeWidgetRowPayload>[];
   if (loggedIn && state == 'ready') {
-    hero = buildWidgetHero(predictions: predictions, now: t);
-    // Exclude hero from recent list so native widget can fill up to 3 recent slots.
+    hero = buildWidgetHero(predictions: heroPredictions, now: t);
+    // 后续留意用全量预测（含已 skip）；native large 再排除当前 hero id
     recentLast = buildWidgetRecentLast(predictions: predictions, count: 4);
     if (hero != null) {
       hero = await enrichWidgetRow(hero, catalog);
@@ -140,13 +149,15 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   if (state == 'ready') {
     final active = collectActiveTimingRows(history, catalog: catalog);
     final activeKeys = active.map((e) => e.eventId).toSet();
-    final preds = predictAllUpcoming(
+    var preds = predictAllUpcoming(
       history: history,
       catalog: catalog,
       now: DateTime.now(),
       birthDate: baby?.birthDate ?? DateTime.now(),
       activeEventKeys: activeKeys,
     );
+    final skipped = await WidgetHeroSkipStore.reconcileAndActiveIds(preds);
+    preds = filterPredictionsExcludingSkipped(preds, skipped);
     if (preds.isEmpty) {
       if (history.isEmpty) {
         state = 'empty';
@@ -273,6 +284,7 @@ Future<void> onLogoutClearHomeWidget() async {
   if (kIsWeb) return;
   await clearWidgetHistoryDepthReady();
   await clearWidgetTipCache();
+  await WidgetHeroSkipStore.clearAll();
   await pushHomeWidgetPayload(
     HomeWidgetPayload(
       state: 'empty',

@@ -4,34 +4,79 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _kKeyPrefix = 'pangbao_clinic_session_v1_';
 
-/// 胖宝诊疗已完成轮次（本地缓存，按 deviceNo 隔离）。
+/// 本地会话条目类型：普通问答 / tip 注入 / 截断横线。
+enum PangbaoClinicEntryKind { qa, tip, divider }
+
+/// 胖宝陪伴已完成轮次（本地缓存，按 deviceNo 隔离）。
 class PangbaoClinicTurn {
   const PangbaoClinicTurn({
     required this.question,
     required this.answer,
     this.thinking,
+    this.kind = PangbaoClinicEntryKind.qa,
+    this.at,
   });
 
   final String question;
   final String answer;
   final String? thinking;
+  final PangbaoClinicEntryKind kind;
+
+  /// 本地消息时间（提问/ tip 注入时刻）；旧数据可空。
+  final DateTime? at;
 
   Map<String, dynamic> toJson() => {
         'question': question,
         'answer': answer,
         if (thinking != null && thinking!.isNotEmpty) 'thinking': thinking,
+        if (kind != PangbaoClinicEntryKind.qa) 'kind': kind.name,
+        if (at != null) 'at': at!.toIso8601String(),
       };
 
   factory PangbaoClinicTurn.fromJson(Map<String, dynamic> json) {
+    final kindRaw = json['kind'] as String?;
+    final kind = switch (kindRaw) {
+      'tip' => PangbaoClinicEntryKind.tip,
+      'divider' => PangbaoClinicEntryKind.divider,
+      _ => PangbaoClinicEntryKind.qa,
+    };
     return PangbaoClinicTurn(
       question: json['question'] as String? ?? '',
       answer: json['answer'] as String? ?? '',
       thinking: json['thinking'] as String?,
+      kind: kind,
+      at: _parseAt(json['at']),
     );
   }
+
+  /// 纯线截断分隔项。
+  factory PangbaoClinicTurn.divider() => const PangbaoClinicTurn(
+        question: '',
+        answer: '',
+        kind: PangbaoClinicEntryKind.divider,
+      );
+
+  /// tip 注入助手内容（无用户问句）。
+  factory PangbaoClinicTurn.tip({
+    required String answer,
+    String? thinking,
+    DateTime? at,
+  }) =>
+      PangbaoClinicTurn(
+        question: '',
+        answer: answer,
+        thinking: thinking,
+        kind: PangbaoClinicEntryKind.tip,
+        at: at,
+      );
 }
 
-/// 胖宝诊疗失败轮次（inline error，无成功 answer）。
+DateTime? _parseAt(Object? raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  return DateTime.tryParse(raw);
+}
+
+/// 胖宝陪伴失败轮次（inline error，无成功 answer）。
 class PangbaoClinicFailedTurn {
   const PangbaoClinicFailedTurn({
     required this.question,
@@ -132,6 +177,13 @@ class PangbaoClinicSessionStore {
         'failed': snapshot.failed.map((t) => t.toJson()).toList(),
       }),
     );
+  }
+
+  /// 清空指定 device 的本地陪伴会话。
+  static Future<void> clear(String deviceNo) async {
+    if (deviceNo.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key(deviceNo));
   }
 
   /// 兼容旧 API：仅写 completed。

@@ -38,9 +38,25 @@ CI 会在构建前校验描述文件 Bundle ID、Team ID、App Group 与过期�
 
 1. 打开 `app/ios/Runner.xcworkspace`
 2. **File → New → Target → Widget Extension**（Product Name：`PangbaoWidget`）
-3. 用本目录下 `PangbaoWidget.swift`、`Info.plist`、`PangbaoWidget.entitlements` 替换自动生成文件
+3. 用本目录下 `PangbaoWidget.swift`、`Info.plist`、`PangbaoWidget.entitlements`、`WidgetBackgroundIntent.swift` 替换/加入自动生成文件
 4. Runner 与 PangbaoWidget 均添加 App Group：`group.com.fzy.pangbao.widget`
 5. Extension 的 `kind` 须为 **`PangbaoWidget`**（与 `HomeWidgetConstants.iOSWidgetName` 一致）
+6. **交互「跳过」**：`WidgetBackgroundIntent.swift` 须同时加入 **Runner** 与 **PangbaoWidget** target；Extension 的 Frameworks 须链接 `FlutterGeneratedPluginSwiftPackage`（或 CocoaPods 下为 Extension target 增加 `home_widget`），以便 `import home_widget`
+7. Runner `AppDelegate` 须保留 iOS 17+ `HomeWidgetBackgroundWorker.setPluginRegistrantCallback`（勿删）
+
+## 交互「跳过」前置（Android / iOS）
+
+点小组件「跳过」走 `home_widget` 后台回调，**不是**整卡打开 App。缺任一项会表现为按钮无反应：
+
+| 平台 | 必需要件 |
+|------|----------|
+| Android | App `AndroidManifest` 声明 `HomeWidgetBackgroundReceiver` + `HomeWidgetBackgroundService`（插件 library Manifest **不**自带） |
+| Android | 至少冷启一次 App，使 `HomeWidget.registerInteractivityCallback` 写入 callbackHandle |
+| Android | 改 Manifest / Renderer 后须**完整重装**，勿只 hot reload |
+| iOS 17+ | 上表第 6–7 步；`ForegroundContinuableIntent` 便于 App 挂起时仍进 Dart |
+| iOS &lt;17 | 不展示「跳过」按钮，整卡仍可打开 App |
+
+相关 change：`openspec/changes/widget-hero-skip-next`、`openspec/changes/fix-widget-hero-skip-interactivity`。
 
 ## 数据格式
 

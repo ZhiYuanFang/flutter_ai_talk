@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/home_pager.dart';
 import '../providers/session_provider.dart';
 import '../config/env.dart';
 import 'focus_cleanup_observer.dart';
@@ -18,7 +19,6 @@ import '../ui/feedback_list_screen.dart';
 import '../ui/settings_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
-import '../ui/pangbao_ai_screen.dart';
 
 /// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
 /// 若此处 watch 会在 Splash 等异步流程中途销毁整个路由树，导致白屏与
@@ -101,8 +101,15 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const TrendsScreen(),
       ),
       GoRoute(
+        // 深链兼容：旧 /pangbao 进主页并切到陪伴页
         path: '/pangbao',
-        builder: (context, state) => const PangbaoAiScreen(),
+        redirect: (context, state) {
+          // 延迟请求切页，等 /home 壳挂载后 listen 消费
+          Future<void>.microtask(() {
+            ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.companion);
+          });
+          return '/home';
+        },
       ),
       GoRoute(
         path: '/settings',

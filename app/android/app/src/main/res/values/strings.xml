@@ -7,5 +7,6 @@
     <string name="widget_section_upcoming">预测即将发生</string>
     <string name="widget_section_recent">后续留意·上次记录</string>
     <string name="widget_section_tip">喂养小贴士</string>
+    <string name="widget_hero_skip">跳过</string>
     <string name="widget_last_at_none">暂无</string>
 </resources>

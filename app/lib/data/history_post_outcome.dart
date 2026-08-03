@@ -1,4 +1,4 @@
-/// `addHistoryEvent` / outbox update POST 结果分类（传输 vs 业务失败）。
+/// `addHistoryEvent` / update POST 结果分类（传输 vs 业务失败）。
 enum HistoryPostFailureKind {
   transport,
   business,

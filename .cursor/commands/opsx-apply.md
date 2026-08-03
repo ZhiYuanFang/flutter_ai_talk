@@ -47,7 +47,7 @@ Implement tasks from an OpenSpec change.
 
 4. **Read context files**
 
-   Read **`openspec/project.md`** and **`AGENTS.md`**, then read the files listed in `contextFiles` from the apply instructions output.
+   Read the files listed in `contextFiles` from the apply instructions output.
    The files depend on the schema being used:
    - **spec-driven**: proposal, specs, design, tasks
    - Other schemas: follow the contextFiles from CLI output

@@ -13,12 +13,15 @@ class UcgComposeLightGlassPanel extends StatelessWidget {
     this.eventAccent,
     this.contentPadding,
     this.borderRadius,
+    /// 默认抗锯齿裁剪；选区手柄场景可传 [Clip.none] 避免裁掉手柄
+    this.clipBehavior = Clip.antiAlias,
   });
 
   final Widget child;
   final Color? eventAccent;
   final EdgeInsets? contentPadding;
   final double? borderRadius;
+  final Clip clipBehavior;
 
   static const _radius = 22.0;
   static const _blurSigma = 18.0;
@@ -30,50 +33,58 @@ class UcgComposeLightGlassPanel extends StatelessWidget {
     final accent = eventAccent ?? scheme.primary;
     final radius = borderRadius ?? _radius;
 
-    final base = tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.04);
-    final fillTop = Color.alphaBlend(Colors.white.withValues(alpha: 0.78), base);
+    final base =
+        tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.04);
+    final fillTop =
+        Color.alphaBlend(Colors.white.withValues(alpha: 0.78), base);
     final fillBottom = Color.lerp(
           fillTop,
           accent.withValues(alpha: 0.10),
           0.45,
         ) ??
         fillTop;
-
-    return RepaintBoundary(
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: _blurSigma, sigmaY: _blurSigma),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomRight,
-                colors: [fillTop, fillBottom],
+    // 如果eventAccent为透明色，则不展示背景，直接展示子组件
+    if (eventAccent == Colors.transparent) {
+      return child;
+    } else {
+      return RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          clipBehavior: clipBehavior,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: _blurSigma, sigmaY: _blurSigma),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(radius),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomRight,
+                  colors: [fillTop, fillBottom],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 6),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: accent.withValues(alpha: 0.08),
-                  blurRadius: 20,
-                  offset: const Offset(0, 6),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 12,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: contentPadding ?? const EdgeInsets.fromLTRB(18, 20, 18, 16),
-              child: child,
+              child: Padding(
+                padding:
+                    contentPadding ?? const EdgeInsets.fromLTRB(18, 20, 18, 16),
+                child: child,
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
+    }
   }
 }
 

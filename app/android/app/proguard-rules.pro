@@ -8,6 +8,9 @@
 -keep class com.fzy.pangbao.PangbaoWidgetLargeProvider { *; }
 -keep class com.fzy.pangbao.PangbaoWidgetRenderer { *; }
 -keep class com.fzy.pangbao.PangbaoWidgetBitmaps { *; }
+# home_widget 交互跳过：BackgroundReceiver / JobIntentService
+-keep class es.antonborri.home_widget.HomeWidgetBackgroundReceiver { *; }
+-keep class es.antonborri.home_widget.HomeWidgetBackgroundService { *; }
 -keep class com.huawei.hms.** { *; }
 -keep class com.xiaomi.mipush.sdk.** { *; }
 

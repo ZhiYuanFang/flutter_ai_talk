@@ -99,7 +99,11 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     setState(() => _showStartupOverlay = false);
     // 已登录 bootstrap 由 HomeScreen GatewayBootstrapGate 单飞负责，避免与 gate 双跑占满 iOS 连接槽。
     if (!ref.read(sessionProvider).isLoggedIn) {
-      unawaited(ColdStartBackgroundSync.run(ref));
+      unawaited(
+        ColdStartBackgroundSync.run(
+          ProviderScope.containerOf(context, listen: false),
+        ),
+      );
     }
   }
 

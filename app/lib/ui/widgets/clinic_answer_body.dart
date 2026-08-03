@@ -7,27 +7,45 @@ class ClinicAnswerBody extends StatelessWidget {
     super.key,
     required this.text,
     required this.streaming,
+    /// tip 等场景关选区，避免抢走外层 tap
+    this.selectable = true,
+    /// false 时由外层 ScrollView 负责滚动（shrinkWrap + NeverScrollable）
+    this.scrollable = false,
   });
 
   final String text;
   final bool streaming;
+  final bool selectable;
+  final bool scrollable;
 
   @override
   Widget build(BuildContext context) {
     if (streaming) {
+      // 流式纯文本；外层若有 SelectionArea 则可顺带选中
       return Text(text, style: _bodyStyle(context));
     }
     if (text.trim().isEmpty) return const SizedBox.shrink();
+    final generator = MarkdownGenerator(
+      linesMargin: const EdgeInsets.symmetric(vertical: 4),
+    );
+    final config = _markdownConfig(context);
+    // 气泡内用 Column（MarkdownBlock），避免 MarkdownWidget 内层 ListView 与外层列表抢拖动手势
+    if (!scrollable) {
+      return MarkdownBlock(
+        data: text,
+        selectable: selectable,
+        config: config,
+        generator: generator,
+      );
+    }
     return MarkdownWidget(
       data: text,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: false,
+      physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
-      selectable: true,
-      config: _markdownConfig(context),
-      markdownGenerator: MarkdownGenerator(
-        linesMargin: const EdgeInsets.symmetric(vertical: 4),
-      ),
+      selectable: selectable,
+      config: config,
+      markdownGenerator: generator,
     );
   }
 

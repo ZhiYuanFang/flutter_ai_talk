@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,55 +12,117 @@ import '../api/ai_quota_codes.dart';
 import '../api/ai_quota_errors.dart';
 import '../api/clinic_ws_error.dart';
 import '../api/app_debug_log.dart';
-import '../config/env.dart';
+import '../asr/home_speech_factory.dart';
+import '../asr/home_speech_recognizer.dart';
+import '../config/companion_greeting_store.dart';
+import '../config/companion_input_mode_store.dart';
 import '../config/pangbao_ai_consent_store.dart';
 import '../config/pangbao_clinic_session_store.dart';
+import '../config/speech_engine.dart';
+import '../config/speech_engine_store.dart';
 import '../data/feed_repository.dart';
-import '../providers/ai_quota_provider.dart';
+import '../home_widget/widget_tip_cache.dart';
+import '../providers/clinic_ws_provider.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/home_pager.dart';
 import '../providers/session_provider.dart';
+import '../providers/tip_provider.dart';
 import '../providers/toast_bus.dart';
+import '../providers/voice_asr_ws_provider.dart';
 import '../session/session_controller.dart';
 import '../ui/widgets/app_empty_state_gallery.dart';
 import '../ui/widgets/app_glass_overlay.dart';
+import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/clinic_answer_body.dart';
 import 'home_history_scroll_to_bottom_button.dart';
 import 'home_history_ws_status_banner.dart';
+import 'home_voice_message_strip.dart';
+import 'startup_branding.dart';
 import '../ui/widgets/keyboard_dismiss_scope.dart';
-import '../ucg/ui/widgets/ucg_visual_widgets.dart';
+import '../ucg/ui/widgets/ucg_compose_light_glass_panel.dart';
 import '../voice/clinic_ws_client.dart';
 
-/// 胖宝诊疗：文本问答 + 流式 thinking/answer + 免责声明；支持流式中断/改问。
+/// 智能陪伴：文本问答 + 流式 thinking/answer + 非医疗弱提示；支持流式中断/改问。
+///
+/// [embeddedInHomePager] 为 true 时嵌入主页 PageView，使用壳级 Clinic WS，离开页不 dispose WS。
 class PangbaoAiScreen extends ConsumerStatefulWidget {
-  const PangbaoAiScreen({super.key});
+  const PangbaoAiScreen({super.key, this.embeddedInHomePager = false});
+
+  /// 是否嵌入 `/home` 三页壳（陪伴页）。
+  final bool embeddedInHomePager;
 
   @override
   ConsumerState<PangbaoAiScreen> createState() => _PangbaoAiScreenState();
 }
 
 class _ChatItem {
-  _ChatItem.user(this.question)
+  _ChatItem.user(this.question, {this.at})
       : isUser = true,
+        isDivider = false,
+        isTipSource = false,
         answer = null,
         thinking = null;
 
-  _ChatItem.assistant()
+  _ChatItem.assistant({this.isTipSource = false, this.at})
       : isUser = false,
+        isDivider = false,
         question = null,
         thinking = '',
         answer = '';
 
+  /// 纯线截断分隔（无字）。
+  _ChatItem.divider()
+      : isUser = false,
+        isDivider = true,
+        isTipSource = false,
+        question = null,
+        thinking = null,
+        answer = null,
+        at = null;
+
   final bool isUser;
+  final bool isDivider;
+  final bool isTipSource;
   final String? question;
   String? thinking;
   String? answer;
+
+  /// 本地展示用消息时间；无则不上时间小字
+  DateTime? at;
+
+  /// clinic answer_done 下发的回答 ID；非空且未反馈时可点赞/踩
+  String? answerId;
   var thinkingExpanded = false;
   var isError = false;
   String? errorMessage;
+
+  /// 用户反馈：null=未反馈，1=thumbs up，-1=thumbs down（提交后不可改）
+  int? feedback;
+  var feedbackSubmitting = false;
 }
 
-class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsBindingObserver {
+/// 同日 HH:mm；跨日 M月d日 HH:mm；跨年带 yyyy年。
+String formatCompanionMessageTime(DateTime at, {DateTime? now}) {
+  final local = at.toLocal();
+  final n = (now ?? DateTime.now()).toLocal();
+  final hh = local.hour.toString().padLeft(2, '0');
+  final mm = local.minute.toString().padLeft(2, '0');
+  final tod = '$hh:$mm';
+  if (local.year == n.year && local.month == n.month && local.day == n.day) {
+    return tod;
+  }
+  if (local.year == n.year) {
+    return '${local.month}月${local.day}日 $tod';
+  }
+  return '${local.year}年${local.month}月${local.day}日 $tod';
+}
+
+class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
+    with WidgetsBindingObserver {
   static const _followBottomThreshold = 48.0;
+
+  /// 上滑取消阈值（logical px），对齐喂养出界取消量级
+  static const _slideCancelDy = 72.0;
 
   final _items = <_ChatItem>[];
   final _input = TextEditingController();
@@ -71,6 +135,22 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   var _consented = false;
   HistoryWsPhase _clinicWsPhase = HistoryWsPhase.disconnected;
   var _clinicWsManualReconnecting = false;
+
+  /// 输入模式：Web 强制文字
+  var _inputMode = CompanionInputMode.text;
+  HomeSpeechRecognizer? _recognizer;
+  SpeechEngine? _speechEngine;
+  var _voiceReady = false;
+  var _voiceAsrReady = false;
+  var _voiceAsrConnecting = false;
+  StreamSubscription<bool>? _voiceAsrReadySub;
+  var _listening = false;
+  var _slideToCancel = false;
+  var _voiceHoldActive = false;
+  var _voiceHoldSeq = 0;
+  var _activeVoicePointer = false;
+  String _partial = '';
+  double? _holdStartGlobalY;
   var _gaveUpSnackbarShown = false;
   String? _activeTurnId;
   _ChatItem? _activeAssistant;
@@ -78,6 +158,9 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   var _showScrollToBottomButton = false;
   var _autoScrolling = false;
   String? _sessionDeviceNo;
+
+  /// 助手长按「复制」悬浮层（C′b）；与 SelectionArea 解耦
+  OverlayEntry? _assistantCopyOverlay;
 
   bool get _streaming => _activeTurnId != null && _activeAssistant != null;
 
@@ -94,7 +177,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       return AppEmptyStateGallery(
         animationPath: 'assets/images/ani_baby_welcome.json',
         title: '尚未登录',
-        subtitle: '登录并绑定宝宝后，可基于喂养记录向 AI 提问',
+        subtitle: '登录并绑定宝宝后，就能和胖宝聊聊解闷啦',
         actionLabel: '去登录',
         onAction: () => unawaited(context.push('/login')),
       );
@@ -104,16 +187,16 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       return AppEmptyStateGallery(
         animationPath: 'assets/images/ani_baby_welcome.json',
         title: '嗨，我是胖宝！',
-        subtitle: '绑定宝宝信息后，我才能结合喂养记录回答你的问题',
+        subtitle: '绑定宝宝信息后，我就能更好地陪伴你啦',
         actionLabel: '立即绑定宝宝',
         onAction: () => unawaited(context.push('/settings/bind-baby')),
       );
     }
     return const AppEmptyStateGallery(
       animationPath: 'assets/images/ani_baby_feeding_guide.json',
-      title: '开始提问',
-      subtitle: '我会结合近 7 天喂养记录作答；问答记录仅保留12个小时。',
-      fallbackIcon: Icons.medical_services_outlined,
+      title: '来找我聊聊吧',
+      subtitle: '我会结合近 7 天喂养记录陪你解闷；对话会保存在本地。',
+      fallbackIcon: Icons.favorite_outline,
     );
   }
 
@@ -121,6 +204,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     if (_items.isEmpty) {
       return _buildEmptyGallery(context, ref);
     }
+    // 方案 M：不在列表外包 SelectionArea（与 ListView 抢松手手势会清选区）
     return Stack(
       children: [
         NotificationListener<UserScrollNotification>(
@@ -152,7 +236,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
               duration: const Duration(milliseconds: 150),
               curve: Curves.easeOut,
               child: Center(
-                child: HomeHistoryScrollToBottomButton(onPressed: _onScrollToBottomTap),
+                child: HomeHistoryScrollToBottomButton(
+                    onPressed: _onScrollToBottomTap),
               ),
             ),
           ),
@@ -174,32 +259,282 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     if (!_consented && mounted) {
       final ok = await showGlassConfirmDialog(
             context,
-            title: '使用胖宝诊疗前请知悉',
-            message: '您的问题及近 7 天喂养聚合摘要将发送至 AI 诊疗；回答过程可能展示 AI 思考过程。',
+            title: '使用智能陪伴前请知悉',
+            message:
+                '您的问题及近 7 天喂养聚合摘要将发送至 AI 陪伴服务；回答过程可能展示 AI 思考过程。内容仅为陪伴参考，非医疗建议。',
             confirmLabel: '同意并继续',
           ) ??
           false;
       if (!ok) {
-        if (mounted) context.pop();
+        // 嵌入主页时取消同意不 pop 路由；独立路由仍返回上一页
+        if (mounted && !widget.embeddedInHomePager) context.pop();
         return;
       }
       await PangbaoAiConsentStore.saveAccepted();
       _consented = true;
     }
     if (!mounted) return;
+    await _restoreInputMode();
+    if (!mounted) return;
     _setupWs(desired: true);
-    unawaited(_hydrateFromLocalCacheIfEmpty());
+    await _hydrateFromLocalCacheIfEmpty();
+    if (!mounted) return;
+    // 首次进入：与 signal 可能并发，tip/问候门闩幂等可安全重复调用
+    await _onCompanionEntryActions();
+  }
+
+  /// 恢复陪伴输入模式；Web 始终文字。
+  Future<void> _restoreInputMode() async {
+    if (kIsWeb) {
+      setState(() => _inputMode = CompanionInputMode.text);
+      return;
+    }
+    final saved = await CompanionInputModeStore.load();
+    if (!mounted || saved == null) return;
+    setState(() => _inputMode = saved);
+    if (saved == CompanionInputMode.voice) {
+      unawaited(_prepareVoiceInput());
+    }
+  }
+
+  Future<void> _setInputMode(CompanionInputMode mode) async {
+    if (mode == _inputMode) return;
+    if (kIsWeb && mode == CompanionInputMode.voice) return;
+    if (mode == CompanionInputMode.voice) {
+      final loggedIn = ref.read(sessionProvider).isLoggedIn;
+      final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+      if (!loggedIn || dn == null || dn.isEmpty) {
+        if (mounted) {
+          showAppToast(
+            !loggedIn ? '请先登录后再使用语音' : '请先绑定宝宝后再使用语音',
+            tone: AppToastTone.error,
+          );
+        }
+        return;
+      }
+    }
+    if (mode != CompanionInputMode.voice && _listening) {
+      await _onVoiceCancel();
+    }
+    setState(() => _inputMode = mode);
+    unawaited(CompanionInputModeStore.save(mode));
+    if (mode == CompanionInputMode.voice) {
+      await _prepareVoiceInput();
+      if (mounted) setState(() {});
+    } else {
+      _inputFocusNode.requestFocus();
+    }
+  }
+
+  Future<void> _bindVoiceAsrReadyListener() async {
+    await _voiceAsrReadySub?.cancel();
+    _voiceAsrReadySub = null;
+    if (kIsWeb || _speechEngine != SpeechEngine.cloudAsr) {
+      if (mounted) setState(() => _voiceAsrReady = true);
+      return;
+    }
+    final client = ref.read(voiceAsrWsClientProvider);
+    _voiceAsrReady = client.isReady;
+    _voiceAsrReadySub = client.readyStream.listen((v) {
+      if (mounted) setState(() => _voiceAsrReady = v);
+    });
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _connectVoiceAsrWsIfNeeded() async {
+    if (kIsWeb || _speechEngine != SpeechEngine.cloudAsr) return;
+    if (_voiceAsrReady || _voiceAsrConnecting) return;
+    if (!mounted) return;
+    setState(() => _voiceAsrConnecting = true);
+    try {
+      final ok = await ref.read(voiceAsrWsClientProvider).connect();
+      if (!mounted) return;
+      setState(() {
+        _voiceAsrReady = ok;
+        _voiceAsrConnecting = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _voiceAsrReady = false;
+        _voiceAsrConnecting = false;
+      });
+    }
+  }
+
+  /// 与喂养同源 ASR：系统 STT / 云端 ASR。
+  Future<bool> _prepareVoiceInput() async {
+    if (kIsWeb) {
+      if (mounted) {
+        showAppToast('语音识别不可用，请改用文字输入', tone: AppToastTone.error);
+      }
+      return false;
+    }
+    try {
+      final engine = await SpeechEngineStore.load();
+      if (_speechEngine != engine) {
+        _recognizer?.dispose();
+        _recognizer = null;
+        _voiceReady = false;
+        _speechEngine = engine;
+        await _bindVoiceAsrReadyListener();
+      } else {
+        _speechEngine ??= engine;
+      }
+
+      if (_speechEngine == SpeechEngine.cloudAsr && !_voiceAsrReady) {
+        await _connectVoiceAsrWsIfNeeded();
+        if (!_voiceAsrReady && !_voiceAsrConnecting && mounted) {
+          showAppToast('语音转写未连接，请检查网络', tone: AppToastTone.error);
+        }
+      }
+
+      if (_voiceReady && _recognizer != null) {
+        if (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady)
+          return true;
+      }
+
+      _recognizer ??= await createHomeSpeechRecognizer(ref);
+      final ok = await _recognizer!.prepare();
+      _voiceReady =
+          ok && (_speechEngine != SpeechEngine.cloudAsr || _voiceAsrReady);
+      if (!ok && mounted) {
+        final failure = _recognizer!.lastPrepareFailure ??
+            HomeSpeechPrepareFailure.engineError;
+        showAppToast(failure.message(forWeb: false), tone: AppToastTone.error);
+      } else if (!_voiceReady &&
+          mounted &&
+          _speechEngine == SpeechEngine.cloudAsr) {
+        showAppToast('语音转写服务未连接，请稍后再试', tone: AppToastTone.error);
+      }
+      return _voiceReady;
+    } catch (_) {
+      if (mounted) {
+        showAppToast('语音识别初始化失败，请改用文字输入', tone: AppToastTone.error);
+      }
+      return false;
+    }
+  }
+
+  void _setPagerScrollBlocked(bool blocked) {
+    if (!widget.embeddedInHomePager) return;
+    ref.read(homePagerScrollBlockedProvider.notifier).state = blocked;
+  }
+
+  void _releaseVoiceHold() {
+    _voiceHoldActive = false;
+    _voiceHoldSeq++;
+  }
+
+  bool _isVoiceHoldCurrent(int seq) => _voiceHoldActive && seq == _voiceHoldSeq;
+
+  /// 按住期间浮动转写文案；松手后随 listening/partial 清空而隐藏。
+  String? get _companionVoiceStripText {
+    if (!_listening) return null;
+    final partial = _partial.trim();
+    if (partial.isNotEmpty) return partial;
+    return '聆听中…';
   }
 
   void _setupWs({required bool desired}) {
-    _client ??= ClinicWsClient(
-      wsUrl: AppEnv.wsClinicUrlEffective,
-      ref: ref,
-      deviceNoGetter: () => ref.read(deviceNoNotifierProvider).asData?.value,
-    );
+    // 统一使用壳级 Clinic WS Provider（深链 /pangbao 已重定向至主页陪伴层）
+    _client = ref.read(clinicWsClientProvider);
     _frameSub ??= _client!.frames.listen(_onFrame);
     _bindClinicWsStatusSubscriptions();
     _client!.setConnectionDesired(desired);
+  }
+
+  /// 进入陪伴：注入首页 tip / 小组件 tip（若有）或当天首次发「我来啦」。
+  Future<void> _onCompanionEntryActions() async {
+    if (!_consented) return;
+    final loggedIn = ref.read(sessionProvider).isLoggedIn;
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    if (!loggedIn || dn == null || dn.isEmpty) return;
+
+    final tip = ref.read(tipProvider);
+    var injectedTip = false;
+    if (tip.canInjectToCompanion) {
+      final text = tip.injectText;
+      setState(() {
+        // 首页 tip 注入
+        final assistant = _ChatItem.assistant(
+          isTipSource: true,
+          at: DateTime.now(),
+        );
+        assistant.answer = text;
+        _items.add(assistant);
+      });
+      ref.read(tipProvider.notifier).markConsumedForCompanion();
+      injectedTip = true;
+      unawaited(_persistSessionStore());
+      _scrollToBottom(force: true);
+      AppDebugLog.pangbaoClinic('entry inject home tip len=${text.length}');
+    }
+
+    if (injectedTip) {
+      // 首页 tip 优先：同次不注小组件 tip，不标记 widget injected
+      await CompanionGreetingStore.markGreetedToday();
+      return;
+    }
+
+    // B3：无首页 tip 时尝试注入当日未消费的小组件 tip
+    final widgetText = await peekWidgetTipInjectText();
+    if (widgetText != null && widgetText.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        final assistant = _ChatItem.assistant(
+          isTipSource: true,
+          at: DateTime.now(),
+        );
+        assistant.answer = widgetText;
+        _items.add(assistant);
+      });
+      await markWidgetTipInjectedToday();
+      unawaited(_persistSessionStore());
+      _scrollToBottom(force: true);
+      AppDebugLog.pangbaoClinic(
+        'entry inject widget tip len=${widgetText.length}',
+      );
+      await CompanionGreetingStore.markGreetedToday();
+      return;
+    }
+    AppDebugLog.pangbaoClinic(
+      'entry skip widget tip injected=${await isWidgetTipInjectedToday()}',
+    );
+
+    final greeted = await CompanionGreetingStore.hasGreetedToday();
+    if (greeted || !mounted) return;
+    await CompanionGreetingStore.markGreetedToday();
+    _input.text = '我来啦';
+    await _send();
+  }
+
+  /// 右上角清理：玻璃确认后清空本地陪伴记录。
+  Future<void> _confirmClearCompanionHistory() async {
+    final ok = await showGlassConfirmDialog(
+          context,
+          title: '清理陪伴记录',
+          message: '将清除本机保存的陪伴对话，且不可恢复。确定继续？',
+          confirmLabel: '清理',
+        ) ??
+        false;
+    if (!ok || !mounted) return;
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    if (dn != null && dn.isNotEmpty) {
+      await PangbaoClinicSessionStore.clear(dn);
+    }
+    setState(() {
+      _items.clear();
+      _activeTurnId = null;
+      _activeAssistant = null;
+      _followLatest = true;
+      _showScrollToBottomButton = false;
+    });
+    // 清记录后允许首页仍展示的 tip 再次注入；不清除 widget_tip_injected_day
+    ref.read(tipProvider.notifier).resetCompanionConsumption();
+    AppDebugLog.pangbaoClinic(
+      'clear history keep widget injected=${await isWidgetTipInjectedToday()}',
+    );
   }
 
   void _bindClinicWsStatusSubscriptions() {
@@ -267,7 +602,9 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     final snapshot = await PangbaoClinicSessionStore.loadSnapshot(dn);
     if (!mounted || snapshot.isEmpty || _items.isNotEmpty) return;
     final completedQ = snapshot.completed.map((t) => t.question.trim()).toSet();
-    final failed = snapshot.failed.where((f) => !completedQ.contains(f.question.trim())).toList();
+    final failed = snapshot.failed
+        .where((f) => !completedQ.contains(f.question.trim()))
+        .toList();
     AppDebugLog.pangbaoClinic(
       'hydrate deviceNo=$dn completed=${snapshot.completed.length} failed=${failed.length}',
     );
@@ -335,7 +672,9 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
         PangbaoClinicFailedTurn(
           question: question,
           errorMessage: msg,
-          thinking: thinkingRaw != null && thinkingRaw.isNotEmpty ? thinkingRaw : null,
+          thinking: thinkingRaw != null && thinkingRaw.isNotEmpty
+              ? thinkingRaw
+              : null,
         ),
       );
     }
@@ -345,56 +684,51 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   List<PangbaoClinicTurn> _completedTurnsFromItems() {
     final out = <PangbaoClinicTurn>[];
     for (var i = 0; i < _items.length; i++) {
-      if (!_items[i].isUser) continue;
-      if (i + 1 >= _items.length || _items[i + 1].isUser) continue;
+      final item = _items[i];
+      // 截断横线
+      if (item.isDivider) {
+        out.add(PangbaoClinicTurn.divider());
+        continue;
+      }
+      // tip 源助手气泡（无 user 问句）
+      if (!item.isUser && item.isTipSource && !item.isError) {
+        final answer = item.answer?.trim() ?? '';
+        if (answer.isEmpty) continue;
+        final thinkingRaw = item.thinking?.trim();
+        out.add(
+          PangbaoClinicTurn.tip(
+            answer: answer,
+            thinking: thinkingRaw != null && thinkingRaw.isNotEmpty
+                ? thinkingRaw
+                : null,
+            at: item.at,
+          ),
+        );
+        continue;
+      }
+      if (!item.isUser) continue;
+      if (i + 1 >= _items.length ||
+          _items[i + 1].isUser ||
+          _items[i + 1].isDivider) {
+        continue;
+      }
       final assistant = _items[i + 1];
-      if (assistant.isError) continue;
-      final question = _items[i].question?.trim() ?? '';
-      final answer = _items[i + 1].answer?.trim() ?? '';
+      if (assistant.isError || assistant.isTipSource) continue;
+      final question = item.question?.trim() ?? '';
+      final answer = assistant.answer?.trim() ?? '';
       if (question.isEmpty || answer.isEmpty) continue;
-      final thinkingRaw = _items[i + 1].thinking?.trim();
+      final thinkingRaw = assistant.thinking?.trim();
+      // QA 存提问时刻（优先用户气泡 at）
       out.add(
         PangbaoClinicTurn(
           question: question,
           answer: answer,
-          thinking: thinkingRaw != null && thinkingRaw.isNotEmpty ? thinkingRaw : null,
+          thinking: thinkingRaw != null && thinkingRaw.isNotEmpty
+              ? thinkingRaw
+              : null,
+          at: item.at ?? assistant.at,
         ),
       );
-    }
-    return out;
-  }
-
-  Map<String, String> _thinkingByQuestionFromItems() {
-    final out = <String, String>{};
-    for (var i = 0; i < _items.length - 1; i++) {
-      if (!_items[i].isUser || _items[i + 1].isUser) continue;
-      final q = _items[i].question?.trim() ?? '';
-      final t = _items[i + 1].thinking?.trim();
-      if (q.isNotEmpty && t != null && t.isNotEmpty) {
-        out[q] = t;
-      }
-    }
-    return out;
-  }
-
-  Future<Map<String, String>> _thinkingByQuestionIncludingCache() async {
-    final out = _thinkingByQuestionFromItems();
-    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
-    if (dn == null || dn.isEmpty) return out;
-    final snapshot = await PangbaoClinicSessionStore.loadSnapshot(dn);
-    for (final turn in snapshot.completed) {
-      final q = turn.question.trim();
-      final t = turn.thinking?.trim();
-      if (q.isNotEmpty && t != null && t.isNotEmpty && !out.containsKey(q)) {
-        out[q] = t;
-      }
-    }
-    for (final turn in snapshot.failed) {
-      final q = turn.question.trim();
-      final t = turn.thinking?.trim();
-      if (q.isNotEmpty && t != null && t.isNotEmpty && !out.containsKey(q)) {
-        out[q] = t;
-      }
     }
     return out;
   }
@@ -420,7 +754,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       AppDebugLog.pangbaoClinic(
         'ws error kind=${parsed.kind.name} code=${parsed.businessCode} msg=${_debugClinicErrorMsg(parsed.userMessage)}',
       );
-      if (parsed.businessCode != null && isAiQuotaBusinessCode(parsed.businessCode!) && mounted) {
+      // 客户端先行去额度：仅 40301 走登录引导，40302 不再弹额度框
+      if (parsed.businessCode == kAiCodeNotLoggedIn && mounted) {
         unawaited(handleAiQuotaBusinessCode(context, parsed.businessCode!));
       }
       setState(() {
@@ -431,9 +766,11 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       return;
     }
     if (type == 'session_sync') {
-      if (_activeAssistant != null) return;
-      final turns = ClinicWsClient.parseSessionSyncTurns(frame);
-      unawaited(_applySessionSync(turns));
+      // 展示仅为前端：忽略服务端 turns，不改本地/_items
+      final raw = frame['turns'];
+      final n = raw is List ? raw.length : 0;
+      AppDebugLog.pangbaoClinic(
+          'session_sync ignored turns=$n items=${_items.length}');
       return;
     }
     if (type == 'turn_cancelled') {
@@ -460,21 +797,25 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     setState(() {
       switch (type) {
         case 'thinking_delta':
-          _activeAssistant!.thinking = (_activeAssistant!.thinking ?? '') + (frame['delta'] as String? ?? '');
+          _activeAssistant!.thinking = (_activeAssistant!.thinking ?? '') +
+              (frame['delta'] as String? ?? '');
           break;
         case 'answer_delta':
           if ((_activeAssistant!.answer ?? '').isEmpty) {
             _activeAssistant!.thinkingExpanded = false;
           }
-          _activeAssistant!.answer = (_activeAssistant!.answer ?? '') + (frame['delta'] as String? ?? '');
+          _activeAssistant!.answer = (_activeAssistant!.answer ?? '') +
+              (frame['delta'] as String? ?? '');
           break;
         case 'answer_done':
           _activeAssistant!.thinkingExpanded = false;
-          _activeAssistant!.thinking = frame['thinking'] as String? ?? _activeAssistant!.thinking;
-          _activeAssistant!.answer = frame['answer'] as String? ?? _activeAssistant!.answer;
+          _activeAssistant!.thinking =
+              frame['thinking'] as String? ?? _activeAssistant!.thinking;
+          _activeAssistant!.answer =
+              frame['answer'] as String? ?? _activeAssistant!.answer;
+          _activeAssistant!.answerId = frame['answerId'] as String? ?? '';
           _activeTurnId = null;
           _activeAssistant = null;
-          ref.invalidate(voiceAiQuotaProvider);
           unawaited(_persistSessionStore());
           break;
       }
@@ -502,45 +843,6 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     }
   }
 
-  Future<void> _applySessionSync(List<ClinicSessionTurn> turns) async {
-    if (turns.isEmpty) {
-      if (_items.isNotEmpty) {
-        AppDebugLog.pangbaoClinic('session_sync empty kept items=${_items.length}');
-        return;
-      }
-      await _hydrateFromLocalCacheIfEmpty();
-      return;
-    }
-    final thinkingByQuestion = await _thinkingByQuestionIncludingCache();
-    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
-    final serverQ = turns.map((t) => t.question.trim()).toSet();
-    final failedFromMemory = _failedTurnsFromItems();
-    final failedFromStore = dn != null && dn.isNotEmpty
-        ? (await PangbaoClinicSessionStore.loadSnapshot(dn)).failed
-        : const <PangbaoClinicFailedTurn>[];
-    final failedToAppend = <PangbaoClinicFailedTurn>[];
-    for (final f in [...failedFromMemory, ...failedFromStore]) {
-      final q = f.question.trim();
-      if (q.isEmpty || serverQ.contains(q)) continue;
-      if (failedToAppend.any((x) => x.question.trim() == q)) continue;
-      failedToAppend.add(f);
-    }
-    if (!mounted) return;
-    setState(() {
-      _items
-        ..clear()
-        ..addAll(_itemsFromSessionTurns(turns, thinkingByQuestion: thinkingByQuestion))
-        ..addAll(_itemsFromFailedTurns(failedToAppend));
-      _followLatest = true;
-      _showScrollToBottomButton = false;
-    });
-    AppDebugLog.pangbaoClinic(
-      'session_sync merged turns=${turns.length} failedKept=${failedToAppend.length}',
-    );
-    unawaited(_persistSessionStore());
-    _scrollToBottom(animate: false, force: true);
-  }
-
   List<_ChatItem> _itemsFromFailedTurns(List<PangbaoClinicFailedTurn> turns) {
     final out = <_ChatItem>[];
     for (final turn in turns) {
@@ -557,8 +859,23 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   List<_ChatItem> _itemsFromCachedTurns(List<PangbaoClinicTurn> turns) {
     final out = <_ChatItem>[];
     for (final turn in turns) {
-      out.add(_ChatItem.user(turn.question));
-      final assistant = _ChatItem.assistant();
+      if (turn.kind == PangbaoClinicEntryKind.divider) {
+        out.add(_ChatItem.divider());
+        continue;
+      }
+      if (turn.kind == PangbaoClinicEntryKind.tip) {
+        final assistant = _ChatItem.assistant(
+          isTipSource: true,
+          at: turn.at,
+        );
+        assistant.thinking = turn.thinking;
+        assistant.answer = turn.answer;
+        out.add(assistant);
+        continue;
+      }
+      // hydrate：用户与助手共用 turn.at
+      out.add(_ChatItem.user(turn.question, at: turn.at));
+      final assistant = _ChatItem.assistant(at: turn.at);
       assistant.thinking = turn.thinking;
       assistant.answer = turn.answer;
       out.add(assistant);
@@ -566,32 +883,92 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     return out;
   }
 
-  List<_ChatItem> _itemsFromSessionTurns(
-    List<ClinicSessionTurn> turns, {
-    Map<String, String>? thinkingByQuestion,
-  }) {
-    final out = <_ChatItem>[];
-    for (final turn in turns) {
-      out.add(_ChatItem.user(turn.question));
-      final assistant = _ChatItem.assistant();
-      final q = turn.question.trim();
-      assistant.thinking = thinkingByQuestion?[q];
-      assistant.answer = turn.answer;
-      out.add(assistant);
-    }
-    return out;
-  }
-
   void _onScroll() {
+    // 列表滚动时关掉复制气泡，避免悬空
+    _dismissAssistantCopyOverlay();
     if (_autoScrolling || !_scroll.hasClients) return;
     final pos = _scroll.position;
     if (!pos.maxScrollExtent.isFinite) return;
-    final nearBottom = pos.maxScrollExtent - pos.pixels <= _followBottomThreshold;
+    final nearBottom =
+        pos.maxScrollExtent - pos.pixels <= _followBottomThreshold;
     if (_followLatest == nearBottom) return;
     setState(() {
       _followLatest = nearBottom;
       _showScrollToBottomButton = !nearBottom && _items.isNotEmpty;
     });
+  }
+
+  /// 关闭助手「复制」Overlay
+  void _dismissAssistantCopyOverlay() {
+    _assistantCopyOverlay?.remove();
+    _assistantCopyOverlay = null;
+  }
+
+  /// 在长按点上方弹出「复制」；默认复制整段 answer
+  void _showAssistantCopyOverlay({
+    required Offset globalPosition,
+    required String text,
+  }) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || !mounted) return;
+    _dismissAssistantCopyOverlay();
+    final media = MediaQuery.sizeOf(context);
+    final padTop = MediaQuery.paddingOf(context).top;
+    const btnW = 72.0;
+    const btnH = 36.0;
+    // 按钮中心对齐按压点，并上移一截
+    var left = globalPosition.dx - btnW / 2;
+    var top = globalPosition.dy - btnH - 12;
+    left = left.clamp(8.0, media.width - btnW - 8);
+    top = top.clamp(padTop + 8, media.height - btnH - 8);
+
+    _assistantCopyOverlay = OverlayEntry(
+      builder: (ctx) {
+        final scheme = Theme.of(context).colorScheme;
+        return Stack(
+          children: [
+            // 点空白关闭
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _dismissAssistantCopyOverlay,
+                child: const SizedBox.expand(),
+              ),
+            ),
+            Positioned(
+              left: left,
+              top: top,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                color: scheme.surfaceContainerHigh,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () async {
+                    await Clipboard.setData(ClipboardData(text: trimmed));
+                    _dismissAssistantCopyOverlay();
+                    if (mounted) showAppToast('已复制');
+                  },
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text(
+                      '复制',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    Overlay.of(context).insert(_assistantCopyOverlay!);
   }
 
   void _scrollToBottom({bool animate = true, bool force = false}) {
@@ -657,18 +1034,21 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     _scrollToBottom(animate: true, force: true);
   }
 
-  Future<void> _send() async {
+  Future<void> _send({String? overrideText}) async {
     if (!_consented) return;
-    final text = _input.text.trim();
+    final text = (overrideText ?? _input.text).trim();
     if (text.isEmpty) return;
-    _input.clear();
+    if (overrideText == null) {
+      _input.clear();
+    }
     setState(() {
       if (_activeAssistant != null) {
         final idx = _items.indexOf(_activeAssistant!);
         if (idx >= 0) _items.removeAt(idx);
       }
-      _items.add(_ChatItem.user(text));
-      _activeAssistant = _ChatItem.assistant();
+      final now = DateTime.now();
+      _items.add(_ChatItem.user(text, at: now));
+      _activeAssistant = _ChatItem.assistant(at: now);
       _items.add(_activeAssistant!);
       _followLatest = true;
       _showScrollToBottomButton = false;
@@ -680,6 +1060,159 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     }
   }
 
+  Future<void> _onVoicePointerDown() async {
+    final seq = ++_voiceHoldSeq;
+    _voiceHoldActive = true;
+    _setPagerScrollBlocked(true);
+
+    if (!_consented) {
+      _releaseVoiceHold();
+      _setPagerScrollBlocked(false);
+      return;
+    }
+    if (!ref.read(sessionProvider).isLoggedIn) {
+      _releaseVoiceHold();
+      _setPagerScrollBlocked(false);
+      if (mounted) {
+        final go = await showGlassConfirmDialog(
+              context,
+              title: '需要登录',
+              message: '请先登录后再使用语音。',
+              confirmLabel: '去登录',
+            ) ??
+            false;
+        if (go && mounted) await context.push('/login');
+      }
+      return;
+    }
+    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
+    if (dn == null || dn.isEmpty) {
+      _releaseVoiceHold();
+      _setPagerScrollBlocked(false);
+      if (mounted) {
+        final go = await showGlassConfirmDialog(
+              context,
+              title: '绑定宝宝',
+              message: '请先绑定宝宝信息后再使用语音。',
+              confirmLabel: '去绑定',
+            ) ??
+            false;
+        if (go && mounted) await context.push('/settings/bind-baby');
+      }
+      return;
+    }
+    if (!_isVoiceHoldCurrent(seq) || !mounted) return;
+    if (!await _prepareVoiceInput()) {
+      _releaseVoiceHold();
+      _setPagerScrollBlocked(false);
+      return;
+    }
+    if (!_isVoiceHoldCurrent(seq) || !mounted || _recognizer == null) return;
+
+    setState(() {
+      _listening = true;
+      _partial = '';
+      _slideToCancel = false;
+    });
+    await _recognizer!.startSession(
+      (partial) {
+        if (!mounted || !_isVoiceHoldCurrent(seq)) return;
+        setState(() => _partial = partial);
+      },
+    );
+    if (!_isVoiceHoldCurrent(seq) && mounted && _listening) {
+      await _recognizer?.cancelSession();
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _partial = '';
+      });
+      _setPagerScrollBlocked(false);
+    }
+  }
+
+  void _onHoldPointerDown(PointerDownEvent event) {
+    if (_inputMode != CompanionInputMode.voice || kIsWeb) return;
+    _activeVoicePointer = true;
+    _holdStartGlobalY = event.position.dy;
+    setState(() => _slideToCancel = false);
+    unawaited(_onVoicePointerDown());
+  }
+
+  void _onHoldPointerMove(PointerMoveEvent event) {
+    if (!_activeVoicePointer || _holdStartGlobalY == null) return;
+    // 上滑超过阈值 → 取消态（与喂养出界取消同量级）
+    final cancel = (_holdStartGlobalY! - event.position.dy) >= _slideCancelDy;
+    if (_slideToCancel != cancel) {
+      setState(() => _slideToCancel = cancel);
+    }
+  }
+
+  void _onHoldPointerUp(PointerUpEvent event) {
+    if (!_activeVoicePointer) return;
+    _activeVoicePointer = false;
+    _holdStartGlobalY = null;
+    final cancel = _slideToCancel;
+    _releaseVoiceHold();
+    setState(() => _slideToCancel = false);
+    if (cancel) {
+      unawaited(_onVoiceCancel(skipReleaseHold: true));
+    } else {
+      unawaited(_onVoiceEnd());
+    }
+  }
+
+  void _onHoldPointerCancel(PointerCancelEvent event) {
+    if (!_activeVoicePointer) return;
+    _activeVoicePointer = false;
+    _holdStartGlobalY = null;
+    setState(() => _slideToCancel = false);
+    unawaited(_onVoiceCancel());
+  }
+
+  Future<void> _onVoiceEnd() async {
+    // 门闩/prepare 中途松手：未真正开录，不发送
+    if (!_listening) {
+      if (_recognizer != null) {
+        await _recognizer!.cancelSession();
+      }
+      if (mounted) {
+        setState(() => _partial = '');
+      }
+      _setPagerScrollBlocked(false);
+      return;
+    }
+    if (_recognizer == null) {
+      _setPagerScrollBlocked(false);
+      return;
+    }
+    final fromEngine = await _recognizer!.endSession();
+    final text = (fromEngine.isNotEmpty ? fromEngine : _partial).trim();
+    if (!mounted) return;
+    setState(() {
+      _listening = false;
+      _partial = '';
+    });
+    _setPagerScrollBlocked(false);
+    if (text.isEmpty) return;
+    await _send(overrideText: text);
+  }
+
+  Future<void> _onVoiceCancel({bool skipReleaseHold = false}) async {
+    if (!skipReleaseHold) {
+      _releaseVoiceHold();
+    }
+    if (_recognizer != null) {
+      await _recognizer!.cancelSession();
+    }
+    if (!mounted) return;
+    setState(() {
+      _listening = false;
+      _partial = '';
+    });
+    _setPagerScrollBlocked(false);
+  }
+
   Future<void> _stopStreaming() async {
     final turnId = _activeTurnId ?? _client?.activeTurnId;
     if (turnId == null || turnId.isEmpty) return;
@@ -688,7 +1221,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
       _client?.setConnectionDesired(false);
     } else if (state == AppLifecycleState.resumed && _consented) {
       _client?.onAppLifecycleResumed();
@@ -699,11 +1233,15 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _dismissAssistantCopyOverlay();
     _scroll.removeListener(_onScroll);
     _frameSub?.cancel();
     _clinicWsReadySub?.cancel();
     _clinicWsPhaseSub?.cancel();
-    _client?.dispose();
+    _voiceAsrReadySub?.cancel();
+    _recognizer?.dispose();
+    _setPagerScrollBlocked(false);
+    // Clinic WS 由壳级 provider 持有，页面不得 dispose
     _input.dispose();
     _inputFocusNode.dispose();
     _scroll.dispose();
@@ -712,18 +1250,21 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
+    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),
+        (prev, loggedIn) {
       if (loggedIn && _consented) {
         _setupWs(desired: true);
       }
     });
-    ref.listen<String?>(sessionProvider.select((s) => s.accessToken), (prev, next) {
+    ref.listen<String?>(sessionProvider.select((s) => s.accessToken),
+        (prev, next) {
       if (!SessionController.isAccessTokenRotation(prev, next)) return;
       if (_consented && ref.read(sessionProvider).isLoggedIn) {
         _reconnectClinicWs();
       }
     });
-    ref.listen<bool>(sessionProvider.select((s) => s.isRefreshInFlight), (prev, inFlight) {
+    ref.listen<bool>(sessionProvider.select((s) => s.isRefreshInFlight),
+        (prev, inFlight) {
       if (prev != true || inFlight || !_consented) return;
       if (!ref.read(sessionProvider).isLoggedIn) return;
       _reconnectClinicWs();
@@ -733,13 +1274,18 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
       if (dn == null || dn.isEmpty) return;
       unawaited(_onDeviceNoChanged(dn));
     });
+    // KeepAlive 再次进入陪伴页：tip 注入 /「我来啦」
+    ref.listen<int>(companionEnterSignalProvider, (prev, next) {
+      if (prev == null || next <= prev) return;
+      unawaited(_onCompanionEntryActions());
+    });
 
-    final quota = ref.watch(voiceAiQuotaProvider);
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final dnAsync = ref.watch(deviceNoNotifierProvider);
     final canUseInput = _consented && loggedIn && !_needsDeviceBind(dnAsync);
     final needsDeviceBind = loggedIn && _needsDeviceBind(dnAsync);
-    final refreshInFlight = ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
+    final refreshInFlight =
+        ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
     // 与主页对齐：仅 gaveUp 时展示连接失败横幅。
     final showWsBanner = _consented &&
         loggedIn &&
@@ -752,39 +1298,50 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
             ? '请先登录'
             : _needsDeviceBind(dnAsync)
                 ? '请先绑定宝宝'
-                : '问问胖宝诊疗…';
+                : '跟胖宝说点什么…';
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('胖宝诊疗')),
+      // 可爱柔和底，衬托真玻璃
+      backgroundColor: Color.alphaBlend(
+        scheme.primary.withValues(alpha: 0.06),
+        scheme.surface,
+      ),
+      appBar: AppBar(
+        // 居中圆形品牌标，无「胖宝树洞」文案；无障碍仍保留语义
+        title: Semantics(
+          label: '胖宝树洞',
+          child: const StartupBrandingIcon(size: 36),
+        ),
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        // leading: widget.embeddedInHomePager
+        //     ? IconButton(
+        //         icon: const Icon(Icons.chevron_right),
+        //         tooltip: '返回喂养',
+        //         onPressed: () =>
+        //             ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.feeding),
+        //       )
+        //     : null,
+        actions: [
+          IconButton(
+            // 随主题色变色
+            icon: Icon(Icons.cached, color: scheme.primary),
+            tooltip: '清理陪伴记录',
+            onPressed: () => unawaited(_confirmClearCompanionHistory()),
+          ),
+          IconButton(
+            icon: Icon(Icons.chevron_right, color: scheme.primary),
+            tooltip: '返回喂养',
+            onPressed: () => ref
+                .read(homePagerRequestProvider.notifier)
+                .requestPage(HomePagerPage.feeding),
+          ),
+        ],
+      ),
       body: Column(
         children: [
-          quota.when(
-            data: (s) {
-              if (s == null) return const SizedBox.shrink();
-              final snap = s.clinicAi;
-              if (snap.limit <= 0) return const SizedBox.shrink();
-              final label = snap.degraded
-                  ? '本月胖宝诊疗额度已用完，已降速'
-                  : '本月胖宝诊疗剩余 ${snap.remaining} 次';
-              final colorScheme = Theme.of(context).colorScheme;
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: snap.degraded ? colorScheme.error : colorScheme.onSurface.withValues(alpha: 0.55),
-                      fontWeight: snap.degraded ? FontWeight.w600 : null,
-                    ),
-                  ),
-                ),
-              );
-            },
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
-          ),
           HomeHistoryWsStatusBanner(
             visible: showWsBanner,
             message: kHomeHistoryWsGaveUpMessage,
@@ -796,38 +1353,142 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
           Expanded(
             child: _buildConversationArea(context),
           ),
+          if (_companionVoiceStripText != null) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+              child: HomeVoiceMessageStrip(text: _companionVoiceStripText!),
+            ),
+            // Padding(
+            //   padding: const EdgeInsets.only(bottom: 4),
+            //   child: Text(
+            //     _slideToCancel ? '松开取消' : '松开发送',
+            //     textAlign: TextAlign.center,
+            //     style: TextStyle(
+            //       fontSize: 12,
+            //       color: _slideToCancel
+            //           ? scheme.error
+            //           : scheme.onSurface.withValues(alpha: 0.55),
+            //     ),
+            //   ),
+            // ),
+          ],
           Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + MediaQuery.paddingOf(context).bottom),
-            child: Row(
-              children: [
-                Expanded(
-                  child: KeyboardDismissExclude(
-                    child: TextField(
-                      controller: _input,
-                      focusNode: _inputFocusNode,
-                      enabled: canUseInput,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: canUseInput ? (_) => unawaited(_send()) : null,
-                      decoration: ucgComposerFieldDecoration(
-                        context,
-                        hint: inputHint,
+            padding: EdgeInsets.fromLTRB(
+                12, 8, 12, 12 + MediaQuery.paddingOf(context).bottom),
+            child: UcgComposeLightGlassPanel(
+              contentPadding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+              borderRadius: 20,
+              // 语音：Stack 通栏底色+居中文案，切换钮叠左（不挤压背景）
+              // 文字：Row 切换 + 输入框 + 发送
+              child: _inputMode == CompanionInputMode.voice && !kIsWeb
+                  ? SizedBox(
+                      height: 48,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Positioned.fill(
+                            child: Listener(
+                              behavior: HitTestBehavior.opaque,
+                              onPointerDown:
+                                  canUseInput ? _onHoldPointerDown : null,
+                              onPointerMove:
+                                  canUseInput ? _onHoldPointerMove : null,
+                              onPointerUp:
+                                  canUseInput ? _onHoldPointerUp : null,
+                              onPointerCancel:
+                                  canUseInput ? _onHoldPointerCancel : null,
+                              child: Container(
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: _listening
+                                      ? (_slideToCancel
+                                          ? scheme.errorContainer
+                                              .withValues(alpha: 0.55)
+                                          : scheme.primaryContainer
+                                              .withValues(alpha: 0.45))
+                                      : scheme.surface.withValues(alpha: 0.35),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Text(
+                                  !canUseInput
+                                      ? inputHint
+                                      : (_listening
+                                          ? (_slideToCancel ? '松开取消' : '松开发送')
+                                          : '按住 说话'),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: _listening && _slideToCancel
+                                        ? scheme.error
+                                        : scheme.onSurface.withValues(
+                                            alpha: canUseInput ? 0.85 : 0.45,
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // 叠在左侧：优先吃掉点击，避免与按住冲突
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: IconButton(
+                              tooltip: '切换到文字',
+                              onPressed: !_consented
+                                  ? null
+                                  : () => unawaited(
+                                        _setInputMode(CompanionInputMode.text),
+                                      ),
+                              icon: const Icon(Icons.keyboard_alt_outlined),
+                            ),
+                          ),
+                        ],
                       ),
+                    )
+                  : Row(
+                      children: [
+                        if (!kIsWeb)
+                          IconButton(
+                            tooltip: '切换到按住说话',
+                            onPressed: !_consented
+                                ? null
+                                : () => unawaited(
+                                      _setInputMode(CompanionInputMode.voice),
+                                    ),
+                            icon: const Icon(Icons.mic_none_rounded),
+                          ),
+                        Expanded(
+                          child: KeyboardDismissExclude(
+                            child: TextField(
+                              controller: _input,
+                              focusNode: _inputFocusNode,
+                              enabled: canUseInput,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: canUseInput
+                                  ? (_) => unawaited(_send())
+                                  : null,
+                              decoration: InputDecoration(
+                                hintText: inputHint,
+                                border: InputBorder.none,
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        if (_streaming)
+                          IconButton.filled(
+                            onPressed: canUseInput ? _stopStreaming : null,
+                            icon: const Icon(Icons.stop),
+                            tooltip: '停止',
+                          )
+                        else
+                          IconButton.filled(
+                            onPressed:
+                                canUseInput ? () => unawaited(_send()) : null,
+                            icon: const Icon(Icons.send),
+                          ),
+                      ],
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (_streaming)
-                  IconButton.filled(
-                    onPressed: canUseInput ? _stopStreaming : null,
-                    icon: const Icon(Icons.stop),
-                    tooltip: '停止',
-                  )
-                else
-                  IconButton.filled(
-                    onPressed: canUseInput ? _send : null,
-                    icon: const Icon(Icons.send),
-                  ),
-              ],
             ),
           ),
         ],
@@ -835,27 +1496,67 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     );
   }
 
+  Widget _messageTimeLabel(DateTime? at) {
+    if (at == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        formatCompanionMessageTime(at),
+        style: TextStyle(
+          fontSize: 11,
+          height: 1.2,
+          color: scheme.onSurface.withValues(alpha: 0.45),
+        ),
+      ),
+    );
+  }
+
   Widget _buildItem(_ChatItem item) {
+    // 本地遗留截断线：纯线无字（无时间）
+    if (item.isDivider) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        child: Divider(
+          height: 1,
+          thickness: 1,
+          color: Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withValues(alpha: 0.55),
+        ),
+      );
+    }
     if (item.isUser) {
+      // SelectableText 自管选区；填输入改图标，避免 GestureDetector 松手清选区
+      final q = item.question ?? '';
       return Align(
         alignment: Alignment.centerRight,
-        child: GestureDetector(
-          onTap: _consented
-              ? () {
-                  final q = item.question ?? '';
-                  if (q.isEmpty) return;
-                  _input.text = q;
-                  _input.selection = TextSelection.collapsed(offset: q.length);
-                }
-              : null,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(item.question ?? ''),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _messageTimeLabel(item.at),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: UcgComposeLightGlassPanel(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      // 透明色（不展示背景）
+                      eventAccent: Colors.transparent,
+                      borderRadius: 18,
+                      child: SelectableText(q),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       );
@@ -863,13 +1564,16 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if ((item.thinking ?? '').isNotEmpty)
+        _messageTimeLabel(item.at),
+        // 有非空 answer 不画 thinking（含历史）；仅 thinking 流式且无 answer 时展示
+        if ((item.thinking ?? '').isNotEmpty &&
+            (item.answer ?? '').trim().isEmpty &&
+            !item.isError)
           _ThinkingBlock(
             item: item,
-            streaming: item == _activeAssistant &&
-                (item.answer ?? '').isEmpty &&
-                !item.isError,
-            onTap: () => setState(() => item.thinkingExpanded = !item.thinkingExpanded),
+            streaming: item == _activeAssistant,
+            onTap: () =>
+                setState(() => item.thinkingExpanded = !item.thinkingExpanded),
           ),
         if (item.isError && (item.errorMessage ?? '').isNotEmpty)
           Container(
@@ -904,25 +1608,39 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen> with WidgetsB
             ),
           )
         else if ((item.answer ?? '').isNotEmpty)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: ClinicAnswerBody(
-              text: item.answer ?? '',
-              streaming: item == _activeAssistant && _streaming,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            // C′b：长按在上方出「复制」；不包 SelectionArea，不用 Clip.none
+            child: GestureDetector(
+              onLongPressStart: (details) {
+                _showAssistantCopyOverlay(
+                  globalPosition: details.globalPosition,
+                  text: item.answer ?? '',
+                );
+              },
+              child: UcgComposeLightGlassPanel(
+                contentPadding: const EdgeInsets.all(14),
+                borderRadius: 18,
+                child: ClinicAnswerBody(
+                  text: item.answer ?? '',
+                  streaming: item == _activeAssistant && _streaming,
+                  selectable: false,
+                ),
+              ),
             ),
           ),
         if (!item.isError && (item.answer ?? '').isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 8),
             child: Text(
-              '本回答仅供参考，不能替代医生诊断',
-              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45)),
+              '非医疗建议',
+              style: TextStyle(
+                fontSize: 8,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.45),
+              ),
             ),
           ),
       ],
@@ -983,7 +1701,8 @@ class _ThinkingBlock extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final textWidth = constraints.maxWidth;
-            final overflow = folded && _hasVisualOverflow(displayText, textWidth, style);
+            final overflow =
+                folded && _hasVisualOverflow(displayText, textWidth, style);
 
             Widget body;
             if (streaming) {
@@ -1043,7 +1762,8 @@ class _ThinkingBlock extends StatelessWidget {
                 const SizedBox(height: 4),
                 body,
                 if (overflow)
-                  Text('点击展开', style: TextStyle(fontSize: 10, color: scheme.primary)),
+                  Text('点击展开',
+                      style: TextStyle(fontSize: 10, color: scheme.primary)),
               ],
             );
           },

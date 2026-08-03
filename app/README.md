@@ -43,8 +43,6 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
-| `[HistoryOutbox]` | 喂养历史 outbox flush（pending ADD / UPDATE 队列） |
-
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
 `flutter run` 终端仍会转发设备 **完整 logcat**，其中可能混入：
@@ -601,7 +599,7 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 
 ## 交互说明（M2）
 
-- **主页历史列表**：每条为富文本摘要；点击一行在主页底部弹出 **编辑 Sheet**，可滚轮调整时分（不改日期）、编辑备注/用量、停止计时或删除，保存走 `POST /device/history/api/event/update`。更新请求体中 **`startTime` / `endTime` 为 Unix 秒级整型时间戳**（与列表解析一致，非毫秒）。`pending:*` 乐观记录在同步完成前为只读。
+- **主页历史列表**：每条为富文本摘要；点击一行在主页底部弹出 **编辑 Sheet**，可滚轮调整时分（不改日期）、编辑备注/用量、停止计时或删除，保存走 `POST /device/history/api/event/update`。更新请求体中 **`startTime` / `endTime` 为 Unix 秒级整型时间戳**（与列表解析一致，非毫秒）。按钮添加为 HTTP 成功后再入列（服务端 id）；无本地 outbox。
 - **Web 主输入**：默认与 App 一致为**事件按钮网格**；贴边 dock 可在**按钮 ↔ 文字**间切换。文字模式下 **Enter** 或「提交」走 `POST /device/history/api/chat`。游客或未绑宝宝时仅展示按钮、不显示 dock。
 - **趋势中心**：先拉取服务端事件目录，**下拉单选**某一事件后加载 `piece`；展示 **折线 + 量柱**（同一标量：计时类 `eventNumber==0` 为持续**小时数**，否则为次数）。时间范围仍为今日/周/月/季。
 

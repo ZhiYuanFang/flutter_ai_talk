@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -31,6 +30,7 @@ import '../data/event_definition.dart';
 import '../data/feed_repository.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
+import '../data/history_post_outcome.dart';
 import '../data/history_record_metric.dart';
 import '../data/models.dart';
 import 'event_catalog_picker_sheet.dart';
@@ -50,6 +50,7 @@ import 'home_input_mode_dock.dart';
 import 'home_reply_bottom_sheet.dart';
 import 'home_event_hourly_trend_sheet.dart';
 import 'home_today_summary_panel.dart';
+import 'widgets/home_tip_panel.dart';
 import 'home_voice_level_bars.dart';
 import 'home_voice_message_strip.dart';
 import 'home_voice_recording_stats.dart';
@@ -57,14 +58,13 @@ import '../providers/device_no_notifier.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/home_history_notifier.dart';
-import '../providers/ai_quota_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_baby.dart';
+import '../providers/tip_provider.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../data/notify_banner_repository.dart';
 import '../providers/toast_bus.dart';
-import 'widgets/ai_quota_remaining_hint.dart';
 import 'widgets/app_empty_state_gallery.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
@@ -129,6 +129,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _webFocusNode = FocusNode();
   final _webInputAnchorKey = GlobalKey();
   String? _chatReply;
+  String? _chatThinking;
+  StreamSubscription<ChatStreamEvent>? _chatStreamSub;
 
   late final ValueNotifier<double> _voiceLevelNotifier;
   late final VoiceLevelSmoother _voiceLevelSmoother;
@@ -145,14 +147,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   String? _flyTargetRecordId;
   EventDefinition? _flyEvent;
   int _flySession = 0;
-  final _recentlyReplacedIds = <String>{};
-  final _pendingIdRandom = Random();
+  /// 本机 HTTP 已入列、等待 WS create 再播飞入的 serverId
+  final _awaitingWsFlyIds = <String>{};
   var _activeTimingReminderShowing = false;
   String? _pendingReminderExcludeId;
   Map<String, int>? _eventUsageCounts;
   List<EventDefinition>? _buttonGridOrder;
   var _voiceSendSeq = 0;
   var _voiceSendWatchdogCorr = 0;
+  /// 按钮路径 add HTTP 进行中：禁用再次添加入口
+  var _eventAddInFlight = false;
   bool get _showRecordingStatsPanel =>
       _showRecordingDiagnostics &&
       _speechEngine == SpeechEngine.cloudAsr &&
@@ -398,25 +402,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return false;
   }
 
-  String _stablePendingId(EventDefinition event, DateTime start) {
-    final ts = start.millisecondsSinceEpoch~/1000;
-    return 'pending:${event.id}:$ts';
-  }
-
-  bool _hasPendingOptimisticRows() {
-    return ref
-        .read(homeHistoryProvider)
-        .items
-        .any((e) => isPendingHistoryId(e.id));
-  }
-
-  void _markRecentlyReplaced(String serverId) {
-    _recentlyReplacedIds.add(serverId);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _recentlyReplacedIds.remove(serverId);
-    });
-  }
-
   void _scheduleFlyForRecord(String recordId, EventDefinition? event) {
     if (!mounted) return;
     if (MediaQuery.disableAnimationsOf(context)) return;
@@ -435,6 +420,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required DateTime endTime,
     String remark = '',
   }) async {
+    if (_eventAddInFlight) return;
     final dn = ref.read(deviceNoNotifierProvider).asData?.value;
     if (dn == null || dn.isEmpty) return;
     final body = buildEventAddBody(
@@ -445,38 +431,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       endTime: endTime,
       remark: remark,
     );
-    final pendingId = _stablePendingId(event, startTime);
-    // ✅ 幂等：pendingId 已存在直接返回
-    if (ref.read(homeHistoryProvider).items.any((e) => e.id == pendingId)) {
-      return;
-    }
-    final optimistic = historyRecordFromAddBody(body, id: pendingId);
-    final scroll = _historyScrollKey.currentState;
-    if (scroll != null) {
-      scroll.scrollToBottom(force: true);
-    }
-    _history.insertOptimistic(optimistic);
-    if (mounted) {
-      _scheduleFlyForRecord(pendingId, event);
-    }
 
-    final feed = ref.read(feedRepositoryProvider);
+    setState(() => _eventAddInFlight = true);
+    try {
+      final feed = ref.read(feedRepositoryProvider);
+      final outcome = await feed.addHistoryEvent(body);
+      if (!mounted) return;
+      if (!outcome.isSuccess) {
+        // 业务失败已由 repository Toast；传输失败补提示
+        if (outcome.failureKind == HistoryPostFailureKind.transport) {
+          ref.showApiToast('同步失败，稍后请重试');
+        }
+        return;
+      }
 
-    final outcome = await feed.addHistoryEvent(body);
-    if (!mounted) return;
-    if (outcome.isSuccess) {
       final serverId = outcome.serverId!;
-      _markRecentlyReplaced(serverId);
-      _history.replaceRecordId(pendingId, serverId);
+      final record = historyRecordFromAddBody(body, id: serverId);
+      final scroll = _historyScrollKey.currentState;
+      if (scroll != null) {
+        scroll.scrollToBottom(force: true);
+      }
+      // HTTP：入列 + tip，不飞入；飞入留给 WS create
+      // WS 可能早于 HTTP：已存在则 upsert，不再登记 awaiting（WS 已飞过）
+      final alreadyThere =
+          ref.read(homeHistoryProvider).items.any((e) => e.id == serverId);
+      if (alreadyThere) {
+        _history.upsertRecord(record);
+      } else {
+        _history.insertOptimistic(record);
+        _awaitingWsFlyIds.add(serverId);
+      }
       _scheduleActiveTimingReminderAfterAdd(excludeRecordId: serverId);
       unawaited(EventButtonUsageStore.increment(event.id));
-      return;
+      _triggerTipGeneration(record);
+    } finally {
+      if (mounted) {
+        setState(() => _eventAddInFlight = false);
+      } else {
+        _eventAddInFlight = false;
+      }
     }
-
-    // Business failure (eg. invalid data) or transport failure: remove optimistic row
-    // and surface a toast. Transport failures previously left pending rows stuck.
-    _cancelFlyAndRemovePending(pendingId);
-    ref.showApiToast('同步失败，稍后请重试');
   }
 
   Future<void> _onEventGridTap(EventDefinition event) async {
@@ -499,6 +493,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _onEventButtonTap(EventDefinition event) async {
     if (!event.hasValidEventType) return;
+    if (_eventAddInFlight) return;
     if (!await _ensureRemoteGate()) return;
 
     final type = event.parsedEventType!;
@@ -524,9 +519,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           endTime: now,
         );
       case EventCatalogEventType.number:
-        if (!mounted) return;
+        if (!mounted || _eventAddInFlight) return;
         final result = await showHomeNumberEventSheet(context, event);
-        if (result == null || !mounted) return;
+        if (result == null || !mounted || _eventAddInFlight) return;
         await _submitEventAdd(
           event: event,
           eventNumber: result.eventNumber,
@@ -559,22 +554,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _maybeShowGaveUpSnackbar();
       }
     });
-    await _runLoggedInGatewayBootstrap();
     if (!mounted) return;
-    await _runPostLoginBootstrap();
+    final container = ProviderScope.containerOf(context, listen: false);
+    await _runLoggedInGatewayBootstrap(container);
     if (!mounted) return;
-    _scheduleDeferredCatalogLogoDownloads();
+    await _runPostLoginBootstrap(container);
     if (!mounted) return;
-    await _startHomePangbaoTransportsAfterGate();
+    _scheduleDeferredCatalogLogoDownloads(container);
+    if (!mounted) return;
+    await _startHomePangbaoTransportsAfterGate(container);
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_runHomeDialogBootstrap());
     });
   }
 
-  Future<void> _startHomePangbaoTransportsAfterGate() async {
-    await mountUcgHomeTransportsIfEligible(ref);
-    await _delayBeforeHistoryWebSocketOnIos();
+  Future<void> _startHomePangbaoTransportsAfterGate(
+      ProviderContainer container) async {
+    await mountUcgHomeTransportsIfEligible(container);
+    await _delayBeforeHistoryWebSocketOnIos(container);
     if (!mounted) return;
     _subscribeHistoryWebSocketIfNeeded();
     _scheduleVoiceAsrConnectIfNeeded();
@@ -582,25 +580,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
 
-  Future<void> _runLoggedInGatewayBootstrap() async {
-    if (ref.read(sessionProvider).isLoggedIn) {
-      await GatewayBootstrapGate.ensureLoggedInComplete(ref);
+  Future<void> _runLoggedInGatewayBootstrap(ProviderContainer container) async {
+    if (container.read(sessionProvider).isLoggedIn) {
+      await GatewayBootstrapGate.ensureLoggedInComplete(container);
     } else {
       await _bootstrapHomeData();
     }
   }
 
-  Future<void> _delayBeforeHistoryWebSocketOnIos() async {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
+  Future<void> _delayBeforeHistoryWebSocketOnIos(
+      ProviderContainer container) async {
+    if (!container.read(sessionProvider).isLoggedIn) return;
     if (kIsWeb || !Platform.isIOS) return;
     await Future<void>.delayed(_iosHistoryWsConnectDelay);
   }
 
-  void _scheduleDeferredCatalogLogoDownloads() {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
+  void _scheduleDeferredCatalogLogoDownloads(ProviderContainer container) {
+    if (!container.read(sessionProvider).isLoggedIn) return;
     if (kIsWeb || !Platform.isIOS) return;
-    unawaited(
-        ref.read(eventCatalogProvider.notifier).runDeferredLogoDownloads());
+    unawaited(container
+        .read(eventCatalogProvider.notifier)
+        .runDeferredLogoDownloads());
   }
 
   void _onHistoryWebSocketPayload(SseHistoryPayload payload) {
@@ -611,12 +611,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     final r = payload.record!;
     final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
-    final flySuppressed = _shouldScheduleWsFly(r.id);
+    // 本机 HTTP 已插入的 id：即使 !isNew 也要飞一次；真正他端新增：isNew 飞入
+    final awaitLocalFly = _awaitingWsFlyIds.remove(r.id);
     _history.upsertRecord(r);
-    if (isNew && !flySuppressed) {
+    if (awaitLocalFly || isNew) {
       _onWsNewHistoryRecord(r);
+    }
+    // 他端纯新增：补计时提醒；本机 HTTP 路径已提醒过
+    if (isNew && !awaitLocalFly) {
       _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
     }
+  }
+
+  /// 触发小贴士生成（本机按钮 add HTTP 成功后）。
+  ///
+  /// 月龄/时间由服务端派生；deviceNo 或 eventId 缺失时静默跳过。
+  /// 不依赖 History WS 就绪。
+  void _triggerTipGeneration(HistoryRecord record) {
+    // 从 rawPayload 获取 eventId（兼容 eventId/event_id 两种字段名）
+    final eventIdRaw =
+        record.rawPayload['eventId'] ?? record.rawPayload['event_id'];
+    final eventId = eventIdRaw is int
+        ? eventIdRaw
+        : int.tryParse(eventIdRaw?.toString() ?? '') ?? 0;
+    // 获取设备号：未绑定则跳过
+    final deviceNo = ref.read(deviceNoNotifierProvider).asData?.value ?? '';
+    if (deviceNo.isEmpty || eventId == 0) return;
+    // 触发小贴士流式接收（月龄/时间由服务端派生）
+    unawaited(ref.read(tipProvider.notifier).startStreaming(
+      deviceNo: deviceNo,
+      eventId: eventId,
+      eventName: record.eventName,
+    ));
   }
 
   void _subscribeHistoryWebSocketIfNeeded() {
@@ -628,39 +654,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _onLoggedInWhileHomeMounted() async {
-    await _runLoggedInGatewayBootstrap();
     if (!mounted) return;
-    await _runPostLoginBootstrap();
+    final container = ProviderScope.containerOf(context, listen: false);
+    await _runLoggedInGatewayBootstrap(container);
     if (!mounted) return;
-    _scheduleDeferredCatalogLogoDownloads();
+    await _runPostLoginBootstrap(container);
     if (!mounted) return;
-    await _startHomePangbaoTransportsAfterGate();
+    _scheduleDeferredCatalogLogoDownloads(container);
+    if (!mounted) return;
+    await _startHomePangbaoTransportsAfterGate(container);
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_runHomeDialogBootstrap());
     });
   }
 
-  bool _shouldScheduleWsFly(String recordId) {
-    if (_recentlyReplacedIds.contains(recordId)) return true;
-    if (_hasPendingOptimisticRows()) return true;
-    return false;
-  }
-
   void _onWsNewHistoryRecord(HistoryRecord record) {
     final event =
         lookupEventForRecord(ref.read(eventCatalogProvider).items, record);
     _scheduleFlyForRecord(record.id, event);
-  }
-
-  void _cancelFlyAndRemovePending(String pendingId) {
-    _history.setFlyAnimationFrozen(false);
-    _history.removeById(pendingId);
-    if (!mounted) return;
-    setState(() {
-      _flyTargetRecordId = null;
-      _flyEvent = null;
-    });
   }
 
   void _onFlyOverlayComplete(int session) {
@@ -754,14 +766,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// 版本检查：Splash 已做本地门禁后进主页，此处后台补全（loadBaby 由 GatewayBootstrapGate 负责）。
-  Future<void> _runPostLoginBootstrap() async {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
+  Future<void> _runPostLoginBootstrap(ProviderContainer container) async {
+    if (!container.read(sessionProvider).isLoggedIn) return;
     try {
       final currentVersion = await readPackageVersion();
       if (!mounted) return;
       await maybeShowVersionPrompt(
         context: context,
-        repo: ref.read(versionRepositoryProvider),
+        repo: container.read(versionRepositoryProvider),
         currentVersion: currentVersion,
       );
     } catch (_) {}
@@ -796,33 +808,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final feed = ref.read(feedRepositoryProvider);
 
     if (isPendingHistoryId(record.id)) {
+      // 残留 pending 行：仅本地结束，不再走 outbox
       _history.replaceRecordImmediate(_recordWithEndTime(record, end));
       if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
       return true;
     }
 
-    if (!feed.isHistoryWebSocketReady) {
-      // WS 未就绪时：直接走 HTTP（优先策略）。
-      final ok = await feed.updateHistoryRecord(
-        record.id,
-        remark: remark,
-        startTime: activeTimingStartAt(record),
-        endTime: end,
-        fallbackRecord: record,
-      );
-      if (!mounted) return false;
-      if (ok) {
-        _history.replaceRecordImmediate(_recordWithEndTime(record, end));
-        setState(() => _stoppingRecordIds.remove(record.id));
-        return true;
-      }
-      // HTTP 失败：不保留 pending，回退并提示用户
-      ref.showApiToast('同步失败，稍后请重试');
-      setState(() => _stoppingRecordIds.remove(record.id));
-      return false;
-    }
-
-    var ok = await feed.updateHistoryRecord(
+    // 停表一律即时 HTTP，不依赖 History WS / outbox
+    final ok = await feed.updateHistoryRecord(
       record.id,
       remark: remark,
       startTime: activeTimingStartAt(record),
@@ -833,7 +826,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (ok) {
       _history.replaceRecordImmediate(_recordWithEndTime(record, end));
     } else {
-      // HTTP 失败：如实返回失败并提示（不要默默当作成功）。
       ref.showApiToast('同步失败，稍后请重试');
     }
     setState(() => _stoppingRecordIds.remove(record.id));
@@ -880,7 +872,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// 事件目录 + 历史：Splash 已 hydrate；此处触发后台远端 sync。
   Future<void> _bootstrapHomeData() async {
-    await ColdStartBackgroundSync.run(ref);
+    if (!mounted) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    await ColdStartBackgroundSync.run(container);
+    if (!mounted) return;
     if (ref.read(eventCatalogProvider).items.isEmpty) {
       unawaited(_retryEventCatalogIfEmpty());
     }
@@ -982,9 +977,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await _history.bootstrap();
   }
 
-  /// 语音模式统一消息条：回复 > partial > 按住且无 partial 时的「聆听中…」。
+  /// 语音模式统一消息条：thinking > 回复 > partial > 按住且无 partial 时的「聆听中…」。
   String? get _voiceStripText {
     if (_inputChannel != HomeInputChannel.voice) return null;
+    final thinking = _chatThinking?.trim();
+    if (thinking != null && thinking.isNotEmpty) return thinking;
     final reply = _chatReply?.trim();
     if (reply != null && reply.isNotEmpty) return reply;
     final partial = _partial.trim();
@@ -1041,6 +1038,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
+  /// 发起流式聊天请求：订阅 sendCommand 返回的 Stream，
+  /// thinking 增量累积到 _chatThinking，answer 首帧到达后切换到 _chatReply。
+  void _startChatStream(String text) {
+    // 并发发送防护：取消上一个订阅并清空状态
+    _chatStreamSub?.cancel();
+    setState(() {
+      _chatThinking = null;
+      _chatReply = null;
+    });
+    final stream = ref.read(feedRepositoryProvider).sendCommand(text);
+    _chatStreamSub = stream.listen(
+      (event) {
+        if (!mounted) return;
+        setState(() {
+          if (event.type == ChatStreamEventType.thinking) {
+            // thinking 阶段：累积到 _chatThinking
+            _chatThinking = (_chatThinking ?? '') + event.content;
+          } else if (event.type == ChatStreamEventType.answer) {
+            // answer 首帧到达：清掉 thinking，后续累积到 _chatReply
+            if (_chatReply == null) {
+              _chatThinking = null;
+            }
+            _chatReply = (_chatReply ?? '') + event.content;
+          }
+        });
+      },
+      onError: (Object e) {
+        if (!mounted) return;
+        if (e is ApiBusinessException) {
+          handleAiQuotaException(context, e).then((handled) {
+            if (!mounted) return;
+            if (!handled) ref.showApiToastError(e.message);
+          });
+        }
+      },
+      onDone: () {
+        if (!mounted) return;
+      },
+    );
+  }
+
   Future<void> _onVoiceEnd() async {
     if (!_voiceReady || _recognizer == null) return;
     final recognizer = _recognizer!;
@@ -1059,18 +1097,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!await _ensureRemoteGate()) return;
     final corr = ++_voiceSendSeq;
     if (!_ensureHistoryWsForSend()) return;
-    try {
-      final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
-      _scheduleVoiceWsWatchdog(corr);
-      if (!mounted) return;
-      ref.invalidate(voiceAiQuotaProvider);
-      _applyChatReply(reply);
-    } on ApiBusinessException catch (e) {
-      if (!mounted) return;
-      if (!await handleAiQuotaException(context, e)) {
-        ref.showApiToastError(e.message);
-      }
-    }
+    _scheduleVoiceWsWatchdog(corr);
+    _startChatStream(text);
   }
 
   void _scheduleVoiceWsWatchdog(int corr) {
@@ -1151,6 +1179,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     setState(() {
       _listening = true;
       _chatReply = null;
+      _chatThinking = null;
       _partial = '';
     });
     _resetVoiceLevel();
@@ -1255,18 +1284,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!await _ensureRemoteGate()) return;
     if (!_ensureHistoryWsForSend()) return;
     if (!await _ensureAiChatDataConsent()) return;
-    try {
-      final reply = await ref.read(feedRepositoryProvider).sendCommand(text);
-      _webController.clear();
-      if (!mounted) return;
-      ref.invalidate(voiceAiQuotaProvider);
-      _applyChatReply(reply);
-    } on ApiBusinessException catch (e) {
-      if (!mounted) return;
-      if (!await handleAiQuotaException(context, e)) {
-        ref.showApiToastError(e.message);
-      }
-    }
+    _webController.clear();
+    _startChatStream(text);
   }
 
   Future<void> _openHistory(HistoryRecord record) async {
@@ -1287,6 +1306,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _wsReadySub?.cancel();
     _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();
+    _chatStreamSub?.cancel();
     PangbaoHomeTransportGate.onHomeUnmounted();
     unawaited(releasePangbaoHomeTransports(ref));
     _webFocusNode.dispose();
@@ -1385,9 +1405,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
     final refreshInFlight =
         ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
-    // 方案 B：仅 transport 3-strike gaveUp 时展示连接失败横幅；初次进入/disconnected/refresh 期间静默。
+    // 仅语音模式 + gaveUp 展示横幅；按钮模式不依赖 History WS，不挡操作。
     final showWsBanner = loggedIn &&
         !needsDeviceBind &&
+        _inputChannel == HomeInputChannel.voice &&
         _historyWsPhase == HistoryWsPhase.gaveUp &&
         !refreshInFlight;
     final tokens = Theme.of(context).extension<AppVisualTokens>();
@@ -1409,7 +1430,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     HomeImmersiveHeader(
                       title: '胖宝',
                       onTrendsTap: () => context.push('/trends'),
-                      onPangbaoTap: () => context.push('/pangbao'),
                       onSettingsTap: () => context.push('/settings'),
                     ),
                     const SizedBox(height: _kImmersiveHeaderContentSpacing),
@@ -1460,92 +1480,102 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       },
                     ),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                      child: Stack(
                         children: [
-                          Expanded(
-                            child: historyItems.isEmpty
-                                ? (needsGuestLogin
-                                    ? AppEmptyStateGallery(
-                                        animationPath:
-                                            'assets/images/ani_baby_welcome.json',
-                                        title: '尚未登录',
-                                        subtitle: '登录后即可记录与查看宝宝日常',
-                                        footnote: '左滑可先逛逛广场，看看其他宝妈宝爸的动态',
-                                        actionLabel: '去登录',
-                                        onAction: _onBindBannerTap,
-                                      )
-                                    : (historyInitialLoadDone
-                                        ? (needsDeviceBind
-                                            ? AppEmptyStateGallery(
-                                                animationPath:
-                                                    'assets/images/ani_baby_welcome.json',
-                                                title: '嗨，我是胖宝！',
-                                                subtitle: '我想更好地陪伴宝宝成长',
-                                                actionLabel: '立即绑定宝宝',
-                                                onAction: _onBindBannerTap,
-                                              )
-                                            : Consumer(
-                                                builder: (context, ref, _) {
-                                                  final baby = ref
-                                                      .watch(
-                                                          settingsBabyProvider)
-                                                      .asData
-                                                      ?.value;
-                                                  final name =
-                                                      baby?.nickname ?? '宝宝';
-                                                  return AppEmptyStateGallery(
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: historyItems.isEmpty
+                                    ? (needsGuestLogin
+                                        ? AppEmptyStateGallery(
+                                            animationPath:
+                                                'assets/images/ani_baby_welcome.json',
+                                            title: '尚未登录',
+                                            subtitle: '登录后即可记录与查看宝宝日常',
+                                            footnote: '左滑可先逛逛广场，看看其他宝妈宝爸的动态',
+                                            actionLabel: '去登录',
+                                            onAction: _onBindBannerTap,
+                                          )
+                                        : (historyInitialLoadDone
+                                            ? (needsDeviceBind
+                                                ? AppEmptyStateGallery(
                                                     animationPath:
-                                                        'assets/images/ani_baby_feeding_guide.json',
-                                                    title: '还没有为 $name 记录哦',
-                                                    subtitle:
-                                                        '试试点击下方按钮，开始记录第一笔吧',
-                                                  );
-                                                },
-                                              ))
-                                        : const Center(
-                                            child: SizedBox(
-                                              width: 24,
-                                              height: 24,
-                                              child: CircularProgressIndicator(
-                                                  strokeWidth: 2),
-                                            ),
-                                          )))
-                                : HomeHistoryTopFadeMask(
-                                    child: HomeHistoryScroll(
-                                      key: _historyScrollKey,
-                                      itemsAsc: historyItems,
-                                      eventCatalog: eventCatalogItems,
-                                      flyingRecordId: _flyTargetRecordId,
-                                      flyAnimationInProgress:
-                                          _flyTargetRecordId != null,
-                                      onRecordTap: _openHistory,
-                                      onStopActiveTimer: _stopActiveTimer,
-                                      stoppingRecordIds: _stoppingRecordIds,
-                                      hasMore: homeHistory.hasMore,
-                                      loadingMore: homeHistory.loadingMore,
-                                      onRefresh: () =>
-                                          _history.refreshFromRemote(),
-                                      onLoadMore: () =>
-                                          _history.loadMoreHistory(),
-                                    ),
-                                  ),
+                                                        'assets/images/ani_baby_welcome.json',
+                                                    title: '嗨，我是胖宝！',
+                                                    subtitle: '我想更好地陪伴宝宝成长',
+                                                    actionLabel: '立即绑定宝宝',
+                                                    onAction: _onBindBannerTap,
+                                                  )
+                                                : Consumer(
+                                                    builder: (context, ref, _) {
+                                                      final baby = ref
+                                                          .watch(
+                                                              settingsBabyProvider)
+                                                          .asData
+                                                          ?.value;
+                                                      final name =
+                                                          baby?.nickname ?? '宝宝';
+                                                      return AppEmptyStateGallery(
+                                                        animationPath:
+                                                            'assets/images/ani_baby_feeding_guide.json',
+                                                        title: '还没有为 $name 记录哦',
+                                                        subtitle:
+                                                            '试试点击下方按钮，开始记录第一笔吧',
+                                                      );
+                                                    },
+                                                  ))
+                                            : const Center(
+                                                child: SizedBox(
+                                                  width: 24,
+                                                  height: 24,
+                                                  child: CircularProgressIndicator(
+                                                      strokeWidth: 2),
+                                                ),
+                                              )))
+                                    : HomeHistoryTopFadeMask(
+                                        child: HomeHistoryScroll(
+                                          key: _historyScrollKey,
+                                          itemsAsc: historyItems,
+                                          eventCatalog: eventCatalogItems,
+                                          flyingRecordId: _flyTargetRecordId,
+                                          flyAnimationInProgress:
+                                              _flyTargetRecordId != null,
+                                          onRecordTap: _openHistory,
+                                          onStopActiveTimer: _stopActiveTimer,
+                                          stoppingRecordIds: _stoppingRecordIds,
+                                          hasMore: homeHistory.hasMore,
+                                          loadingMore: homeHistory.loadingMore,
+                                          onRefresh: () =>
+                                              _history.refreshFromRemote(),
+                                          onLoadMore: () =>
+                                              _history.loadMoreHistory(),
+                                        ),
+                                      ),
+                              ),
+                              if (_showVoiceMessageStrip)
+                                HomeVoiceMessageStrip(
+                                  key: ValueKey<String>(_voiceMessageStripKey),
+                                  text: _voiceStripText!,
+                                  expandable: _isVoiceStripShowingReply,
+                                  onExpand: _isVoiceStripShowingReply
+                                      ? () {
+                                          final reply = _chatReply?.trim() ?? '';
+                                          if (reply.isNotEmpty) {
+                                            showHomeReplyBottomSheet(
+                                                context, reply);
+                                          }
+                                        }
+                                      : null,
+                                ),
+                            ],
                           ),
-                          if (_showVoiceMessageStrip)
-                            HomeVoiceMessageStrip(
-                              key: ValueKey<String>(_voiceMessageStripKey),
-                              text: _voiceStripText!,
-                              expandable: _isVoiceStripShowingReply,
-                              onExpand: _isVoiceStripShowingReply
-                                  ? () {
-                                      final reply = _chatReply?.trim() ?? '';
-                                      if (reply.isNotEmpty) {
-                                        showHomeReplyBottomSheet(
-                                            context, reply);
-                                      }
-                                    }
-                                  : null,
+                          // 小贴士自管居中/拖动/贴边；空白区不挡历史点击
+                          Positioned.fill(
+                            child: HomeTipPanel(
+                              onDraggingChanged: widget.onDockDraggingChanged,
                             ),
+                          ),
                         ],
                       ),
                     ),
@@ -1611,18 +1641,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           alignment: inputAlign,
           child: _buildPrimaryHomeInput(context, catalogState),
         ),
-        if (_inputChannel == HomeInputChannel.text)
-          const Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: AiQuotaRemainingHint(
-                feature: AiQuotaRemainingHintFeature.voiceAi,
-                padding: EdgeInsets.only(bottom: 4),
-              ),
-            ),
-          ),
         if (_inputChannel == HomeInputChannel.voice)
           Positioned.fill(
             child: Listener(
@@ -1694,6 +1712,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           catalog: catalogState.items,
           rootEvents: _buttonGridOrder,
           isLoading: showCatalogLoading,
+          enabled: !_eventAddInFlight,
           onEventTap: (e) => unawaited(_onEventGridTap(e)),
         );
     }
@@ -1887,19 +1906,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  /// 语音球外层：客户端去额度后不再包额度 hint，仅保留高度约束居中。
   Widget _wrapVoiceOrbWithQuota(Widget orb) {
     return SizedBox(
       height: _kVoiceInputPanelHeight,
-      child: Column(
-        children: [
-          Expanded(child: Center(child: orb)),
-          const AiQuotaRemainingHint(
-            feature: AiQuotaRemainingHintFeature.voiceAi,
-            padding: EdgeInsets.only(bottom: 8),
-            glassStyle: true,
-          ),
-        ],
-      ),
+      child: Center(child: orb),
     );
   }
 }

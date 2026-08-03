@@ -12,11 +12,13 @@ import '../network/ws_connect_context.dart';
 import '../network/ws_connection_config.dart';
 import '../network/ws_phase_mapping.dart';
 
-/// 胖宝诊疗 WebSocket 客户端：连接后首帧 auth，auth_ok 后接收 session_sync 并可发送 question/cancel。
+/// 胖宝陪伴/诊疗 WebSocket 客户端：连接后首帧 auth，auth_ok 后接收 session_sync 并可发送 question/cancel。
+///
+/// 业务说明：接受 [Ref] 以便壳级 Provider 持有；建连走 [prepareDeviceWsConnectContext]。
 class ClinicWsClient {
   ClinicWsClient({
     required this.wsUrl,
-    required WidgetRef ref,
+    required Ref ref,
     required this.deviceNoGetter,
   }) : _ref = ref {
     _wsClient = ResilientWebSocketClient(
@@ -30,7 +32,7 @@ class ClinicWsClient {
           final dn = deviceNoGetter()?.trim();
           return dn != null && dn.isNotEmpty;
         },
-        prepareToken: () => prepareDeviceWsConnectContextFromWidget(
+        prepareToken: () => prepareDeviceWsConnectContext(
           _ref,
           deviceNo: deviceNoGetter()?.trim(),
           toastOnHardFailure: false,
@@ -50,7 +52,7 @@ class ClinicWsClient {
   }
 
   final String wsUrl;
-  final WidgetRef _ref;
+  final Ref _ref;
   final String? Function() deviceNoGetter;
 
   late final ResilientWebSocketClient _wsClient;
@@ -183,7 +185,8 @@ class ClinicWsClient {
   }
 
   Future<bool> _onClinicWsError(Map<String, dynamic> decoded) async {
-    final result = await handleWsAuthOrQuotaErrorFromWidget(_ref, decoded);
+    // 鉴权/额度统一走 Ref 版 handler（壳级 Provider 与 Widget 共用）
+    final result = await handleWsAuthOrQuotaError(_ref, decoded);
     if (result.forwardToUi && !_frameController.isClosed) {
       _frameController.add(decoded);
     }

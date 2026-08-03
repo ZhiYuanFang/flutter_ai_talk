@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/history_list_page.dart';
 import '../data/history_mapper.dart';
-import '../data/history_outbox_flusher.dart';
 import '../data/home_history_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/models.dart';
@@ -150,9 +149,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         highestPageLoaded: cached.highestPageLoaded,
       ),
     );
-    if (_ref.read(feedRepositoryProvider).isHistoryWebSocketReady) {
-      unawaited(_ref.read(feedRepositoryProvider).flushPendingHistoryOutbox());
-    }
   }
 
   String? _deviceNo() => _ref.read(deviceNoNotifierProvider).asData?.value;
@@ -237,6 +233,14 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   }
 
   void insertOptimistic(HistoryRecord record) {
+    // 防 WS 与 HTTP 竞态：同 id 已存在则合并，不追加第二行
+    final idx = state.items.indexWhere((e) => e.id == record.id);
+    if (idx >= 0) {
+      final next = [...state.items];
+      next[idx] = record;
+      _setItemsNow(next);
+      return;
+    }
     _setItemsNow([...state.items, record]);
   }
 
@@ -309,7 +313,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (!_ref.read(sessionProvider).isLoggedIn) {
       state = const HomeHistoryState(initialLoadDone: true);
       HomeHistoryMemoryCache.clear();
-      unawaited(clearHistoryUpdateOutbox());
       return;
     }
     await _warmFromDisk();
@@ -354,7 +357,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
           state.copyWith(total: page.total, highestPageLoaded: 1),
         );
       }
-      _maybeFlushPendingOutboxAfterRefresh();
       return;
     }
 
@@ -373,13 +375,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       ),
     );
     _applyState(next);
-    _maybeFlushPendingOutboxAfterRefresh();
-  }
-
-  void _maybeFlushPendingOutboxAfterRefresh() {
-    if (listPendingAddsInOrder(state.items).isEmpty) return;
-    if (!_ref.read(feedRepositoryProvider).isHistoryWebSocketReady) return;
-    unawaited(_ref.read(feedRepositoryProvider).flushPendingHistoryOutbox());
   }
 
   Future<void> loadMoreHistory() async {
@@ -446,7 +441,6 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     try {
       if (!_ref.read(sessionProvider).isLoggedIn) {
         HomeHistoryMemoryCache.clear();
-        unawaited(clearHistoryUpdateOutbox());
         state = const HomeHistoryState(initialLoadDone: true);
         return;
       }

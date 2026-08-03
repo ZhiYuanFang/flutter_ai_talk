@@ -84,7 +84,7 @@ class AiQuotaRemainingHint extends ConsumerWidget {
       return switch (feature) {
         AiQuotaRemainingHintFeature.polish => '本月润笔额度已用完，已降速',
         AiQuotaRemainingHintFeature.clinicAi => '本月胖宝诊疗额度已用完，已降速',
-        AiQuotaRemainingHintFeature.voiceAi => '本月 AI 对话剩余 ${snap.remaining} 次',
+        AiQuotaRemainingHintFeature.voiceAi => '本月 AI 对话额度已用完，已降速',
       };
     }
     return switch (feature) {

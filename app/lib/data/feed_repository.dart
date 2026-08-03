@@ -10,6 +10,23 @@ enum HistoryWsPhase {
   disconnected,
 }
 
+/// 聊天流式事件类型。
+enum ChatStreamEventType {
+  /// AI 思考过程增量文本。
+  thinking,
+
+  /// AI 回答内容增量文本。
+  answer,
+}
+
+/// 聊天流式事件：包含类型与内容。
+class ChatStreamEvent {
+  final ChatStreamEventType type;
+  final String content;
+
+  const ChatStreamEvent(this.type, this.content);
+}
+
 abstract class FeedRepository {
   Future<List<HistoryRecord>> loadHistory();
   /// 成功返回列表（可为空）；失败返回 `null`（不 Toast）。
@@ -42,16 +59,14 @@ abstract class FeedRepository {
   /// `POST /device/history/api/event/add`；成功返回 outcome；传输失败静默。
   Future<HistoryAddPostOutcome> addHistoryEvent(Map<String, dynamic> body);
 
-  /// outbox flush 用 update POST；业务失败已 Toast。
+  /// update POST；业务失败已 Toast。
   Future<HistoryUpdatePostOutcome> postHistoryUpdateBody(Map<String, dynamic> body);
 
-  /// 将 UPDATE 写入本地 outbox（WS 未就绪 stop/update）。
-  Future<void> enqueueHistoryUpdateOutbox(String recordId, Map<String, dynamic> body);
-
-  /// 历史 WebSocket ready 后 flush pending ADD 与 UPDATE outbox（single-flight）。
-  Future<void> flushPendingHistoryOutbox();
-  /// 提交自然语言指令；服务端在 `data.reply` 返回文本回复（可为空）。
-  Future<String?> sendCommand(String text);
+  /// 提交自然语言指令，SSE 流式返回 thinking/answer 事件。
+  ///
+  /// 调用方订阅 Stream 后，先收到 type=thinking 的事件，
+  /// answer 首帧到达后后续事件 type 均为 answer，收到 [DONE] 后流正常结束。
+  Stream<ChatStreamEvent> sendCommand(String text);
 
   /// 小组件每日喂养建议；纯 HTTP、不依赖 WS、失败不 Toast。
   Future<String?> fetchWidgetFeedingTip();

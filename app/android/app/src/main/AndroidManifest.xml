@@ -118,5 +118,17 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/pangbao_widget_large_info" />
         </receiver>
+        <!-- home_widget 交互「跳过」：插件 library Manifest 不自带，须宿主声明 -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundService"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>

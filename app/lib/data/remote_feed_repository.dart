@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import '../api/ai_quota_codes.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
@@ -14,8 +16,6 @@ import '../providers/ai_quota_dialog_bus.dart';
 import '../providers/toast_bus.dart';
 import '../api/app_debug_log.dart';
 import 'history_mapper.dart';
-import 'history_outbox_flusher.dart';
-import 'history_outbox_store.dart';
 import 'history_post_outcome.dart';
 import 'history_list_page.dart';
 import 'home_history_store.dart';
@@ -78,14 +78,10 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   void _emitWsReady(bool v) {
-    final wasReady = _wsReady;
     if (_wsReady == v) return;
     _wsReady = v;
     if (!_wsReadyController.isClosed) {
       _wsReadyController.add(v);
-    }
-    if (!wasReady && v) {
-      unawaited(flushHistoryOutbox(_ref));
     }
   }
 
@@ -216,7 +212,6 @@ class RemoteFeedRepository implements FeedRepository {
   Future<void> clearCache() async {
     _cache.clear();
     await HomeHistoryStore.clearAll();
-    await HistoryOutboxStore.clearAll();
   }
 
   @override
@@ -376,7 +371,7 @@ class RemoteFeedRepository implements FeedRepository {
       _toast(e.message);
       return HistoryAddPostOutcome.failure(HistoryPostFailureKind.business);
     } catch (e) {
-      AppDebugLog.historyOutbox('add transport err=$e');
+      AppDebugLog.wsTransport('history add transport err=$e');
       return HistoryAddPostOutcome.failure(HistoryPostFailureKind.transport);
     }
   }
@@ -392,24 +387,10 @@ class RemoteFeedRepository implements FeedRepository {
       _toast(e.message);
       return HistoryUpdatePostOutcome.failure(HistoryPostFailureKind.business);
     } catch (e) {
-      AppDebugLog.historyOutbox('update transport err=$e');
+      AppDebugLog.wsTransport('history update transport err=$e');
       return HistoryUpdatePostOutcome.failure(HistoryPostFailureKind.transport);
     }
   }
-
-  @override
-  Future<void> enqueueHistoryUpdateOutbox(String recordId, Map<String, dynamic> body) async {
-    final dn = _deviceNoGetter();
-    if (dn == null || dn.isEmpty || recordId.isEmpty) return;
-    await HistoryOutboxStore.enqueueUpdate(
-      deviceNo: dn,
-      recordId: recordId,
-      body: body,
-    );
-  }
-
-  @override
-  Future<void> flushPendingHistoryOutbox() => flushHistoryOutbox(_ref);
 
   @override
   Future<bool> deleteHistoryRecord(String id) async {
@@ -437,26 +418,119 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
-  Future<String?> sendCommand(String text) async {
+  Stream<ChatStreamEvent> sendCommand(String text) async* {
+    // 前置条件：deviceNo 非空
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {
       _toast('请先绑定宝宝信息');
-      return null;
+      return;
     }
-    if (!isHistoryWebSocketReady) return null;
+    // 前置条件：WS ready（与同步版本一致）
+    if (!isHistoryWebSocketReady) return;
+    // 前置条件：文本非空
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return null;
+    if (trimmed.isEmpty) return;
+
+    // 使用 http.Client 发送 SSE 请求
+    final client = http.Client();
     try {
-      final data = await _api.postJsonEnvelope(
-        '/device/history/api/chat',
-        {'deviceNo': dn, 'transcript': trimmed},
-      );
-      return data?['reply'] as String?;
-    } on ApiBusinessException catch (e) {
-      // 喂养 AI 额度/登录错误交由 UI 层弹框（与 WS error 帧一致）。
-      if (isAiQuotaBusinessCode(e.code)) rethrow;
-      _toast(e.message);
-      return null;
+      // 构建请求 URL（复用 ApiClient 的 baseUrl 与 token 逻辑）
+      final base = Uri.parse(_api.baseUrl);
+      final path = base.path.endsWith('/')
+          ? '${base.path}device/history/api/chat/stream'
+          : '${base.path}/device/history/api/chat/stream';
+      final uri = base.replace(path: path);
+
+      // 构建请求体
+      final body = jsonEncode({'deviceNo': dn, 'transcript': trimmed});
+
+      // 构建请求
+      final request = http.Request('POST', uri)
+        ..headers['Content-Type'] = 'application/json'
+        ..headers['Accept'] = 'text/event-stream'
+        ..body = body;
+
+      // 添加鉴权头（复用 ApiClient 的 accessTokenProvider）
+      final token = _api.accessTokenProvider();
+      if (token != null && token.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+
+      // 发送请求并获取流式响应
+      final response = await client.send(request);
+
+      // HTTP 非 200：尝试解析业务错误
+      if (response.statusCode != 200) {
+        final bodyStr = await response.stream.bytesToString();
+        // 尝试按 ApiClient 的 {code,message,data} 信封解析
+        try {
+          final decoded = jsonDecode(bodyStr);
+          if (decoded is Map<String, dynamic>) {
+            final codeVal = decoded['code'];
+            final code = codeVal is int ? codeVal : (codeVal is num ? codeVal.toInt() : -1);
+            final message = decoded['message'] as String? ?? '';
+            final exc = ApiBusinessException(code, message);
+            // AI 额度/登录错误交由 UI 层弹框（与同步版本一致）
+            if (isAiQuotaBusinessCode(code)) {
+              throw exc;
+            }
+            _toast(message);
+            return;
+          }
+        } catch (_) {
+          // 非 JSON 格式：按 HTTP 错误处理
+        }
+        throw ApiHttpException(response.statusCode, bodyStr);
+      }
+
+      // 逐行解析 SSE 帧
+      var currentEvent = ''; // 当前事件类型：thinking / answer
+      var buffer = ''; // 行缓冲（处理跨 chunk 的不完整行）
+
+      await for (final chunk in response.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+        // 按换行分割处理完整行
+        var lineEnd = 0;
+        while ((lineEnd = buffer.indexOf('\n')) != -1) {
+          final rawLine = buffer.substring(0, lineEnd);
+          buffer = buffer.substring(lineEnd + 1);
+          final line = rawLine.trim();
+          if (line.isEmpty) continue; // 空行跳过（帧分隔符）
+
+          // event: <type>
+          if (line.startsWith('event:')) {
+            currentEvent = line.substring(6).trim();
+            continue;
+          }
+
+          // data: <content>
+          if (line.startsWith('data:')) {
+            final data = line.substring(5).trim();
+            // 结束标记
+            if (data == '[DONE]') {
+              return;
+            }
+            // 仅当有当前事件类型时才产出内容
+            if (currentEvent == 'thinking') {
+              yield ChatStreamEvent(ChatStreamEventType.thinking, data);
+            } else if (currentEvent == 'answer') {
+              yield ChatStreamEvent(ChatStreamEventType.answer, data);
+            }
+            continue;
+          }
+        }
+      }
+    } on ApiBusinessException {
+      // AI 额度/登录业务错误：透传给调用方（已在上面 rethrow）
+      rethrow;
+    } on ApiHttpException {
+      // HTTP 传输错误：静默结束（调用方看不到也不 Toast，与同步版本传输失败一致）
+      return;
+    } catch (e) {
+      AppDebugLog.wsTransport('history chat stream err=$e');
+      return;
+    } finally {
+      client.close();
     }
   }
 

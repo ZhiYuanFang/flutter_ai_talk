@@ -55,6 +55,7 @@ struct WidgetTip: Decodable {
 
 struct WidgetRow: Decodable {
     let kind: String
+    let eventId: String?
     let name: String
     let startAt: String?
     let nextAt: String?
@@ -156,13 +157,47 @@ struct PangbaoWidgetEntryView: View {
         .widgetURL(URL(string: "pangbao://home"))
     }
 
-// MARK: - 过滤掉 hero 的最近记录
+// MARK: - 过滤掉与 hero 同 eventId 的最近记录
 private var recentExcludingHero: [WidgetRow] {
     guard let hero = entry.payload?.hero else {
         return entry.payload?.recentLast ?? []
     }
-    return (entry.payload?.recentLast ?? [])
-        .filter { $0.kind != hero.kind }
+    let heroId = hero.eventId ?? ""
+    return (entry.payload?.recentLast ?? []).filter { row in
+        let id = row.eventId ?? ""
+        if !heroId.isEmpty && !id.isEmpty { return id != heroId }
+        return row.name != hero.name
+    }
+}
+
+/// hero 旁「跳过」按钮（iOS 17+ 交互小组件）。
+@ViewBuilder
+private func heroSkipControl(for hero: WidgetRow) -> some View {
+    if #available(iOSApplicationExtension 17.0, *) {
+        heroSkipButtonIOS17(hero: hero)
+    }
+}
+
+@available(iOSApplicationExtension 17.0, *)
+@ViewBuilder
+private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
+    let eventId = hero.eventId ?? ""
+    if eventId.isEmpty {
+        EmptyView()
+    } else {
+        let encoded = eventId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? eventId
+        Button(
+            intent: WidgetBackgroundIntent(
+                url: URL(string: "pangbao-widget://skip?eventId=\(encoded)"),
+                appGroup: appGroupId
+            )
+        ) {
+            Text("跳过")
+                .font(.system(size: family == .systemLarge ? 14 : 12, weight: .semibold))
+                .foregroundColor(Color(red: 0.36, green: 0.64, blue: 0.91))
+        }
+        .buttonStyle(.plain)
+    }
 }
     @ViewBuilder
     private var headerRow: some View {
@@ -212,6 +247,7 @@ private var recentExcludingHero: [WidgetRow] {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(textSecondary)
                     .lineLimit(1)
+                heroSkipControl(for: hero)
             }
             Spacer(minLength: 0)
         } else {
@@ -300,6 +336,8 @@ private var recentExcludingHero: [WidgetRow] {
                                     .foregroundColor(parseColor(hero.color))
                                     .lineLimit(1)
                             }
+                            Spacer(minLength: 0)
+                            heroSkipControl(for: hero)
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                     }
