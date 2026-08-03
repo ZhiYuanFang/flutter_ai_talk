@@ -30,16 +30,17 @@ import '../providers/tip_provider.dart';
 import '../providers/toast_bus.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../session/session_controller.dart';
+import '../theme/companion_soft_chat_colors.dart';
 import '../ui/widgets/app_empty_state_gallery.dart';
 import '../ui/widgets/app_glass_overlay.dart';
 import '../ui/widgets/app_toast.dart';
 import '../ui/widgets/clinic_answer_body.dart';
+import '../ui/widgets/companion_soft_panel.dart';
 import 'home_history_scroll_to_bottom_button.dart';
 import 'home_history_ws_status_banner.dart';
 import 'home_voice_message_strip.dart';
 import 'startup_branding.dart';
 import '../ui/widgets/keyboard_dismiss_scope.dart';
-import '../ucg/ui/widgets/ucg_compose_light_glass_panel.dart';
 import '../voice/clinic_ws_client.dart';
 
 /// 智能陪伴：文本问答 + 流式 thinking/answer + 非医疗弱提示；支持流式中断/改问。
@@ -159,10 +160,19 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
   var _autoScrolling = false;
   String? _sessionDeviceNo;
 
+  /// 本轮提问原文（send 时固化，供 Stop 回填）
+  String? _activeQuestionText;
+
+  /// 仅用户点 Stop 后写入；匹配 turn_cancelled.cancelled 才回填
+  _StopRestorePending? _pendingStopRestore;
+
   /// 助手长按「复制」悬浮层（C′b）；与 SelectionArea 解耦
   OverlayEntry? _assistantCopyOverlay;
 
   bool get _streaming => _activeTurnId != null && _activeAssistant != null;
+
+  /// 进行中：助手已入列（含空等待、尚无 turnId）
+  bool get _turnInProgress => _activeAssistant != null;
 
   bool _needsDeviceBind(AsyncValue<String?> dnAsync) {
     return dnAsync.maybeWhen(
@@ -195,7 +205,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     return const AppEmptyStateGallery(
       animationPath: 'assets/images/ani_baby_feeding_guide.json',
       title: '来找我聊聊吧',
-      subtitle: '我会结合近 7 天喂养记录陪你解闷；对话会保存在本地。',
+      subtitle: '我会结合喂养记录陪你解闷；对话会保存在本地。',
       fallbackIcon: Icons.favorite_outline,
     );
   }
@@ -261,7 +271,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
             context,
             title: '使用智能陪伴前请知悉',
             message:
-                '您的问题及近 7 天喂养聚合摘要将发送至 AI 陪伴服务；回答过程可能展示 AI 思考过程。内容仅为陪伴参考，非医疗建议。',
+                '您的问题及喂养聚合摘要将发送至 AI 陪伴服务；回答过程可能展示 AI 思考过程。内容仅为陪伴参考，非医疗建议。',
             confirmLabel: '同意并继续',
           ) ??
           false;
@@ -281,6 +291,23 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     if (!mounted) return;
     // 首次进入：与 signal 可能并发，tip/问候门闩幂等可安全重复调用
     await _onCompanionEntryActions();
+    if (!mounted) return;
+    // 无论是否注入 tip，进页都落到最新一条
+    _scrollToLatestMessage();
+  }
+
+  /// 等布局后滚到列表底部（进页 / hydrate 用）
+  void _scrollToLatestMessage() {
+    if (_items.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToBottom(animate: false, force: true);
+      // 再等一帧：ListView 灌入后 maxScrollExtent 可能刚更新
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToBottom(animate: false, force: true);
+      });
+    });
   }
 
   /// 恢复陪伴输入模式；Web 始终文字。
@@ -611,7 +638,10 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     setState(() {
       _items.addAll(_itemsFromCachedTurns(snapshot.completed));
       _items.addAll(_itemsFromFailedTurns(failed));
+      _followLatest = true;
     });
+    // hydrate 后滚到最新（进页默认停在最新一条）
+    _scrollToLatestMessage();
   }
 
   Future<void> _onDeviceNoChanged(String deviceNo) async {
@@ -777,18 +807,47 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       final turnId = frame['turnId'] as String? ?? '';
       final reason = frame['reason'] as String? ?? '';
       if (turnId.isEmpty) return;
+      final pending = _pendingStopRestore;
+      // 仅用户 Stop 武装的 pending + cancelled 才回填
+      final shouldRestore = reason == 'cancelled' &&
+          pending != null &&
+          pending.turnId == turnId;
+      if (shouldRestore) {
+        final restoreText = pending.text;
+        setState(() {
+          _removeActiveTurnUserAndAssistant();
+          _pendingStopRestore = null;
+          _activeQuestionText = null;
+          _input.text = restoreText;
+          _input.selection =
+              TextSelection.collapsed(offset: restoreText.length);
+        });
+        if (_inputMode != CompanionInputMode.text) {
+          unawaited(_setInputMode(CompanionInputMode.text));
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _inputFocusNode.requestFocus();
+          });
+        }
+        if (mounted) showAppToast('已停止');
+        return;
+      }
       setState(() {
         if (turnId == _activeTurnId) {
           _clearActiveStreaming(removeAssistant: true);
         } else {
           _removePartialAssistantForTurn(turnId);
         }
+        // 过期 pending：迟到 cancelled/superseded 勿再恢复
+        if (pending != null && pending.turnId == turnId) {
+          _pendingStopRestore = null;
+        }
+        if (reason == 'superseded') {
+          _pendingStopRestore = null;
+        }
       });
-      if (reason == 'cancelled' && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已停止'), duration: Duration(seconds: 2)),
-        );
-      }
+      // 统一居中 toast（与「已复制」同路径）
+      if (reason == 'cancelled' && mounted) showAppToast('已停止');
       return;
     }
     if (_activeAssistant == null || _activeTurnId == null) return;
@@ -830,6 +889,32 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     }
     _activeTurnId = null;
     _activeAssistant = null;
+    _activeQuestionText = null;
+  }
+
+  /// Stop 恢复：删本轮用户气泡 + 助手气泡，清空 active
+  void _removeActiveTurnUserAndAssistant() {
+    if (_activeAssistant != null) {
+      final aIdx = _items.indexOf(_activeAssistant!);
+      if (aIdx > 0 && _items[aIdx - 1].isUser) {
+        _items.removeAt(aIdx - 1);
+      }
+      final idx = _items.indexOf(_activeAssistant!);
+      if (idx >= 0) _items.removeAt(idx);
+    }
+    _activeTurnId = null;
+    _activeAssistant = null;
+  }
+
+  /// 从 active 助手前一条用户气泡取问题原文
+  String? _questionTextBesideActiveAssistant() {
+    if (_activeAssistant == null) return null;
+    final idx = _items.indexOf(_activeAssistant!);
+    if (idx <= 0) return null;
+    final prev = _items[idx - 1];
+    if (!prev.isUser) return null;
+    final q = (prev.question ?? '').trim();
+    return q.isEmpty ? null : q;
   }
 
   void _removePartialAssistantForTurn(String turnId) {
@@ -904,21 +989,26 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     _assistantCopyOverlay = null;
   }
 
-  /// 在长按点上方弹出「复制」；默认复制整段 answer
+  /// 在气泡卡片上方居中弹出「复制」；默认复制整段 answer
   void _showAssistantCopyOverlay({
-    required Offset globalPosition,
+    required BuildContext bubbleContext,
     required String text,
   }) {
     final trimmed = text.trim();
     if (trimmed.isEmpty || !mounted) return;
+    // 用气泡 RenderBox 顶边居中，不跟手指
+    final box = bubbleContext.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final origin = box.localToGlobal(Offset.zero);
+    final size = box.size;
+
     _dismissAssistantCopyOverlay();
     final media = MediaQuery.sizeOf(context);
     final padTop = MediaQuery.paddingOf(context).top;
     const btnW = 72.0;
     const btnH = 36.0;
-    // 按钮中心对齐按压点，并上移一截
-    var left = globalPosition.dx - btnW / 2;
-    var top = globalPosition.dy - btnH - 12;
+    var left = origin.dx + size.width / 2 - btnW / 2;
+    var top = origin.dy - btnH - 8;
     left = left.clamp(8.0, media.width - btnW - 8);
     top = top.clamp(padTop + 8, media.height - btnH - 8);
 
@@ -1041,6 +1131,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     if (overrideText == null) {
       _input.clear();
     }
+    // 新发送清除旧 stop-restore，防迟到 cancelled 误回填
+    _pendingStopRestore = null;
     setState(() {
       if (_activeAssistant != null) {
         final idx = _items.indexOf(_activeAssistant!);
@@ -1050,13 +1142,18 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       _items.add(_ChatItem.user(text, at: now));
       _activeAssistant = _ChatItem.assistant(at: now);
       _items.add(_activeAssistant!);
+      _activeQuestionText = text;
       _followLatest = true;
       _showScrollToBottomButton = false;
     });
     _scrollToBottom(force: true);
     final turnId = await _client?.sendQuestion(text);
     if (turnId != null) {
-      setState(() => _activeTurnId = turnId);
+      setState(() {
+        _activeTurnId = turnId;
+        // 固化本轮问题，供 Stop 武装 pending
+        _activeQuestionText = text;
+      });
     }
   }
 
@@ -1133,6 +1230,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
 
   void _onHoldPointerDown(PointerDownEvent event) {
     if (_inputMode != CompanionInputMode.voice || kIsWeb) return;
+    // 进行中禁止开始语音采集
+    if (_turnInProgress) return;
     _activeVoicePointer = true;
     _holdStartGlobalY = event.position.dy;
     setState(() => _slideToCancel = false);
@@ -1194,6 +1293,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       _partial = '';
     });
     _setPagerScrollBlocked(false);
+    // 进行中禁语音新发（避免 supersede 旁路）
+    if (_turnInProgress) return;
     if (text.isEmpty) return;
     await _send(overrideText: text);
   }
@@ -1216,6 +1317,18 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
   Future<void> _stopStreaming() async {
     final turnId = _activeTurnId ?? _client?.activeTurnId;
     if (turnId == null || turnId.isEmpty) return;
+    // Stop 前武装 pending：仅此路径触发回填
+    final text = (_activeQuestionText?.trim().isNotEmpty == true
+            ? _activeQuestionText!.trim()
+            : _questionTextBesideActiveAssistant()) ??
+        '';
+    if (text.isNotEmpty) {
+      _pendingStopRestore =
+          _StopRestorePending(turnId: turnId, text: text);
+    } else {
+      // 无本地文案仍 cancel，但不得伪造回填（不写 pending）
+      _pendingStopRestore = null;
+    }
     await _client?.sendCancel(turnId);
   }
 
@@ -1274,15 +1387,21 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       if (dn == null || dn.isEmpty) return;
       unawaited(_onDeviceNoChanged(dn));
     });
-    // KeepAlive 再次进入陪伴页：tip 注入 /「我来啦」
+    // KeepAlive 再次进入陪伴页：tip 注入 /「我来啦」+ 滚到最新
     ref.listen<int>(companionEnterSignalProvider, (prev, next) {
       if (prev == null || next <= prev) return;
-      unawaited(_onCompanionEntryActions());
+      unawaited(() async {
+        await _onCompanionEntryActions();
+        if (mounted) _scrollToLatestMessage();
+      }());
     });
 
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
     final dnAsync = ref.watch(deviceNoNotifierProvider);
     final canUseInput = _consented && loggedIn && !_needsDeviceBind(dnAsync);
+    // 进行中可编辑，但禁 Send / 语音新发
+    final canSend = canUseInput && !_turnInProgress;
+    final canVoiceHold = canUseInput && !_turnInProgress;
     final needsDeviceBind = loggedIn && _needsDeviceBind(dnAsync);
     final refreshInFlight =
         ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
@@ -1300,13 +1419,11 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
                 ? '请先绑定宝宝'
                 : '跟胖宝说点什么…';
     final scheme = Theme.of(context).colorScheme;
+    // 柔和拟态软聊页底（随主题 seed）
+    final soft = CompanionSoftChatColors.of(context);
 
     return Scaffold(
-      // 可爱柔和底，衬托真玻璃
-      backgroundColor: Color.alphaBlend(
-        scheme.primary.withValues(alpha: 0.06),
-        scheme.surface,
-      ),
+      backgroundColor: soft.pageBg,
       appBar: AppBar(
         // 居中圆形品牌标，无「胖宝树洞」文案；无障碍仍保留语义
         title: Semantics(
@@ -1375,11 +1492,14 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
           Padding(
             padding: EdgeInsets.fromLTRB(
                 12, 8, 12, 12 + MediaQuery.paddingOf(context).bottom),
-            child: UcgComposeLightGlassPanel(
-              contentPadding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-              borderRadius: 20,
+            // 柔和拟态输入区：主题 tint + 极轻阴影（方案 B，去白卡片外框感）
+            child: CompanionSoftPanel(
+              fill: soft.inputBar,
+              shadows: soft.inputShadows,
+              contentPadding: const EdgeInsets.fromLTRB(0,0,0,0),
+              borderRadius: 24,
               // 语音：Stack 通栏底色+居中文案，切换钮叠左（不挤压背景）
-              // 文字：Row 切换 + 输入框 + 发送
+              // 文字：Row 切换 + 输入框 + 发送R
               child: _inputMode == CompanionInputMode.voice && !kIsWeb
                   ? SizedBox(
                       height: 48,
@@ -1390,13 +1510,13 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
                             child: Listener(
                               behavior: HitTestBehavior.opaque,
                               onPointerDown:
-                                  canUseInput ? _onHoldPointerDown : null,
+                                  canVoiceHold ? _onHoldPointerDown : null,
                               onPointerMove:
-                                  canUseInput ? _onHoldPointerMove : null,
+                                  canVoiceHold ? _onHoldPointerMove : null,
                               onPointerUp:
-                                  canUseInput ? _onHoldPointerUp : null,
+                                  canVoiceHold ? _onHoldPointerUp : null,
                               onPointerCancel:
-                                  canUseInput ? _onHoldPointerCancel : null,
+                                  canVoiceHold ? _onHoldPointerCancel : null,
                               child: Container(
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
@@ -1406,22 +1526,26 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
                                               .withValues(alpha: 0.55)
                                           : scheme.primaryContainer
                                               .withValues(alpha: 0.45))
-                                      : scheme.surface.withValues(alpha: 0.35),
+                                      : soft.userBubble.withValues(alpha: 0.55),
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Text(
                                   !canUseInput
                                       ? inputHint
-                                      : (_listening
-                                          ? (_slideToCancel ? '松开取消' : '松开发送')
-                                          : '按住 说话'),
+                                      : (_turnInProgress
+                                          ? '回答中，请先停止'
+                                          : (_listening
+                                              ? (_slideToCancel
+                                                  ? '松开取消'
+                                                  : '松开发送')
+                                              : '按住 说话')),
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600,
                                     color: _listening && _slideToCancel
                                         ? scheme.error
-                                        : scheme.onSurface.withValues(
-                                            alpha: canUseInput ? 0.85 : 0.45,
+                                        : soft.onBubble.withValues(
+                                            alpha: canVoiceHold ? 0.85 : 0.45,
                                           ),
                                   ),
                                 ),
@@ -1461,13 +1585,18 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
                             child: TextField(
                               controller: _input,
                               focusNode: _inputFocusNode,
+                              // 进行中仍可编辑草稿；Send 另禁
                               enabled: canUseInput,
                               textInputAction: TextInputAction.send,
-                              onSubmitted: canUseInput
+                              onSubmitted: canSend
                                   ? (_) => unawaited(_send())
                                   : null,
+                              style: TextStyle(color: soft.onBubble),
                               decoration: InputDecoration(
                                 hintText: inputHint,
+                                hintStyle: TextStyle(
+                                  color: soft.onBubble.withValues(alpha: 0.45),
+                                ),
                                 border: InputBorder.none,
                                 isDense: true,
                               ),
@@ -1475,18 +1604,12 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
                           ),
                         ),
                         const SizedBox(width: 4),
-                        if (_streaming)
-                          IconButton.filled(
-                            onPressed: canUseInput ? _stopStreaming : null,
-                            icon: const Icon(Icons.stop),
-                            tooltip: '停止',
-                          )
-                        else
-                          IconButton.filled(
-                            onPressed:
-                                canUseInput ? () => unawaited(_send()) : null,
-                            icon: const Icon(Icons.send),
-                          ),
+                        // 输入栏始终 Send；进行中灰色禁用（Stop 在助手壳）
+                        IconButton.filled(
+                          onPressed:
+                              canSend ? () => unawaited(_send()) : null,
+                          icon: const Icon(Icons.send),
+                        ),
                       ],
                     ),
             ),
@@ -1528,8 +1651,9 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       );
     }
     if (item.isUser) {
-      // SelectableText 自管选区；填输入改图标，避免 GestureDetector 松手清选区
+      // SelectableText 自管选区；柔和拟态用户气泡
       final q = item.question ?? '';
+      final soft = CompanionSoftChatColors.of(context);
       return Align(
         alignment: Alignment.centerRight,
         child: Padding(
@@ -1538,40 +1662,40 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               _messageTimeLabel(item.at),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Flexible(
-                    child: UcgComposeLightGlassPanel(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      // 透明色（不展示背景）
-                      eventAccent: Colors.transparent,
-                      borderRadius: 18,
-                      child: SelectableText(q),
-                    ),
-                  ),
-                ],
+              CompanionSoftPanel(
+                fill: soft.userBubble,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                borderRadius: 18,
+                child: SelectableText(
+                  q,
+                  style: TextStyle(color: soft.onBubble, height: 1.35),
+                ),
               ),
             ],
           ),
         ),
       );
     }
+    final soft = CompanionSoftChatColors.of(context);
+    final isActive = identical(item, _activeAssistant);
+    final answerEmpty = (item.answer ?? '').trim().isEmpty;
+    // 进行中：空等待也画思考壳；历史仅非空 thinking 且无 answer
+    final showThinkingShell = !item.isError &&
+        answerEmpty &&
+        (isActive || (item.thinking ?? '').isNotEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _messageTimeLabel(item.at),
-        // 有非空 answer 不画 thinking（含历史）；仅 thinking 流式且无 answer 时展示
-        if ((item.thinking ?? '').isNotEmpty &&
-            (item.answer ?? '').trim().isEmpty &&
-            !item.isError)
+        if (showThinkingShell)
           _ThinkingBlock(
             item: item,
-            streaming: item == _activeAssistant,
+            streaming: isActive,
+            showStop: isActive,
+            onStop: () => unawaited(_stopStreaming()),
             onTap: () =>
                 setState(() => item.thinkingExpanded = !item.thinkingExpanded),
           ),
@@ -1610,23 +1734,45 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
         else if ((item.answer ?? '').isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            // C′b：长按在上方出「复制」；不包 SelectionArea，不用 Clip.none
-            child: GestureDetector(
-              onLongPressStart: (details) {
-                _showAssistantCopyOverlay(
-                  globalPosition: details.globalPosition,
-                  text: item.answer ?? '',
+            // 长按复制：按气泡顶边居中；柔和拟态助手气泡（无头像）
+            child: Builder(
+              builder: (bubbleContext) {
+                return GestureDetector(
+                  onLongPressStart: isActive
+                      ? null
+                      : (_) {
+                          _showAssistantCopyOverlay(
+                            bubbleContext: bubbleContext,
+                            text: item.answer ?? '',
+                          );
+                        },
+                  child: CompanionSoftPanel(
+                    fill: soft.assistantBubble,
+                    contentPadding: const EdgeInsets.all(14),
+                    borderRadius: 18,
+                    // Stop 进布局流：正文下方右对齐，不叠挡、无固定底洞
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ClinicAnswerBody(
+                          text: item.answer ?? '',
+                          streaming: isActive && _streaming,
+                          selectable: false,
+                        ),
+                        if (isActive) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: _BubbleStopButton(
+                              onPressed: () => unawaited(_stopStreaming()),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 );
               },
-              child: UcgComposeLightGlassPanel(
-                contentPadding: const EdgeInsets.all(14),
-                borderRadius: 18,
-                child: ClinicAnswerBody(
-                  text: item.answer ?? '',
-                  streaming: item == _activeAssistant && _streaming,
-                  selectable: false,
-                ),
-              ),
             ),
           ),
         if (!item.isError && (item.answer ?? '').isNotEmpty)
@@ -1636,14 +1782,39 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
               '非医疗建议',
               style: TextStyle(
                 fontSize: 8,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.45),
+                color: soft.onBubble.withValues(alpha: 0.45),
               ),
             ),
           ),
       ],
+    );
+  }
+}
+
+class _StopRestorePending {
+  const _StopRestorePending({required this.turnId, required this.text});
+
+  final String turnId;
+  final String text;
+}
+
+/// 气泡右下角停止按钮
+class _BubbleStopButton extends StatelessWidget {
+  const _BubbleStopButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filled(
+      onPressed: onPressed,
+      icon: const Icon(Icons.stop, size: 20),
+      tooltip: '停止',
+      style: IconButton.styleFrom(
+        minimumSize: const Size(36, 36),
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
     );
   }
 }
@@ -1653,11 +1824,15 @@ class _ThinkingBlock extends StatelessWidget {
     required this.item,
     required this.onTap,
     this.streaming = false,
+    this.showStop = false,
+    this.onStop,
   });
 
   final _ChatItem item;
   final VoidCallback onTap;
   final bool streaming;
+  final bool showStop;
+  final VoidCallback? onStop;
 
   static const _lineHeight = 18.0;
   static const _maxLines = 5;
@@ -1683,7 +1858,10 @@ class _ThinkingBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final raw = item.thinking ?? '';
-    final displayText = streaming ? '$raw▍' : raw;
+    // 空等待：仅标题；有内容时流式加光标
+    final displayText = streaming
+        ? (raw.isEmpty ? '' : '$raw▍')
+        : raw;
     final folded = !streaming && !item.thinkingExpanded;
     final scheme = Theme.of(context).colorScheme;
     final style = _bodyStyle(scheme);
@@ -1701,12 +1879,15 @@ class _ThinkingBlock extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final textWidth = constraints.maxWidth;
-            final overflow =
-                folded && _hasVisualOverflow(displayText, textWidth, style);
+            final overflow = folded &&
+                displayText.isNotEmpty &&
+                _hasVisualOverflow(displayText, textWidth, style);
 
             Widget body;
             if (streaming) {
-              body = Text(displayText, style: style);
+              body = displayText.isEmpty
+                  ? const SizedBox(height: 4)
+                  : Text(displayText, style: style);
             } else if (folded) {
               body = SizedBox(
                 height: _foldHeight,
@@ -1752,8 +1933,9 @@ class _ThinkingBlock extends StatelessWidget {
               );
             }
 
+            // Stop 在正文下方右对齐（布局流），不挡字
             return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   streaming ? '思考中…' : '思考过程',
@@ -1763,7 +1945,15 @@ class _ThinkingBlock extends StatelessWidget {
                 body,
                 if (overflow)
                   Text('点击展开',
-                      style: TextStyle(fontSize: 10, color: scheme.primary)),
+                      style:
+                          TextStyle(fontSize: 10, color: scheme.primary)),
+                if (showStop && onStop != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _BubbleStopButton(onPressed: onStop!),
+                  ),
+                ],
               ],
             );
           },

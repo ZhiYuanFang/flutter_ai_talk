@@ -16,7 +16,7 @@ import 'home_history_scroll_to_bottom_button.dart';
 import 'home_history_timeline_tile.dart';
 
 /// 历史按日记录卡片背景不透明度（按深浅主题区分）。
-const kHistoryRecordsCardOpacityDark = 0.4;
+const kHistoryRecordsCardOpacityDark = 0.1;
 const kHistoryRecordsCardOpacityLight = 0.99;
 
 /// 主页历史区：按日分块 + 日期吸顶（顶部）+ 记录行仅 `HH:mm`；最新记录在底部。
