@@ -89,7 +89,7 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 - **空态**：未登录或无预测数据时展示「打开胖宝记录」；登出后立即清空 widget 内容。
 - **设置页**：「桌面小组件」区块可预览即将发生列表并手动「刷新小组件数据」。
 - **Android**：Manifest 已注册 `PangbaoWidgetSmall/Medium/LargeProvider`；Release 合并前须 `flutter build apk --release`。
-- **iOS**：源码位于 `ios/PangbaoWidget/`；Flutter 版本见仓库根 `.fvmrc`；GitHub Actions 自动添加 Extension 并 SPM 链接 `FlutterGeneratedPluginSwiftPackage`（`import home_widget`），双描述文件签名（无 Mac 见 `ios/PangbaoWidget/README.md` 与 `docs/github-ios-ipa.md`）。
+- **iOS**：源码位于 `ios/PangbaoWidget/`；`home_widget` **≥0.9**（SPM）；Flutter 版本见仓库根 `.fvmrc`；GitHub Actions 自动添加 Extension 并 SPM 链接 `FlutterGeneratedPluginSwiftPackage`（`import home_widget`），双描述文件签名（无 Mac 见 `ios/PangbaoWidget/README.md` 与 `docs/github-ios-ipa.md`）。
 - **隐私**：widget 仅展示本机已缓存的喂养事件与宝宝昵称/月龄，不含 token。
 
 ### WebSocket 架构

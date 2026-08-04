@@ -1,6 +1,6 @@
 # PangbaoWidget（iOS Widget Extension）
 
-Flutter 侧已通过 `home_widget` 写入 App Group `group.com.fzy.pangbao.widget`，键名 `widgetPayload`。
+Flutter 侧已通过 `home_widget`（**须 ≥0.9**，含 iOS SPM）写入 App Group `group.com.fzy.pangbao.widget`，键名 `widgetPayload`。
 
 ## 无 Mac / CI 打包（推荐）
 
