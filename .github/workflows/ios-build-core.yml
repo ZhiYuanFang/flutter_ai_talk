@@ -113,6 +113,7 @@ jobs:
     env:
       TARGET_CHANNEL: ${{ inputs.target_channel }}
       APP_DIR: ${{ inputs.app_dir }}
+      # 具体版本见步骤 Resolve Flutter version；此处保留 input 便于日志
       FLUTTER_VERSION: ${{ inputs.flutter_version }}
       BUILD_NAME: ${{ inputs.build_name }}
       BUILD_NUMBER: ${{ inputs.build_number }}
@@ -168,12 +169,23 @@ jobs:
           xcrun --show-sdk-version --sdk iphoneos
           xcrun --show-sdk-path --sdk iphoneos
 
+      - name: Resolve Flutter version
+        id: flutter_ver
+        run: |
+          set -euo pipefail
+          VER="$(bash app/tool/ci/resolve_flutter_version.sh "${{ inputs.flutter_version }}")"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Using Flutter $VER (真源 .fvmrc；input=${{ inputs.flutter_version }})"
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ inputs.flutter_version }}
+          flutter-version: ${{ steps.flutter_ver.outputs.version }}
           channel: stable
           cache: true
+
+      - name: Enable Swift Package Manager
+        run: flutter config --enable-swift-package-manager
 
       - name: Validate workflow configuration
         run: |
@@ -374,23 +386,32 @@ jobs:
 
       - name: Install CocoaPods dependencies
         working-directory: ${{ env.APP_DIR }}/ios
-        run: pod install --repo-update
+        run: |
+          set -euo pipefail
+          # 先清掉曾写入的 Extension→home_widget（撞 Flutter-static）
+          ruby ../tool/ci/remove_pangbao_widget_home_widget_pod.rb || true
+          pod install --repo-update
 
-      - name: Ensure PangbaoWidget Extension target
+      # 生成 ephemeral Packages + Runner SPM 产品依赖（供 Extension 链接 home_widget）
+      - name: Generate iOS SPM plugin package
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          flutter build ios --config-only --no-codesign
+          test -d ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage
+
+      - name: Ensure PangbaoWidget Extension target (SPM home_widget)
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
           sudo gem install xcodeproj -N
           export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.widget}"
+          ruby tool/ci/remove_pangbao_widget_home_widget_pod.rb
+          if grep -q 'BEGIN pangbao_widget_home_widget' ios/Podfile 2>/dev/null; then
+            echo "::error::Podfile 仍含 PangbaoWidget home_widget 块"
+            exit 1
+          fi
           ruby tool/ci/ensure_pangbao_widget_target.rb
-
-      # Extension 创建后才能写入 Podfile target；再 pod install 供 import home_widget
-      - name: Link home_widget to PangbaoWidget (CocoaPods)
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          set -euo pipefail
-          ruby tool/ci/ensure_pangbao_widget_home_widget_pod.rb
-          (cd ios && pod install)
 
       - name: Patch Pods embed frameworks script (archive codesign)
         working-directory: ${{ env.APP_DIR }}
@@ -533,10 +554,9 @@ jobs:
         run: |
           set -euo pipefail
           export IOS_WIDGET_BUNDLE_ID="${IOS_WIDGET_BUNDLE_ID:-${IOS_BUNDLE_ID}.widget}"
-          ruby tool/ci/ensure_pangbao_widget_target.rb
-          # 幂等补 Podfile；若刚补上则再 install
-          ruby tool/ci/ensure_pangbao_widget_home_widget_pod.rb
+          ruby tool/ci/remove_pangbao_widget_home_widget_pod.rb
           (cd ios && pod install)
+          ruby tool/ci/ensure_pangbao_widget_target.rb
 
       - name: Create export options plist
         run: |

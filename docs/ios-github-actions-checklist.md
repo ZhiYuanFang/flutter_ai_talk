@@ -433,7 +433,7 @@ YOUR_KEY_ID
 - `uses_non_exempt_encryption`：`false`（常见应用可跳过手工出口合规问答）
 - `export_method`：可保留默认（会被模式自动约束）
 - `upload_to_testflight`：可保留默认（在非 legacy 模式会被忽略）
-- `flutter_version`：`3.41.9`
+- `flutter_version`：`pinned`（读仓库根 `.fvmrc`，当前 `3.41.9`；可填具体版本覆盖）
 - `build_name`：留空或填 `1.0.0`
 - `build_number`：留空即可自动使用时间格式（如 `202605312016`）
 - `app_dir`：`app`

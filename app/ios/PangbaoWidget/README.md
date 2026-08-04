@@ -6,10 +6,11 @@ Flutter 侧已通过 `home_widget` 写入 App Group `group.com.fzy.pangbao.widge
 
 仓库 **无需本地 Xcode**。GitHub Actions 会在每次 iOS 构建时：
 
-1. 运行 `app/tool/ci/ensure_pangbao_widget_target.rb` 自动创建 Extension target 并嵌入 Runner
-2. 运行 `app/tool/ci/ensure_pangbao_widget_home_widget_pod.rb` 写入 Podfile 的 `PangbaoWidget` → `home_widget`，再 `pod install`
-3. 使用 **两份**描述文件签名（主 App + Widget Extension）
-4. `flutter build ipa` 产出含小组件的 IPA
+1. Flutter 版本以仓库根 **`.fvmrc`** 为准（CI `flutter_version=pinned`）
+2. 启用 SPM：`flutter config --enable-swift-package-manager`，`flutter build ios --config-only` 生成 `FlutterGeneratedPluginSwiftPackage`
+3. 运行 `app/tool/ci/ensure_pangbao_widget_target.rb`：创建 Extension，并链接上述 SPM 包（**不要**给 Extension 单独 `pod home_widget`，会撞 `Flutter-static`）
+4. 使用 **两份**描述文件签名（主 App + Widget Extension）
+5. `flutter build ipa` 产出含小组件的 IPA
 
 ### Apple Developer 网页配置（一次性）
 
@@ -42,9 +43,7 @@ CI 会在构建前校验描述文件 Bundle ID、Team ID、App Group 与过期�
 3. 用本目录下 `PangbaoWidget.swift`、`Info.plist`、`PangbaoWidget.entitlements`、`WidgetBackgroundIntent.swift` 替换/加入自动生成文件
 4. Runner 与 PangbaoWidget 均添加 App Group：`group.com.fzy.pangbao.widget`
 5. Extension 的 `kind` 须为 **`PangbaoWidget`**（与 `HomeWidgetConstants.iOSWidgetName` 一致）
-6. **交互「跳过」**：`WidgetBackgroundIntent.swift` 须同时加入 **Runner** 与 **PangbaoWidget** target；Extension 须能 `import home_widget`：
-   - **CocoaPods（本仓 CI）**：`ensure_pangbao_widget_home_widget_pod.rb` 为 `PangbaoWidget` 声明 `pod 'home_widget'` 后再次 `pod install`
-   - **SPM**：Extension Frameworks 链接 `FlutterGeneratedPluginSwiftPackage`（可选补充）
+6. **交互「跳过」**：`WidgetBackgroundIntent.swift` 须同时加入 **Runner** 与 **PangbaoWidget** target；Extension Frameworks / `packageProductDependencies` 须链接 **`FlutterGeneratedPluginSwiftPackage`**，以便 `import home_widget`
 7. Runner `AppDelegate` 须保留 iOS 17+ `HomeWidgetBackgroundWorker.setPluginRegistrantCallback`（勿删）
 
 ## 交互「跳过」前置（Android / iOS）
@@ -56,7 +55,7 @@ CI 会在构建前校验描述文件 Bundle ID、Team ID、App Group 与过期�
 | Android | App `AndroidManifest` 声明 `HomeWidgetBackgroundReceiver` + `HomeWidgetBackgroundService`（插件 library Manifest **不**自带） |
 | Android | 至少冷启一次 App，使 `HomeWidget.registerInteractivityCallback` 写入 callbackHandle |
 | Android | 改 Manifest / Renderer 后须**完整重装**，勿只 hot reload |
-| iOS 17+ | 上表第 6–7 步（含 Podfile Extension→home_widget）；`ForegroundContinuableIntent` 便于 App 挂起时仍进 Dart |
+| iOS 17+ | 上表第 6–7 步（SPM `FlutterGeneratedPluginSwiftPackage`）；`ForegroundContinuableIntent` 便于 App 挂起时仍进 Dart |
 | iOS &lt;17 | 不展示「跳过」按钮，整卡仍可打开 App |
 
 相关 change：`openspec/changes/widget-hero-skip-next`、`openspec/changes/fix-widget-hero-skip-interactivity`。

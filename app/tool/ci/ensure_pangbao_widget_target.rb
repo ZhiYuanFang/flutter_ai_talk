@@ -187,32 +187,65 @@ add_system_framework(widget_target, project, 'WidgetKit')
 add_system_framework(widget_target, project, 'SwiftUI')
 add_system_framework(widget_target, project, 'AppIntents')
 
-# 交互「跳过」：优先靠 CocoaPods（ensure_pangbao_widget_home_widget_pod.rb）；
-# 此处 SPM 包链接仅作补充，找不到不阻断（Pods 路径负责 import home_widget）。
-def ensure_flutter_plugin_package_on_widget(project, widget_target)
+# 交互「跳过」：Extension 须 SPM 链接 FlutterGeneratedPluginSwiftPackage 才能 import home_widget。
+# 禁止再给 PangbaoWidget 单独 pod home_widget（会撞 Flutter-static）。
+def ensure_flutter_plugin_package_on_widget(project, widget_target, runner_target)
   pkg_name = 'FlutterGeneratedPluginSwiftPackage'
-  ref = project.frameworks_group.files.find { |f| f.display_name == pkg_name || f.path == pkg_name }
-  unless ref
-    runner_t = project.targets.find { |t| t.name == 'Runner' }
-    runner_t&.frameworks_build_phase&.files_references&.each do |fr|
-      name = fr.display_name || fr.path || ''
-      if name.include?(pkg_name)
-        ref = fr
-        break
-      end
-    end
+  pkg_dir = File.join(IOS_DIR, 'Flutter', 'ephemeral', 'Packages', pkg_name)
+  unless File.directory?(pkg_dir)
+    abort(
+      "缺少 #{pkg_dir}。请先 flutter config --enable-swift-package-manager && " \
+      "flutter pub get && flutter build ios --config-only（勿用 CocoaPods 给 Extension 挂 home_widget）",
+    )
   end
-  unless ref
-    puts "提示: 未找到 #{pkg_name}（CocoaPods 场景常见）；依赖 Podfile 中 PangbaoWidget→home_widget"
-    return
-  end
-  return if widget_target.frameworks_build_phase.files_references.include?(ref)
 
-  widget_target.frameworks_build_phase.add_file_reference(ref)
-  puts "已为 PangbaoWidget 链接 #{pkg_name}"
+  runner_deps = runner_target.package_product_dependencies || []
+  runner_dep = runner_deps.find { |d|
+    (d.product_name == pkg_name) || (d.display_name == pkg_name)
+  }
+  abort(
+    "Runner 尚未声明 SPM 产品 #{pkg_name}。请确认已启用 Swift Package Manager 并完成 " \
+    "`flutter build ios --config-only`。",
+  ) unless runner_dep
+
+  # xcodeproj：保证 package_product_dependencies 可追加
+  if widget_target.package_product_dependencies.nil?
+    widget_target.package_product_dependencies = []
+  end
+  widget_deps = widget_target.package_product_dependencies
+  widget_dep = widget_deps.find { |d|
+    (d.respond_to?(:product_name) && d.product_name == pkg_name) ||
+      (d.respond_to?(:display_name) && d.display_name == pkg_name)
+  }
+  unless widget_dep
+    widget_dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    widget_dep.product_name = pkg_name
+    # 复用 Runner 的本地包引用（同一 XCLocalSwiftPackageReference）
+    widget_dep.package = runner_dep.package if runner_dep.respond_to?(:package)
+    widget_deps << widget_dep
+    puts "已为 PangbaoWidget 添加 packageProductDependencies → #{pkg_name}"
+  end
+
+  # Frameworks 阶段以 productRef 链接（非普通 fileRef）
+  already = widget_target.frameworks_build_phase.files.any? { |bf|
+    next false unless bf.respond_to?(:product_ref) && bf.product_ref
+
+    bf.product_ref == widget_dep ||
+      (bf.product_ref.respond_to?(:product_name) && bf.product_ref.product_name == pkg_name)
+  }
+  unless already
+    build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+    if build_file.respond_to?(:product_ref=)
+      build_file.product_ref = widget_dep
+    else
+      abort('当前 xcodeproj 不支持 PBXBuildFile#product_ref=，请升级 gem xcodeproj')
+    end
+    widget_target.frameworks_build_phase.files << build_file
+    puts "已为 PangbaoWidget Frameworks 链接 #{pkg_name}（SPM product）"
+  end
 end
 
-ensure_flutter_plugin_package_on_widget(project, widget_target)
+ensure_flutter_plugin_package_on_widget(project, widget_target, runner)
 apply_widget_build_settings(widget_target, runner)
 ensure_embed_extension_phase(runner, project, widget_target)
 apply_team_attributes(project, widget_target)

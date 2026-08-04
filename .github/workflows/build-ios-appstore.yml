@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       flutter_version:
-        description: Flutter 版本
+        description: Flutter 版本（pinned=读仓库 .fvmrc；亦可填具体版本覆盖）
         required: true
-        default: 3.41.9
+        default: pinned
         type: string
       build_name:
         description: 可选，覆盖 pubspec.yaml 中版本号
