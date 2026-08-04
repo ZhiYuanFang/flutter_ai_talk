@@ -8,7 +8,9 @@ PROJECT_PATH = File.join(IOS_DIR, 'Runner.xcodeproj')
 SCHEME_PATH = File.join(PROJECT_PATH, 'xcshareddata', 'xcschemes', 'Runner.xcscheme')
 WIDGET_NAME = 'PangbaoWidget'
 WIDGET_DIR = File.join(IOS_DIR, WIDGET_NAME)
-DEPLOYMENT_TARGET = ENV.fetch('IOS_DEPLOYMENT_TARGET', '14.0')
+# Extension 须 17（对齐 home_widget example；否则 WidgetBackgroundIntent +
+# ForegroundContinuableIntent 在 DT<17 下编不过）。主 App / Runner 仍保持工程内 14.0。
+WIDGET_DEPLOYMENT_TARGET = ENV.fetch('IOS_WIDGET_DEPLOYMENT_TARGET', '17.0')
 MAIN_BUNDLE_ID = ENV.fetch('IOS_BUNDLE_ID', 'com.fzy.pangbao')
 WIDGET_BUNDLE_ID = ENV.fetch('IOS_WIDGET_BUNDLE_ID', "#{MAIN_BUNDLE_ID}.widget")
 
@@ -49,7 +51,7 @@ def apply_widget_build_settings(widget_target, _runner_target)
     settings['PRODUCT_BUNDLE_IDENTIFIER'] = WIDGET_BUNDLE_ID
     settings['PRODUCT_NAME'] = '$(TARGET_NAME)'
     settings['SWIFT_VERSION'] = '5.0'
-    settings['IPHONEOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET
+    settings['IPHONEOS_DEPLOYMENT_TARGET'] = WIDGET_DEPLOYMENT_TARGET
     settings['TARGETED_DEVICE_FAMILY'] = '1'
     settings['SKIP_INSTALL'] = 'YES'
     settings['WRAPPER_EXTENSION'] = 'appex'
@@ -161,7 +163,7 @@ unless widget_target
     |f| f.path == 'PangbaoWidget.entitlements'
   }
 
-  widget_target = project.new_target(:app_extension, WIDGET_NAME, :ios, DEPLOYMENT_TARGET)
+  widget_target = project.new_target(:app_extension, WIDGET_NAME, :ios, WIDGET_DEPLOYMENT_TARGET)
   widget_target.add_file_references([swift_ref])
   created = true
 else

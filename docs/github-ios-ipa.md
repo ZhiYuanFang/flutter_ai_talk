@@ -252,7 +252,7 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 
 Ad Hoc / Development 同理：`IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64` 等。
 
-CI 会在构建前运行 `validate_ios_workflow_secrets.py` 校验 Bundle ID、Team、App Group 与过期时间。Flutter 版本默认读仓库根 **`.fvmrc`**（workflow 填 `pinned`）。`home_widget` **≥0.9**（含 iOS SPM）。Extension 由 `ensure_pangbao_widget_target.rb` 创建，并链接 SPM 包 `FlutterGeneratedPluginSwiftPackage` 以 `import home_widget`（**禁止**给 Extension 单独 CocoaPods `home_widget`），**无需本地 Xcode**。
+CI 会在构建前运行 `validate_ios_workflow_secrets.py` 校验 Bundle ID、Team、App Group 与过期时间。Flutter 版本默认读仓库根 **`.fvmrc`**（workflow 填 `pinned`）。`home_widget` **≥0.9**（含 iOS SPM）。Extension 由 `ensure_pangbao_widget_target.rb` 创建（**Widget Extension 最低 iOS 17**，主 App 仍 14+），并链接 SPM 包 `FlutterGeneratedPluginSwiftPackage` 以 `import home_widget`（**禁止**给 Extension 单独 CocoaPods `home_widget`），**无需本地 Xcode**。
 
 详见 `app/ios/PangbaoWidget/README.md`。
 
