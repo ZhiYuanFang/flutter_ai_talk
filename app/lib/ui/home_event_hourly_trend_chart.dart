@@ -54,11 +54,12 @@ class HomeEventHourlyTrendChart extends StatelessWidget {
     );
   }
 
-  SideTitles _bottomTitles(bool landscape, bool dense) {
+  SideTitles _bottomTitles(BuildContext context, bool landscape, bool dense) {
     final marks = landscape
         ? ChartAxisGranularity.landscapeXHourMarks
         : ChartAxisGranularity.portraitXHourMarks;
     return ChartAxisGranularity.glassBottomTitles(
+      context: context,
       landscape: landscape,
       dense: dense,
       showAtIndices: marks.toSet(),
@@ -66,8 +67,14 @@ class HomeEventHourlyTrendChart extends StatelessWidget {
     );
   }
 
-  SideTitles _leftTitles(double maxY, bool landscape, bool dense) {
+  SideTitles _leftTitles(
+    BuildContext context,
+    double maxY,
+    bool landscape,
+    bool dense,
+  ) {
     return ChartAxisGranularity.glassLeftTitles(
+      context: context,
       maxY: maxY,
       landscape: landscape,
       dense: dense,
@@ -91,9 +98,9 @@ class HomeEventHourlyTrendChart extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
               yAxisHint!,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
-                color: HistoryEditGlassPanel.glassLabelColor,
+                color: historyEditGlassLabelColor(context),
               ),
             ),
           ),
@@ -108,8 +115,8 @@ class HomeEventHourlyTrendChart extends StatelessWidget {
                 show: true,
                 rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                 topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(sideTitles: _bottomTitles(landscape, denseAxes)),
-                leftTitles: AxisTitles(sideTitles: _leftTitles(maxY, landscape, denseAxes)),
+                bottomTitles: AxisTitles(sideTitles: _bottomTitles(context, landscape, denseAxes)),
+                leftTitles: AxisTitles(sideTitles: _leftTitles(context, maxY, landscape, denseAxes)),
               ),
               borderData: FlBorderData(
                 show: true,

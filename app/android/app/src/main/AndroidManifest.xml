@@ -35,6 +35,16 @@
         <package android:name="com.android.vending" />
         <package android:name="com.huawei.appmarket" />
         <package android:name="com.xiaomi.market" />
+        <!-- 支付宝：检测安装 / 调起（Android 11+ package visibility） -->
+        <package android:name="com.eg.android.AlipayGphone" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="alipays" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="alipay" />
+        </intent>
     </queries>
 
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />

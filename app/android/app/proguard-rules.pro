@@ -26,3 +26,8 @@
 -dontwarn com.huawei.hianalytics.process.HiAnalyticsInstance
 -dontwarn com.huawei.hianalytics.process.HiAnalyticsManager
 -dontwarn com.huawei.hianalytics.util.HiAnalyticTools
+
+# 支付宝 SDK（tobias / Alipay SDK）
+-keep class com.alipay.** { *; }
+-keep class com.alipay.sdk.** { *; }
+-dontwarn com.alipay.**

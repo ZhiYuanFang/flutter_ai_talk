@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_color.dart';
 import '../../theme/app_theme_scope.dart';
 import '../../theme/app_visual_tokens.dart';
 
-/// UCG 模块共享主题语义色，避免硬编码 [Colors.*]。
+/// UCG 模块共享主题入口：仅转发 [AppColor]，不另起色源。
 abstract final class UcgTheme {
   static ColorScheme scheme(BuildContext context) => Theme.of(context).colorScheme;
 
-  static AppVisualTokens? tokens(BuildContext context) =>
-      Theme.of(context).extension<AppVisualTokens>();
+  /// 遗留兼容；新代码优先 [AppColor]。
+  static AppVisualTokens? tokens(BuildContext context) => visualTokensOf(context);
 
-  static Color onShell(BuildContext context) =>
-      tokens(context)?.onShell ?? scheme(context).onSurface;
+  static Color onShell(BuildContext context) => AppColor.textPrimary(context);
 
-  static Color primary(BuildContext context) => scheme(context).primary;
+  static Color primary(BuildContext context) => AppColor.primary(context);
 
-  static Color onPrimary(BuildContext context) => scheme(context).onPrimary;
+  static Color onPrimary(BuildContext context) => AppColor.onPrimary(context);
 
-  static Color surface(BuildContext context) =>
-      tokens(context)?.surfaceColor ?? scheme(context).surface;
+  static Color surface(BuildContext context) => AppColor.surface(context);
 
   static Color transparentFill(BuildContext context, {double alpha = 0.9}) =>
       surface(context).withValues(alpha: alpha);
@@ -32,14 +31,16 @@ abstract final class UcgTheme {
   }
 
   static Color pillBorder(BuildContext context) =>
-      tokens(context)?.pillBorder ?? primary(context).withValues(alpha: 0.35);
+      visualTokensOf(context)?.pillBorder ??
+      primary(context).withValues(alpha: 0.35);
 
   static Color pillBackground(BuildContext context) =>
-      tokens(context)?.pillBackground ?? themePrimaryBlend(context, alpha: 0.08);
+      visualTokensOf(context)?.pillBackground ??
+      themePrimaryBlend(context, alpha: 0.08);
 
+  /// 内容卡正文；广场假玻璃请用 [AppColor.textOnPanelGlass]。
   static Color onRecordsCard(BuildContext context) =>
-      tokens(context)?.onRecordsCard ?? onShell(context);
+      AppColor.textOnContentCard(context);
 
-  static Color surfaceBorder(BuildContext context) =>
-      tokens(context)?.surfaceBorderColor ?? onShell(context).withValues(alpha: 0.22);
+  static Color surfaceBorder(BuildContext context) => AppColor.divider(context);
 }

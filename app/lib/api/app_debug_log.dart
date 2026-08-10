@@ -59,4 +59,16 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[HomeWidget] ${_ts()} $message');
   }
+
+  /// 护理留意日缓存拉取 / 忽略 / 飞轮反馈。
+  static void careAlert(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[CareAlert] ${_ts()} $message');
+  }
+
+  /// Cash VIP 商品 / 状态 / 建单 / 支付验单。
+  static void cashVip(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[CashVip] ${_ts()} $message');
+  }
 }

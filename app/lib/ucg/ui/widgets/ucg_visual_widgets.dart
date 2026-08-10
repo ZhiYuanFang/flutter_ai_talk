@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/ucg_feature_flags.dart';
-import '../../../theme/app_theme_scope.dart';
+import '../../../theme/app_color.dart';
 import '../../../theme/app_visual_tokens.dart';
+import '../../../ui/theme_palette_sheet.dart';
 import '../../../ui/widgets/keyboard_dismiss_scope.dart';
 import '../../../ui/widgets/keyboard_input_bridge.dart';
 import '../../../ui/widgets/keyboard_lift.dart';
@@ -19,13 +20,12 @@ InputDecoration ucgComposerFieldDecoration(
   BuildContext context, {
   required String hint,
 }) {
-  final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
-      Theme.of(context).colorScheme.onSurface;
+  final fg = AppColor.textPrimary(context);
   return InputDecoration(
     hintText: hint,
     isDense: true,
     filled: true,
-    fillColor: UcgSurfaceCard.surfaceFillColor(context),
+    fillColor: AppColor.fieldFill(context),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide.none,
@@ -80,10 +80,8 @@ class UcgScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final shellBg = tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
-      backgroundColor: shellBg,
+      backgroundColor: AppColor.pageBg(context),
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       body: SafeArea(bottom: false, child: body),
       bottomNavigationBar: bottomNavigationBar,
@@ -113,8 +111,7 @@ class UcgImmersiveHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tokens = theme.extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? theme.colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     const sideSlot = 52.0;
 
     return Padding(
@@ -221,6 +218,11 @@ class UcgTabPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 主壳 Tab 顶栏最右固定调色盘（与喂养/预测共用 Sheet）
+    final headerActions = <Widget>[
+      ...actions,
+      const ThemePaletteIconButton(),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -229,7 +231,7 @@ class UcgTabPage extends StatelessWidget {
           subtitle: subtitle,
           titleWidget: titleWidget,
           leading: leading,
-          actions: actions,
+          actions: headerActions,
           showTitle: showTitle,
         ),
         if (headerBottom != null) ...[
@@ -264,9 +266,9 @@ class UcgSurfaceCard extends StatelessWidget {
   final EdgeInsets? margin;
   final bool showBorder;
 
+  /// panelGlass top for square/surface cards.
   static Color surfaceFillColor(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    return tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.06);
+    return AppColor.panelGlassTop(context);
   }
 
   /// 与卡片内填充一致的单色装饰（如滑动面板遮罩）。
@@ -277,16 +279,19 @@ class UcgSurfaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onRecordsCard ?? Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textOnPanelGlass(context);
     final radius = borderRadius ?? (tokens?.surfaceRadius ?? 14).toDouble();
 
     Widget card = DecoratedBox(
       decoration: BoxDecoration(
-        color: surfaceFillColor(context),
+        gradient: AppColor.panelGlassGradient(context),
         borderRadius: BorderRadius.circular(radius),
-        border: showBorder ? Border.all(color: fg.withValues(alpha: 0.08)) : null,
+        border: showBorder ? Border.all(color: AppColor.divider(context)) : null,
       ),
-      child: Padding(padding: padding, child: child),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: fg),
+        child: Padding(padding: padding, child: child),
+      ),
     );
 
     if (margin != null) {
@@ -319,8 +324,7 @@ class UcgSectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
       child: Row(
@@ -357,9 +361,8 @@ class UcgSegmentedPills<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final onShell = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
-        Theme.of(context).colorScheme.onSurface;
+    final primary = AppColor.primary(context);
+    final onShell = AppColor.textPrimary(context);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -432,8 +435,7 @@ class UcgEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
 
     return Center(
       child: Padding(
@@ -491,8 +493,7 @@ class UcgInteractionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     final color = active ? primary : fg.withValues(alpha: 0.62);
 
     return InkWell(
@@ -598,9 +599,8 @@ class _DockItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final muted = (tokens?.onShell ?? Theme.of(context).colorScheme.onSurface).withValues(alpha: 0.55);
+    final primary = AppColor.primary(context);
+    final muted = AppColor.textMuted(context);
     final fg = selected ? primary : muted;
 
     return Expanded(
@@ -682,9 +682,8 @@ class UcgPageComposerChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final primary = Theme.of(context).colorScheme.primary;
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final primary = AppColor.primary(context);
+    final fg = AppColor.textPrimary(context);
     final bottom = MediaQuery.paddingOf(context).bottom;
     final fieldEnabled = enabled && !busy;
     final bridge = keyboardInputBridgeController;
@@ -831,8 +830,7 @@ class _UcgProfileFieldEditSheetState extends State<UcgProfileFieldEditSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
-        Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     final multiline = widget.maxLines != 1;
 
     return Column(
@@ -927,8 +925,7 @@ class _UcgInputDockState extends State<UcgInputDock> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     final fieldEnabled = widget.enabled && !widget.busy;
 
     return UcgPageComposerChrome(
@@ -964,8 +961,7 @@ typedef UcgGlassInputDock = UcgInputDock;
 
 Widget? ucgBackLeading(BuildContext context, VoidCallback? onBack, {String tooltip = '返回喂养'}) {
   if (onBack == null) return null;
-  final tokens = Theme.of(context).extension<AppVisualTokens>();
-  final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+  final fg = AppColor.textPrimary(context);
   return IconButton(
     icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: fg.withValues(alpha: 0.75)),
     tooltip: tooltip,

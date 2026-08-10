@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../providers/session_provider.dart';
-import '../../theme/app_visual_tokens.dart';
+import '../../theme/app_color.dart';
 import '../data/ucg_location.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
@@ -46,8 +46,7 @@ class _SquareLoadStatusPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     if (phase == _SquareLoadPhase.idle) return const SizedBox.shrink();
 
-    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
-        Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
 
     final content = Column(
       mainAxisSize: MainAxisSize.min,
@@ -359,8 +358,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       }
     });
 
-    final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
-        Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     final primary = Theme.of(context).colorScheme.primary;
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
 
@@ -588,8 +586,7 @@ class UcgFeedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final fg = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
+    final fg = AppColor.textPrimary(context);
     final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
     final ipLoc = post.ipLocationDisplay;
     final bio = post.authorBio.trim();

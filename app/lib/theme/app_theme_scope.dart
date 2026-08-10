@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/models.dart';
+import 'app_color.dart';
 import 'app_visual_tokens.dart';
 import 'theme_preset.dart';
 
@@ -60,6 +61,37 @@ Color themePrimaryBlendFromTheme(ThemeData theme, ColorScheme scheme, {double al
     base,
   );
 }
+
+/// 内容卡玻璃底 → [AppColor.contentCard]（alpha 参数忽略，保留签名兼容）。
+@Deprecated('Use AppColor.contentCard / AppColor.modalFill by role')
+Color themeGlassFill(
+  BuildContext context, {
+  double lightWhiteAlpha = 0.55,
+  double darkPrimaryAlpha = 0.12,
+}) {
+  return AppColor.contentCard(context);
+}
+
+/// 内容卡描边 → divider / content 边（兼容旧调用）。
+@Deprecated('Use AppColor.divider or AppColor.modalBorder by role')
+Color themeGlassBorder(
+  BuildContext context, {
+  double lightWhiteAlpha = 0.45,
+}) {
+  return AppColor.divider(context);
+}
+
+/// 次要/取消类前景 → [AppColor.textMuted]。
+Color themeMutedForeground(BuildContext context, {double alpha = 0.55}) {
+  if ((alpha - 0.55).abs() < 0.001) return AppColor.textMuted(context);
+  return AppColor.textPrimary(context).withValues(alpha: alpha);
+}
+
+/// 壳上主文字 → [AppColor.textPrimary]。
+Color themeShellForeground(BuildContext context) => AppColor.textPrimary(context);
+
+/// 实心主色按钮字色 → [AppColor.onPrimary]。
+Color themeOnPrimary(BuildContext context) => AppColor.onPrimary(context);
 
 ThemeData buildAppTheme({
   required BabySex sex,

@@ -291,6 +291,98 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
+  Future<List<HistoryRecord>?> tryLoadHistoryFilter({
+    int startTime = 0,
+    int endTime = 0,
+    int limit = kHistoryFilterMaxLimit,
+    String eventIds = '',
+  }) async {
+    final dn = _deviceNoGetter();
+    // 无 deviceNo：失败（null），不得当成成功空列表以免 range ready 锁死
+    if (dn == null || dn.isEmpty) return null;
+    try {
+      final query = <String, String>{
+        'deviceNo': dn,
+        'eventIds': eventIds,
+        'limit': '$limit',
+      };
+      if (startTime > 0) query['startTime'] = '$startTime';
+      if (endTime > 0) query['endTime'] = '$endTime';
+      final data = await _api.getEnvelope(
+        '/device/history/api/filter',
+        query: query,
+        timeout: const Duration(seconds: 45),
+      );
+      if (data == null) return null;
+      final list = data['list'] as List<dynamic>? ?? const [];
+      final out = <HistoryRecord>[];
+      for (final e in list) {
+        if (e is Map) {
+          out.add(historyRecordFromServerMap(Map<String, dynamic>.from(e)));
+        }
+      }
+      return out;
+    } on ApiBusinessException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<HistoryListPage?> tryLoadHistoryPageV2({
+    int page = 1,
+    int pageSize = kHomeHistoryPageSize,
+    int startTime = 0,
+    int endTime = 0,
+    int limit = 0,
+  }) async {
+    final dn = _deviceNoGetter();
+    // 无 deviceNo：失败（null），不得返回成功空页
+    if (dn == null || dn.isEmpty) return null;
+    try {
+      final query = <String, String>{
+        'deviceNo': dn,
+        'page': '$page',
+        'pageSize': '$pageSize',
+      };
+      if (startTime > 0) query['startTime'] = '$startTime';
+      if (endTime > 0) query['endTime'] = '$endTime';
+      if (limit > 0) query['limit'] = '$limit';
+      final data = await _api.getEnvelope(
+        '/device/history/api/v2/list',
+        query: query,
+        timeout: const Duration(seconds: 45),
+      );
+      if (data == null) return null;
+      final list = data['list'] as List<dynamic>? ?? const [];
+      final out = <HistoryRecord>[];
+      for (final e in list) {
+        if (e is Map) {
+          out.add(historyRecordFromServerMap(Map<String, dynamic>.from(e)));
+        }
+      }
+      final totalRaw = data['total'];
+      final total = totalRaw is num ? totalRaw.toInt() : out.length;
+      final pageRaw = data['page'];
+      final pageNo = pageRaw is num ? pageRaw.toInt() : page;
+      final pageSizeRaw = data['pageSize'];
+      final resolvedPageSize =
+          pageSizeRaw is num ? pageSizeRaw.toInt() : pageSize;
+      return HistoryListPage(
+        listDesc: out,
+        total: total,
+        page: pageNo,
+        pageSize: resolvedPageSize,
+      );
+    } on ApiBusinessException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<HistoryRecord?> getRecord(String id) async {
     for (final e in _cache) {
       if (e.id == id) return e;
@@ -539,10 +631,13 @@ class RemoteFeedRepository implements FeedRepository {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) return null;
     try {
-      final data = await _api.postJsonEnvelope(
-        '/device/history/api/chat',
-        {'deviceNo': dn, 'transcript': '接下来需要注意什么？'},
-      );
+      // tip chat 易超时；不得拖死冷启主路径（调用方亦应 skipTip）
+      final data = await _api
+          .postJsonEnvelope(
+            '/device/history/api/chat',
+            {'deviceNo': dn, 'transcript': '接下来需要注意什么？'},
+          )
+          .timeout(const Duration(seconds: 35));
       return data?['reply'] as String?;
     } catch (_) {
       return null;

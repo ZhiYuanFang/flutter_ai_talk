@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api_exceptions.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../../../ui/theme_palette_sheet.dart';
 import '../data/ucg_feature_flags.dart';
 import '../data/ucg_media_picker.dart';
 import '../data/ucg_models.dart';
@@ -332,6 +333,8 @@ class _UcgProfileHeaderDelegate extends SliverPersistentHeaderDelegate {
               children: [
                 if (leading != null) leading!,
                 const Spacer(),
+                // 主壳「我的」Tab：顶栏最右调色盘
+                if (showOwnerActions) const ThemePaletteIconButton(),
               ],
             ),
           ),

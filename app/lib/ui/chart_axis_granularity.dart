@@ -57,6 +57,7 @@ class ChartAxisGranularity {
   }
 
   static SideTitles glassBottomTitles({
+    required BuildContext context,
     required bool landscape,
     required bool dense,
     required Set<int> showAtIndices,
@@ -75,9 +76,9 @@ class ChartAxisGranularity {
           space: 4,
           child: Text(
             labelForIndex(i),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
-              color: HistoryEditGlassPanel.glassLabelColor,
+              color: historyEditGlassLabelColor(context),
             ),
           ),
         );
@@ -86,6 +87,7 @@ class ChartAxisGranularity {
   }
 
   static SideTitles glassLeftTitles({
+    required BuildContext context,
     required double maxY,
     required bool landscape,
     required bool dense,
@@ -116,9 +118,9 @@ class ChartAxisGranularity {
           space: 4,
           child: Text(
             formatY(value),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 9,
-              color: HistoryEditGlassPanel.glassLabelColor,
+              color: historyEditGlassLabelColor(context),
             ),
           ),
         );

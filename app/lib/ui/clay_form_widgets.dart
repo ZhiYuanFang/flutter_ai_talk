@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../theme/app_visual_tokens.dart';
 import 'baby_profile_clay_theme.dart';
 
 /// 黏土拟态主卡片容器。
@@ -13,9 +14,9 @@ class ClayProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: BabyProfileClayTheme.cardColor,
+        color: BabyProfileClayTheme.cardColorOf(context),
         borderRadius: BorderRadius.circular(BabyProfileClayTheme.cardRadius),
-        boxShadow: BabyProfileClayTheme.cardShadow,
+        boxShadow: BabyProfileClayTheme.cardShadowOf(context),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
@@ -41,15 +42,19 @@ class ClaySectionLabel extends StatelessWidget {
     return Row(
       children: [
         if (leadingIcon != null) ...[
-          Icon(leadingIcon, size: 18, color: BabyProfileClayTheme.textSecondary),
+          Icon(
+            leadingIcon,
+            size: 18,
+            color: BabyProfileClayTheme.textSecondaryOf(context),
+          ),
           const SizedBox(width: 6),
         ],
         Text(
           text,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w600,
-            color: BabyProfileClayTheme.textPrimary,
+            color: BabyProfileClayTheme.textPrimaryOf(context),
           ),
         ),
       ],
@@ -74,10 +79,13 @@ class ClayInsetField extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: BabyProfileClayTheme.insetFill,
+        color: BabyProfileClayTheme.insetFillOf(context),
         borderRadius: BorderRadius.circular(BabyProfileClayTheme.fieldRadius),
-        border: Border.all(color: BabyProfileClayTheme.insetBorder, width: 1),
-        boxShadow: BabyProfileClayTheme.insetShadow,
+        border: Border.all(
+          color: BabyProfileClayTheme.insetBorderOf(context),
+          width: 1,
+        ),
+        boxShadow: BabyProfileClayTheme.insetShadowOf(context),
       ),
       child: Padding(
         padding: padding,
@@ -116,8 +124,10 @@ class ClayChoiceChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected ? fillColor : BabyProfileClayTheme.insetFill;
-    final border = selected ? borderColor : BabyProfileClayTheme.insetBorder;
+    final bg =
+        selected ? fillColor : BabyProfileClayTheme.insetFillOf(context);
+    final border =
+        selected ? borderColor : BabyProfileClayTheme.insetBorderOf(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -130,7 +140,9 @@ class ClayChoiceChip extends StatelessWidget {
             color: bg,
             borderRadius: BorderRadius.circular(BabyProfileClayTheme.chipRadius),
             border: Border.all(color: border, width: selected ? 1.5 : 1),
-            boxShadow: selected ? BabyProfileClayTheme.insetShadow : null,
+            boxShadow: selected
+                ? BabyProfileClayTheme.insetShadowOf(context)
+                : null,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -142,7 +154,9 @@ class ClayChoiceChip extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: leadingDotColor,
                     shape: BoxShape.circle,
-                    border: Border.all(color: borderColor.withValues(alpha: 0.5)),
+                    border: Border.all(
+                      color: borderColor.withValues(alpha: 0.5),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -152,7 +166,7 @@ class ClayChoiceChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: BabyProfileClayTheme.textPrimary,
+                  color: BabyProfileClayTheme.textPrimaryOf(context),
                 ),
               ),
             ],
@@ -182,18 +196,21 @@ class ClayBirthDateWheel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final darkShell =
+        Theme.of(context).extension<AppVisualTokens>()?.isDarkShell == true;
+
     return ClayInsetField(
       padding: EdgeInsets.zero,
       child: SizedBox(
         height: height,
         child: CupertinoTheme(
-          data: const CupertinoThemeData(
-            brightness: Brightness.light,
+          data: CupertinoThemeData(
+            brightness: darkShell ? Brightness.dark : Brightness.light,
             primaryColor: BabyProfileClayTheme.accentBlue,
             textTheme: CupertinoTextThemeData(
               dateTimePickerTextStyle: TextStyle(
                 fontSize: 18,
-                color: BabyProfileClayTheme.textPrimary,
+                color: BabyProfileClayTheme.textPrimaryOf(context),
               ),
             ),
           ),

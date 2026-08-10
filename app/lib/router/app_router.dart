@@ -17,8 +17,12 @@ import '../ui/baby_profile_edit_screen.dart';
 import '../ui/change_password_screen.dart';
 import '../ui/feedback_list_screen.dart';
 import '../ui/settings_screen.dart';
+import '../data/prediction_care_alert.dart';
+import '../ui/pangbao_ai_screen.dart';
+import '../ui/prediction_care_alert_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
+import '../ui/vip_purchase_screen.dart';
 
 /// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
 /// 若此处 watch 会在 Splash 等异步流程中途销毁整个路由树，导致白屏与
@@ -101,15 +105,41 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const TrendsScreen(),
       ),
       GoRoute(
-        // 深链兼容：旧 /pangbao 进主页并切到陪伴页
+        // 深链兼容：旧 /pangbao 进主页并切到智能预测页
         path: '/pangbao',
         redirect: (context, state) {
-          // 延迟请求切页，等 /home 壳挂载后 listen 消费
           Future<void>.microtask(() {
-            ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.companion);
+            ref
+                .read(homePagerRequestProvider.notifier)
+                .requestPage(HomePagerPage.prediction);
           });
           return '/home';
         },
+      ),
+      GoRoute(
+        // 预测页 tip 卡 push 进入陪伴（本阶段唯一产品入口）
+        path: '/companion',
+        builder: (context, state) =>
+            const PangbaoAiScreen(embeddedInHomePager: false),
+      ),
+      GoRoute(
+        // 护理留意详情：extra 传入 CareAlertEventItem
+        path: '/prediction/alert',
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is CareAlertEventItem) {
+            return PredictionCareAlertScreen(item: extra);
+          }
+          return Scaffold(
+            appBar: AppBar(title: const Text('值得留意')),
+            body: const Center(child: Text('暂无预警详情')),
+          );
+        },
+      ),
+      GoRoute(
+        // VIP 购买：需登录（redirect 已拦截）
+        path: '/vip/purchase',
+        builder: (context, state) => const VipPurchaseScreen(),
       ),
       GoRoute(
         path: '/settings',

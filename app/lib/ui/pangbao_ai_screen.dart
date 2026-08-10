@@ -22,11 +22,11 @@ import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
 import '../data/feed_repository.dart';
 import '../home_widget/widget_tip_cache.dart';
+import '../providers/care_alert_follow_up_provider.dart';
 import '../providers/clinic_ws_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/home_pager.dart';
 import '../providers/session_provider.dart';
-import '../providers/tip_provider.dart';
 import '../providers/toast_bus.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../session/session_controller.dart';
@@ -471,40 +471,27 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     _client!.setConnectionDesired(desired);
   }
 
-  /// 进入陪伴：注入首页 tip / 小组件 tip（若有）或当天首次发「我来啦」。
+  /// 进入陪伴：注入小组件 tip（full 优先）或当天首次发「我来啦」。
   Future<void> _onCompanionEntryActions() async {
     if (!_consented) return;
     final loggedIn = ref.read(sessionProvider).isLoggedIn;
     final dn = ref.read(deviceNoNotifierProvider).asData?.value;
     if (!loggedIn || dn == null || dn.isEmpty) return;
 
-    final tip = ref.read(tipProvider);
-    var injectedTip = false;
-    if (tip.canInjectToCompanion) {
-      final text = tip.injectText;
-      setState(() {
-        // 首页 tip 注入
-        final assistant = _ChatItem.assistant(
-          isTipSource: true,
-          at: DateTime.now(),
-        );
-        assistant.answer = text;
-        _items.add(assistant);
-      });
-      ref.read(tipProvider.notifier).markConsumedForCompanion();
-      injectedTip = true;
-      unawaited(_persistSessionStore());
-      _scrollToBottom(force: true);
-      AppDebugLog.pangbaoClinic('entry inject home tip len=${text.length}');
-    }
-
-    if (injectedTip) {
-      // 首页 tip 优先：同次不注小组件 tip，不标记 widget injected
+    // 护理留意「追问」：原样消费 followUpPrompt（优先于 widget tip / 问候）
+    final carePrompt =
+        ref.read(careAlertFollowUpPromptProvider)?.trim() ?? '';
+    if (carePrompt.isNotEmpty) {
+      ref.read(careAlertFollowUpPromptProvider.notifier).state = null;
+      AppDebugLog.pangbaoClinic(
+        'entry care-alert followUp len=${carePrompt.length}',
+      );
       await CompanionGreetingStore.markGreetedToday();
+      await _send(overrideText: carePrompt);
       return;
     }
 
-    // B3：无首页 tip 时尝试注入当日未消费的小组件 tip
+    // 首页 tip SSE 已退役；进陪伴仅尝试注入当日小组件 tip（优先 full）
     final widgetText = await peekWidgetTipInjectText();
     if (widgetText != null && widgetText.isNotEmpty) {
       if (!mounted) return;
@@ -557,11 +544,12 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       _followLatest = true;
       _showScrollToBottomButton = false;
     });
-    // 清记录后允许首页仍展示的 tip 再次注入；不清除 widget_tip_injected_day
-    ref.read(tipProvider.notifier).resetCompanionConsumption();
+    // 保留 widget_tip_injected_day（与 widget-tip 日桥一致）
     AppDebugLog.pangbaoClinic(
       'clear history keep widget injected=${await isWidgetTipInjectedToday()}',
     );
+    if (!mounted) return;
+    showAppToast('已清理陪伴记录');
   }
 
   void _bindClinicWsStatusSubscriptions() {
@@ -1449,11 +1437,22 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
             onPressed: () => unawaited(_confirmClearCompanionHistory()),
           ),
           IconButton(
-            icon: Icon(Icons.chevron_right, color: scheme.primary),
-            tooltip: '返回喂养',
-            onPressed: () => ref
-                .read(homePagerRequestProvider.notifier)
-                .requestPage(HomePagerPage.feeding),
+            icon: Icon(
+              widget.embeddedInHomePager
+                  ? Icons.chevron_right
+                  : Icons.close,
+              color: scheme.primary,
+            ),
+            tooltip: widget.embeddedInHomePager ? '返回喂养' : '关闭',
+            onPressed: () {
+              if (widget.embeddedInHomePager) {
+                ref
+                    .read(homePagerRequestProvider.notifier)
+                    .requestPage(HomePagerPage.feeding);
+              } else if (context.canPop()) {
+                context.pop();
+              }
+            },
           ),
         ],
       ),

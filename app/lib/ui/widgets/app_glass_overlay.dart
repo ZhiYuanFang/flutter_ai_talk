@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_color.dart';
 import '../../ucg/ui/widgets/ucg_compose_light_glass_panel.dart';
 import '../home_history_edit_glass_panel.dart';
 import 'app_adaptive_bottom_sheet.dart';
+import 'app_modal_glass_panel.dart';
 
 /// 玻璃拟态底部 Sheet：透明外层 + 可选事件色 accent + 内层 [HistoryEditGlassPanel]。
 Future<T?> showGlassAdaptiveBottomSheet<T>({
@@ -30,7 +32,7 @@ Future<T?> showGlassAdaptiveBottomSheet<T>({
     enableDrag: enableDrag,
     showDragHandle: false,
     backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: AppColor.barrier(context),
     useRootNavigator: useRootNavigator,
     builder: (ctx) {
       Widget inner = bodyBuilder(ctx);
@@ -80,7 +82,7 @@ Future<T?> showGlassDialog<T>({
   return showDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: AppColor.barrier(context),
     useRootNavigator: useRootNavigator,
     builder: (dialogContext) {
       final maxH = maxHeightFraction != null
@@ -88,12 +90,13 @@ Future<T?> showGlassDialog<T>({
           : null;
       Widget inner = contentBuilder(dialogContext);
       if (wrapInGlassPanel) {
+        // 默认 modal 原子面板；useLightGlass 为内容向浅玻璃例外
         inner = useLightGlass
             ? UcgComposeLightGlassPanel(
                 eventAccent: eventAccent,
                 child: inner,
               )
-            : HistoryEditGlassPanel(
+            : AppModalGlassPanel(
                 eventAccent: eventAccent,
                 onClose: onClose,
                 child: inner,

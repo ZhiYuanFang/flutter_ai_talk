@@ -10,6 +10,7 @@ import '../data/event_next_predictor.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/settings_baby.dart';
+import '../theme/app_color.dart';
 
 /// 设置页：桌面小组件预览与引导。
 class HomeWidgetSettingsSection extends ConsumerStatefulWidget {
@@ -66,7 +67,9 @@ class _HomeWidgetSettingsSectionState extends ConsumerState<HomeWidgetSettingsSe
                 const SizedBox(height: 8),
                 Text(
                   '在系统桌面添加「胖宝」小组件（小/中/大），展示即将发生的喂养事件。首次添加会后台准备历史数据。',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColor.textMuted(context),
+                      ),
                 ),
                 const SizedBox(height: 10),
                 if (baby.id.isNotEmpty)

@@ -8,8 +8,7 @@ import 'package:fluwx/fluwx.dart';
 
 import '../../api/app_debug_log.dart';
 import '../../config/env.dart';
-import '../../theme/app_theme_scope.dart';
-import '../../theme/app_visual_tokens.dart';
+import '../../theme/app_color.dart';
 import '../data/ucg_media_url.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
@@ -33,9 +32,8 @@ class UcgDebateShareLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = ucgFeedFakeGlassTextColor(context);
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final base = tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.04);
-    final backdrop = Color.alphaBlend(Colors.white.withValues(alpha: 0.35), base);
+    // 分享离屏底与假玻璃同族，避免近白 contentCard
+    final backdrop = AppColor.panelGlassBottom(context);
 
     return ColoredBox(
       color: backdrop,
@@ -76,7 +74,7 @@ class UcgDebateShareLayout extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: ucgFeedFakeGlassArgumentPillColor(context),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
+                        border: Border.all(color: AppColor.divider(context)),
                       ),
                       child: Text(
                         snippet,

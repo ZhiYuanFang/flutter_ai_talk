@@ -1,74 +1,79 @@
 import 'package:flutter/material.dart';
 
+import '../data/models.dart';
 import '../theme/app_visual_tokens.dart';
+import 'widgets/baby_avatar.dart';
+import 'theme_palette_sheet.dart';
 
 /// 首页沉浸式头部：不使用 AppBar 色块，和内容区共享 shell 背景语义。
+/// 左侧宝宝身份横条（头像可进设置），右侧趋势 + 调色盘（最右）。
 class HomeImmersiveHeader extends StatelessWidget {
   const HomeImmersiveHeader({
     super.key,
-    required this.title,
+    required this.babyId,
+    required this.sex,
+    required this.nickname,
+    required this.ageText,
+    required this.onAvatarTap,
     required this.onTrendsTap,
-    required this.onSettingsTap,
   });
 
-  final String title;
+  final String babyId;
+  final BabySex sex;
+  /// 已回退的昵称（空则调用方应传入「宝宝」）。
+  final String nickname;
+  /// 已格式化的月龄文案（如 `formatBabyAgeText`）。
+  final String ageText;
+  final VoidCallback onAvatarTap;
   final VoidCallback onTrendsTap;
-  final VoidCallback onSettingsTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = theme.extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? theme.colorScheme.onSurface;
-
-    // 趋势 + 设置两个 IconButton，预留标题居中避让宽度。
-    const actionsWidth = 104.0;
+    // 合成身份文案；超长时尾部省略（月龄先被吃掉）。
+    final identityLine = '$nickname · $ageText';
 
     return SizedBox(
       width: double.infinity,
       height: 44,
-      child: Stack(
-        alignment: Alignment.center,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: actionsWidth),
+          const SizedBox(width: 12),
+          // 仅头像可点 → 设置；昵称/月龄无手势。
+          BabyAvatar(
+            babyId: babyId,
+            sex: sex,
+            radius: 17,
+            onTap: onAvatarTap,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
             child: Text(
-              title,
+              identityLine,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleLarge?.copyWith(
+              textAlign: TextAlign.left,
+              style: theme.textTheme.titleMedium?.copyWith(
                     color: fg,
                     fontWeight: FontWeight.w600,
                   ) ??
                   TextStyle(
                     color: fg,
-                    fontSize: 30,
+                    fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
             ),
           ),
-          Positioned.fill(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.insights, color: fg),
-                    tooltip: '趋势',
-                    onPressed: onTrendsTap,
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.settings, color: fg),
-                    tooltip: '设置',
-                    onPressed: onSettingsTap,
-                  ),
-                  const SizedBox(width: 4),
-                ],
-              ),
-            ),
+          IconButton(
+            icon: Icon(Icons.insights, color: fg),
+            tooltip: '趋势',
+            onPressed: onTrendsTap,
           ),
+          const ThemePaletteIconButton(),
+          const SizedBox(width: 4),
         ],
       ),
     );

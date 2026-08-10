@@ -9,6 +9,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../api/app_debug_log.dart';
+import '../../../theme/app_color.dart';
 import '../../data/ucg_playback_log.dart';
 import '../../data/ucg_video_playback.dart';
 import '../../theme/ucg_theme.dart';
@@ -170,7 +171,7 @@ Future<void> showUcgPhotoLightbox(
   return Navigator.of(context).push<void>(
     PageRouteBuilder<void>(
       opaque: false,
-      barrierColor: Colors.black.withValues(alpha: 0.92),
+      barrierColor: AppColor.mediaScrim(context),
       transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (context, animation, secondaryAnimation) => _UcgPhotoLightbox(
         urls: urls,
@@ -204,7 +205,7 @@ Future<void> showUcgLocalImageLightbox(
   return Navigator.of(context).push<void>(
     PageRouteBuilder<void>(
       opaque: false,
-      barrierColor: Colors.black.withValues(alpha: 0.92),
+      barrierColor: AppColor.mediaScrim(context),
       transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (context, animation, secondaryAnimation) => _UcgLocalImageLightbox(
         filePath: filePath,
@@ -328,7 +329,7 @@ class _UcgLocalImageLightbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final onScrim = Colors.white.withValues(alpha: 0.92);
+    final onScrim = AppColor.onMediaScrim(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
@@ -454,7 +455,7 @@ class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
         fit: BoxFit.contain,
         showLoadingIndicator: true,
         errorBuilder: (_, __, ___) =>
-            Icon(Icons.broken_image_outlined, color: Colors.white.withValues(alpha: 0.5), size: 48),
+            Icon(Icons.broken_image_outlined, color: AppColor.onMediaScrim(context).withValues(alpha: 0.5), size: 48),
       );
     }
     final path = widget.filePath;
@@ -464,7 +465,7 @@ class _ResetZoomLocalImageState extends State<_ResetZoomLocalImage>
     if (_loadingPath) {
       return const UcgNetworkImageLoadingIndicator();
     }
-    return Icon(Icons.broken_image_outlined, color: Colors.white.withValues(alpha: 0.5), size: 48);
+    return Icon(Icons.broken_image_outlined, color: AppColor.onMediaScrim(context).withValues(alpha: 0.5), size: 48);
   }
 
   @override
@@ -759,7 +760,7 @@ class _UcgPhotoLightboxState extends State<_UcgPhotoLightbox> {
 
   @override
   Widget build(BuildContext context) {
-    final onScrim = Colors.white.withValues(alpha: 0.92);
+    final onScrim = AppColor.onMediaScrim(context);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -1177,7 +1178,7 @@ class _ResetZoomPhotoState extends State<_ResetZoomPhoto> with SingleTickerProvi
           showLoadingIndicator: true,
           errorBuilder: (_, __, ___) => Icon(
             Icons.broken_image_outlined,
-            color: Colors.white.withValues(alpha: 0.5),
+            color: AppColor.onMediaScrim(context).withValues(alpha: 0.5),
             size: 48,
           ),
         ),
@@ -1303,10 +1304,10 @@ class _ProgressiveZoomPhotoState extends State<_ProgressiveZoomPhoto>
     _resetAnim = null;
   }
 
-  static Widget _brokenIcon() {
+  Widget _brokenIcon(BuildContext context) {
     return Icon(
       Icons.broken_image_outlined,
-      color: Colors.white.withValues(alpha: 0.5),
+      color: AppColor.onMediaScrim(context).withValues(alpha: 0.5),
       size: 48,
     );
   }
@@ -1336,7 +1337,7 @@ class _ProgressiveZoomPhotoState extends State<_ProgressiveZoomPhoto>
             else
               Positioned(
                 bottom: 24,
-                child: _brokenIcon(),
+                child: _brokenIcon(context),
               ),
           ],
         ),
@@ -1681,7 +1682,9 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
           child: GestureDetector(
             onTap: retry,
             behavior: HitTestBehavior.opaque,
-            child: ColoredBox(color: Colors.black.withValues(alpha: 0.26)),
+            child: ColoredBox(
+              color: AppColor.mediaScrim(context).withValues(alpha: 0.26),
+            ),
           ),
         ),
         Center(
@@ -1756,7 +1759,7 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
       child: AspectRatio(
         aspectRatio: widget.aspectRatio,
         child: ColoredBox(
-          color: Colors.black,
+          color: AppColor.mediaScrim(context).withValues(alpha: 1),
           child: Stack(
             alignment: Alignment.center,
             fit: StackFit.expand,
@@ -1779,7 +1782,7 @@ class _UcgInlineVideoPlayerState extends State<UcgInlineVideoPlayer> {
                     opacity: controller.value.isPlaying ? 0 : 1,
                     duration: const Duration(milliseconds: 180),
                     child: Container(
-                      color: Colors.black26,
+                      color: AppColor.mediaScrim(context).withValues(alpha: 0.26),
                       alignment: Alignment.center,
                       child: Icon(Icons.play_arrow_rounded, color: onScrim, size: 48),
                     ),
@@ -1854,14 +1857,17 @@ class _VideoControlsBarState extends State<_VideoControlsBar> {
     final duration = c.value.duration;
     final position = c.value.position;
     final maxMs = duration.inMilliseconds.clamp(1, 1 << 31);
-    final fg = Colors.white.withValues(alpha: 0.92);
+    final fg = AppColor.onMediaScrim(context);
 
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.bottomCenter,
           end: Alignment.topCenter,
-          colors: [Colors.black.withValues(alpha: 0.65), Colors.transparent],
+          colors: [
+            AppColor.mediaScrim(context).withValues(alpha: 0.65),
+            Colors.transparent,
+          ],
         ),
       ),
       child: Padding(
@@ -2215,10 +2221,10 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
 
   @override
   Widget build(BuildContext context) {
-    final fg = Colors.white.withValues(alpha: 0.92);
+    final fg = AppColor.onMediaScrim(context);
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColor.mediaScrim(context).withValues(alpha: 1),
       body: SafeArea(
         child: Stack(
           fit: StackFit.expand,
@@ -2330,8 +2336,8 @@ class _UcgVideoFullscreenPageState extends State<_UcgVideoFullscreenPage>
                     duration: const Duration(milliseconds: 180),
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(
-                        color: Colors.black45,
+                      decoration: BoxDecoration(
+                        color: AppColor.mediaScrim(context).withValues(alpha: 0.45),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(

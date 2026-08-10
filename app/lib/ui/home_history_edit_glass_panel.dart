@@ -2,9 +2,10 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 
-/// 历史编辑 Sheet 玻璃拟态容器（磨砂 + 渐变 + 微光描边）。
+/// 历史编辑 Sheet 玻璃拟态容器：底/边/字走 sheet/modal 原子；事件色仅强调渐变。
 class HistoryEditGlassPanel extends StatelessWidget {
   const HistoryEditGlassPanel({
     super.key,
@@ -24,26 +25,17 @@ class HistoryEditGlassPanel extends StatelessWidget {
   static const _radius = 22.0;
   static const _blurSigma = 20.0;
 
-  /// 玻璃面板固定浅色前景（底为事件色暗色渐变，不随 shell [AppVisualTokens.onShell] 变暗）。
-  static const Color glassTextColor = Color(0xFFF3F5F7);
-  static const Color glassLabelColor = Color(0xFFE0E6EB);
-
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final scheme = Theme.of(context).colorScheme;
-    final isDark = tokens?.isDarkShell ?? (Theme.of(context).brightness == Brightness.dark);
-    final accent = eventAccent ?? scheme.primary;
-
-    final fillTop = isDark
-        ? const Color(0xFF1A2428).withValues(alpha: 0.72)
-        : const Color(0xFF2A3438).withValues(alpha: 0.78);
-    final fillBottom = Color.lerp(
-          fillTop,
-          accent.withValues(alpha: isDark ? 0.22 : 0.18),
-          0.55,
-        ) ??
-        fillTop;
+    final fillTop = AppColor.sheetFill(context);
+    final onSheet = AppColor.textOnSheet(context);
+    final border = AppColor.sheetBorder(context);
+    // 事件 accent：仅渐变强调
+    final accent = eventAccent ?? AppColor.primary(context);
+    final fillBottom = Color.alphaBlend(
+      accent.withValues(alpha: 0.2),
+      fillTop,
+    );
     final radius = borderRadius ?? _radius;
 
     return RepaintBoundary(
@@ -54,9 +46,7 @@ class HistoryEditGlassPanel extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(radius),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.16 : 0.22),
-              ),
+              border: Border.all(color: border),
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomRight,
@@ -74,8 +64,12 @@ class HistoryEditGlassPanel extends StatelessWidget {
               clipBehavior: Clip.none,
               children: [
                 Padding(
-                  padding: contentPadding ?? const EdgeInsets.fromLTRB(22, 28, 22, 20),
-                  child: child,
+                  padding: contentPadding ??
+                      const EdgeInsets.fromLTRB(22, 28, 22, 20),
+                  child: DefaultTextStyle.merge(
+                    style: TextStyle(color: onSheet),
+                    child: child,
+                  ),
                 ),
                 if (onClose != null)
                   Positioned(
@@ -86,7 +80,7 @@ class HistoryEditGlassPanel extends StatelessWidget {
                       icon: Icon(
                         Icons.close,
                         size: 22,
-                        color: HistoryEditGlassPanel.glassTextColor.withValues(alpha: 0.92),
+                        color: onSheet.withValues(alpha: 0.92),
                       ),
                       tooltip: '关闭',
                     ),
@@ -100,23 +94,21 @@ class HistoryEditGlassPanel extends StatelessWidget {
   }
 }
 
-/// 玻璃编辑区内标签文字色（固定浅灰，非主题 onShell 降 alpha）。
+/// 玻璃编辑区内标签文字色。
 Color historyEditGlassLabelColor(BuildContext context) =>
-    HistoryEditGlassPanel.glassLabelColor;
+    AppColor.textOnSheet(context).withValues(alpha: 0.78);
 
-/// 玻璃编辑区内主文字色（固定浅色，保证深色玻璃底上可读）。
+/// 玻璃编辑区内主文字色。
 Color historyEditGlassTextColor(BuildContext context) =>
-    HistoryEditGlassPanel.glassTextColor;
+    AppColor.textOnSheet(context);
 
-/// Shell 上胶囊/顶栏主文字（随 [AppVisualTokens.onShell]，经典浅色为深色字）。
-Color historyEditGlassShellTextColor(BuildContext context) {
-  final tokens = visualTokensOf(context);
-  return tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
-}
+/// Shell 上胶囊/顶栏主文字。
+Color historyEditGlassShellTextColor(BuildContext context) =>
+    AppColor.textPrimary(context);
 
 /// Shell 上胶囊标签、辅助图标色。
 Color historyEditGlassShellLabelColor(BuildContext context) =>
-    historyEditGlassShellTextColor(context).withValues(alpha: 0.62);
+    AppColor.textMuted(context);
 
 InputDecoration historyEditGlassInputDecoration(
   BuildContext context, {
@@ -128,10 +120,10 @@ InputDecoration historyEditGlassInputDecoration(
     labelText: labelText,
     labelStyle: TextStyle(color: label, fontSize: 13),
     filled: true,
-    fillColor: Colors.white.withValues(alpha: 0.06),
+    fillColor: AppColor.fieldFill(context).withValues(alpha: 0.85),
     enabledBorder: border,
     focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
+      borderSide: BorderSide(color: AppColor.fieldBorder(context)),
     ),
     border: border,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -141,7 +133,7 @@ InputDecoration historyEditGlassInputDecoration(
 OutlineInputBorder historyEditGlassFieldBorder(BuildContext context) {
   return OutlineInputBorder(
     borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+    borderSide: BorderSide(color: AppColor.fieldBorder(context)),
   );
 }
 
@@ -165,17 +157,12 @@ class HistoryEditGlassTapField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = visualTokensOf(context);
-    final scheme = Theme.of(context).colorScheme;
-    final fill = onShell && tokens != null
-        ? tokens.pillBackground
-        : onShell
-            ? scheme.surfaceContainerHighest.withValues(alpha: 0.85)
-            : Colors.white.withValues(alpha: 0.06);
-    final borderColor = onShell && tokens != null
-        ? tokens.pillBorder
-        : onShell
-            ? scheme.outlineVariant.withValues(alpha: 0.55)
-            : Colors.white.withValues(alpha: 0.18);
+    final fill = onShell
+        ? (tokens?.pillBackground ?? AppColor.surface(context))
+        : AppColor.fieldFill(context);
+    final borderColor = onShell
+        ? (tokens?.pillBorder ?? AppColor.divider(context))
+        : AppColor.fieldBorder(context);
 
     return Material(
       color: fill,

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../theme/app_color.dart';
 import '../../data/ucg_models.dart';
-import '../../theme/ucg_theme.dart';
 import 'ucg_feed_moments_widgets.dart';
 import 'ucg_network_image.dart';
 import 'ucg_visual_widgets.dart';
@@ -27,8 +27,8 @@ class UcgMasonryFeedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = UcgTheme.onRecordsCard(context);
-    final primary = Theme.of(context).colorScheme.primary;
+    final fg = AppColor.textOnPanelGlass(context);
+    final primary = AppColor.primary(context);
     final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
     final meta = ucgPostFeedMetaLine(post, time, currentUserId: currentUserId);
     final metaStyle = TextStyle(fontSize: 10, color: fg.withValues(alpha: 0.42));

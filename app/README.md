@@ -43,6 +43,8 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
+| `[CareAlert]` | 护理留意日缓存拉取 / 忽略删缓存 / 飞轮固定意图反馈 |
+| `[CashVip]` | VIP 商品/状态/建单/Apple 验单/支付宝回前台轮询 |
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
 `flutter run` 终端仍会转发设备 **完整 logcat**，其中可能混入：
@@ -85,7 +87,7 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 - **能力**：根据本地喂养历史推断各事件下次触发时间，在系统桌面展示即将发生的事件（进行中计时优先）。
 - **尺寸**：添加时选择标准 **小（1 行）/ 中（3 行）/ 大（6 行）** 三种 widget。
 - **数据**：仅读 App 写入的本地 JSON（`home_widget`）；小组件进程 **不** 发起 HTTP/WebSocket。
-- **首次启用**：App 后台预拉约 30 天或 15 页历史，期间展示「正在准备数据…」。
+- **首次启用 / 预测数据**：经 `GET /device/history/api/filter`（必要时 `v2/list`）拉取近 **7** 日历史到独立 range store（与喂养列表分页隔离）；预测页、顶栏贴士与小组件共用；期间可展示「正在准备数据…」。
 - **空态**：未登录或无预测数据时展示「打开胖宝记录」；登出后立即清空 widget 内容。
 - **设置页**：「桌面小组件」区块可预览即将发生列表并手动「刷新小组件数据」。
 - **Android**：Manifest 已注册 `PangbaoWidgetSmall/Medium/LargeProvider`；Release 合并前须 `flutter build apk --release`。
@@ -546,6 +548,35 @@ flutter run -d android --dart-define=FORCE_IPV4=true
 
 - 事件 **`logo`**：`GET /device/history/api/event/options` 返回 **CDN 绝对 URL**（如 `https://resorce.cuplay.top/event/...`），客户端直接使用。
 - **`downloadUrl`**（版本检查）等仍可能为 path-only，经 `resolveGatewayAbsoluteUrl` 与 `API_BASE_URL` 拼接。
+
+### VIP 开通（留意详情 → 购买页）
+
+护理留意详情在非 VIP 时展示底部「开通 VIP」；购买页拉取 `GET /cash/app/api/vip/product` 展示现价，若 `originalPriceFen > 0` 则划线原价。
+
+| 平台 | 通道 | 流程 |
+|------|------|------|
+| iOS | Apple IAP（`apple_iap`） | 建单 → StoreKit（`in_app_purchase`）→ `POST /cash/app/api/vip/apple/verify` → 刷新 `GET /cash/app/api/vip/status` |
+| Android | 支付宝（`alipay`） | 建单 → `tobias` 调起 `alipayOrderStr` → 回前台有界轮询 status |
+| Web | — | 提示使用手机 App |
+
+**前置（服务端 / 商店，非本仓可改）**
+
+1. gateway 可达 cash-service；ASC 创建 IAP，`appleProductId` 与后端 `CASH_APPLE_PRODUCT_ID` / product API 一致（建议 **消耗型**，便于续期）。
+2. 支付宝开放平台应用 + 服务端 `CASH_ALIPAY_*` / notify URL（见 go_ai_talk `docs/runbooks/cash-vip-sandbox.md`）。
+3. Android Release：改原生/支付宝依赖后须本地 `flutter build apk --release`；ProGuard 已含 `com.alipay.**` keep。
+4. `pubspec.yaml` → `tobias.url_scheme: pangbaovip`（iOS 回跳；勿含 `_`）。
+
+**联调**
+
+```bash
+cd app
+# Android 支付宝
+flutter run -d android --dart-define=API_BASE_URL=https://你的网关
+# iOS Sandbox：StoreKit 沙箱账号；商品 ID 与 product.appleProductId 一致
+flutter run -d ios --dart-define=API_BASE_URL=https://你的网关
+```
+
+Debug 过滤：`[CashVip]`（见上文 logcat 脚本）。
 
 ### 微信登录（fluwx + 网页 OAuth）
 

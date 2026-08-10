@@ -89,7 +89,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
         ref.read(eventCatalogProvider.notifier).loadFromDisk(),
         ref.read(homeHistoryProvider.notifier).hydrateFromDiskForSplash(),
       ]);
-      unawaited(ensureWidgetReadyFromRef(ref));
+      // 小组件/range ensure 改由 GatewayBootstrapGate（ColdStart 灌入 deviceNo 之后）执行，避免假空 ready。
     } else {
       await ref.read(signInChannelProvider.notifier).clear();
     }

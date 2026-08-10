@@ -4,8 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../data/ucg_media_url.dart';
-import '../../../theme/app_theme_scope.dart';
-import '../../../theme/app_visual_tokens.dart';
+import '../../../theme/app_color.dart';
 import 'ucg_compose_local_preview.dart';
 import 'ucg_media_viewer.dart';
 
@@ -49,17 +48,29 @@ class UcgComposeDeleteOverlay extends StatelessWidget {
           duration: const Duration(milliseconds: 120),
           height: 72,
           width: double.infinity,
-          color: over ? const Color(0xFFE64340) : const Color(0xFFFA5151),
+          color: over
+              ? Theme.of(context).colorScheme.error
+              : Theme.of(context).colorScheme.error.withValues(alpha: 0.85),
           alignment: Alignment.center,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.delete_outline, color: Colors.white.withValues(alpha: over ? 1 : 0.9), size: 22),
+              Icon(
+                Icons.delete_outline,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onError
+                    .withValues(alpha: over ? 1 : 0.9),
+                size: 22,
+              ),
               const SizedBox(height: 4),
               Text(
                 over ? '松手即可删除' : '拖动到此处删除',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: over ? 1 : 0.9),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onError
+                      .withValues(alpha: over ? 1 : 0.9),
                   fontSize: 13,
                 ),
               ),
@@ -327,7 +338,7 @@ class _DragLiftFeedback extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       elevation: 10,
-      shadowColor: Colors.black.withValues(alpha: 0.32),
+      shadowColor: AppColor.mediaScrim(context).withValues(alpha: 0.32),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ucgComposeCellRadius)),
       child: SizedBox(
         width: cellSize,
@@ -385,18 +396,16 @@ class UcgComposeAddTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final scheme = Theme.of(context).colorScheme;
-    final fg = tokens?.onRecordsCard ?? scheme.onSurface;
-    final fill = tokens?.recordsCardColor ?? themePrimaryBlend(context, alpha: 0.06);
+    final fg = AppColor.textOnPanelGlass(context);
+    final primary = AppColor.primary(context);
 
     return SizedBox.square(
       dimension: size,
       child: Material(
-        color: Color.alphaBlend(Colors.white.withValues(alpha: 0.55), fill),
+        color: AppColor.panelGlassTop(context),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ucgComposeCellRadius),
-          side: BorderSide(color: scheme.primary.withValues(alpha: 0.12)),
+          side: BorderSide(color: primary.withValues(alpha: 0.12)),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(

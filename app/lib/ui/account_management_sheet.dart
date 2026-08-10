@@ -5,11 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/api_exceptions.dart';
+import '../api/gateway_user_message.dart';
 import '../apple/apple_sign_in_client.dart';
-import '../providers/home_history_notifier.dart';
 import '../bootstrap/pangbao_transport_release.dart';
-import '../providers/repositories.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/home_history_notifier.dart';
+import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
@@ -21,6 +22,7 @@ import '../wechat/wechat_auth_exception.dart';
 import 'account_bind_messages.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/app_toast.dart';
 
 Future<void> showAccountManagementSheet(
     BuildContext context, WidgetRef ref) async {
@@ -338,20 +340,29 @@ class _AccountManagementSheetBodyState
         false;
     if (!ok) return;
 
+    // pop Sheet 前捕获宿主与 container，避免 Body dispose 后 ref 失效导致 go 未执行
+    final host = widget.hostContext;
+    if (!host.mounted) return;
+    final container = ProviderScope.containerOf(host);
+
     if (Navigator.of(widget.sheetCtx).canPop()) {
       Navigator.of(widget.sheetCtx).pop();
     }
 
     try {
-      await ref.read(authRepositoryProvider).signOut();
+      await container.read(authRepositoryProvider).signOut();
     } finally {
-      await releasePangbaoHomeTransports(ref);
-      await ref.read(sessionProvider).signOut();
-      await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
-      await ref.read(signInChannelProvider.notifier).clear();
-      await ref.read(feedRepositoryProvider).clearCache();
-      // await ref.read(homeHistoryProvider.notifier).refreshFromRemote();// 切换账号时，不刷新历史记录, 防止刷新时会话已过期导致自动刷新
-      ref.read(goRouterProvider).go('/login');
+      await releasePangbaoHomeTransports(container);
+      await container.read(sessionProvider).signOut();
+      await container.read(deviceNoNotifierProvider.notifier).clearLocal();
+      await container.read(signInChannelProvider.notifier).clear();
+      await container.read(feedRepositoryProvider).clearCache();
+    }
+    // 切换账号时不刷新历史，避免会话已过期触发自动刷新
+    if (host.mounted) {
+      host.go('/login');
+    } else {
+      container.read(goRouterProvider).go('/login');
     }
   }
 
@@ -423,9 +434,12 @@ Future<void> confirmAccountDeregistration(
   WidgetRef ref, {
   VoidCallback? closeSheet,
 }) async {
-  final dialogContext = context;
+  final host = context;
+  // 关 Sheet 前捕获 container，后续清理与跳转不依赖可能已 dispose 的 WidgetRef
+  final container = ProviderScope.containerOf(host);
+
   final step1 = await showGlassConfirmDialog(
-        dialogContext,
+        host,
         title: '注销账户',
         message: '第一步：确认你了解此操作的风险。该操作不可撤销，你的所有记录将被永久删除。',
         confirmLabel: '继续',
@@ -433,9 +447,10 @@ Future<void> confirmAccountDeregistration(
       ) ??
       false;
   if (!step1) return;
+  if (!host.mounted) return;
 
   final step2 = await showGlassTextConfirmDialog(
-        dialogContext,
+        host,
         title: '注销确认',
         message: '第二步：请输入“确定注销”以继续申请。',
         expectedText: '确定注销',
@@ -448,20 +463,30 @@ Future<void> confirmAccountDeregistration(
   closeSheet?.call();
 
   try {
-    final profile = await ref.read(authRepositoryProvider).fetchUserProfile();
-    await ref.read(authRepositoryProvider).deactivateAccount();
+    final profile =
+        await container.read(authRepositoryProvider).fetchUserProfile();
+    await container.read(authRepositoryProvider).deactivateAccount();
     if (profile.account.isNotEmpty) {
       await removeAccount(profile.account);
     }
-    await ref.read(sessionProvider).signOut();
-    await ref.read(deviceNoNotifierProvider.notifier).clearLocal();
-    await ref.read(signInChannelProvider.notifier).clear();
-    await ref.read(feedRepositoryProvider).clearCache();
-    await ref.read(homeHistoryProvider.notifier).refreshFromRemote();
+    await container.read(sessionProvider).signOut();
+    await container.read(deviceNoNotifierProvider.notifier).clearLocal();
+    await container.read(signInChannelProvider.notifier).clear();
+    await container.read(feedRepositoryProvider).clearCache();
+    await container.read(homeHistoryProvider.notifier).refreshFromRemote();
 
-    ref.read(goRouterProvider).go('/login');
-    ref.showApiToast('注销成功');
+    if (host.mounted) {
+      host.go('/login');
+    } else {
+      container.read(goRouterProvider).go('/login');
+    }
+    container.read(apiToastProvider.notifier).state = AppToastPayload(
+      normalizeUserFacingApiMessage('注销成功'),
+    );
   } catch (e) {
-    ref.showApiToastError('注销失败：$e');
+    container.read(apiToastProvider.notifier).state = AppToastPayload(
+      normalizeUserFacingApiMessage('注销失败：$e'),
+      tone: AppToastTone.error,
+    );
   }
 }

@@ -1,16 +1,22 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// `/home` PageView 页索引：陪伴 | 喂养 | UCG。
+/// `/home` PageView 页索引：喂养 | 智能预测（主页）| UCG。
 abstract final class HomePagerPage {
-  static const companion = 0;
-  static const feeding = 1;
+  /// 喂养记账页（左侧）。
+  static const feeding = 0;
+
+  /// 智能预测主页（居中、默认着陆）。
+  static const prediction = 1;
+
+  /// @Deprecated('使用 HomePagerPage.prediction') 兼容旧引用。
+  static const companion = prediction;
   static const ucg = 2;
   static const count = 3;
 }
 
 /// 请求主页 PageView 切到指定页（壳层 listen 后 animateTo）。
 ///
-/// 业务说明：tip 点卡、`/pangbao` 深链、左缘拉条等非壳内控件通过此 provider 请求切页；
+/// 业务说明：预测贴士、`/pangbao` 深链等非壳内控件通过此 provider 请求切页；
 /// 值为 null 表示无待处理请求；壳层消费后应 clear。
 final homePagerRequestProvider =
     NotifierProvider<HomePagerRequestNotifier, int?>(HomePagerRequestNotifier.new);
@@ -30,5 +36,5 @@ class HomePagerRequestNotifier extends Notifier<int?> {
   }
 }
 
-/// 陪伴页按住说话时为 true，壳层暂停 PageView 横滑，避免与上滑取消冲突。
+/// 旧陪伴按住说话禁滑位保留；预测页当前不使用。
 final homePagerScrollBlockedProvider = StateProvider<bool>((ref) => false);

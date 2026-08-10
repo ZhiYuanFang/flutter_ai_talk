@@ -101,6 +101,113 @@ class VisualBundle {
       isDarkShell: isDarkShell,
     );
     final onRecordsCard = _readableOn(recordsCard);
+
+    // modal：暗壳 = surface 暗浮层；浅壳 = 浅玻璃（勿与 content 浅卡混用前景）
+    final Color modalFill;
+    final Color modalBorder;
+    final Color onModal;
+    if (isDarkShell) {
+      modalFill = Color.alphaBlend(
+        seedColor.withValues(alpha: 0.14),
+        surfaceColor,
+      );
+      onModal = _readableOn(modalFill);
+      modalBorder = onModal.withValues(alpha: 0.22);
+    } else {
+      modalFill = Color.alphaBlend(
+        Colors.white.withValues(alpha: 0.55),
+        recordsCard,
+      );
+      onModal = _readableOn(modalFill);
+      modalBorder = Colors.white.withValues(alpha: 0.45);
+    }
+
+    // 输入壳：暗壳 surface+seed；浅壳浅 inset
+    final fieldFill = isDarkShell
+        ? Color.alphaBlend(seedColor.withValues(alpha: 0.08), surfaceColor)
+        : Color.alphaBlend(Colors.white.withValues(alpha: 0.35), surfaceColor);
+    final fieldBorder = isDarkShell
+        ? onSurface.withValues(alpha: 0.28)
+        : onSurface.withValues(alpha: 0.14);
+
+    // 页内 chrome：暗壳 surface+亮 accent；浅壳近白 base+seed（经典/彩色同构）
+    final Color panelGlassTop;
+    final Color panelGlassBottom;
+    if (isDarkShell) {
+      final lifted = _adjustLightness(surfaceColor, 0.06);
+      panelGlassTop = Color.alphaBlend(
+        seedColor.withValues(alpha: 0.26),
+        lifted,
+      );
+      panelGlassBottom = Color.alphaBlend(
+        seedColor.withValues(alpha: 0.10),
+        surfaceColor,
+      );
+    } else {
+      // 近白玻璃底：不绑满色 shell/recordsCard，避免彩色 top≈bottom
+      final lightGlassBase = Color.alphaBlend(
+        seedColor.withValues(alpha: 0.04),
+        Colors.white,
+      );
+      panelGlassTop = Color.alphaBlend(
+        seedColor.withValues(alpha: 0.18),
+        lightGlassBase,
+      );
+      // bottom 更白，保证可辨 ΔL 渐变
+      panelGlassBottom = Color.alphaBlend(
+        Colors.white.withValues(alpha: 0.55),
+        lightGlassBase,
+      );
+    }
+    final onPanelGlass = _readableOn(panelGlassTop);
+
+    // 辩论马卡龙初值对齐历史 hex；暗壳略叠 surface 降刺眼、字色保持可辨。
+    const leftStart = Color(0xFFB8DFF5);
+    const leftEnd = Color(0xFFA8D4F0);
+    const rightStart = Color(0xFFFFD4DC);
+    const rightEnd = Color(0xFFFFB5C5);
+    const leftLabel = Color(0xFF2D4A66);
+    const leftPercent = Color(0xFF5B7FA8);
+    const rightPercent = Color(0xFFC45C7A);
+    final debateLeftStart = isDarkShell
+        ? Color.alphaBlend(leftStart.withValues(alpha: 0.88), surfaceColor)
+        : leftStart;
+    final debateLeftEnd = isDarkShell
+        ? Color.alphaBlend(leftEnd.withValues(alpha: 0.88), surfaceColor)
+        : leftEnd;
+    final debateRightStart = isDarkShell
+        ? Color.alphaBlend(rightStart.withValues(alpha: 0.88), surfaceColor)
+        : rightStart;
+    final debateRightEnd = isDarkShell
+        ? Color.alphaBlend(rightEnd.withValues(alpha: 0.88), surfaceColor)
+        : rightEnd;
+    // VS chrome：浅玻璃白边/白钮；暗壳改用 onPanelGlass 系，避免硬编码白。
+    final debateVsChipFill = isDarkShell
+        ? Color.alphaBlend(onPanelGlass.withValues(alpha: 0.92), panelGlassTop)
+        : Colors.white.withValues(alpha: 0.94);
+    final debateVsChipBorder = isDarkShell
+        ? onPanelGlass.withValues(alpha: 0.98)
+        : Colors.white.withValues(alpha: 0.98);
+    final debateVsOnChip = _readableOn(debateVsChipFill);
+    final debateVsBarBorder = isDarkShell
+        ? onPanelGlass.withValues(alpha: 0.35)
+        : Colors.white.withValues(alpha: 0.75);
+    final debateVsBarGlassTop = isDarkShell
+        ? onPanelGlass.withValues(alpha: 0.12)
+        : Colors.white.withValues(alpha: 0.55);
+    final debateVsSideBorder = isDarkShell
+        ? onPanelGlass.withValues(alpha: 0.28)
+        : Colors.white.withValues(alpha: 0.45);
+    final debateVsSideBorderSelected = isDarkShell
+        ? onPanelGlass.withValues(alpha: 0.72)
+        : Colors.white.withValues(alpha: 0.92);
+    final debateVsStickerFill = isDarkShell
+        ? Color.alphaBlend(onPanelGlass.withValues(alpha: 0.88), panelGlassTop)
+        : Colors.white.withValues(alpha: 0.9);
+    final debateVsStickerBorder = isDarkShell
+        ? onPanelGlass.withValues(alpha: 0.55)
+        : Colors.white.withValues(alpha: 0.95);
+
     return AppVisualTokens(
       shellColor: shellColor,
       surfaceColor: surfaceColor,
@@ -111,6 +218,34 @@ class VisualBundle {
       onRecordsCard: onRecordsCard,
       onShell: onShell,
       onSurface: onSurface,
+      modalFill: modalFill,
+      modalBorder: modalBorder,
+      onModal: onModal,
+      fieldFill: fieldFill,
+      fieldBorder: fieldBorder,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      panelGlassTop: panelGlassTop,
+      panelGlassBottom: panelGlassBottom,
+      onPanelGlass: onPanelGlass,
+      debateLeftStart: debateLeftStart,
+      debateLeftEnd: debateLeftEnd,
+      debateRightStart: debateRightStart,
+      debateRightEnd: debateRightEnd,
+      debateLeftLabel: leftLabel,
+      debateLeftPercent: leftPercent,
+      debateRightLabel: leftLabel,
+      debateRightPercent: rightPercent,
+      debateVsChipFill: debateVsChipFill,
+      debateVsChipBorder: debateVsChipBorder,
+      debateVsOnChip: debateVsOnChip,
+      debateVsBarBorder: debateVsBarBorder,
+      debateVsBarGlassTop: debateVsBarGlassTop,
+      debateVsSideBorder: debateVsSideBorder,
+      debateVsSideBorderSelected: debateVsSideBorderSelected,
+      debateVsStickerFill: debateVsStickerFill,
+      debateVsStickerBorder: debateVsStickerBorder,
+      mediaScrim: Colors.black.withValues(alpha: 0.92),
+      onMediaScrim: Colors.white.withValues(alpha: 0.92),
       panelShadow: isDarkShell
           ? [
               BoxShadow(
@@ -155,12 +290,8 @@ VisualBundle resolveVisualBundle({
   if (seed.computeLuminance() < _darkLuminanceThreshold) {
     return deriveDarkBundle(seed);
   }
-  return VisualBundle(
-    seedColor: seed,
-    shellColor: seed,
-    surfaceColor: _adjustLightness(seed, 0.03),
-    isDarkShell: false,
-  );
+  // 设置「彩色」自定义浅色：与经典同构近白壳+染料（禁止 shell=满色 seed）
+  return lightTintedBundle(seed: seed);
 }
 
 ThemePreset? _presetForSwatch(ThemePreset? preset) {
@@ -177,14 +308,25 @@ ThemePreset? _presetForSwatch(ThemePreset? preset) {
   };
 }
 
-VisualBundle classicLightBundle(BabySex sex) {
-  final primary = sexPrimary(sex);
-  final shell = Color.alphaBlend(primary.withValues(alpha: 0.08), Colors.white);
+/// 浅色同构配方：近白壳 + seed 染料（经典 / 设置「彩色」/ soft swatch 共用）。
+VisualBundle lightTintedBundle({
+  required Color seed,
+  ThemePreset? preset,
+}) {
+  final shell = Color.alphaBlend(seed.withValues(alpha: 0.08), Colors.white);
   return VisualBundle(
-    seedColor: primary,
+    seedColor: seed,
     shellColor: shell,
-    surfaceColor: Color.alphaBlend(primary.withValues(alpha: 0.04), Colors.white),
+    surfaceColor:
+        Color.alphaBlend(seed.withValues(alpha: 0.04), Colors.white),
     isDarkShell: false,
+    preset: preset,
+  );
+}
+
+VisualBundle classicLightBundle(BabySex sex) {
+  return lightTintedBundle(
+    seed: sexPrimary(sex),
     preset: ThemePreset.classicLight,
   );
 }
@@ -200,12 +342,9 @@ VisualBundle nightSkyBundle() {
 }
 
 VisualBundle lightSwatchBundle(ThemePreset preset) {
-  final color = _swatchColorForPreset(preset);
-  return VisualBundle(
-    seedColor: color,
-    shellColor: color,
-    surfaceColor: _adjustLightness(color, 0.03),
-    isDarkShell: false,
+  // 与经典同构：色板色作染料，页底近白淡染（避免满色壳灌 BackdropFilter）
+  return lightTintedBundle(
+    seed: _swatchColorForPreset(preset),
     preset: preset,
   );
 }
@@ -242,12 +381,22 @@ VisualBundle deriveDarkBundle(Color seed) {
   final shellL = hsl.lightness.clamp(0.10, 0.16);
   final shell = hsl.withLightness(shellL).toColor();
   final surface = hsl.withLightness((shellL + 0.07).clamp(0.0, 1.0)).toColor();
+  // chrome 染料：偏亮 accent（对齐夜空 seed 角色），勿用暗壳色暗叠暗
+  final accent = _darkChromeAccentFromSeed(hsl);
   return VisualBundle(
-    seedColor: seed,
+    seedColor: accent,
     shellColor: shell,
     surfaceColor: surface,
     isDarkShell: true,
   );
+}
+
+/// 自暗色输入派生 panelGlass / ColorScheme 用亮染料（结构对齐 kNightSkyAccent）。
+Color _darkChromeAccentFromSeed(HSLColor seedHsl) {
+  final accentL = (seedHsl.lightness + 0.38).clamp(0.42, 0.58);
+  final accentS =
+      (seedHsl.saturation * 0.75 + 0.22).clamp(0.35, 0.78);
+  return seedHsl.withLightness(accentL).withSaturation(accentS).toColor();
 }
 
 Color _adjustLightness(Color base, double delta) {

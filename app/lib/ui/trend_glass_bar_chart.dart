@@ -55,7 +55,7 @@ class TrendGlassBarChart extends StatelessWidget {
     final pts = series?.points ?? const <TrendPoint>[];
     final hourly = bucketMode == TrendBucketMode.hourly;
     final borderColor = Colors.white.withValues(alpha: 0.18);
-    final glassLabel = HistoryEditGlassPanel.glassLabelColor;
+    final glassLabel = historyEditGlassLabelColor(context);
 
     return HistoryEditGlassPanel(
       eventAccent: accentColor,
@@ -88,10 +88,10 @@ class TrendGlassBarChart extends StatelessWidget {
                           textAlign: TextAlign.left,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
-                            color: HistoryEditGlassPanel.glassTextColor,
+                            color: historyEditGlassTextColor(context),
                           ),
                         ),
                       ),
@@ -187,21 +187,21 @@ class _BarChartBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (holdAtZeroBeforeAnimation && barAnimationToken <= 0) {
-      return _buildBarChart(0.0);
+      return _buildBarChart(context, 0.0);
     }
     if (barAnimationToken <= 0) {
-      return _buildBarChart(1.0);
+      return _buildBarChart(context, 1.0);
     }
     return TweenAnimationBuilder<double>(
       key: ValueKey<int>(barAnimationToken),
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 760),
       curve: Curves.easeOutCubic,
-      builder: (context, factor, _) => _buildBarChart(factor),
+      builder: (context, factor, _) => _buildBarChart(context, factor),
     );
   }
 
-  Widget _buildBarChart(double growFactor) {
+  Widget _buildBarChart(BuildContext context, double growFactor) {
     final xIndices = ChartAxisGranularity.xLabelIndices(
       pointCount: pts.length,
       landscape: landscape,
@@ -250,6 +250,7 @@ class _BarChartBody extends StatelessWidget {
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           bottomTitles: AxisTitles(
             sideTitles: ChartAxisGranularity.glassBottomTitles(
+              context: context,
               landscape: landscape,
               dense: dense,
               showAtIndices: showAt,

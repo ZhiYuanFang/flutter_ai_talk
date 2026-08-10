@@ -15,6 +15,7 @@ import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
 import '../session/session_device_token_sync.dart';
+import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/baby_birth_picker_sheet.dart';
@@ -297,12 +298,12 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             '输入宝宝ID',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: AppColor.textPrimary(context),
             ),
           ),
           const SizedBox(height: 16),
@@ -316,7 +317,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
               decoration: InputDecoration(
                 hintText: '请输入宝宝ID',
                 filled: true,
-                fillColor: scheme.surface.withValues(alpha: 0.4),
+                fillColor: AppColor.fieldFill(context),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -331,7 +332,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             style: TextStyle(
               fontSize: 12,
               height: 1.4,
-              color: scheme.onSurfaceVariant,
+              color: AppColor.textSecondary(context),
             ),
           ),
         ],
@@ -344,16 +345,16 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             '宝宝基本信息',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: AppColor.textPrimary(context),
             ),
           ),
           const SizedBox(height: 20),
-          _buildLabel('宝宝昵称'),
+          _buildLabel(context, '宝宝昵称'),
           keyboardLiftTarget(
             focusNode: _nicknameFocusNode,
             anchorKey: _nicknameFieldKey,
@@ -364,7 +365,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
               decoration: InputDecoration(
                 hintText: '请输入宝宝昵称',
                 filled: true,
-                fillColor: scheme.surface.withValues(alpha: 0.4),
+                fillColor: AppColor.fieldFill(context),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -374,7 +375,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          _buildLabel('宝宝生日'),
+          _buildLabel(context, '宝宝生日'),
           ValueListenableBuilder<DateTime>(
             valueListenable: _birth,
             builder: (context, d, _) {
@@ -390,7 +391,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
-                    color: scheme.surface.withValues(alpha: 0.4),
+                    color: AppColor.fieldFill(context),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -408,7 +409,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             },
           ),
           const SizedBox(height: 20),
-          _buildLabel('宝宝性别'),
+          _buildLabel(context, '宝宝性别'),
           Row(
             children: [
               _SexChip(
@@ -431,14 +432,14 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     );
   }
 
-  Widget _buildLabel(String text) {
+  Widget _buildLabel(BuildContext context, String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
-          color: Colors.black54,
+          color: AppColor.textMuted(context),
           fontWeight: FontWeight.w500,
         ),
       ),
@@ -454,7 +455,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             child: TextButton(
               onPressed: () => context.pop(false),
               style: TextButton.styleFrom(
-                foregroundColor: Colors.black54,
+                foregroundColor: AppColor.textMuted(context),
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               child: const Text('取消', style: TextStyle(fontSize: 16)),
@@ -467,7 +468,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
               onPressed: _busy ? null : (_mode == _BabyBindMode.bind ? _bind : _create),
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary.withValues(alpha: 0.8),
-                foregroundColor: Colors.white,
+                foregroundColor: AppColor.onPrimary(context),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
                 elevation: 0,
@@ -504,7 +505,8 @@ class _ModeTab extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.transparent,
+          // 选中态：浅壳近白玻璃；暗壳 surface+primary，避免白板
+          color: selected ? AppColor.contentCard(context) : Colors.transparent,
           borderRadius: BorderRadius.circular(99),
           boxShadow: selected
               ? [
@@ -545,9 +547,9 @@ class _GlassCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.4),
+            color: AppColor.modalFill(context),
             borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+            border: Border.all(color: AppColor.modalBorder(context)),
           ),
           child: child,
         ),
@@ -571,6 +573,9 @@ class _SexChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 未选中底/边走主题玻璃；选中保留性别语义色（产品例外）
+    final idleFill = AppColor.fieldFill(context);
+    final idleBorder = AppColor.fieldBorder(context);
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -578,10 +583,10 @@ class _SexChip extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? color.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.2),
+            color: selected ? color.withValues(alpha: 0.15) : idleFill,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? color : Colors.white.withValues(alpha: 0.3),
+              color: selected ? color : idleBorder,
               width: selected ? 1.5 : 1,
             ),
           ),
@@ -589,7 +594,7 @@ class _SexChip extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                color: selected ? color : Colors.black54,
+                color: selected ? color : AppColor.textMuted(context),
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                 fontSize: 13,
               ),

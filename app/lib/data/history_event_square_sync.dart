@@ -28,7 +28,7 @@ String formatHistorySquareSyncCaption({
 
 String _squareSyncBabyDisplayName(String nickname) {
   final n = nickname.trim();
-  if (n.isEmpty || n == '未绑定宝宝ID' || n == '待设置') return '宝宝';
+  if (n.isEmpty || n == '未绑定宝宝' || n == '待设置') return '宝宝';
   return n;
 }
 

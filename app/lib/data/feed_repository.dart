@@ -36,6 +36,25 @@ abstract class FeedRepository {
     required int page,
     int pageSize = kHomeHistoryPageSize,
   });
+
+  /// `GET /device/history/api/filter`；失败或无 deviceNo 返回 `null`（不 Toast）。
+  /// [listDesc] 为服务端倒序（新→旧）。无 deviceNo **不得** 返回成功空列表。
+  Future<List<HistoryRecord>?> tryLoadHistoryFilter({
+    int startTime = 0,
+    int endTime = 0,
+    int limit = kHistoryFilterMaxLimit,
+    String eventIds = '',
+  });
+
+  /// `GET /device/history/api/v2/list`；失败或无 deviceNo 返回 `null`（不 Toast）。
+  Future<HistoryListPage?> tryLoadHistoryPageV2({
+    int page = 1,
+    int pageSize = kHomeHistoryPageSize,
+    int startTime = 0,
+    int endTime = 0,
+    int limit = 0,
+  });
+
   Future<HistoryRecord?> getRecord(String id);
   /// 成功返回 `true`；业务错误已 Toast 并返回 `false`。
   Future<bool> updateHistoryRecord(

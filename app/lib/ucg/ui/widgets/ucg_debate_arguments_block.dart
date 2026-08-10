@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../theme/app_color.dart';
 import '../../data/ucg_models.dart';
 import '../../providers/ucg_providers.dart';
 import '../ucg_login_gate.dart';
@@ -213,7 +214,7 @@ class _UcgDebateArgumentsBlockState
         color: pillBg,
         borderRadius:
             BorderRadius.circular(UcgDebateVisualTokens.argumentPillRadius),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
+        border: Border.all(color: ucgFeedFakeGlassBorderColor(context)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -331,7 +332,7 @@ class _ArgumentRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.35),
+          color: AppColor.fieldFill(context),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(

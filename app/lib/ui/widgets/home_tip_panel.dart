@@ -55,7 +55,7 @@ class _HomeTipPanelState extends ConsumerState<HomeTipPanel>
     if (!tip.canInjectToCompanion) return;
     ref
         .read(homePagerRequestProvider.notifier)
-        .requestPage(HomePagerPage.companion);
+        .requestPage(HomePagerPage.prediction);
   }
 
   @override

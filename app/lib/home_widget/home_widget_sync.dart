@@ -12,6 +12,7 @@ import '../data/models.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../providers/widget_tip_display_epoch_provider.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/custom_background_persist.dart';
 import 'home_widget_constants.dart';
@@ -113,6 +114,10 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
 Future<void> syncHomeWidgetFromRef(dynamic ref, {
   String? forceState,
   String? forceMessage,
+  /// 热路径传入避免在 homeHistory 更新栈内 read 自依赖。
+  List<HistoryRecord>? historyOverride,
+  /// 冷启先出预测：跳过慢 tip chat，稍后单独 sync。
+  bool skipTip = false,
 }) async {
   if (kIsWeb) return;
   final visual = buildHomeWidgetVisualFromRef(ref);
@@ -129,7 +134,9 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     return;
   }
 
-  final history = ref.read(homeHistoryProvider).items;
+  // 有 override 不再 read homeHistoryProvider（WS/setItems 同步栈内会自依赖）
+  final history =
+      historyOverride ?? ref.read(homeHistoryProvider).items;
   List<EventDefinition> catalog = const [];
   try {
     catalog = await EventCatalogStore.loadFromDisk();
@@ -170,7 +177,7 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   }
 
   HomeWidgetTipPayload? tip;
-  if (state == 'ready') {
+  if (state == 'ready' && !skipTip) {
     try {
       tip = await resolveWidgetTip(
         feed: ref.read(feedRepositoryProvider),
@@ -192,6 +199,10 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     tip: tip,
   );
   await pushHomeWidgetPayload(payload);
+  final tipBody = tip?.text.trim() ?? '';
+  if (tipBody.isNotEmpty) {
+    bumpWidgetTipDisplayEpoch(ref);
+  }
 }
 
 Future<void> pushHomeWidgetPayload(HomeWidgetPayload payload) async {
@@ -223,28 +234,39 @@ Future<void> pushHomeWidgetPayload(HomeWidgetPayload payload) async {
 Future<void> ensureWidgetReadyFromRef(dynamic ref) async {
   if (kIsWeb) return;
   if (!ref.read(sessionProvider).isLoggedIn) {
-    await syncHomeWidgetFromRef(ref);
+    await syncHomeWidgetFromRef(ref, skipTip: true);
     return;
   }
-  final depthReady = await readWidgetHistoryDepthReady();
-  if (!depthReady) {
-    await syncHomeWidgetFromRef(
-      ref,
-      forceState: 'loading',
-      forceMessage: HomeWidgetConstants.loadingMessage,
-    );
-    await ensureWidgetHistoryDepth(ref);
-  }
-  await syncHomeWidgetFromRef(ref);
+  // 内存 range 每次冷启都要 ensure；不得因 prefs depthReady 跳过（否则 loading 空窗）
+  await syncHomeWidgetFromRef(
+    ref,
+    forceState: 'loading',
+    forceMessage: HomeWidgetConstants.loadingMessage,
+    skipTip: true,
+  );
+  await ensureWidgetHistoryDepth(ref);
+  // 先推预测 payload（无 tip）；tip chat 可能 30s+，后台补推
+  await syncHomeWidgetFromRef(ref, skipTip: true);
+  unawaited(scheduleHomeWidgetSync(ref));
 }
 
 Future<void>? _widgetSyncInFlight;
 var _widgetSyncRerun = false;
+/// 合并连续触发时保留最新 history 快照。
+List<HistoryRecord>? _pendingHistoryOverride;
 
 /// 历史变更后推送小组件（single-flight，合并连续触发）。
-Future<void> scheduleHomeWidgetSync(dynamic ref) {
+/// [history]：调用方已持有的列表快照；热路径（homeHistory 更新内）必须传入。
+Future<void> scheduleHomeWidgetSync(
+  dynamic ref, {
+  List<HistoryRecord>? history,
+}) {
   if (kIsWeb) return Future.value();
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
+
+  if (history != null) {
+    _pendingHistoryOverride = List<HistoryRecord>.from(history);
+  }
 
   if (_widgetSyncInFlight != null) {
     _widgetSyncRerun = true;
@@ -259,12 +281,17 @@ Future<void> scheduleHomeWidgetSync(dynamic ref) {
 Future<void> _runWidgetSyncLoop(dynamic ref) async {
   do {
     _widgetSyncRerun = false;
-    await syncHomeWidgetFromRef(ref);
+    final override = _pendingHistoryOverride;
+    _pendingHistoryOverride = null;
+    await syncHomeWidgetFromRef(ref, historyOverride: override);
   } while (_widgetSyncRerun);
 }
 
-Future<void> onHomeHistoryChangedForWidget(dynamic ref) {
-  return scheduleHomeWidgetSync(ref);
+Future<void> onHomeHistoryChangedForWidget(
+  dynamic ref, {
+  List<HistoryRecord>? history,
+}) {
+  return scheduleHomeWidgetSync(ref, history: history);
 }
 
 /// 生效主题 visual 变化时推送小组件。

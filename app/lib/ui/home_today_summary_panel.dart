@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../theme/app_visual_tokens.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_record_metric.dart';
 import '../providers/event_catalog_notifier.dart';
+import '../theme/app_color.dart';
+import '../theme/app_visual_tokens.dart';
 import 'event_logo.dart';
 
 /// 主页历史区上方：今日各事件总额；超过两行可折叠，点击展开。
+/// 本变更仅展示；[onChipTap] 默认不接今昨小时 Sheet。
 class HomeTodaySummaryPanel extends ConsumerStatefulWidget {
   const HomeTodaySummaryPanel({
     super.key,
@@ -20,11 +22,13 @@ class HomeTodaySummaryPanel extends ConsumerStatefulWidget {
   final void Function(TodayEventTotal total, EventDefinition? event)? onChipTap;
 
   @override
-  ConsumerState<HomeTodaySummaryPanel> createState() => _HomeTodaySummaryPanelState();
+  ConsumerState<HomeTodaySummaryPanel> createState() =>
+      _HomeTodaySummaryPanelState();
 }
 
-class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
-  static const _twoRowMaxHeight = 56.0;
+class _HomeTodaySummaryPanelState
+    extends ConsumerState<HomeTodaySummaryPanel> {
+  static const _twoRowMaxHeight = 60.0;
   static const _chipSpacing = 6.0;
   static const _chipRunSpacing = 6.0;
 
@@ -67,7 +71,10 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
             event: lookupEventById(catalog, t.eventId),
             onTap: widget.onChipTap == null
                 ? null
-                : () => widget.onChipTap!(t, lookupEventById(catalog, t.eventId)),
+                : () => widget.onChipTap!(
+                      t,
+                      lookupEventById(catalog, t.eventId),
+                    ),
           ),
       ],
     );
@@ -79,7 +86,6 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
       return const SizedBox.shrink();
     }
 
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
     final catalog = ref.watch(eventCatalogProvider).items;
     final chips = _buildChips(catalog);
     final visibleChips = _expanded
@@ -102,11 +108,11 @@ class _HomeTodaySummaryPanelState extends ConsumerState<HomeTodaySummaryPanel> {
           Row(
             children: [
               Text(
-                '今日',
+                '今日汇总',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
-                      color: tokens?.onShell,
+                      color: AppColor.textPrimary(context),
                     ),
               ),
               if (_needsFold) ...[
@@ -156,16 +162,22 @@ class _TodayChip extends StatelessWidget {
     final labelStyle = TextStyle(
       fontSize: 12,
       height: 1.2,
-      color: tokens?.onSurface ?? Theme.of(context).colorScheme.onSurfaceVariant,
+      color: AppColor.textOnSurface(context),
       fontWeight: FontWeight.w500,
     );
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: ShapeDecoration(
-        color: Color.alphaBlend(accent.withValues(alpha: 0.14), tokens?.pillBackground ?? accent.withValues(alpha: 0.12)),
+        color: Color.alphaBlend(
+          accent.withValues(alpha: 0.14),
+          tokens?.pillBackground ?? accent.withValues(alpha: 0.12),
+        ),
         shape: StadiumBorder(
           side: BorderSide(
-            color: Color.alphaBlend(accent.withValues(alpha: 0.4), tokens?.pillBorder ?? accent.withValues(alpha: 0.35)),
+            color: Color.alphaBlend(
+              accent.withValues(alpha: 0.4),
+              tokens?.pillBorder ?? accent.withValues(alpha: 0.35),
+            ),
           ),
         ),
       ),

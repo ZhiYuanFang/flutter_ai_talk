@@ -19,49 +19,46 @@ import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../ucg/providers/ucg_providers.dart';
-import '../data/event_branding.dart';
 import '../bootstrap/cold_start_background_sync.dart';
 import '../bootstrap/gateway_bootstrap_gate.dart';
 import '../bootstrap/pangbao_transport_release.dart';
 import '../data/event_catalog_state.dart';
-import '../data/event_catalog_tree.dart';
 import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
 import '../data/feed_repository.dart';
+import '../data/active_timing_stop.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
-import '../data/history_post_outcome.dart';
 import '../data/history_record_metric.dart';
 import '../data/models.dart';
-import 'event_catalog_picker_sheet.dart';
+import 'event_add_actions.dart';
+import 'home_today_summary_panel.dart';
 import 'home_button_event_grid.dart'
     show HomeButtonEventGrid, buttonGridRowEvents, kHomeButtonInputPanelHeight;
-import 'home_event_record_fly_overlay.dart';
+import 'feeding_history_fly_landing.dart';
+import 'history_event_fly_overlay.dart';
 import 'home_active_timing_reminder_dialog.dart';
 import 'home_history_edit_sheet.dart';
 import 'home_history_scroll.dart';
 import 'home_history_ws_status_banner.dart';
 import 'home_immersive_header.dart';
-import 'home_number_event_sheet.dart';
 import 'home_history_timeline_tile.dart';
 import 'home_input_channel.dart';
 import 'home_input_caption.dart';
-import 'home_input_mode_dock.dart';
 import 'home_reply_bottom_sheet.dart';
-import 'home_event_hourly_trend_sheet.dart';
-import 'home_today_summary_panel.dart';
-import 'widgets/home_tip_panel.dart';
+import 'widgets/home_prediction_tip_bar.dart';
 import 'home_voice_level_bars.dart';
 import 'home_voice_message_strip.dart';
 import 'home_voice_recording_stats.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/sign_in_channel_provider.dart';
 import '../providers/event_catalog_notifier.dart';
+import '../providers/history_event_fly_provider.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/home_pager.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
-import '../providers/settings_baby.dart';
-import '../providers/tip_provider.dart';
+import '../providers/baby_display_provider.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../data/notify_banner_repository.dart';
 import '../providers/toast_bus.dart';
@@ -147,8 +144,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   String? _flyTargetRecordId;
   EventDefinition? _flyEvent;
   int _flySession = 0;
-  /// 本机 HTTP 已入列、等待 WS create 再播飞入的 serverId
-  final _awaitingWsFlyIds = <String>{};
   var _activeTimingReminderShowing = false;
   String? _pendingReminderExcludeId;
   Map<String, int>? _eventUsageCounts;
@@ -176,7 +171,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       unawaited(ref.read(deviceNoNotifierProvider.notifier).refresh());
       unawaited(ref.read(signInChannelProvider.notifier).restoreFromPrefs());
     }
-    unawaited(_restoreSavedInputChannel());
+    // 喂养页锁定事件按钮：不恢复历史语音/文字 channel
+    _inputChannel = HomeInputChannel.buttons;
     unawaited(_loadEventUsageAndButtonOrder());
     _init();
   }
@@ -189,51 +185,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     };
   }
 
-  HomeInputChannel? _inputChannelFromStorage(String? raw) {
-    return switch (raw) {
-      'voice' => HomeInputChannel.voice,
-      'text' => HomeInputChannel.text,
-      'buttons' => HomeInputChannel.buttons,
-      _ => null,
-    };
-  }
-
   bool _hasBoundDeviceNo() {
     final dn = ref.read(deviceNoNotifierProvider).asData?.value;
     return dn != null && dn.isNotEmpty;
   }
-
-  bool _isInputChannelAvailable(HomeInputChannel channel) {
-    if (kIsWeb) {
-      return switch (channel) {
-        HomeInputChannel.buttons || HomeInputChannel.text => true,
-        HomeInputChannel.voice => false,
-      };
-    }
-    return switch (channel) {
-      HomeInputChannel.voice => _hasBoundDeviceNo(),
-      HomeInputChannel.buttons => true,
-      HomeInputChannel.text => false,
-    };
-  }
-
-  Future<void> _restoreSavedInputChannel() async {
-    final saved = await HomeInputChannelStore.load();
-    if (!mounted) return;
-    final channel = _inputChannelFromStorage(saved);
-    if (channel == null || !_isInputChannelAvailable(channel)) return;
-    if (_inputChannel == channel) return;
-    if (channel == HomeInputChannel.voice) {
-      await _selectInputChannel(channel, persist: false);
-      return;
-    }
-    setState(() => _inputChannel = channel);
-    _scheduleHistoryReanchorAfterInputModeChange();
-  }
-
-  List<HomeInputChannel> get _dockCycleChannels => kIsWeb
-      ? const [HomeInputChannel.buttons, HomeInputChannel.text]
-      : const [HomeInputChannel.buttons, HomeInputChannel.voice];
 
   double get _bottomInputPanelHeight => switch (_inputChannel) {
         HomeInputChannel.buttons => kHomeButtonInputPanelHeight,
@@ -257,7 +212,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// 进入首页或 deviceNo 就绪后尝试连接语音转写 WS（需已登录且有 deviceNo）。
+  /// 喂养页已锁定按钮模式：不再主动连接 ASR。
   void _scheduleVoiceAsrConnectIfNeeded() {
+    if (_inputChannel != HomeInputChannel.voice) return;
     if (kIsWeb || _speechEngine != SpeechEngine.cloudAsr) return;
     if (!ref.read(sessionProvider).isLoggedIn) return;
     final dn = ref.read(deviceNoNotifierProvider).asData?.value;
@@ -344,6 +301,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _selectInputChannel(HomeInputChannel channel,
       {bool persist = true}) async {
+    // 喂养页仅支持事件按钮，忽略语音/文字切换请求
+    if (channel != HomeInputChannel.buttons) return;
     if (_inputChannel == channel) return;
     if (channel == HomeInputChannel.voice && !_hasBoundDeviceNo()) {
       return;
@@ -391,144 +350,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
-  bool _hasActiveTimingForEvent(EventDefinition event) {
-    final items = ref.read(homeHistoryProvider).items;
-    for (final record in items) {
-      if (!isActiveTimingRecord(record)) continue;
-      if (historyEventIdsMatch(record.rawPayload['eventId'], event.id)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void _scheduleFlyForRecord(String recordId, EventDefinition? event) {
+  /// 仅喂养可见页：承接共享飞入请求并冻列表。
+  void _beginFeedingFly(HistoryEventFlyRequest req) {
     if (!mounted) return;
     if (MediaQuery.disableAnimationsOf(context)) return;
     setState(() {
-      _flySession++;
-      _flyTargetRecordId = recordId;
-      _flyEvent = event;
+      _flySession = req.session;
+      _flyTargetRecordId = req.recordId;
+      _flyEvent = req.event;
     });
     _history.setFlyAnimationFrozen(true);
   }
 
-  Future<void> _submitEventAdd({
-    required EventDefinition event,
-    required int eventNumber,
-    required DateTime startTime,
-    required DateTime endTime,
-    String remark = '',
-  }) async {
+  /// 事件格点击：共享加事件 + 喂养页滚底 / 计时提醒（飞入仍由 WS 触发）。
+  Future<void> _onEventGridTap(EventDefinition event) async {
     if (_eventAddInFlight) return;
-    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
-    if (dn == null || dn.isEmpty) return;
-    final body = buildEventAddBody(
-      deviceNo: dn,
-      event: event,
-      eventNumber: eventNumber,
-      startTime: startTime,
-      endTime: endTime,
-      remark: remark,
-    );
-
     setState(() => _eventAddInFlight = true);
     try {
-      final feed = ref.read(feedRepositoryProvider);
-      final outcome = await feed.addHistoryEvent(body);
-      if (!mounted) return;
-      if (!outcome.isSuccess) {
-        // 业务失败已由 repository Toast；传输失败补提示
-        if (outcome.failureKind == HistoryPostFailureKind.transport) {
-          ref.showApiToast('同步失败，稍后请重试');
-        }
-        return;
-      }
-
-      final serverId = outcome.serverId!;
-      final record = historyRecordFromAddBody(body, id: serverId);
-      final scroll = _historyScrollKey.currentState;
-      if (scroll != null) {
-        scroll.scrollToBottom(force: true);
-      }
-      // HTTP：入列 + tip，不飞入；飞入留给 WS create
-      // WS 可能早于 HTTP：已存在则 upsert，不再登记 awaiting（WS 已飞过）
-      final alreadyThere =
-          ref.read(homeHistoryProvider).items.any((e) => e.id == serverId);
-      if (alreadyThere) {
-        _history.upsertRecord(record);
-      } else {
-        _history.insertOptimistic(record);
-        _awaitingWsFlyIds.add(serverId);
-      }
-      _scheduleActiveTimingReminderAfterAdd(excludeRecordId: serverId);
-      unawaited(EventButtonUsageStore.increment(event.id));
-      _triggerTipGeneration(record);
+      await handleEventGridTap(
+        context: context,
+        ref: ref,
+        event: event,
+        usageCounts: _eventUsageCounts,
+        onAdded: (result) {
+          if (!mounted) return;
+          _historyScrollKey.currentState?.scrollToBottom(force: true);
+          _scheduleActiveTimingReminderAfterAdd(
+            excludeRecordId: result.record.id,
+          );
+        },
+      );
     } finally {
       if (mounted) {
         setState(() => _eventAddInFlight = false);
       } else {
         _eventAddInFlight = false;
       }
-    }
-  }
-
-  Future<void> _onEventGridTap(EventDefinition event) async {
-    final catalog = ref.read(eventCatalogProvider).items;
-    if (hasChildren(catalog, event.id)) {
-      if (!mounted) return;
-      final leaf = await showEventCatalogPickerSheet(
-        context,
-        catalog: catalog,
-        root: event,
-        usageCounts: _eventUsageCounts,
-        onToast: (msg) => ref.showApiToast(msg),
-      );
-      if (leaf == null || !mounted) return;
-      await _onEventButtonTap(leaf);
-      return;
-    }
-    await _onEventButtonTap(event);
-  }
-
-  Future<void> _onEventButtonTap(EventDefinition event) async {
-    if (!event.hasValidEventType) return;
-    if (_eventAddInFlight) return;
-    if (!await _ensureRemoteGate()) return;
-
-    final type = event.parsedEventType!;
-    switch (type) {
-      case EventCatalogEventType.time:
-        if (_hasActiveTimingForEvent(event)) {
-          ref.showApiToast('${event.name}已在计时中');
-          return;
-        }
-        final now = DateTime.now();
-        await _submitEventAdd(
-          event: event,
-          eventNumber: 0,
-          startTime: now,
-          endTime: DateTime.fromMillisecondsSinceEpoch(0),
-        );
-      case EventCatalogEventType.one:
-        final now = DateTime.now();
-        await _submitEventAdd(
-          event: event,
-          eventNumber: 1,
-          startTime: now,
-          endTime: now,
-        );
-      case EventCatalogEventType.number:
-        if (!mounted || _eventAddInFlight) return;
-        final result = await showHomeNumberEventSheet(context, event);
-        if (result == null || !mounted || _eventAddInFlight) return;
-        await _submitEventAdd(
-          event: event,
-          eventNumber: result.eventNumber,
-          startTime: result.startTime,
-          endTime: result.startTime,
-          remark: result.remark,
-        );
     }
   }
 
@@ -606,43 +463,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _onHistoryWebSocketPayload(SseHistoryPayload payload) {
     final removed = payload.removedRecordId;
     if (removed != null) {
+      // 删除前取元数据；无锚点时 Overlay 会放弃飞入
+      HistoryRecord? existing;
+      for (final e in ref.read(homeHistoryProvider).items) {
+        if (e.id == removed) {
+          existing = e;
+          break;
+        }
+      }
       _history.removeRecord(removed);
+      requestHistoryEventFlyAfterMutation(
+        ref,
+        recordId: removed,
+        recordForMeta: existing,
+      );
       return;
     }
     final r = payload.record!;
-    final isNew = !ref.read(homeHistoryProvider).items.any((e) => e.id == r.id);
-    // 本机 HTTP 已插入的 id：即使 !isNew 也要飞一次；真正他端新增：isNew 飞入
-    final awaitLocalFly = _awaitingWsFlyIds.remove(r.id);
+    final items = ref.read(homeHistoryProvider).items;
+    final isNew = !items.any((e) => e.id == r.id);
+    // 本机乐观 pending→server：勿重复计时提醒（onAdded 已排）
+    final replacesPending = items.any(
+      (e) =>
+          isPendingHistoryId(e.id) && historyRecordMatchesPendingAdd(e, r),
+    );
     _history.upsertRecord(r);
-    if (awaitLocalFly || isNew) {
-      _onWsNewHistoryRecord(r);
-    }
-    // 他端纯新增：补计时提醒；本机 HTTP 路径已提醒过
-    if (isNew && !awaitLocalFly) {
+    // 任意 upsert：可见页门闸后请求飞入（连播接受）
+    requestHistoryEventFlyAfterMutation(
+      ref,
+      recordId: r.id,
+      recordForMeta: r,
+    );
+    // 他端纯新增：补计时提醒
+    if (isNew && !replacesPending) {
       _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
     }
-  }
-
-  /// 触发小贴士生成（本机按钮 add HTTP 成功后）。
-  ///
-  /// 月龄/时间由服务端派生；deviceNo 或 eventId 缺失时静默跳过。
-  /// 不依赖 History WS 就绪。
-  void _triggerTipGeneration(HistoryRecord record) {
-    // 从 rawPayload 获取 eventId（兼容 eventId/event_id 两种字段名）
-    final eventIdRaw =
-        record.rawPayload['eventId'] ?? record.rawPayload['event_id'];
-    final eventId = eventIdRaw is int
-        ? eventIdRaw
-        : int.tryParse(eventIdRaw?.toString() ?? '') ?? 0;
-    // 获取设备号：未绑定则跳过
-    final deviceNo = ref.read(deviceNoNotifierProvider).asData?.value ?? '';
-    if (deviceNo.isEmpty || eventId == 0) return;
-    // 触发小贴士流式接收（月龄/时间由服务端派生）
-    unawaited(ref.read(tipProvider.notifier).startStreaming(
-      deviceNo: deviceNo,
-      eventId: eventId,
-      eventName: record.eventName,
-    ));
   }
 
   void _subscribeHistoryWebSocketIfNeeded() {
@@ -669,16 +524,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
-  void _onWsNewHistoryRecord(HistoryRecord record) {
-    final event =
-        lookupEventForRecord(ref.read(eventCatalogProvider).items, record);
-    _scheduleFlyForRecord(record.id, event);
-  }
-
   void _onFlyOverlayComplete(int session) {
     if (!mounted) return;
     if (session != _flySession) return;
     _history.setFlyAnimationFrozen(false);
+    ref.read(historyEventFlyRequestProvider.notifier).clearIfSession(session);
     setState(() {
       _flyTargetRecordId = null;
       _flyEvent = null;
@@ -779,18 +629,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     } catch (_) {}
   }
 
-  HistoryRecord _recordWithEndTime(HistoryRecord r, DateTime end) {
-    final p = Map<String, Object?>.from(r.rawPayload);
-    p['endTime'] = historyDateTimeToUnixSeconds(end);
-    return HistoryRecord(
-      id: r.id,
-      createdAt: r.createdAt,
-      eventName: r.eventName,
-      action: r.action,
-      rawPayload: p,
-    );
-  }
-
   bool _isRecordActivelyTiming(String recordId) {
     for (final e in ref.read(homeHistoryProvider).items) {
       if (e.id == recordId) return isActiveTimingRecord(e);
@@ -801,34 +639,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<bool> _stopActiveTimer(HistoryRecord record) async {
     if (_stoppingRecordIds.contains(record.id)) return false;
     setState(() => _stoppingRecordIds.add(record.id));
-
-    final end = DateTime.now();
-    final p = record.rawPayload;
-    final remark = (p['remark'] as String?) ?? '';
-    final feed = ref.read(feedRepositoryProvider);
-
-    if (isPendingHistoryId(record.id)) {
-      // 残留 pending 行：仅本地结束，不再走 outbox
-      _history.replaceRecordImmediate(_recordWithEndTime(record, end));
-      if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
-      return true;
-    }
-
-    // 停表一律即时 HTTP，不依赖 History WS / outbox
-    final ok = await feed.updateHistoryRecord(
-      record.id,
-      remark: remark,
-      startTime: activeTimingStartAt(record),
-      endTime: end,
-      fallbackRecord: record,
-    );
-    if (!mounted) return false;
-    if (ok) {
-      _history.replaceRecordImmediate(_recordWithEndTime(record, end));
-    } else {
-      ref.showApiToast('同步失败，稍后请重试');
-    }
-    setState(() => _stoppingRecordIds.remove(record.id));
+    // 与预测网格卡共用停止语义
+    final ok = await stopActiveTimingRecord(ref: ref, record: record);
+    if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
     return ok;
   }
 
@@ -1334,6 +1147,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 共享飞入：仅当前页为喂养时承接
+    ref.listen<HistoryEventFlyRequest?>(historyEventFlyRequestProvider,
+        (prev, next) {
+      if (next == null) return;
+      if (next.targetPage != HomePagerPage.feeding) return;
+      if (prev?.session == next.session) return;
+      _beginFeedingFly(next);
+    });
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),
         (prev, loggedIn) {
       if (prev != true || !loggedIn) return;
@@ -1380,7 +1201,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final homeHistory = ref.watch(homeHistoryProvider);
     final historyItems = homeHistory.items;
     final historyInitialLoadDone = homeHistory.initialLoadDone;
-    final todayTotals = aggregateTodayTotals(historyItems);
     final catalogState = ref.watch(eventCatalogProvider);
     final eventCatalogItems = catalogState.items;
     // 仅当已登录且本地未缓存 deviceNo 时提示绑定；游客见下方登录引导空态。
@@ -1414,24 +1234,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final tokens = Theme.of(context).extension<AppVisualTokens>();
     final shellBg =
         tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
+    // 沉浸头身份条：经展示快照 Provider（L2）。
+    final babyDisplay = ref.watch(babyDisplayProvider);
+    // 今日汇总 chip（仅展示，不接小时趋势 Sheet）。
+    final todayTotals = aggregateTodayTotals(historyItems);
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: shellBg,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final dockBounds = Rect.fromLTWH(
-                0, 0, constraints.maxWidth, constraints.maxHeight);
             return Stack(
               clipBehavior: Clip.none,
               children: [
                 Column(
                   children: [
                     HomeImmersiveHeader(
-                      title: '胖宝',
+                      babyId: babyDisplay.babyId,
+                      sex: babyDisplay.sex,
+                      nickname: babyDisplay.nickname,
+                      ageText: babyDisplay.ageText,
+                      onAvatarTap: () => context.push('/settings'),
                       onTrendsTap: () => context.push('/trends'),
-                      onSettingsTap: () => context.push('/settings'),
                     ),
+                    HomeTodaySummaryPanel(totals: todayTotals),
+                    // 顶部固定本地预测贴士（替代 tip SSE 球/卡）
+                    // const HomePredictionTipBar(),
                     const SizedBox(height: _kImmersiveHeaderContentSpacing),
                     if (showBindBanner)
                       Material(
@@ -1465,20 +1293,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           ),
                         ),
                       ),
-                    HomeTodaySummaryPanel(
-                      totals: todayTotals,
-                      onChipTap: (total, event) {
-                        unawaited(
-                          showHomeEventHourlyTrendSheet(
-                            context,
-                            total: total,
-                            event: event,
-                            historyItems: historyItems,
-                            ref: ref,
-                          ),
-                        );
-                      },
-                    ),
                     Expanded(
                       child: Stack(
                         children: [
@@ -1509,13 +1323,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                                   )
                                                 : Consumer(
                                                     builder: (context, ref, _) {
-                                                      final baby = ref
+                                                      final name = ref
                                                           .watch(
-                                                              settingsBabyProvider)
-                                                          .asData
-                                                          ?.value;
-                                                      final name =
-                                                          baby?.nickname ?? '宝宝';
+                                                              babyDisplayProvider)
+                                                          .nickname;
                                                       return AppEmptyStateGallery(
                                                         animationPath:
                                                             'assets/images/ani_baby_feeding_guide.json',
@@ -1570,12 +1381,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 ),
                             ],
                           ),
-                          // 小贴士自管居中/拖动/贴边；空白区不挡历史点击
-                          Positioned.fill(
-                            child: HomeTipPanel(
-                              onDraggingChanged: widget.onDockDraggingChanged,
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -1596,27 +1401,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     ),
                   ],
                 ),
-                if (!blockHomeInputChrome)
-                  Positioned.fill(
-                    child: HomeInputModeDock(
-                      bounds: dockBounds,
-                      bottomInputPanelHeight: _bottomInputPanelHeight,
-                      currentChannel: _inputChannel,
-                      dockCycleChannels: _dockCycleChannels,
-                      restrictToHorizontalEdges: kIsWeb,
-                      onChannelSelected: (channel) =>
-                          unawaited(_selectInputChannel(channel)),
-                      onDraggingChanged: widget.onDockDraggingChanged,
-                    ),
-                  ),
+                // 喂养页隐藏输入模式切换 dock，仅事件按钮
                 if (_flyTargetRecordId != null)
                   Positioned.fill(
                     child: RepaintBoundary(
-                      child: HomeEventRecordFlyOverlay(
+                      child: HistoryEventFlyOverlay(
                         key: ValueKey<int>(_flySession),
                         event: _flyEvent,
-                        recordId: _flyTargetRecordId!,
-                        historyScrollKey: _historyScrollKey,
+                        landing: FeedingHistoryFlyLanding(
+                          historyScrollKey: _historyScrollKey,
+                          recordId: _flyTargetRecordId!,
+                        ),
                         onComplete: () => _onFlyOverlayComplete(_flySession),
                       ),
                     ),

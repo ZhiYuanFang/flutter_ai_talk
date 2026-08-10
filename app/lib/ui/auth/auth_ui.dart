@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_color.dart';
+
 const kAuthHintColor = Color(0xFF8C7E74);
 
 Widget buildAuthBrandHeader(BuildContext context,
@@ -84,7 +86,7 @@ Widget buildAuthPrivacyAgreement(
             style: Theme.of(context)
                 .textTheme
                 .bodySmall
-                ?.copyWith(color: Colors.black54),
+                ?.copyWith(color: AppColor.textMuted(context)),
             children: [
               TextSpan(text: '$leadText '),
               TextSpan(
@@ -106,7 +108,7 @@ Widget buildAuthPrivacyAgreement(
             style: Theme.of(context)
                 .textTheme
                 .bodySmall
-                ?.copyWith(color: Colors.black54),
+                ?.copyWith(color: AppColor.textMuted(context)),
             children: [
               const TextSpan(text: '和 '),
               TextSpan(

@@ -65,6 +65,16 @@
 - **禁止**：仅 `flutter run` debug 验证就合并 Android 原生改动。
 - **参考**：`app/android/app/proguard-rules.pro`、`app/android/build.gradle.kts`（子模块 `compileSdkVersion` 兜底）、`app/README.md`「打包与发布 → Android」。
 
+### 主题色约定（强制）
+
+- 业务 UI（`app/lib/ui/**`、`app/lib/ucg/**`）随主题变化的颜色 **必须** 经语义原子入口 **`AppColor.*`**（或 `AppVisualTokens` 成对字段）取色；组件 **不得** 为拼色读取 `isDarkShell` / 自算 alpha 白叠。
+- 角色分离：**modal**（Dialog/软引导）≠ **contentCard**（历史浅卡等）≠ **panelGlass**（页内 tip/留意/预测卡 chrome、**UCG 广场/辩论卡外壳**）；暗壳 modal/panelGlass **必须** 为暗/主题色浮层 + 配对浅字，**禁止** 近白 contentCard 起笔或浅底配 `onShell` 白字。
+- 辩论左右侧类别色、VS chip/描边等 **必须** 经 `AppColor.debate*` 原子；业务 **不得** 内联马卡龙 `Color(0x…)`。
+- **禁止** 用 `Colors.black54`、固定灰阶 hex、或不当的 `Colors.white` 作为常规正文/次要按钮前景。
+- 实心主色按钮字色 **必须** 用 `AppColor.onPrimary` / `colorScheme.onPrimary`。
+- **例外**（须注释标明）：事件品牌 `colorHex`、媒体沉浸遮罩（`AppColor.mediaScrim` / `onMediaScrim`）、第三方 SDK 不可控色。
+- **参考**：`app/lib/theme/app_color.dart`、`app/lib/theme/app_visual_tokens.dart`；变更见 `theme-semantic-atoms` / `ucg-panel-glass-atoms`。
+
 ### 副作用 HTTP 治理（强制）
 
 当 HTTP 请求由 **Riverpod `ref.listen`、原生/SDK 回调、`Stream.listen`、App lifecycle** 等**非用户直接点击**路径触发（下称「副作用 HTTP」）时，**必须**满足下列防护，避免 iOS 等同 host 连接槽被重试环占满（典型：`POST /push/register` 失败 → APNs `onTokenRefresh` → 再 register）。
@@ -111,4 +121,5 @@
 - **Android 原生**：是否已 release 构建通过；`proguard-rules.pro` 是否按需更新。
 - **测试文件**：是否未经用户明确要求而新增 `*_test.dart`。
 - **副作用 HTTP**：listener/回调/lifecycle 触发的 HTTP 是否有 single-flight、失败熔断、自触发 ignore、成功缓存；provider 创建是否误发副作用 HTTP。
+- **主题色**：业务 UI 是否绕过 `colorScheme`/`AppVisualTokens` 硬编码浅色玻璃白或灰阶字；暗壳是否出现突兀白底卡片。
 - **归档**：收版是否默认 `--remove-changes`；`project.md` 基线版本是否已更新。

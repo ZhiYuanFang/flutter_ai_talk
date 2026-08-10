@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../theme/app_color.dart';
 import 'ucg_feed_fake_glass_panel.dart';
 
 /// 辩论 VS 条：软糖马卡龙假玻璃、emoji 中心、仅展示百分比；0 票对称条且不显示数字。
@@ -35,8 +36,8 @@ class UcgDebateVsBar extends StatelessWidget {
   /// 单侧文案区：左右 padding + 中心徽章半宽预留。
   static const _sideLayoutReserve = _sideHorizontalPadding + _badgeHalf;
 
+  /// 测宽用（字色由 AppColor.debate*Label 提供）。
   static const _labelStyle = TextStyle(
-    color: UcgDebateVisualTokens.macaronLabelColor,
     fontSize: 12,
     fontWeight: FontWeight.w700,
     height: 1.0,
@@ -54,23 +55,23 @@ class UcgDebateVsBar extends StatelessWidget {
     final displayLeft = hasVotes ? _clampVisual(leftRatio) : 0.5;
     final leftPct = hasVotes ? (leftRatio * 100).round() : null;
     final rightPct = hasVotes ? (rightRatio * 100).round() : null;
-    final scheme = Theme.of(context).colorScheme;
+    final primary = AppColor.primary(context);
 
     Widget bar = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_radius),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
+        border: Border.all(color: AppColor.debateVsBarBorder(context)),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.white.withValues(alpha: 0.55),
-            scheme.primary.withValues(alpha: 0.04),
+            AppColor.debateVsBarGlassTop(context),
+            primary.withValues(alpha: 0.04),
           ],
         ),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.05),
+            color: primary.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -99,22 +100,24 @@ class UcgDebateVsBar extends StatelessWidget {
                     children: [
                       _MacaronSide(
                         width: leftW,
-                        gradientStart: UcgDebateVisualTokens.macaronLeftStart,
-                        gradientEnd: UcgDebateVisualTokens.macaronLeftEnd,
+                        gradientStart: AppColor.debateLeftStart(context),
+                        gradientEnd: AppColor.debateLeftEnd(context),
                         label: leftLabel,
+                        labelColor: AppColor.debateLeftLabel(context),
                         percent: leftPct,
-                        percentColor: UcgDebateVisualTokens.macaronPercentColor,
+                        percentColor: AppColor.debateLeftPercent(context),
                         selected: myVoteSide == 'left',
                         alignStart: true,
                         onTap: canVote ? () => onVote!('left') : null,
                       ),
                       _MacaronSide(
                         width: rightW,
-                        gradientStart: UcgDebateVisualTokens.macaronRightStart,
-                        gradientEnd: UcgDebateVisualTokens.macaronRightEnd,
+                        gradientStart: AppColor.debateRightStart(context),
+                        gradientEnd: AppColor.debateRightEnd(context),
                         label: rightLabel,
+                        labelColor: AppColor.debateRightLabel(context),
                         percent: rightPct,
-                        percentColor: UcgDebateVisualTokens.macaronPercentRightColor,
+                        percentColor: AppColor.debateRightPercent(context),
                         selected: myVoteSide == 'right',
                         alignStart: false,
                         onTap: canVote ? () => onVote!('right') : null,
@@ -124,7 +127,7 @@ class UcgDebateVsBar extends StatelessWidget {
                   Positioned(
                     left: (leftW - _badgeHalf).clamp(0.0, w - _badgeSize),
                     top: (_barHeight - _badgeSize) / 2,
-                    child: const IgnorePointer(
+                    child: IgnorePointer(
                       child: _EmojiBadge(
                         emoji: UcgDebateVisualTokens.vsCenterEmoji,
                         size: UcgDebateVsBar._badgeSize,
@@ -236,18 +239,25 @@ class _EmojiBadge extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white.withValues(alpha: 0.94),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.98), width: 1.5),
+        color: AppColor.debateVsChipFill(context),
+        border: Border.all(color: AppColor.debateVsChipBorder(context), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: AppColor.pageBg(context).withValues(alpha: 0.35),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       alignment: Alignment.center,
-      child: Text(emoji, style: const TextStyle(fontSize: 16, height: 1)),
+      child: Text(
+        emoji,
+        style: TextStyle(
+          fontSize: 16,
+          height: 1,
+          color: AppColor.debateVsOnChip(context),
+        ),
+      ),
     );
   }
 }
@@ -258,6 +268,7 @@ class _MacaronSide extends StatelessWidget {
     required this.gradientStart,
     required this.gradientEnd,
     required this.label,
+    required this.labelColor,
     required this.percent,
     required this.percentColor,
     required this.selected,
@@ -269,6 +280,7 @@ class _MacaronSide extends StatelessWidget {
   final Color gradientStart;
   final Color gradientEnd;
   final String label;
+  final Color labelColor;
   final int? percent;
   final Color percentColor;
   final bool selected;
@@ -282,6 +294,9 @@ class _MacaronSide extends StatelessWidget {
     final borderRadius = alignStart
         ? const BorderRadius.horizontal(left: Radius.circular(18))
         : const BorderRadius.horizontal(right: Radius.circular(18));
+    final sideBorder = selected
+        ? AppColor.debateVsSideBorderSelected(context)
+        : AppColor.debateVsSideBorder(context);
 
     Widget side = SizedBox(
       width: width,
@@ -295,7 +310,7 @@ class _MacaronSide extends StatelessWidget {
           ),
           borderRadius: borderRadius,
           border: Border.all(
-            color: Colors.white.withValues(alpha: selected ? 0.92 : 0.45),
+            color: sideBorder,
             width: selected ? 2 : 1,
           ),
           boxShadow: selected
@@ -320,6 +335,7 @@ class _MacaronSide extends StatelessWidget {
               maxWidth: width - UcgDebateVsBar._sideLayoutReserve,
               maxHeight: UcgDebateVsBar._barHeight - 8,
               label: label,
+              labelColor: labelColor,
               percent: percent,
               percentColor: percentColor,
               alignStart: alignStart,
@@ -344,6 +360,7 @@ class _SideLabel extends StatelessWidget {
     required this.maxWidth,
     required this.maxHeight,
     required this.label,
+    required this.labelColor,
     required this.percent,
     required this.percentColor,
     required this.alignStart,
@@ -352,6 +369,7 @@ class _SideLabel extends StatelessWidget {
   final double maxWidth;
   final double maxHeight;
   final String label;
+  final Color labelColor;
   final int? percent;
   final Color percentColor;
   final bool alignStart;
@@ -365,7 +383,7 @@ class _SideLabel extends StatelessWidget {
       displayLabel,
       maxLines: 1,
       softWrap: false,
-      style: UcgDebateVsBar._labelStyle,
+      style: UcgDebateVsBar._labelStyle.copyWith(color: labelColor),
     );
 
     if (percent != null) {
@@ -407,9 +425,9 @@ class _PercentSticker extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
+        color: AppColor.debateVsStickerFill(context),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
+        border: Border.all(color: AppColor.debateVsStickerBorder(context)),
       ),
       child: Text(
         '$percent%',

@@ -94,17 +94,17 @@ class HomeHistoryTimeField extends StatelessWidget {
                           height: 1.2,
                           fontWeight: FontWeight.w600,
                           color: isUnset
-                              ? HistoryEditGlassPanel.glassLabelColor.withValues(alpha: 0.65)
+                              ? historyEditGlassLabelColor(context).withValues(alpha: 0.65)
                               : textColor,
                           fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),
                     if (enabled)
-                      const Icon(
+                      Icon(
                         Icons.edit_outlined,
                         size: 20,
-                        color: HistoryEditGlassPanel.glassLabelColor,
+                        color: historyEditGlassLabelColor(context),
                       ),
                   ],
                 ),
@@ -249,7 +249,7 @@ class HomeHistoryDateField extends StatelessWidget {
                           height: 1.2,
                           fontWeight: FontWeight.w600,
                           color: isUnset
-                              ? HistoryEditGlassPanel.glassLabelColor.withValues(alpha: 0.65)
+                              ? historyEditGlassLabelColor(context).withValues(alpha: 0.65)
                               : textColor,
                         ),
                         maxLines: 1,
@@ -257,10 +257,10 @@ class HomeHistoryDateField extends StatelessWidget {
                       ),
                     ),
                     if (enabled)
-                      const Icon(
+                      Icon(
                         Icons.edit_outlined,
                         size: 20,
-                        color: HistoryEditGlassPanel.glassLabelColor,
+                        color: historyEditGlassLabelColor(context),
                       ),
                   ],
                 ),

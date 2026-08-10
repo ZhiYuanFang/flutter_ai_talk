@@ -10,6 +10,7 @@ import '../data/home_history_memory_cache.dart';
 import '../data/models.dart';
 import '../home_widget/home_widget_sync.dart';
 import 'device_no_notifier.dart';
+import 'prediction_range_history_provider.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
 
@@ -198,7 +199,10 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   void _setItemsNow(List<HistoryRecord> items, {bool persist = true}) {
     _applyItems(items);
     if (_ref.read(sessionProvider).isLoggedIn) {
-      unawaited(scheduleHomeWidgetSync(_ref));
+      // 喂养历史变更 → 失效预测 range（防抖重拉），再推小组件
+      _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
+      // 传入快照，避免 sync 内 read(homeHistoryProvider) 自依赖
+      unawaited(scheduleHomeWidgetSync(_ref, history: items));
     }
     if (persist) unawaited(persistToDisk());
   }
@@ -375,13 +379,18 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       ),
     );
     _applyState(next);
+    // 首页刷新可能变更近 7 日内容 → 失效预测 range
+    if (_ref.read(sessionProvider).isLoggedIn) {
+      _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
+      unawaited(scheduleHomeWidgetSync(_ref, history: mergedAsc));
+    }
   }
 
   Future<void> loadMoreHistory() async {
     await loadNextHistoryPage();
   }
 
-  /// 加载下一页历史；成功返回 true。与 widget 预拉共用 in-flight。
+  /// 加载下一页历史；成功返回 true（仅喂养列表分页，不驱动预测 range）。
   Future<bool> loadNextHistoryPage() async {
     if (_flyAnimationFrozen) {
       _enqueueIfFrozen(() => unawaited(loadNextHistoryPage()));
@@ -433,7 +442,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         highestPageLoaded: nextPage,
       ),
     );
-    unawaited(scheduleHomeWidgetSync(_ref));
+    // 更旧分页不进入 7 日 range，无需同步小组件预测
     return true;
   }
 

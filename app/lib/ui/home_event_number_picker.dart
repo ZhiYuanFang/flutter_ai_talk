@@ -1,4 +1,7 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+
+import '../theme/app_color.dart';
 
 /// 用量滚轮档位（与添加事件 Sheet 一致）。
 final List<int> kHomeEventNumberPickerValues = [
@@ -22,7 +25,8 @@ class HomeEventNumberPicker extends StatelessWidget {
   final bool enabled;
 
   static int valueAtIndex(int index) {
-    return kHomeEventNumberPickerValues[index.clamp(0, kHomeEventNumberPickerValues.length - 1)];
+    return kHomeEventNumberPickerValues[
+        index.clamp(0, kHomeEventNumberPickerValues.length - 1)];
   }
 
   static int indexForValue(int value) {
@@ -42,21 +46,46 @@ class HomeEventNumberPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 对齐时间轮：跟随 Material brightness + sheet 主文案色（勿强制 dark）
+    final onSheet = AppColor.textOnSheet(context);
+    final primary = AppColor.primary(context);
     return SizedBox(
       height: kHomeEventNumberPickerHeight,
       child: IgnorePointer(
         ignoring: !enabled,
         child: Opacity(
           opacity: enabled ? 1 : 0.45,
-          child: CupertinoPicker(
-            scrollController: controller,
-            itemExtent: kHomeEventNumberPickerItemExtent,
-            onSelectedItemChanged: enabled
-                ? (i) => onSelected?.call(valueAtIndex(i))
-                : null,
-            children: kHomeEventNumberPickerValues
-                .map((v) => Center(child: Text('$v')))
-                .toList(),
+          child: CupertinoTheme(
+            data: CupertinoThemeData(
+              brightness: Theme.of(context).brightness,
+              primaryColor: primary,
+              textTheme: CupertinoTextThemeData(
+                pickerTextStyle: TextStyle(
+                  color: onSheet,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            child: CupertinoPicker(
+              scrollController: controller,
+              itemExtent: kHomeEventNumberPickerItemExtent,
+              onSelectedItemChanged: enabled
+                  ? (i) => onSelected?.call(valueAtIndex(i))
+                  : null,
+              selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
+                background: primary.withValues(alpha: 0.12),
+              ),
+              children: kHomeEventNumberPickerValues
+                  .map(
+                    (v) => Center(
+                      child: Text(
+                        '$v',
+                        style: TextStyle(color: onSheet),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
           ),
         ),
       ),

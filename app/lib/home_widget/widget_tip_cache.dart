@@ -53,6 +53,14 @@ Future<HomeWidgetTipPayload?> resolveWidgetTip({
   return HomeWidgetTipPayload(text: trimmed, fetchedAt: now);
 }
 
+/// 预测页/展示用：有 tip 正文则返回；与小组件对齐，不校验当日 dayKey。
+Future<String?> peekWidgetTipDisplayText({DateTime? now}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final trimmed = prefs.getString(kWidgetTipTextKey)?.trim() ?? '';
+  if (trimmed.isEmpty) return null;
+  return trimmed;
+}
+
 /// 陪伴可注入文案：当日有缓存且未注入时，优先全文，回退 trim。
 Future<String?> peekWidgetTipInjectText({DateTime? now}) async {
   final prefs = await SharedPreferences.getInstance();

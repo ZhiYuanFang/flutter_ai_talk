@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../config/event_number_memory_store.dart';
 import '../config/event_remark_memory_store.dart';
 import '../data/event_definition.dart';
 import '../data/history_mapper.dart';
+import '../theme/app_color.dart';
 import 'event_logo.dart';
 import 'home_event_number_picker.dart';
 import 'home_history_edit_glass_panel.dart';
@@ -156,11 +156,12 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
   }
 
   Widget _glassPickerFrame({required Widget child}) {
+    // 与备注输入壳同原子，避免浅 sheet 上白半透明融掉
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-        color: Colors.white.withValues(alpha: 0.06),
+        border: Border.all(color: AppColor.fieldBorder(context)),
+        color: AppColor.fieldFill(context),
       ),
       child: child,
     );
@@ -193,18 +194,18 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          Text(
-            dateLabel,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.2,
-              fontWeight: FontWeight.w500,
-              color: glassLabel,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-          const SizedBox(height: 16),
+          // Text(
+          //   dateLabel,
+          //   textAlign: TextAlign.center,
+          //   style: TextStyle(
+          //     fontSize: 15,
+          //     height: 1.2,
+          //     fontWeight: FontWeight.w500,
+          //     color: glassLabel,
+          //     fontFeatures: const [FontFeature.tabularFigures()],
+          //   ),
+          // ),
+          // const SizedBox(height: 16),
           HomeHistoryTimeField(
             anchorDate: _todayAnchor,
             value: _selectedTime,
@@ -216,10 +217,7 @@ class _HomeNumberEventSheetState extends State<_HomeNumberEventSheet> {
           Text('用量', style: TextStyle(fontSize: 13, color: glassLabel)),
           const SizedBox(height: 6),
           _glassPickerFrame(
-            child: CupertinoTheme(
-              data: const CupertinoThemeData(brightness: Brightness.dark),
-              child: HomeEventNumberPicker(controller: _usagePickerCtrl),
-            ),
+            child: HomeEventNumberPicker(controller: _usagePickerCtrl),
           ),
           const SizedBox(height: 14),
           keyboardLiftTarget(

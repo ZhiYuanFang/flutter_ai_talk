@@ -2,6 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../../../theme/app_color.dart';
+
 /// UCG CDN / 远程图片：Web 用 HTML `<img>` 规避跨域 fetch（statusCode 0），移动端走磁盘缓存。
 ///
 /// 勿用于 [CircleAvatar.backgroundImage]——Decoration 路径在 Web 仍会触发 Same-Origin 解码错误；
@@ -26,10 +28,13 @@ class UcgNetworkImageLoadingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
+    return SizedBox(
       width: 28,
       height: 28,
-      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: AppColor.onMediaScrim(context).withValues(alpha: 0.7),
+      ),
     );
   }
 }

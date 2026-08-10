@@ -13,8 +13,8 @@ abstract final class HomeWidgetConstants {
   static const noPredictionMessage = '继续记录以生成预测';
   static const loadingMessage = '正在准备数据…';
 
-  static const maxPrefetchPages = 15;
-  static const prefetchDaySpan = 30;
+  /// 预测/小组件历史深度（自然日，含今天共 7 日）。
+  static const prefetchDaySpan = 7;
   static const prefetchTimeout = Duration(seconds: 30);
   static const maxConsecutivePageFailures = 3;
 }

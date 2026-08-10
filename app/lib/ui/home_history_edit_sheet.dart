@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,6 +15,7 @@ import '../data/models.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
+import '../theme/app_color.dart';
 import '../ucg/data/ucg_album_picker.dart';
 import '../ucg/data/ucg_location.dart';
 import '../ucg/data/ucg_video_upload.dart';
@@ -625,17 +625,15 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                       ),
                       const SizedBox(height: 6),
                       DecoratedBox(
+                        // 与备注输入壳同原子，避免浅 sheet 上白半透明融掉
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                          color: Colors.white.withValues(alpha: 0.06),
+                          border: Border.all(color: AppColor.fieldBorder(context)),
+                          color: AppColor.fieldFill(context),
                         ),
-                        child: CupertinoTheme(
-                          data: const CupertinoThemeData(brightness: Brightness.dark),
-                          child: HomeEventNumberPicker(
-                            controller: _usagePickerCtrl,
-                            enabled: !readOnly,
-                          ),
+                        child: HomeEventNumberPicker(
+                          controller: _usagePickerCtrl,
+                          enabled: !readOnly,
                         ),
                       ),
                     ],
