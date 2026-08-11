@@ -171,30 +171,25 @@ class SmartPredictionScreen extends ConsumerWidget {
       }
     });
 
-    // 登录成功：停登录引导；若仍未绑定则打开绑定引导
+    // 登录成功：停登录引导；绑定引导保持不自动弹（等骨架卡意图）
     ref.listen(sessionProvider, (prev, next) {
       final wasIn = prev?.isLoggedIn == true;
       final nowIn = next.isLoggedIn;
       if (!wasIn && nowIn) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           ref.read(predictionLoginGateVisibleProvider.notifier).state = false;
-          final dn =
-              ref.read(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-          if (dn.isEmpty) {
-            ref.read(predictionBindGateVisibleProvider.notifier).state = true;
-          }
         });
       }
       if (wasIn && !nowIn) {
-        // 登出：恢复登录引导默认可见
+        // 登出：关闭可见门闸，但不强制下次进页自动弹
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(predictionLoginGateVisibleProvider.notifier).state = true;
-          ref.read(predictionBindGateVisibleProvider.notifier).state = true;
+          ref.read(predictionLoginGateVisibleProvider.notifier).state = false;
+          ref.read(predictionBindGateVisibleProvider.notifier).state = false;
         });
       }
     });
 
-    // 绑定成功：停绑定引导
+    // 绑定成功：停绑定引导；解绑后不自动弹（等骨架卡意图）
     ref.listen(deviceNoNotifierProvider, (prev, next) {
       final dn = next.asData?.value?.trim() ?? '';
       final prevDn = prev?.asData?.value?.trim() ?? '';
@@ -205,7 +200,7 @@ class SmartPredictionScreen extends ConsumerWidget {
       }
       if (prevDn.isNotEmpty && dn.isEmpty && ref.read(sessionProvider).isLoggedIn) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(predictionBindGateVisibleProvider.notifier).state = true;
+          ref.read(predictionBindGateVisibleProvider.notifier).state = false;
         });
       }
     });
@@ -245,7 +240,8 @@ class SmartPredictionScreen extends ConsumerWidget {
       }
     }
 
-    void reopenActiveGateIfNeeded() {
+    /// 骨架卡等意图入口：可打开登录/绑定/量身定做门闸。
+    void openGateFromIntent() {
       if (gateKind == PredictionGateKind.login) {
         if (!loginGateVisible) {
           ref.read(predictionLoginGateVisibleProvider.notifier).state = true;
@@ -263,6 +259,13 @@ class SmartPredictionScreen extends ConsumerWidget {
       }
     }
 
+    /// 空白/切布局：仅再弹量身定做，不得打开登录/绑定。
+    void reopenRecallGateIfNeeded() {
+      if (recallSessionLive && !recallDialogVisible) {
+        ref.read(predictionRecallDialogVisibleProvider.notifier).state = true;
+      }
+    }
+
     void finishRecallOnboarding() {
       ref.read(predictionRecallFinaleDismissedProvider.notifier).state = true;
       ref.read(predictionRecallSessionActiveProvider.notifier).state = false;
@@ -270,9 +273,14 @@ class SmartPredictionScreen extends ConsumerWidget {
       ref.read(predictionRecallSessionRootsProvider.notifier).state = const [];
     }
 
-    final Widget carePanel;
-    if (useDemoSkeleton) {
-      carePanel = const _CareAlertDemoHealthyPanel();
+    // Auth 冷态（未登录/未绑定）：滑动引导大卡，不展示留意/3小时/底 tip。
+    final authGuestChrome = !loggedIn || !bound;
+
+    final Widget? careOrGuide;
+    if (authGuestChrome) {
+      careOrGuide = const _PredictionSwipeGuideCard();
+    } else if (useDemoSkeleton) {
+      careOrGuide = const _CareAlertDemoHealthyPanel();
     } else {
       final careItems = ref.watch(predictionCareAlertProvider);
       final careState = ref.watch(predictionCareAlertStateProvider);
@@ -284,7 +292,7 @@ class SmartPredictionScreen extends ConsumerWidget {
           return s.isVip;
         }),
       );
-      carePanel = _CareAlertPanel(
+      careOrGuide = _CareAlertPanel(
         state: careState,
         items: careItems,
         isVip: isVip,
@@ -328,6 +336,13 @@ class SmartPredictionScreen extends ConsumerWidget {
     final logoAnchors = ref.watch(predictionLogoAnchorRegistryProvider);
     logoAnchors.retainOnly(rows.map((r) => r.eventId));
 
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    // 横屏强制瀑布；竖屏尊重本地偏好。
+    final useGridLayout =
+        isLandscape || layout == PredictionCardsLayout.grid;
+    final waterfallColumns = isLandscape ? 3 : 2;
+
     Widget buildCardsBody() {
       if (rows.isEmpty) {
         return Center(
@@ -339,10 +354,16 @@ class SmartPredictionScreen extends ConsumerWidget {
           ),
         );
       }
-      if (layout == PredictionCardsLayout.grid) {
+      if (useGridLayout) {
         return _WaterfallCards(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          padding: EdgeInsets.fromLTRB(
+            isLandscape ? 8 : 16,
+            0,
+            isLandscape ? 8 : 16,
+            24,
+          ),
           rows: rows,
+          columnCount: waterfallColumns,
           itemBuilder: (row) {
             final activeTiming = useDemoSkeleton
                 ? null
@@ -378,12 +399,9 @@ class SmartPredictionScreen extends ConsumerWidget {
                   ? null
                   : () {
                       if (useDemoSkeleton) {
-                        if (!loggedIn) {
-                          context.push('/login');
-                          return;
-                        }
-                        if (!bound) {
-                          context.push('/settings/bind-baby');
+                        // 未登录/未绑定：复用软门闸 reopen，禁止直达路由。
+                        if (!loggedIn || !bound) {
+                          openGateFromIntent();
                           return;
                         }
                         showAppToast('先完成量身定做，或去喂养页记一笔吧');
@@ -434,44 +452,109 @@ class SmartPredictionScreen extends ConsumerWidget {
       );
     }
 
-    return Material(
-      color: shell,
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 4, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
-                      child: Row(
-                        children: [
-                          BabyAvatar(
-                            babyId: babyDisplay.babyId,
-                            sex: babyDisplay.sex,
-                            radius: 20,
-                            onTap: openSettings,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  nickname,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                        color: onShell,
-                                      ),
-                                ),
+    // 登录 / 绑定 / 量身定做门闸（横竖屏共用）。
+    final List<Widget> gateOverlays = [
+      if (showLoginGate || showBindGate)
+        _PredictionSoftGateOverlay(
+          onDismiss: softDismissActiveGate,
+          child: _PredictionAuthGateCard(
+            title: showLoginGate ? '尚未登录' : '嗨，我是胖宝！',
+            subtitle: showLoginGate
+                ? '登录后即可使用智能预测，记录与陪伴宝宝日常'
+                : '我想更好地陪伴宝宝成长，先绑定宝宝信息吧',
+            actionLabel: showLoginGate ? '去登录' : '立即绑定宝宝',
+            onAction: () {
+              if (showLoginGate) {
+                context.push('/login');
+              } else {
+                context.push('/settings/bind-baby');
+              }
+            },
+          ),
+        ),
+      if (recallSessionLive)
+        Visibility(
+          visible: recallDialogVisible,
+          maintainState: true,
+          maintainAnimation: true,
+          maintainSize: false,
+          child: _PredictionSoftGateOverlay(
+            onDismiss: softDismissActiveGate,
+            maxHeightFactor: 0.72,
+            child: PredictionRecallOnboardingPanel(
+              gapRoots:
+                  sessionRoots.isNotEmpty ? sessionRoots : gapRoots,
+              catalog: catalog,
+              onFinished: finishRecallOnboarding,
+            ),
+          ),
+        ),
+    ];
+
+    final Widget pageBody;
+    if (isLandscape) {
+      // 横屏：左竖排身份 + 右三列瀑布；无顶栏工具 / 留意 / 引导 / 3小时。
+      pageBody = Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _PredictionLandscapeIdentityRail(
+            nickname: nickname,
+            ageText: babyDisplay.showAge ? ageText : '',
+            color: onShell,
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: reopenRecallGateIfNeeded,
+                  child: buildCardsBody(),
+                ),
+                ...gateOverlays,
+              ],
+            ),
+          ),
+        ],
+      );
+    } else {
+      pageBody = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 4, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
+                    child: Row(
+                      children: [
+                        BabyAvatar(
+                          babyId: babyDisplay.babyId,
+                          sex: babyDisplay.sex,
+                          radius: 20,
+                          onTap: openSettings,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                nickname,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: onShell,
+                                    ),
+                              ),
+                              // 未登录/未绑定不展示月龄行。
+                              if (babyDisplay.showAge &&
+                                  ageText.trim().isNotEmpty)
                                 Text(
                                   ageText,
                                   maxLines: 1,
@@ -480,116 +563,90 @@ class SmartPredictionScreen extends ConsumerWidget {
                                       .textTheme
                                       .bodySmall
                                       ?.copyWith(
-                                        color: onShell.withValues(alpha: 0.65),
+                                        color:
+                                            onShell.withValues(alpha: 0.65),
                                       ),
                                 ),
-                              ],
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: layout == PredictionCardsLayout.grid
-                        ? '切换为纵向列表'
-                        : '切换为瀑布流',
-                    onPressed: () {
-                      reopenActiveGateIfNeeded();
-                      ref.read(predictionCardsLayoutProvider.notifier).toggle();
-                    },
-                    icon: Icon(
-                      layout == PredictionCardsLayout.grid
-                          ? Icons.view_agenda_outlined
-                          : Icons.dashboard_customize_outlined,
-                      color: onShell,
-                    ),
-                  ),
-                  const ThemePaletteIconButton(),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Stack(
-                children: [
-                  // 仅点击（tap）再弹；不得用 pointerDown（滑动触碰会误弹）
-                  GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: reopenActiveGateIfNeeded,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: carePanel,
                         ),
-                        if (timelineText != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                            child: _NextThreeHoursTimeline(
-                              body: timelineText,
-                              onOpenFeeding: () {
-                                ref
-                                    .read(homePagerRequestProvider.notifier)
-                                    .requestPage(HomePagerPage.feeding);
-                              },
-                            ),
-                          ),
-                        Expanded(child: buildCardsBody()),
-                        if (showTip)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                            child: _BottomTipMarquee(
-                              text: tipText,
-                              onTap: openCompanion,
-                            ),
-                          ),
                       ],
                     ),
                   ),
-                  // 登录 / 绑定引导（无永久 dismissed；条件解除即停）
-                  if (showLoginGate || showBindGate)
-                    _PredictionSoftGateOverlay(
-                      onDismiss: softDismissActiveGate,
-                      child: _PredictionAuthGateCard(
-                        title: showLoginGate ? '尚未登录' : '嗨，我是胖宝！',
-                        subtitle: showLoginGate
-                            ? '登录后即可使用智能预测，记录与陪伴宝宝日常'
-                            : '我想更好地陪伴宝宝成长，先绑定宝宝信息吧',
-                        actionLabel: showLoginGate ? '去登录' : '立即绑定宝宝',
-                        onAction: () {
-                          if (showLoginGate) {
-                            context.push('/login');
-                          } else {
-                            context.push('/settings/bind-baby');
-                          }
-                        },
-                      ),
-                    ),
-                  if (recallSessionLive)
-                    Visibility(
-                      visible: recallDialogVisible,
-                      maintainState: true,
-                      maintainAnimation: true,
-                      maintainSize: false,
-                      child: _PredictionSoftGateOverlay(
-                        onDismiss: softDismissActiveGate,
-                        maxHeightFactor: 0.72,
-                        child: PredictionRecallOnboardingPanel(
-                          gapRoots: sessionRoots.isNotEmpty
-                              ? sessionRoots
-                              : gapRoots,
-                          catalog: catalog,
-                          onFinished: finishRecallOnboarding,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+                ),
+                IconButton(
+                  tooltip: layout == PredictionCardsLayout.grid
+                      ? '切换为纵向列表'
+                      : '切换为瀑布流',
+                  onPressed: () {
+                    reopenRecallGateIfNeeded();
+                    ref
+                        .read(predictionCardsLayoutProvider.notifier)
+                        .toggle();
+                  },
+                  icon: Icon(
+                    layout == PredictionCardsLayout.grid
+                        ? Icons.view_agenda_outlined
+                        : Icons.dashboard_customize_outlined,
+                    color: onShell,
+                  ),
+                ),
+                const ThemePaletteIconButton(),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                // 空白 tap 仅再弹量身定做；登录/绑定须骨架卡意图
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: reopenRecallGateIfNeeded,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: careOrGuide,
+                      ),
+                      // Auth 冷态不展示接下来3小时；已绑定冷态/热态照旧。
+                      if (!authGuestChrome && timelineText != null)
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: _NextThreeHoursTimeline(
+                            body: timelineText,
+                            onOpenFeeding: () {
+                              ref
+                                  .read(homePagerRequestProvider.notifier)
+                                  .requestPage(HomePagerPage.feeding);
+                            },
+                          ),
+                        ),
+                      Expanded(child: buildCardsBody()),
+                      if (!authGuestChrome && showTip)
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: _BottomTipMarquee(
+                            text: tipText,
+                            onTap: openCompanion,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                ...gateOverlays,
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Material(
+      color: shell,
+      child: SafeArea(child: pageBody),
     );
   }
 
@@ -607,6 +664,128 @@ class SmartPredictionScreen extends ConsumerWidget {
       return formatPredictionGridRelative(pred.nextAt, now, overdue: true);
     }
     return formatWidgetPredictSubtitle(pred.nextAt, now, overdue: overdue);
+  }
+}
+
+/// Auth 冷态滑动引导大卡：无按钮；箭头持续左右位移 + 心跳缩放。
+class _PredictionSwipeGuideCard extends StatefulWidget {
+  const _PredictionSwipeGuideCard();
+
+  @override
+  State<_PredictionSwipeGuideCard> createState() =>
+      _PredictionSwipeGuideCardState();
+}
+
+class _PredictionSwipeGuideCardState extends State<_PredictionSwipeGuideCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    // 与预测卡心跳节奏接近，持续反向循环。
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 0.92, end: 1.08).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+    _slide = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final onPanel = AppColor.textOnPanelGlass(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColor.divider(context)),
+            gradient: AppColor.panelGlassGradient(context),
+          ),
+          padding: const EdgeInsets.fromLTRB(12, 18, 12, 18),
+          child: AnimatedBuilder(
+            animation: _ctrl,
+            builder: (context, _) {
+              final t = _slide.value;
+              // 左右箭头外扩（反相）：吸睛引导横滑。
+              final leftDx = -8.0 * t;
+              final rightDx = 8.0 * t;
+              return Row(
+                children: [
+                  Transform.translate(
+                    offset: Offset(leftDx, 0),
+                    child: ScaleTransition(
+                      scale: _scale,
+                      child: Icon(
+                        Icons.chevron_left_rounded,
+                        size: 36,
+                        color: onPanel.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '左右滑动，看看别处',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: onPanel,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '左滑进广场 · 右滑去喂养',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(
+                                color: onPanel.withValues(alpha: 0.75),
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Transform.translate(
+                    offset: Offset(rightDx, 0),
+                    child: ScaleTransition(
+                      scale: _scale,
+                      child: Icon(
+                        Icons.chevron_right_rounded,
+                        size: 36,
+                        color: onPanel.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1202,24 +1381,27 @@ class _CareAlertMarqueeState extends State<_CareAlertMarquee> {
   }
 }
 
-/// 双列瀑布流：奇偶分列，单滚动视口，高度随内容。
+/// 多列瀑布流：按 index % columnCount 分列，单滚动视口，高度随内容。
 class _WaterfallCards extends StatelessWidget {
   const _WaterfallCards({
     required this.padding,
     required this.rows,
     required this.itemBuilder,
+    this.columnCount = 2,
   });
 
   final EdgeInsets padding;
   final List<SmartPredictionRow> rows;
   final Widget Function(SmartPredictionRow row) itemBuilder;
+  /// 列数（竖屏 2 / 横屏 3）。
+  final int columnCount;
 
   @override
   Widget build(BuildContext context) {
-    final left = <SmartPredictionRow>[];
-    final right = <SmartPredictionRow>[];
+    final count = columnCount < 1 ? 1 : columnCount;
+    final cols = List.generate(count, (_) => <SmartPredictionRow>[]);
     for (var i = 0; i < rows.length; i++) {
-      (i.isEven ? left : right).add(rows[i]);
+      cols[i % count].add(rows[i]);
     }
     Widget column(List<SmartPredictionRow> col) {
       return Column(
@@ -1238,10 +1420,81 @@ class _WaterfallCards extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: column(left)),
-          const SizedBox(width: 12),
-          Expanded(child: column(right)),
+          for (var c = 0; c < count; c++) ...[
+            if (c > 0) const SizedBox(width: 12),
+            Expanded(child: column(cols[c])),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// 横屏左栏：昵称 + 月龄竖排（逐字纵向），可滚动防溢出。
+class _PredictionLandscapeIdentityRail extends StatelessWidget {
+  const _PredictionLandscapeIdentityRail({
+    required this.nickname,
+    required this.ageText,
+    required this.color,
+  });
+
+  final String nickname;
+  final String ageText;
+  final Color color;
+
+  static List<String> _chars(String s) {
+    // 按 Unicode 标量拆字（中文昵称足够）；避免引入额外依赖。
+    return s.runes.map(String.fromCharCode).toList(growable: false);
+  }
+
+  Widget _verticalRun(
+    BuildContext context, {
+    required String text,
+    required TextStyle? style,
+  }) {
+    final chars = _chars(text);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final ch in chars)
+          Text(ch, style: style, textAlign: TextAlign.center),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+          color: color,
+          height: 1.15,
+        );
+    final ageStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: color.withValues(alpha: 0.65),
+          height: 1.15,
+        );
+    final showAge = ageText.trim().isNotEmpty;
+
+    return SizedBox(
+      width: 48,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 12, 4, 12),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              _verticalRun(context, text: nickname, style: titleStyle),
+              if (showAge) ...[
+                const SizedBox(height: 10),
+                Text(
+                  '·',
+                  style: ageStyle?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                _verticalRun(context, text: ageText.trim(), style: ageStyle),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

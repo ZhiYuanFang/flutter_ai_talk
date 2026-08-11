@@ -555,8 +555,8 @@ flutter run -d android --dart-define=FORCE_IPV4=true
 
 | 平台 | 通道 | 流程 |
 |------|------|------|
-| iOS | Apple IAP（`apple_iap`） | 建单 → StoreKit（`in_app_purchase`）→ `POST /cash/app/api/vip/apple/verify` → 刷新 `GET /cash/app/api/vip/status` |
-| Android | 支付宝（`alipay`） | 建单 → `tobias` 调起 `alipayOrderStr` → 回前台有界轮询 status |
+| iOS | Apple IAP（`apple_iap`） | 建单 → StoreKit（`in_app_purchase`）→ `POST /cash/app/api/vip/apple/verify` → 刷新 `GET /cash/app/api/vip/status`；**不嵌入**支付宝 SDK |
+| Android | 支付宝（`alipay`） | 建单 → path 包 `packages/tobias_android`（上游 tobias 5.3.4，仅 Android 插件）调起 `alipayOrderStr` → 回前台有界轮询 status |
 | Web | — | 提示使用手机 App |
 
 **前置（服务端 / 商店，非本仓可改）**
@@ -564,7 +564,7 @@ flutter run -d android --dart-define=FORCE_IPV4=true
 1. gateway 可达 cash-service；ASC 创建 IAP，`appleProductId` 与后端 `CASH_APPLE_PRODUCT_ID` / product API 一致（建议 **消耗型**，便于续期）。
 2. 支付宝开放平台应用 + 服务端 `CASH_ALIPAY_*` / notify URL（见 go_ai_talk `docs/runbooks/cash-vip-sandbox.md`）。
 3. Android Release：改原生/支付宝依赖后须本地 `flutter build apk --release`；ProGuard 已含 `com.alipay.**` keep。
-4. `pubspec.yaml` → `tobias.url_scheme: pangbaovip`（iOS 回跳；勿含 `_`）。
+4. iOS **不得** 依赖 `tobias.url_scheme` / `no_utdid`（已从 app `pubspec` 移除）；支付宝仅 Android。
 
 **联调**
 

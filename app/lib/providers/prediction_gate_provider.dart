@@ -8,8 +8,8 @@ enum PredictionGateKind {
   recall,
 }
 
-/// 登录引导 Dialog 是否可见（软关为 false；无永久 dismissed）。
-final predictionLoginGateVisibleProvider = StateProvider<bool>((ref) => true);
+/// 登录引导 Dialog 是否可见（默认 false：进页不弹；骨架卡意图打开；软关为 false）。
+final predictionLoginGateVisibleProvider = StateProvider<bool>((ref) => false);
 
-/// 绑定引导 Dialog 是否可见（软关为 false；无永久 dismissed）。
-final predictionBindGateVisibleProvider = StateProvider<bool>((ref) => true);
+/// 绑定引导 Dialog 是否可见（默认 false：进页不弹；骨架卡意图打开；软关为 false）。
+final predictionBindGateVisibleProvider = StateProvider<bool>((ref) => false);

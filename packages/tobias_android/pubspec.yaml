@@ -1,0 +1,29 @@
+name: tobias
+description: >-
+  Android-only vendored Tobias (Alipay) plugin for pangbao_app.
+  Upstream OpenFlutter/tobias 5.3.4 with iOS/ohos platforms removed so iOS
+  builds do not link AlipaySDK / UTDevice.
+version: 5.3.4
+publish_to: "none"
+homepage: https://github.com/OpenFlutter/tobias
+
+environment:
+  sdk: ">=2.12.0 <4.0.0"
+  flutter: ">=1.12.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.jarvan.tobias
+        pluginClass: TobiasPlugin

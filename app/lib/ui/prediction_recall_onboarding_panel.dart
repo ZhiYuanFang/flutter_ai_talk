@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +11,9 @@ import '../data/prediction_recall_seed.dart';
 import '../providers/forecast_toggle_provider.dart';
 import '../providers/prediction_recall_provider.dart';
 import '../theme/app_color.dart';
+import 'event_logo.dart';
+import 'glass_single_wheel_picker_sheet.dart';
+import 'home_history_time_wheel.dart';
 import 'widgets/app_modal_glass_panel.dart';
 import 'widgets/app_toast.dart';
 
@@ -46,10 +48,10 @@ class _PredictionRecallOnboardingPanelState
 
   late DateTime _lastAt;
   var _intervalMinutes = 180;
-  String? _leafId;
   String _thinkingFull = '';
   var _thinkingVisible = 0;
   Timer? _typeTimer;
+  Timer? _autoAdvanceTimer;
 
   /// 页数 = 各根卡片 + 收尾页。
   int get _pageCount => _queue.isEmpty ? 1 : _queue.length + 1;
@@ -74,27 +76,19 @@ class _PredictionRecallOnboardingPanelState
   @override
   void dispose() {
     _typeTimer?.cancel();
+    _autoAdvanceTimer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
-  List<EventDefinition> _leafChoices(EventDefinition root) {
-    final kids = childrenOf(widget.catalog, root.id);
-    if (kids.isEmpty) return [root];
-    return kids;
-  }
+  /// 真实子事件；空则不展示「该事件包含」。
+  List<EventDefinition> _childEvents(EventDefinition root) =>
+      childrenOf(widget.catalog, root.id);
 
   void _resetCardDefaults() {
     final now = DateTime.now();
     _lastAt = DateTime(now.year, now.month, now.day, now.hour, now.minute);
     _intervalMinutes = 180;
-    final root = _current;
-    if (root == null) {
-      _leafId = null;
-      return;
-    }
-    final leaves = _leafChoices(root);
-    _leafId = leaves.first.id;
   }
 
   Future<void> _goToPage(int page) async {
@@ -129,15 +123,15 @@ class _PredictionRecallOnboardingPanelState
   Future<void> _onConfirm() async {
     final root = _current;
     if (root == null) return;
-    final leafId = _leafId ?? root.id;
     final interval = Duration(minutes: _intervalMinutes);
     if (interval < kMinIntervalForPrediction) {
       showAppToast('间隔至少 15 分钟', tone: AppToastTone.error);
       return;
     }
+    // 不再选叶：种子挂根事件
     final seed = PredictionRecallSeed(
       rootEventId: root.id,
-      leafEventId: leafId,
+      leafEventId: root.id,
       lastAt: _lastAt,
       interval: interval,
       occurrenceAts:
@@ -146,26 +140,15 @@ class _PredictionRecallOnboardingPanelState
     await ref.read(predictionRecallSeedsProvider.notifier).upsertSeed(seed);
     if (!mounted) return;
 
-    final leaf = lookupLeafName(leafId, root);
     final isTime = root.parsedEventType == EventCatalogEventType.time;
     final whenLabel = isTime ? '上次结束' : '上次发生';
     _thinkingFull =
         '好的，我记下了「${root.name}」：$whenLabel在 ${_timeFmt.format(_lastAt)}，'
-        '大概每 ${_formatInterval(_intervalMinutes)} 一次'
-        '${leaf != root.name ? '，具体是「$leaf」' : ''}。'
+        '大概每 ${_formatInterval(_intervalMinutes)} 一次。'
         '正在按你的节奏合成推演样本，为「${root.name}」量身定做智能预测…';
     _thinkingVisible = 0;
     setState(() => _showThinking = true);
     _startTypewriter();
-  }
-
-  String lookupLeafName(String leafId, EventDefinition root) {
-    for (final e in widget.catalog) {
-      if (catalogIdsEqual(e.id, leafId)) {
-        return e.name.trim().isEmpty ? root.name : e.name.trim();
-      }
-    }
-    return root.name;
   }
 
   String _formatInterval(int minutes) {
@@ -176,8 +159,17 @@ class _PredictionRecallOnboardingPanelState
     return '$h 小时 $m 分钟';
   }
 
+  void _scheduleAutoAdvanceAfterThinking() {
+    _autoAdvanceTimer?.cancel();
+    _autoAdvanceTimer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted || !_showThinking) return;
+      unawaited(_advanceToNextRoot());
+    });
+  }
+
   void _startTypewriter() {
     _typeTimer?.cancel();
+    _autoAdvanceTimer?.cancel();
     _typeTimer = Timer.periodic(const Duration(milliseconds: 42), (t) {
       if (!mounted) {
         t.cancel();
@@ -185,73 +177,74 @@ class _PredictionRecallOnboardingPanelState
       }
       if (_thinkingVisible >= _thinkingFull.length) {
         t.cancel();
+        _scheduleAutoAdvanceAfterThinking();
         return;
       }
       setState(() => _thinkingVisible++);
+      if (_thinkingVisible >= _thinkingFull.length) {
+        t.cancel();
+        _scheduleAutoAdvanceAfterThinking();
+      }
     });
   }
 
   Future<void> _advanceToNextRoot() async {
     _typeTimer?.cancel();
+    _autoAdvanceTimer?.cancel();
     setState(() => _showThinking = false);
     final next = _pageIndex + 1;
     await _goToPage(next.clamp(0, _pageCount - 1));
   }
 
-  Future<void> _onThinkingContinue() async {
-    if (_thinkingVisible < _thinkingFull.length) {
-      _typeTimer?.cancel();
-      setState(() => _thinkingVisible = _thinkingFull.length);
-      return;
-    }
-    await _advanceToNextRoot();
+  /// 跳过打字机；全文展示后仍自动前进。
+  void _onSkipThinkingAnimation() {
+    _typeTimer?.cancel();
+    setState(() => _thinkingVisible = _thinkingFull.length);
+    _scheduleAutoAdvanceAfterThinking();
   }
 
   Future<void> _pickLastAt() async {
     final root = _current;
     final isTime = root?.parsedEventType == EventCatalogEventType.time;
-    var temp = _lastAt;
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (ctx) => Container(
-        height: 280,
-        color: CupertinoColors.systemBackground.resolveFrom(ctx),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 44,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  CupertinoButton(
-                    child: const Text('取消'),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                  ),
-                  Text(isTime ? '上次结束时间' : '上次发生时间'),
-                  CupertinoButton(
-                    child: const Text('确定'),
-                    onPressed: () {
-                      setState(() => _lastAt = temp);
-                      Navigator.of(ctx).pop();
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: CupertinoDatePicker(
-                mode: CupertinoDatePickerMode.dateAndTime,
-                use24hFormat: true,
-                minuteInterval: 1,
-                initialDateTime: _lastAt,
-                maximumDate: DateTime.now(),
-                onDateTimeChanged: (v) => temp = v,
-              ),
-            ),
-          ],
-        ),
-      ),
+    final title = isTime ? '上次结束时间' : '上次发生时间';
+    final now = DateTime.now();
+    final minDay = homeHistoryDateOnly(now.subtract(const Duration(days: 365)));
+    final maxDay = homeHistoryDateOnly(now);
+
+    // 与添加事件同族：先玻璃日期，再玻璃时分
+    final day = await showHomeHistoryDatePickerSheet(
+      context,
+      minimumDate: minDay,
+      maximumDate: maxDay,
+      initialValue: _lastAt,
+      title: '$title · 日期',
     );
+    if (!mounted || day == null) return;
+
+    final time = await showHomeHistoryTimePickerSheet(
+      context,
+      anchorDate: day,
+      initialValue: DateTime(
+        day.year,
+        day.month,
+        day.day,
+        _lastAt.hour,
+        _lastAt.minute,
+      ),
+      title: '$title · 时间',
+    );
+    if (!mounted || time == null) return;
+
+    var combined = DateTime(
+      day.year,
+      day.month,
+      day.day,
+      time.hour,
+      time.minute,
+    );
+    final latest = DateTime.now();
+    if (combined.isAfter(latest)) combined = latest;
+    setState(() => _lastAt = combined);
   }
 
   Future<void> _pickInterval() async {
@@ -260,50 +253,15 @@ class _PredictionRecallOnboardingPanelState
     ];
     var idx = items.indexOf(_intervalMinutes);
     if (idx < 0) idx = items.indexOf(180).clamp(0, items.length - 1);
-    var tempIdx = idx;
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (ctx) => Container(
-        height: 280,
-        color: CupertinoColors.systemBackground.resolveFrom(ctx),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 44,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  CupertinoButton(
-                    child: const Text('取消'),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                  ),
-                  const Text('大概多久一次'),
-                  CupertinoButton(
-                    child: const Text('确定'),
-                    onPressed: () {
-                      setState(() => _intervalMinutes = items[tempIdx]);
-                      Navigator.of(ctx).pop();
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: CupertinoPicker(
-                itemExtent: 36,
-                scrollController:
-                    FixedExtentScrollController(initialItem: idx),
-                onSelectedItemChanged: (i) => tempIdx = i,
-                children: [
-                  for (final m in items)
-                    Center(child: Text(_formatInterval(m))),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    final labels = [for (final m in items) _formatInterval(m)];
+    final picked = await showGlassSingleWheelPickerSheet(
+      context,
+      title: '大概多久一次',
+      labels: labels,
+      initialIndex: idx,
     );
+    if (!mounted || picked == null) return;
+    setState(() => _intervalMinutes = items[picked]);
   }
 
   @override
@@ -333,11 +291,13 @@ class _PredictionRecallOnboardingPanelState
                   child: _buildFinaleBody(onShell, scheme),
                 );
               }
+              final root = _queue[index];
               return _FloatingCard(
+                eventAccent: resolveEventColor(context, root),
                 child: _buildCardBody(
                   onShell,
                   scheme,
-                  root: _queue[index],
+                  root: root,
                   progress: '${index + 1}/${_queue.length}',
                   active: index == _pageIndex && !_showThinking,
                 ),
@@ -347,6 +307,9 @@ class _PredictionRecallOnboardingPanelState
           if (_showThinking && !_isFinalePage)
             Positioned.fill(
               child: _FloatingCard(
+                eventAccent: _current == null
+                    ? null
+                    : resolveEventColor(context, _current!),
                 child: _buildThinkingBody(onShell, scheme),
               ),
             ),
@@ -363,10 +326,7 @@ class _PredictionRecallOnboardingPanelState
     required bool active,
   }) {
     final isTime = root.parsedEventType == EventCatalogEventType.time;
-    final leaves = _leafChoices(root);
-    final selectedLeaf = active
-        ? _leafId
-        : (leaves.isNotEmpty ? leaves.first.id : root.id);
+    final kids = _childEvents(root);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -379,14 +339,22 @@ class _PredictionRecallOnboardingPanelState
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          root.name,
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: onShell,
-          ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            EventLogo(definition: root, size: 36),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                root.name,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: onShell,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 6),
         Text(
@@ -408,30 +376,29 @@ class _PredictionRecallOnboardingPanelState
           value: _formatInterval(active ? _intervalMinutes : 180),
           onTap: active ? () => unawaited(_pickInterval()) : () {},
         ),
-        const SizedBox(height: 14),
-        Text(
-          '当时是哪一种？',
-          style: TextStyle(
-            fontSize: 13,
-            color: onShell.withValues(alpha: 0.55),
+        if (kids.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text(
+            '该事件包含',
+            style: TextStyle(
+              fontSize: 13,
+              color: onShell.withValues(alpha: 0.55),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final leaf in leaves)
-              ChoiceChip(
-                label: Text(leaf.name),
-                selected: selectedLeaf != null &&
-                    catalogIdsEqual(selectedLeaf, leaf.id),
-                onSelected: active
-                    ? (_) => setState(() => _leafId = leaf.id)
-                    : null,
-              ),
-          ],
-        ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final kid in kids)
+                Chip(
+                  label: Text(kid.name),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+            ],
+          ),
+        ],
         const Spacer(),
         Row(
           children: [
@@ -478,10 +445,20 @@ class _PredictionRecallOnboardingPanelState
           ),
         ),
         const SizedBox(height: 12),
-        FilledButton(
-          onPressed: () => unawaited(_onThinkingContinue()),
-          child: Text(done ? '继续' : '跳过动画'),
-        ),
+        if (!done)
+          FilledButton(
+            onPressed: _onSkipThinkingAnimation,
+            child: const Text('跳过动画'),
+          )
+        else
+          Text(
+            '即将继续…',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: onShell.withValues(alpha: 0.55),
+            ),
+          ),
       ],
     );
   }
@@ -523,13 +500,14 @@ class _PredictionRecallOnboardingPanelState
 }
 
 class _FloatingCard extends StatelessWidget {
-  const _FloatingCard({super.key, required this.child});
+  const _FloatingCard({required this.child, this.eventAccent});
 
   final Widget child;
+  final Color? eventAccent;
 
   @override
   Widget build(BuildContext context) {
-    // 召回浮层外壳与登录/绑定引导同源 modal 原子
+    // 召回浮层外壳与登录/绑定引导同源 modal 原子；事件卡带色标
     return Material(
       elevation: 10,
       shadowColor: Colors.black.withValues(alpha: 0.18),
@@ -537,6 +515,7 @@ class _FloatingCard extends StatelessWidget {
       child: AppModalGlassPanel(
         borderRadius: 24,
         contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        eventAccent: eventAccent,
         child: child,
       ),
     );

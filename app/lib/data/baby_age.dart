@@ -35,10 +35,14 @@ String formatBabyAgeText(DateTime birthDate, DateTime now) {
 // --- 应用内身份展示原子（L1）：可空 profile → 统一空态；不截断昵称。
 // 小组件载荷请用下方 truncateWidgetNickname / formatWidgetHeaderLine。
 
-/// 身份展示昵称：null / 空白 →「宝宝」。
+/// 仓库未绑定占位昵称（不得作为应用内身份展示）。
+const String kUnboundBabyPlaceholderNickname = '未绑定宝宝ID';
+
+/// 身份展示昵称：null / 空白 / 占位「未绑定宝宝ID」→「宝宝」。
 String displayBabyNickname(BabyProfile? baby) {
   final t = baby?.nickname.trim() ?? '';
-  if (t.isEmpty) return '宝宝';
+  // 占位串与空昵称同等视为无效。
+  if (t.isEmpty || t == kUnboundBabyPlaceholderNickname) return '宝宝';
   return t;
 }
 
@@ -48,9 +52,19 @@ String displayBabyAgeText(BabyProfile? baby, [DateTime? now]) {
   return formatBabyAgeText(baby.birthDate, now ?? DateTime.now());
 }
 
+/// 合成身份行：月龄为空时仅昵称，不得强拼「 · 」。
+String composeBabyIdentityLine(String nickname, String ageText) {
+  final age = ageText.trim();
+  if (age.isEmpty) return nickname;
+  return '$nickname · $age';
+}
+
 /// 应用内合成行「昵称 · 月龄」（不套用小组件六字截断；UI 侧 ellipsis）。
 String displayBabyIdentityLine(BabyProfile? baby, [DateTime? now]) {
-  return '${displayBabyNickname(baby)} · ${displayBabyAgeText(baby, now)}';
+  return composeBabyIdentityLine(
+    displayBabyNickname(baby),
+    displayBabyAgeText(baby, now),
+  );
 }
 
 /// 头像用 babyId：null → 空串。
@@ -59,7 +73,7 @@ String displayBabyId(BabyProfile? baby) => baby?.id ?? '';
 /// 头像用性别：null → [BabySex.unknown]。
 BabySex displayBabySex(BabyProfile? baby) => baby?.sex ?? BabySex.unknown;
 
-/// 应用内身份展示快照：字段均经 L1 原子解析。
+/// 应用内身份展示快照：字段均经 L1 原子解析（或会话覆盖 chrome）。
 @immutable
 class BabyDisplay {
   const BabyDisplay({
@@ -69,6 +83,7 @@ class BabyDisplay {
     required this.identityLine,
     required this.babyId,
     required this.sex,
+    this.showAge = true,
   });
 
   final BabyProfile? profile;
@@ -77,17 +92,38 @@ class BabyDisplay {
   final String identityLine;
   final String babyId;
   final BabySex sex;
+  /// 是否展示月龄段/行（未登录/未绑定 chrome 为 false）。
+  final bool showAge;
 
   /// 委托 L1；[now] 缺省为墙钟（身份月龄不绑预测秒级 clock）。
   factory BabyDisplay.resolve(BabyProfile? baby, [DateTime? now]) {
     final at = now ?? DateTime.now();
+    final nickname = displayBabyNickname(baby);
+    final ageText = displayBabyAgeText(baby, at);
     return BabyDisplay(
       profile: baby,
-      nickname: displayBabyNickname(baby),
-      ageText: displayBabyAgeText(baby, at),
-      identityLine: displayBabyIdentityLine(baby, at),
+      nickname: nickname,
+      ageText: ageText,
+      identityLine: composeBabyIdentityLine(nickname, ageText),
       babyId: displayBabyId(baby),
       sex: displayBabySex(baby),
+      showAge: true,
+    );
+  }
+
+  /// 会话覆盖：固定昵称、隐藏月龄（未登录 / 已登录未绑定）。
+  factory BabyDisplay.authChrome({
+    required String nickname,
+    BabyProfile? profile,
+  }) {
+    return BabyDisplay(
+      profile: profile,
+      nickname: nickname,
+      ageText: '',
+      identityLine: nickname,
+      babyId: displayBabyId(profile),
+      sex: displayBabySex(profile),
+      showAge: false,
     );
   }
 }

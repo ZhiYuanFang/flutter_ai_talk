@@ -30,6 +30,14 @@ class RemoteSettingsRepository implements SettingsRepository {
 
   static String _prefsKey(String deviceNo) => 'pangbao_baby_profile_$deviceNo';
 
+  /// 切号/注销：删除指定键的本地宝宝画像 prefs（键为 deviceNo 或 babyId）。
+  static Future<void> clearLocalProfilePrefs(String key) async {
+    final k = key.trim();
+    if (k.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsKey(k));
+  }
+
   /// 占位生日：当年 6 月 1 日；若尚未到（如 5 月）则用当年 1 月 1 日，避免晚于「今天」。
   DateTime _placeholderBirthSameYear() {
     final now = DateTime.now();

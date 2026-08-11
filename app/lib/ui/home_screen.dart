@@ -1220,8 +1220,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             _selectInputChannel(HomeInputChannel.buttons, persist: false));
       });
     }
-    // 只有当不需要全屏 3D 动画（即不是无历史记录时）才显示 Banner。
-    // 在本逻辑中，如果 needsDeviceBind 为 true，我们将显示全屏引导，所以 showBindBanner 设为 false。
+    // 未绑定且列表非空本不应出现（切号 epoch 后应为空）；若残留则顶栏引导绑定。
+    // 正常未绑定 + 空列表走下方全屏「立即绑定宝宝」。
     final showBindBanner = needsDeviceBind && historyItems.isNotEmpty;
     final refreshInFlight =
         ref.watch(sessionProvider.select((s) => s.isRefreshInFlight));
@@ -1307,7 +1307,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                                 'assets/images/ani_baby_welcome.json',
                                             title: '尚未登录',
                                             subtitle: '登录后即可记录与查看宝宝日常',
-                                            footnote: '左滑可先逛逛广场，看看其他宝妈宝爸的动态',
+                                            // footnote: '左滑可先逛逛广场，看看其他宝妈宝爸的动态',
                                             actionLabel: '去登录',
                                             onAction: _onBindBannerTap,
                                           )

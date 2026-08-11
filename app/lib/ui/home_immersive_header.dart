@@ -22,7 +22,7 @@ class HomeImmersiveHeader extends StatelessWidget {
   final BabySex sex;
   /// 已回退的昵称（空则调用方应传入「宝宝」）。
   final String nickname;
-  /// 已格式化的月龄文案（如 `formatBabyAgeText`）。
+  /// 已格式化的月龄文案；空串表示不展示月龄段（未登录/未绑定）。
   final String ageText;
   final VoidCallback onAvatarTap;
   final VoidCallback onTrendsTap;
@@ -32,8 +32,9 @@ class HomeImmersiveHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final tokens = theme.extension<AppVisualTokens>();
     final fg = tokens?.onShell ?? theme.colorScheme.onSurface;
-    // 合成身份文案；超长时尾部省略（月龄先被吃掉）。
-    final identityLine = '$nickname · $ageText';
+    // 无月龄时仅昵称；有月龄时「昵称 · 月龄」，超长尾部省略。
+    final identityLine =
+        ageText.trim().isEmpty ? nickname : '$nickname · $ageText';
 
     return SizedBox(
       width: double.infinity,

@@ -8,11 +8,8 @@ import '../api/api_exceptions.dart';
 import '../api/gateway_user_message.dart';
 import '../apple/apple_sign_in_client.dart';
 import '../bootstrap/pangbao_transport_release.dart';
-import '../providers/device_no_notifier.dart';
-import '../providers/home_history_notifier.dart';
+import '../bootstrap/wipe_account_local_state.dart';
 import '../providers/repositories.dart';
-import '../providers/session_provider.dart';
-import '../providers/sign_in_channel_provider.dart';
 import '../providers/toast_bus.dart';
 import '../providers/user_profile_provider.dart';
 import '../providers/wechat_auth_provider.dart';
@@ -353,12 +350,9 @@ class _AccountManagementSheetBodyState
       await container.read(authRepositoryProvider).signOut();
     } finally {
       await releasePangbaoHomeTransports(container);
-      await container.read(sessionProvider).signOut();
-      await container.read(deviceNoNotifierProvider.notifier).clearLocal();
-      await container.read(signInChannelProvider.notifier).clear();
-      await container.read(feedRepositoryProvider).clearCache();
+      // 会话 + 宝宝/喂养本地缓存；不得清凭据历史
+      await wipeAccountLocalState(container);
     }
-    // 切换账号时不刷新历史，避免会话已过期触发自动刷新
     if (host.mounted) {
       host.go('/login');
     } else {
@@ -466,14 +460,12 @@ Future<void> confirmAccountDeregistration(
     final profile =
         await container.read(authRepositoryProvider).fetchUserProfile();
     await container.read(authRepositoryProvider).deactivateAccount();
+    // 注销专属：移除该账号凭据条目（切号不得走此路径）
     if (profile.account.isNotEmpty) {
       await removeAccount(profile.account);
     }
-    await container.read(sessionProvider).signOut();
-    await container.read(deviceNoNotifierProvider.notifier).clearLocal();
-    await container.read(signInChannelProvider.notifier).clear();
-    await container.read(feedRepositoryProvider).clearCache();
-    await container.read(homeHistoryProvider.notifier).refreshFromRemote();
+    await releasePangbaoHomeTransports(container);
+    await wipeAccountLocalState(container);
 
     if (host.mounted) {
       host.go('/login');
