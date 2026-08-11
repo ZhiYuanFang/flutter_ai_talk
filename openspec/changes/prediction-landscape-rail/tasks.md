@@ -4,10 +4,11 @@
 
 ## 2. 横屏分栏 UI
 
-- [x] 2.1 `Orientation.landscape` 分支：`Row` 左竖排身份栏 + 右 `Expanded` 三列瀑布
+- [x] 2.1 `Orientation.landscape` 分支：`Row` 左竖排身份栏 + 右 `Expanded` 瀑布
 - [x] 2.2 左栏竖排昵称/月龄（尊重 `showAge`）；可滚动防溢出；无头像
 - [x] 2.3 横屏不渲染调色盘、布局切换、留意/引导/3小时/底 tip
 - [x] 2.4 横屏强制 compact 渲染（忽略 list 偏好）
+- [x] 2.5 列数：竖屏 2；横屏 shortestSide<600 → 3；≥600 → 5
 
 ## 3. 竖屏回归
 
@@ -16,4 +17,4 @@
 ## 4. 校验与冒烟
 
 - [x] 4.1 `openspec validate prediction-landscape-rail --strict`
-- [ ] 4.2 手工：横屏左竖排+三列、无工具/留意；竖屏双列与顶栏正常；横屏偏好 list 仍见瀑布
+- [ ] 4.2 手工：手机横屏三列；平板横屏五列；竖屏双列与顶栏正常

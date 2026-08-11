@@ -4,8 +4,10 @@ import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../config/prediction_layout_store.dart';
 import '../data/active_timing_stop.dart';
@@ -42,6 +44,85 @@ import 'prediction_recall_onboarding_panel.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
+
+/// 预测页横屏：沉浸藏状态栏 + 常亮；离开/竖屏释放。
+class _PredictionLandscapeImmersiveHost extends StatefulWidget {
+  const _PredictionLandscapeImmersiveHost({
+    required this.active,
+    required this.child,
+  });
+
+  final bool active;
+  final Widget child;
+
+  @override
+  State<_PredictionLandscapeImmersiveHost> createState() =>
+      _PredictionLandscapeImmersiveHostState();
+}
+
+class _PredictionLandscapeImmersiveHostState
+    extends State<_PredictionLandscapeImmersiveHost>
+    with WidgetsBindingObserver {
+  var _held = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_sync(widget.active));
+  }
+
+  @override
+  void didUpdateWidget(covariant _PredictionLandscapeImmersiveHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      unawaited(_sync(widget.active));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 从媒体全屏等回流后，若仍应沉浸则重同步。
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_sync(widget.active));
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_release());
+    super.dispose();
+  }
+
+  Future<void> _sync(bool active) async {
+    if (kIsWeb) return;
+    if (active) {
+      _held = true;
+      try {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        await WakelockPlus.enable();
+      } catch (_) {
+        // 平台失败不阻断 UI；下次 sync / resume 再试。
+      }
+      return;
+    }
+    await _release();
+  }
+
+  Future<void> _release() async {
+    if (!_held) return;
+    _held = false;
+    if (kIsWeb) return;
+    try {
+      await WakelockPlus.disable();
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
 /// 智能预测页：留意跑马灯 + 三小时时间线 + 列表/瀑布流卡片。
 class SmartPredictionScreen extends ConsumerWidget {
@@ -341,7 +422,16 @@ class SmartPredictionScreen extends ConsumerWidget {
     // 横屏强制瀑布；竖屏尊重本地偏好。
     final useGridLayout =
         isLandscape || layout == PredictionCardsLayout.grid;
-    final waterfallColumns = isLandscape ? 3 : 2;
+    // 竖屏 2；手机横屏 3；平板横屏（shortestSide≥600）5。
+    final shortestSide = MediaQuery.sizeOf(context).shortestSide;
+    final isTabletLandscape = isLandscape && shortestSide >= 600;
+    final waterfallColumns =
+        !isLandscape ? 2 : (isTabletLandscape ? 5 : 3);
+    // KeepAlive 下须结合当前 pager 页，滑离预测即释放沉浸/常亮。
+    final predictionPageVisible =
+        ref.watch(homePagerIndexProvider) == HomePagerPage.prediction;
+    final immersiveActive =
+        !kIsWeb && isLandscape && predictionPageVisible;
 
     Widget buildCardsBody() {
       if (rows.isEmpty) {
@@ -644,9 +734,17 @@ class SmartPredictionScreen extends ConsumerWidget {
       );
     }
 
-    return Material(
-      color: shell,
-      child: SafeArea(child: pageBody),
+    return _PredictionLandscapeImmersiveHost(
+      active: immersiveActive,
+      child: Material(
+        color: shell,
+        // 横屏取消顶/底 SafeArea，最大化看板；左右仍避刘海。
+        child: SafeArea(
+          top: !isLandscape,
+          bottom: !isLandscape,
+          child: pageBody,
+        ),
+      ),
     );
   }
 

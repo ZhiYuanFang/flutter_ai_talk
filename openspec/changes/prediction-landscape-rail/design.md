@@ -6,7 +6,7 @@
 
 **Goals:**
 
-- `Orientation.landscape` 时：`Row(左竖排身份 | Expanded(3 列瀑布))`。
+- `Orientation.landscape` 时：`Row(左竖排身份 | Expanded(瀑布))`；列数手机 3 / 平板 5（`shortestSide >= 600`）。
 - 左栏仅昵称 +（可选）月龄，竖排文字；无头像/调色/切布局。
 - 横屏不渲染留意、滑动引导、接下来3小时。
 - 横屏强制 compact 瀑布且 3 列；不提供列表切换入口。
@@ -34,9 +34,12 @@
 - 空间不足：整体可滚动或尾部省略（优先 `SingleChildScrollView` 防溢出）。
 - 左栏固定窄宽（如 ~40–56 logical px + padding），不占过多网格宽度。
 
-### D3. 右栏 3 列瀑布
+### D3. 右栏瀑布列数
 
-- `_WaterfallCards` 增加 `columnCount`（默认 2）；横屏传 3；按 `i % columnCount` 分列。
+- `_WaterfallCards` 增加 `columnCount`（默认 2）；按 `i % columnCount` 分列。
+- 竖屏：`2`。
+- 横屏且 `shortestSide < 600`：`3`（手机）。
+- 横屏且 `shortestSide >= 600`：`5`（平板档）。
 - 横屏 `effectiveLayout = grid`，忽略当前 list 偏好；不展示切换 IconButton。
 
 ### D4. Chrome 隐藏清单（仅横屏）
