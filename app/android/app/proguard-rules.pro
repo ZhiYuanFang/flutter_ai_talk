@@ -1,5 +1,11 @@
--keep class com.sun.jna.* { *; }
--keepclassmembers class * extends com.sun.jna.* { public *; }
+# sherpa-onnx / ONNX Runtime（横屏 KWS）
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-dontwarn com.k2fsa.sherpa.onnx.**
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.** { public *; }
+
 
 -keep class com.fzy.pangbao.UcgHmsMessageService { *; }
 -keep class com.fzy.pangbao.UcgMiPushReceiver { *; }

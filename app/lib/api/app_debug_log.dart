@@ -71,4 +71,16 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[CashVip] ${_ts()} $message');
   }
+
+  /// 横屏 KWS 模型下载 / 解压 / 完整性。
+  static void landscapeKws(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[LandscapeKws] ${_ts()} $message');
+  }
+
+  /// 横屏语音：chat WS 就绪 / 唤醒开听各步。
+  static void landscapeVoice(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[LandscapeVoice] ${_ts()} $message');
+  }
 }

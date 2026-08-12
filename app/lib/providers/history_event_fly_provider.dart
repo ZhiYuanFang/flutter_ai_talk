@@ -74,8 +74,10 @@ final predictionLogoAnchorRegistryProvider =
 );
 
 /// History WS 变动后：仅喂养/预测可见页请求飞入。
+///
+/// [ref] 可为 [WidgetRef] / [Ref] / [ProviderContainer]（须支持 `.read`）。
 void requestHistoryEventFlyAfterMutation(
-  WidgetRef ref, {
+  dynamic ref, {
   required String recordId,
   HistoryRecord? recordForMeta,
 }) {

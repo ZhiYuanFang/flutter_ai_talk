@@ -98,7 +98,13 @@ ThemeData buildAppTheme({
   Color? customBackground,
   ThemePreset? preset,
 }) {
-  final bundle = resolveVisualBundle(sex: sex, seed: customBackground, preset: preset);
+  final bundle =
+      resolveVisualBundle(sex: sex, seed: customBackground, preset: preset);
+  return buildAppThemeFromBundle(bundle, sex);
+}
+
+/// 由已解析的 [VisualBundle] 构建 Theme（与 [buildAppTheme] 同构）。
+ThemeData buildAppThemeFromBundle(VisualBundle bundle, BabySex sex) {
   final tokens = bundle.toTokens();
   final schemeSeed = _resolveSchemeSeed(bundle, sex);
   final primaryColor = _resolveThemePrimary(bundle, sex);
@@ -139,7 +145,32 @@ ThemeData buildAppTheme({
           ? tokens.surfaceColor
           : themePrimaryBlendFromTheme(shell, scheme, alpha: 0.1),
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(tokens.surfaceRadius)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.surfaceRadius),
+      ),
     ),
   );
+}
+
+/// 预测横屏投屏护眼：浅壳 → [deriveDarkBundle] 暗壳（保留 seed tint）；已暗透传。
+/// 仅派生内存 ThemeData，**不**写 [ThemePreferences] / baseline。
+ThemeData landscapeTvSafeThemeOf({
+  required ThemeData current,
+  required BabySex sex,
+  Color? effectiveSeed,
+  ThemePreset? effectivePreset,
+}) {
+  final tokens = current.extension<AppVisualTokens>();
+  // 全局已暗壳：透传，避免无意义重建
+  if (tokens != null && tokens.isDarkShell) {
+    return current;
+  }
+  final lightBundle = resolveVisualBundle(
+    sex: sex,
+    seed: effectiveSeed,
+    preset: effectivePreset,
+  );
+  // 显式 deriveDarkBundle，禁止浅 seed 误入 lightTintedBundle
+  final darkBundle = deriveDarkBundle(lightBundle.seedColor);
+  return buildAppThemeFromBundle(darkBundle, sex);
 }

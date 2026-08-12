@@ -100,7 +100,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   HomeHistoryNotifier get _history => ref.read(homeHistoryProvider.notifier);
   final Set<String> _stoppingRecordIds = {};
-  StreamSubscription<SseHistoryPayload>? _sseSub;
   StreamSubscription<bool>? _wsReadySub;
   StreamSubscription<HistoryWsPhase>? _wsPhaseSub;
   StreamSubscription<bool>? _voiceAsrReadySub;
@@ -161,7 +160,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
-    PangbaoHomeTransportGate.onHomeMounted();
     WidgetsBinding.instance.addObserver(this);
     _voiceLevelNotifier = ValueNotifier(0);
     _voiceLevelSmoother = VoiceLevelSmoother(_voiceLevelNotifier);
@@ -301,7 +299,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _selectInputChannel(HomeInputChannel channel,
       {bool persist = true}) async {
-    // 喂养页仅支持事件按钮，忽略语音/文字切换请求
+    // 喂养页仅支持事件按钮；语音球逐步废弃，主路径迁至预测横屏唤醒对话。
     if (channel != HomeInputChannel.buttons) return;
     if (_inputChannel == channel) return;
     if (channel == HomeInputChannel.voice && !_hasBoundDeviceNo()) {
@@ -428,14 +426,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _startHomePangbaoTransportsAfterGate(
       ProviderContainer container) async {
+    // 历史 WS 由主壳 UcgHomeShell 激活；此处仅喂养相关 UCG / ASR
     await mountUcgHomeTransportsIfEligible(container);
-    await _delayBeforeHistoryWebSocketOnIos(container);
     if (!mounted) return;
-    _subscribeHistoryWebSocketIfNeeded();
     _scheduleVoiceAsrConnectIfNeeded();
   }
-
-  static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
 
   Future<void> _runLoggedInGatewayBootstrap(ProviderContainer container) async {
     if (container.read(sessionProvider).isLoggedIn) {
@@ -445,67 +440,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  Future<void> _delayBeforeHistoryWebSocketOnIos(
-      ProviderContainer container) async {
-    if (!container.read(sessionProvider).isLoggedIn) return;
-    if (kIsWeb || !Platform.isIOS) return;
-    await Future<void>.delayed(_iosHistoryWsConnectDelay);
-  }
-
   void _scheduleDeferredCatalogLogoDownloads(ProviderContainer container) {
     if (!container.read(sessionProvider).isLoggedIn) return;
     if (kIsWeb || !Platform.isIOS) return;
     unawaited(container
         .read(eventCatalogProvider.notifier)
         .runDeferredLogoDownloads());
-  }
-
-  void _onHistoryWebSocketPayload(SseHistoryPayload payload) {
-    final removed = payload.removedRecordId;
-    if (removed != null) {
-      // 删除前取元数据；无锚点时 Overlay 会放弃飞入
-      HistoryRecord? existing;
-      for (final e in ref.read(homeHistoryProvider).items) {
-        if (e.id == removed) {
-          existing = e;
-          break;
-        }
-      }
-      _history.removeRecord(removed);
-      requestHistoryEventFlyAfterMutation(
-        ref,
-        recordId: removed,
-        recordForMeta: existing,
-      );
-      return;
-    }
-    final r = payload.record!;
-    final items = ref.read(homeHistoryProvider).items;
-    final isNew = !items.any((e) => e.id == r.id);
-    // 本机乐观 pending→server：勿重复计时提醒（onAdded 已排）
-    final replacesPending = items.any(
-      (e) =>
-          isPendingHistoryId(e.id) && historyRecordMatchesPendingAdd(e, r),
-    );
-    _history.upsertRecord(r);
-    // 任意 upsert：可见页门闸后请求飞入（连播接受）
-    requestHistoryEventFlyAfterMutation(
-      ref,
-      recordId: r.id,
-      recordForMeta: r,
-    );
-    // 他端纯新增：补计时提醒
-    if (isNew && !replacesPending) {
-      _scheduleActiveTimingReminderAfterAdd(excludeRecordId: r.id);
-    }
-  }
-
-  void _subscribeHistoryWebSocketIfNeeded() {
-    final feed = ref.read(feedRepositoryProvider);
-    _sseSub ??= feed.watchLatest().listen(_onHistoryWebSocketPayload);
-    if (ref.read(sessionProvider).isLoggedIn) {
-      feed.ensureHistoryWebSocketConnected();
-    }
   }
 
   Future<void> _onLoggedInWhileHomeMounted() async {
@@ -1115,13 +1055,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _sseSub?.cancel();
     _wsReadySub?.cancel();
     _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();
     _chatStreamSub?.cancel();
-    PangbaoHomeTransportGate.onHomeUnmounted();
-    unawaited(releasePangbaoHomeTransports(ref));
+    // 历史 WS / 主壳门闸由 UcgHomeShell 释放；此处不 release
     _webFocusNode.dispose();
     _webController.dispose();
     _voiceLevelNotifier.dispose();

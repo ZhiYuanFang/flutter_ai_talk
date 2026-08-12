@@ -40,6 +40,9 @@ class _HistoryEventFlyOverlayState extends State<HistoryEventFlyOverlay>
   static const _popPhaseFraction = 0.32;
   static const _maxMeasureAttempts = 32;
   static const _minLayerExtent = 8.0;
+  /// 开播前锚点连续两帧位移小于此值视为布局稳定。
+  static const _anchorStableEpsilon = 3.0;
+  static const _maxStableFrames = 12;
 
   @override
   void initState() {
@@ -47,12 +50,21 @@ class _HistoryEventFlyOverlayState extends State<HistoryEventFlyOverlay>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1700),
-    )..addStatusListener((status) {
+    )
+      ..addStatusListener((status) {
         if (status == AnimationStatus.completed) {
           widget.onComplete();
         }
-      });
+      })
+      // pop 阶段跟锚，吸收预测重排晚到的布局。
+      ..addListener(_onControllerTick);
     SchedulerBinding.instance.addPostFrameCallback((_) => _measureAndStart());
+  }
+
+  void _onControllerTick() {
+    if (!_animationStarted || _abandoned) return;
+    if (_controller.value > _popPhaseFraction) return;
+    _updateEndFromAnchor();
   }
 
   void _abandon() {
@@ -78,6 +90,24 @@ class _HistoryEventFlyOverlayState extends State<HistoryEventFlyOverlay>
     if (localEnd == null || !mounted) return;
     if (_localEnd != null && (_localEnd! - localEnd).distance < 4) return;
     setState(() => _localEnd = localEnd);
+  }
+
+  /// 连续两帧锚点接近则视为稳定；超时用最后一次有效测值。
+  Future<Offset?> _waitForStableAnchor() async {
+    Offset? prev;
+    Offset? last;
+    for (var i = 0; i < _maxStableFrames; i++) {
+      await SchedulerBinding.instance.endOfFrame;
+      if (!mounted || _abandoned) return null;
+      final a = widget.landing.measureGlobalCenter();
+      if (a == null || !a.dx.isFinite || !a.dy.isFinite) continue;
+      last = a;
+      if (prev != null && (prev - a).distance <= _anchorStableEpsilon) {
+        return a;
+      }
+      prev = a;
+    }
+    return last;
   }
 
   Future<void> _measureAndStart() async {
@@ -108,13 +138,24 @@ class _HistoryEventFlyOverlayState extends State<HistoryEventFlyOverlay>
     var localEnd = localStart;
     var anchorReady = false;
 
-    anchorReady = widget.landing.isAnchorVisible;
-    final anchor = widget.landing.measureGlobalCenter();
-    if (anchor != null && anchor.dx.isFinite && anchor.dy.isFinite) {
-      final converted = _globalToLayerLocal(anchor);
+    // 预测重排后等锚点稳定再锁落点。
+    final stableGlobal = await _waitForStableAnchor();
+    if (!mounted || _abandoned) return;
+    if (stableGlobal != null) {
+      final converted = _globalToLayerLocal(stableGlobal);
       if (converted != null) {
         localEnd = converted;
         anchorReady = widget.landing.isAnchorVisible;
+      }
+    } else {
+      anchorReady = widget.landing.isAnchorVisible;
+      final anchor = widget.landing.measureGlobalCenter();
+      if (anchor != null && anchor.dx.isFinite && anchor.dy.isFinite) {
+        final converted = _globalToLayerLocal(anchor);
+        if (converted != null) {
+          localEnd = converted;
+          anchorReady = widget.landing.isAnchorVisible;
+        }
       }
     }
 

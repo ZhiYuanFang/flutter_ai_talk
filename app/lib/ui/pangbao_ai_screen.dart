@@ -31,6 +31,7 @@ import '../providers/toast_bus.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../session/session_controller.dart';
 import '../theme/companion_soft_chat_colors.dart';
+import '../util/thinking_stage_delta.dart';
 import '../ui/widgets/app_empty_state_gallery.dart';
 import '../ui/widgets/app_glass_overlay.dart';
 import '../ui/widgets/app_toast.dart';
@@ -844,8 +845,12 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     setState(() {
       switch (type) {
         case 'thinking_delta':
-          _activeAssistant!.thinking = (_activeAssistant!.thinking ?? '') +
-              (frame['delta'] as String? ?? '');
+          // 按 \r 分阶段展示思考，避免气泡堆长文。
+          final delta = frame['delta'] as String? ?? '';
+          _activeAssistant!.thinking = applyThinkingStageDelta(
+            _activeAssistant!.thinking ?? '',
+            delta,
+          );
           break;
         case 'answer_delta':
           if ((_activeAssistant!.answer ?? '').isEmpty) {

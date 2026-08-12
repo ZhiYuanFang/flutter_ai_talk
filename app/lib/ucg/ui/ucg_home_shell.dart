@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/app_debug_log.dart';
+import '../../bootstrap/gateway_bootstrap_gate.dart';
+import '../../bootstrap/history_ws_home_bridge.dart';
+import '../../bootstrap/pangbao_transport_release.dart';
+import '../../data/models.dart';
 import '../../home_widget/home_widget_sync.dart';
 import '../../providers/device_no_notifier.dart';
 import '../../providers/home_pager.dart';
@@ -13,6 +18,7 @@ import '../../providers/history_event_fly_provider.dart';
 import '../../providers/prediction_care_alert_provider.dart';
 import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
+import '../../providers/repositories.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/toast_bus.dart';
 import '../../ui/history_event_fly_overlay.dart';
@@ -30,6 +36,7 @@ class UcgHomeShell extends ConsumerStatefulWidget {
 
 class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
   static const _exitConfirmWindow = Duration(seconds: 3);
+  static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
 
   // 默认着陆智能预测主页（中间页）
   late final PageController _pageController =
@@ -41,23 +48,66 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
   var _blockPageScroll = false;
   DateTime? _lastExitBackPress;
 
+  /// 主壳历史 WS 单一订阅（喂养页不得再挂）
+  StreamSubscription<SseHistoryPayload>? _historyWsSub;
+  var _historyWsActivateInFlight = false;
+
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
   @override
   void initState() {
     super.initState();
+    // 主壳会话门闸：允许 history reconnect / UCG desired
+    PangbaoHomeTransportGate.onHomeMounted();
     // 首帧即触发预测页 CareAlert ensure（可见即拉）；同步飞入门闸页索引
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(homePagerIndexProvider.notifier).state = _pageIndex;
       _ensureCareAlertOnPredictionVisible();
+      unawaited(_activateHistoryWsSessionIfNeeded());
     });
   }
 
   @override
   void dispose() {
+    _historyWsSub?.cancel();
+    _historyWsSub = null;
+    PangbaoHomeTransportGate.onHomeUnmounted();
+    // 离开主壳：释放同 host 传输（登出路径也会 release，幂等）
+    try {
+      unawaited(releasePangbaoHomeTransports(ref));
+    } catch (_) {}
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// gateway 后订阅 + ensure；游客跳过；single-flight。
+  Future<void> _activateHistoryWsSessionIfNeeded() async {
+    if (_historyWsActivateInFlight) return;
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    _historyWsActivateInFlight = true;
+    try {
+      final container = ProviderScope.containerOf(context, listen: false);
+      await GatewayBootstrapGate.ensureLoggedInComplete(container);
+      if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+      // iOS：错开同 host 连接槽
+      if (!kIsWeb && Platform.isIOS) {
+        await Future<void>.delayed(_iosHistoryWsConnectDelay);
+        if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+      }
+      final feed = ref.read(feedRepositoryProvider);
+      _historyWsSub ??= feed.watchLatest().listen(
+            (payload) => applyHistoryWsPayloadToHome(ref, payload),
+          );
+      feed.ensureHistoryWebSocketConnected();
+    } finally {
+      _historyWsActivateInFlight = false;
+    }
+  }
+
+  void _onHistorySessionLoggedOut() {
+    _historyWsSub?.cancel();
+    _historyWsSub = null;
   }
 
   void _markPredictionMounted() {
@@ -160,6 +210,20 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
   @override
   Widget build(BuildContext context) {
     final navigatorCanPop = Navigator.of(context).canPop();
+
+    // 游客→登录：主壳补激活历史 WS；登出清订阅（disconnect 由 release 负责）
+    ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),
+        (prev, loggedIn) {
+      if (prev == true && !loggedIn) {
+        _onHistorySessionLoggedOut();
+        return;
+      }
+      if (prev == true || !loggedIn) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_activateHistoryWsSessionIfNeeded());
+      });
+    });
 
     // 贴士 / 深链等请求切页
     ref.listen<int?>(homePagerRequestProvider, (prev, next) {
@@ -280,12 +344,36 @@ class _KeepAlivePredictionPageState
       if (next == null) return;
       if (next.targetPage != HomePagerPage.prediction) return;
       if (prev?.session == next.session) return;
-      if (MediaQuery.disableAnimationsOf(context)) return;
-      setState(() => _flyReq = next);
+      if (MediaQuery.disableAnimationsOf(context)) {
+        ref
+            .read(historyEventFlyRequestProvider.notifier)
+            .clearIfSession(next.session);
+        return;
+      }
+      // 等预测行按 nextAt 重排并完成至少 2 帧布局后再挂 Overlay 测锚。
+      final session = next.session;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final latest = ref.read(historyEventFlyRequestProvider);
+          if (latest == null || latest.session != session) return;
+          if (MediaQuery.disableAnimationsOf(context)) {
+            ref
+                .read(historyEventFlyRequestProvider.notifier)
+                .clearIfSession(session);
+            return;
+          }
+          setState(() => _flyReq = latest);
+        });
+      });
     });
 
     final req = _flyReq;
     final registry = ref.watch(predictionLogoAnchorRegistryProvider);
+    final rootId = req?.rootEventId.trim() ?? '';
+    // keyFor：确保有 GlobalKey，离屏卡可 ensureVisible 后再测锚
+    final logoKey = rootId.isEmpty ? null : registry.keyFor(rootId);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -297,7 +385,7 @@ class _KeepAlivePredictionPageState
                 key: ValueKey<int>(req.session),
                 event: req.event,
                 landing: PredictionCardFlyLanding(
-                  logoAnchorKey: registry.maybeKey(req.rootEventId),
+                  logoAnchorKey: logoKey,
                 ),
                 onComplete: () => _onFlyComplete(req.session),
               ),

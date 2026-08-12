@@ -39,6 +39,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
 
   void tryReconnectHistoryWs({bool resetStrike = false}) {
     if (AppEnv.disablePangbaoWebSocketSpike) return;
+    // 门闸：主壳 UcgHomeShell 已挂载（非喂养页）
     if (!PangbaoHomeTransportGate.isHomeMounted) return;
     if (!GatewayBootstrapGate.isLoggedInComplete) return;
     if (AppEnv.wsHistoryUrlEffective.isEmpty) return;
@@ -76,7 +77,7 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
     },
   );
 
-  // 建连由 watchLatest() 订阅后触发，避免 provider 创建时 watch 未订阅导致失败不重试。
+  // 建连由主壳 watchLatest() 订阅后 ensure，避免 provider 创建时抢连。
   return remote;
 });
 

@@ -11,6 +11,14 @@ final currentBabyProvider = Provider<BabyProfile?>((ref) {
   return ref.watch(settingsBabyProvider).asData?.value;
 });
 
+/// 已绑定 deviceNo 下，画像是否仍为未绑定占位 / 未就绪。
+bool isBabyProfileBoundPending(BabyProfile? baby) {
+  if (baby == null) return true;
+  if (baby.id.trim().isEmpty) return true;
+  if (baby.nickname.trim() == kUnboundBabyPlaceholderNickname) return true;
+  return false;
+}
+
 /// 身份展示快照：一次 watch 拿齐昵称/月龄/头像入参（墙钟 resolve，不订预测 clock）。
 /// 未登录 / 已登录未绑定由会话态覆盖文案并隐藏月龄。
 final babyDisplayProvider = Provider<BabyDisplay>((ref) {
@@ -25,6 +33,10 @@ final babyDisplayProvider = Provider<BabyDisplay>((ref) {
   // 已登录未绑定：与预测门闸 bound 判定一致。
   if (deviceNo.isEmpty) {
     return BabyDisplay.authChrome(nickname: '未绑定宝宝', profile: baby);
+  }
+  // deviceNo 已有但画像仍占位：隐藏月龄，避免「宝宝 · 不满1个月啦」。
+  if (isBabyProfileBoundPending(baby)) {
+    return BabyDisplay.authChrome(nickname: '宝宝', profile: baby);
   }
   return BabyDisplay.resolve(baby);
 });

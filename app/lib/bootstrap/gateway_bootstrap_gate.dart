@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../providers/settings_baby.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/theme_bootstrap_cache.dart';
 import 'cold_start_background_sync.dart';
@@ -30,6 +31,8 @@ class GatewayBootstrapGate {
       final baby = await container.read(settingsRepositoryProvider).loadBaby();
       container.read(babySexProvider.notifier).state = baby.sex;
       await persistCachedBabySex(baby.sex);
+      // 刷新展示用画像，避免冷启动抢跑缓存的空 id 占位残留。
+      container.invalidate(settingsBabyProvider);
     } catch (_) {}
     await ensureWidgetReadyFromRef(container);
     _loggedInComplete = true;

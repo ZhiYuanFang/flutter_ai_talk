@@ -34,8 +34,11 @@ import '../providers/prediction_range_history_provider.dart';
 import '../providers/prediction_recall_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/baby_display_provider.dart';
+import '../providers/landscape_voice_provider.dart';
 import '../providers/smart_prediction_provider.dart';
 import '../theme/app_color.dart';
+import '../theme/app_theme_schedule.dart';
+import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import 'event_add_actions.dart';
 import 'widgets/app_modal_glass_panel.dart';
@@ -149,9 +152,6 @@ class SmartPredictionScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tokens = Theme.of(context).extension<AppVisualTokens>();
-    final scheme = Theme.of(context).colorScheme;
-    final shell = tokens?.shellColor ?? scheme.surface;
     final realRows = ref.watch(smartPredictionRowsProvider);
     final tipAsync = ref.watch(widgetTipCardTextProvider);
     final ensureAsync = ref.watch(predictionRangeEnsureProvider);
@@ -170,7 +170,6 @@ class SmartPredictionScreen extends ConsumerWidget {
     final tipText = tipAsync.asData?.value;
     final showTip = tipText != null && tipText.isNotEmpty;
     final babyDisplay = ref.watch(babyDisplayProvider);
-    final onShell = tokens?.onShell ?? scheme.onSurface;
     // 身份顶栏：经展示快照 Provider（L2）。
     final nickname = babyDisplay.nickname;
     final ageText = babyDisplay.ageText;
@@ -419,6 +418,21 @@ class SmartPredictionScreen extends ConsumerWidget {
 
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
+    // 横屏投屏护眼：派生暗壳 Theme（保留 seed tint）；已暗透传；不写 baseline。
+    final landscapeTheme = isLandscape
+        ? landscapeTvSafeThemeOf(
+            current: Theme.of(context),
+            sex: ref.watch(babySexProvider),
+            effectiveSeed: ref.watch(effectiveThemeProvider).seed,
+            effectivePreset: ref.watch(effectiveThemeProvider).preset,
+          )
+        : null;
+    final pageTheme = landscapeTheme ?? Theme.of(context);
+    final pageTokens = pageTheme.extension<AppVisualTokens>();
+    final shell =
+        pageTokens?.shellColor ?? pageTheme.colorScheme.surface;
+    final onShell =
+        pageTokens?.onShell ?? pageTheme.colorScheme.onSurface;
     // 横屏强制瀑布；竖屏尊重本地偏好。
     final useGridLayout =
         isLandscape || layout == PredictionCardsLayout.grid;
@@ -427,11 +441,17 @@ class SmartPredictionScreen extends ConsumerWidget {
     final isTabletLandscape = isLandscape && shortestSide >= 600;
     final waterfallColumns =
         !isLandscape ? 2 : (isTabletLandscape ? 5 : 3);
+    // 仅手机横屏后列侧 logo；平板横屏不启用。
+    final phoneLandscape = isLandscape && !isTabletLandscape;
     // KeepAlive 下须结合当前 pager 页，滑离预测即释放沉浸/常亮。
     final predictionPageVisible =
         ref.watch(homePagerIndexProvider) == HomePagerPage.prediction;
     final immersiveActive =
         !kIsWeb && isLandscape && predictionPageVisible;
+
+    final landscapeVoice = isLandscape
+        ? ref.watch(landscapeVoiceControllerProvider)
+        : null;
 
     Widget buildCardsBody() {
       if (rows.isEmpty) {
@@ -448,13 +468,14 @@ class SmartPredictionScreen extends ConsumerWidget {
         return _WaterfallCards(
           padding: EdgeInsets.fromLTRB(
             isLandscape ? 8 : 16,
-            0,
+            // 横屏与身份栏 top:12 对齐，避免第一行贴物理顶
+            isLandscape ? 12 : 0,
             isLandscape ? 8 : 16,
             24,
           ),
           rows: rows,
           columnCount: waterfallColumns,
-          itemBuilder: (row) {
+          itemBuilder: (row, columnIndex, rowIndexInColumn) {
             final activeTiming = useDemoSkeleton
                 ? null
                 : findLatestActiveTimingForRoot(
@@ -462,6 +483,9 @@ class SmartPredictionScreen extends ConsumerWidget {
                     rootEventId: row.eventId,
                     catalog: catalog,
                   );
+            // 手机横屏且非首行（列内行索引>0）：标题旁小 logo，降高度。
+            final titleInlineLogo =
+                phoneLandscape && rowIndexInColumn > 0;
             return _PredictionEventCard(
               row: row,
               definition: lookupEventById(catalog, row.eventId),
@@ -469,6 +493,7 @@ class SmartPredictionScreen extends ConsumerWidget {
               now: now,
               chartLoading: useDemoSkeleton ? false : chartsLoading,
               compact: true,
+              titleInlineLogo: titleInlineLogo,
               heartbeat: row.eventId == heartbeatId,
               chartPoints: const [],
               pastDaysBeforeToday: 2,
@@ -570,7 +595,8 @@ class SmartPredictionScreen extends ConsumerWidget {
           maintainSize: false,
           child: _PredictionSoftGateOverlay(
             onDismiss: softDismissActiveGate,
-            maxHeightFactor: 0.72,
+            maxHeightFactor: isLandscape ? 0.90 : 0.72,
+            fillMaxHeight: true,
             child: PredictionRecallOnboardingPanel(
               gapRoots:
                   sessionRoots.isNotEmpty ? sessionRoots : gapRoots,
@@ -583,27 +609,84 @@ class SmartPredictionScreen extends ConsumerWidget {
 
     final Widget pageBody;
     if (isLandscape) {
-      // 横屏：左竖排身份 + 右三列瀑布；无顶栏工具 / 留意 / 引导 / 3小时。
-      pageBody = Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      // 横屏：左竖排身份 + 右三列瀑布；语音悬浮相对整屏左下（非网格左下）。
+      final mqPad = MediaQuery.paddingOf(context);
+      final voiceBottom = 10.0 + mqPad.bottom;
+      pageBody = Stack(
         children: [
-          _PredictionLandscapeIdentityRail(
-            nickname: nickname,
-            ageText: babyDisplay.showAge ? ageText : '',
-            color: onShell,
-          ),
-          Expanded(
-            child: Stack(
-              children: [
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: reopenRecallGateIfNeeded,
-                  child: buildCardsBody(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _PredictionLandscapeIdentityRail(
+                nickname: nickname,
+                ageText: babyDisplay.showAge ? ageText : '',
+                color: onShell,
+              ),
+              Expanded(
+                child: Stack(
+                  children: [
+                    // 横屏语音生命周期（零尺寸，避免每帧重复 activate）
+                    _LandscapeVoiceLifecycleBinder(
+                      landscape: isLandscape,
+                      predictionVisible: predictionPageVisible,
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // 冷态骨架：与竖屏同步，列表上方居中「虚拟事件举例」
+                        if (useDemoSkeleton)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+                            child: _PredictionVirtualEventsBanner(
+                              onShell: onShell,
+                            ),
+                          ),
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: reopenRecallGateIfNeeded,
+                            child: buildCardsBody(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    ...gateOverlays.map(
+                      (w) => Positioned.fill(child: w),
+                    ),
+                  ],
                 ),
-                ...gateOverlays,
-              ],
-            ),
+              ),
+            ],
           ),
+          if (landscapeVoice != null) ...[
+            // 整屏左下：监听 chip（压在身份栏区域之上）
+            Positioned(
+              left: 8 + mqPad.left,
+              bottom: voiceBottom,
+              child: _LandscapeVoiceListenChip(
+                caption: landscapeVoice.statusCaption,
+                chatConnected: landscapeVoice.chatConnected,
+                chatListening: landscapeVoice.chatListening,
+                onTap: () => ref
+                    .read(landscapeVoiceControllerProvider.notifier)
+                    .onListenChipTap(context),
+              ),
+            ),
+            // 整屏底部偏上字幕 toast（随内容宽度，居中）
+            if (landscapeVoice.subtitle.trim().isNotEmpty)
+              Positioned(
+                left: 56 + mqPad.left,
+                right: 16 + mqPad.right,
+                bottom: MediaQuery.sizeOf(context).height * 0.18,
+                child: IgnorePointer(
+                  child: _LandscapeVoiceSubtitleToast(
+                    text: landscapeVoice.subtitle,
+                    isThinking: landscapeVoice.subtitleKind ==
+                        LandscapeVoiceSubtitleKind.thinking,
+                  ),
+                ),
+              ),
+          ],
         ],
       );
     } else {
@@ -713,6 +796,15 @@ class SmartPredictionScreen extends ConsumerWidget {
                             },
                           ),
                         ),
+                      // 与滑动引导大卡并存：凡骨架均在事件列表上方提示虚拟举例
+                      if (useDemoSkeleton)
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                          child: _PredictionVirtualEventsBanner(
+                            onShell: onShell,
+                          ),
+                        ),
                       Expanded(child: buildCardsBody()),
                       if (!authGuestChrome && showTip)
                         Padding(
@@ -726,7 +818,9 @@ class SmartPredictionScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
-                ...gateOverlays,
+                ...gateOverlays.map(
+                  (w) => Positioned.fill(child: w),
+                ),
               ],
             ),
           ),
@@ -734,7 +828,7 @@ class SmartPredictionScreen extends ConsumerWidget {
       );
     }
 
-    return _PredictionLandscapeImmersiveHost(
+    Widget host = _PredictionLandscapeImmersiveHost(
       active: immersiveActive,
       child: Material(
         color: shell,
@@ -746,6 +840,11 @@ class SmartPredictionScreen extends ConsumerWidget {
         ),
       ),
     );
+    // 横屏子树挂暗壳 Theme，使 AppColor / chip / 弹幕与壳一体；竖屏不覆盖。
+    if (landscapeTheme != null) {
+      host = Theme(data: landscapeTheme, child: host);
+    }
+    return host;
   }
 
   static String? _relativeFor(
@@ -762,6 +861,269 @@ class SmartPredictionScreen extends ConsumerWidget {
       return formatPredictionGridRelative(pred.nextAt, now, overdue: true);
     }
     return formatWidgetPredictSubtitle(pred.nextAt, now, overdue: overdue);
+  }
+}
+
+/// 绑定横屏语音 activate/deactivate，仅在条件变化时触发。
+class _LandscapeVoiceLifecycleBinder extends ConsumerStatefulWidget {
+  const _LandscapeVoiceLifecycleBinder({
+    required this.landscape,
+    required this.predictionVisible,
+  });
+
+  final bool landscape;
+  final bool predictionVisible;
+
+  @override
+  ConsumerState<_LandscapeVoiceLifecycleBinder> createState() =>
+      _LandscapeVoiceLifecycleBinderState();
+}
+
+class _LandscapeVoiceLifecycleBinderState
+    extends ConsumerState<_LandscapeVoiceLifecycleBinder> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
+  }
+
+  @override
+  void didUpdateWidget(covariant _LandscapeVoiceLifecycleBinder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.landscape != widget.landscape ||
+        oldWidget.predictionVisible != widget.predictionVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
+    }
+  }
+
+  @override
+  void dispose() {
+    // 不在此 deactivate：Notifier 可能已 dispose；由 deactivate 在条件变化时处理。
+    super.dispose();
+  }
+
+  void _sync() {
+    if (!mounted) return;
+    syncLandscapeVoiceLifecycle(
+      ref,
+      context: context,
+      landscape: widget.landscape,
+      predictionVisible: widget.predictionVisible,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+/// 横屏左下监听 chip：横向文案超长换行；表面与弹幕同属 panelGlass 族。
+class _LandscapeVoiceListenChip extends StatelessWidget {
+  const _LandscapeVoiceListenChip({
+    required this.caption,
+    required this.chatConnected,
+    required this.chatListening,
+    required this.onTap,
+  });
+
+  final String caption;
+  final bool chatConnected;
+  final bool chatListening;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // 压在 panelGlass 上的文案（与字幕弹幕配对）。
+    final onGlass = AppColor.textOnPanelGlass(context);
+    final onGlassMuted = AppColor.textOnPanelGlassMuted(context);
+    // 已连且本轮上送才高亮话筒；仅已连待唤醒则指示点亮、话筒不高亮。
+    final micHot = chatConnected && chatListening;
+    // 连接点：未连 error；已连 tertiary（与 mic primary 高亮区分，随主题）。
+    final dotColor = chatConnected ? scheme.tertiary : scheme.error;
+    const chipRadius = 20.0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(chipRadius),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 160),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+            decoration: BoxDecoration(
+              gradient: AppColor.panelGlassGradient(context),
+              borderRadius: BorderRadius.circular(chipRadius),
+              border: Border.all(
+                color: onGlass.withValues(alpha: 0.22),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 26,
+                  height: 22,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        micHot ? Icons.mic : Icons.mic_none,
+                        size: 22,
+                        color: micHot ? scheme.primary : onGlassMuted,
+                      ),
+                      Positioned(
+                        right: -1,
+                        top: -1,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: dotColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColor.panelGlassTop(context)
+                                  .withValues(alpha: 0.9),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    caption,
+                    softWrap: true,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.25,
+                      color: onGlass.withValues(alpha: 0.92),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部偏上字幕条：panelGlass；思考态浅字+慢弱脉冲；首次挂载短淡入。
+class _LandscapeVoiceSubtitleToast extends StatefulWidget {
+  const _LandscapeVoiceSubtitleToast({
+    required this.text,
+    required this.isThinking,
+  });
+
+  final String text;
+  final bool isThinking;
+
+  @override
+  State<_LandscapeVoiceSubtitleToast> createState() =>
+      _LandscapeVoiceSubtitleToastState();
+}
+
+class _LandscapeVoiceSubtitleToastState
+    extends State<_LandscapeVoiceSubtitleToast>
+    with TickerProviderStateMixin {
+  late final AnimationController _fade;
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    // 仅挂载时淡入；换字不重置。
+    _fade = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    )..forward();
+    // 思考态慢弱脉冲（约 1.5s 往返）。
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+    _syncPulse(widget.isThinking);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LandscapeVoiceSubtitleToast oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 仅 kind 切入/离开 thinking 时启停；换字不重启相位。
+    if (oldWidget.isThinking != widget.isThinking) {
+      _syncPulse(widget.isThinking);
+    }
+  }
+
+  void _syncPulse(bool thinking) {
+    if (thinking) {
+      if (!_pulse.isAnimating) {
+        unawaited(_pulse.repeat(reverse: true));
+      }
+    } else {
+      _pulse
+        ..stop()
+        ..value = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final onGlass = AppColor.textOnPanelGlass(context);
+    // 思考用 muted，答案/ASR 满对比。
+    final textColor = widget.isThinking
+        ? AppColor.textOnPanelGlassMuted(context)
+        : onGlass.withValues(alpha: 0.95);
+    const toastRadius = 16.0;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_fade, _pulse]),
+      builder: (context, child) {
+        // 挂载淡入 × 思考脉冲（非思考时 pulse=1）。
+        final pulseOpacity =
+            widget.isThinking ? (0.65 + 0.35 * _pulse.value) : 1.0;
+        return Opacity(
+          opacity: _fade.value * pulseOpacity,
+          child: child,
+        );
+      },
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: AppColor.panelGlassGradient(context),
+              borderRadius: BorderRadius.circular(toastRadius),
+              border: Border.all(
+                color: onGlass.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Text(
+              widget.text,
+              textAlign: TextAlign.center,
+              softWrap: true,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.35,
+                color: textColor,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -909,15 +1271,29 @@ class _PredictionSoftGateOverlay extends StatelessWidget {
     required this.onDismiss,
     required this.child,
     this.maxHeightFactor = 0.55,
+    this.fillMaxHeight = false,
   });
 
   final VoidCallback onDismiss;
   final Widget child;
   final double maxHeightFactor;
 
+  /// 为 true 时子树吃满 maxHeight（量身定做 PageView / 可滚卡需要有界高度）。
+  final bool fillMaxHeight;
+
   @override
   Widget build(BuildContext context) {
+    final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    // 横屏略放宽可用高度，并减小上下留白。
+    final factor = landscape
+        ? (maxHeightFactor < 0.88 ? 0.88 : maxHeightFactor)
+        : maxHeightFactor;
+    final vPad = landscape ? 12.0 : 48.0;
+    final screenCap = MediaQuery.sizeOf(context).height * factor;
+
+    // 按 overlay 可用高度算，避免用整屏比例把底栏挤出命中盒。
     return Stack(
+      fit: StackFit.expand,
       children: [
         Positioned.fill(
           child: GestureDetector(
@@ -926,21 +1302,66 @@ class _PredictionSoftGateOverlay extends StatelessWidget {
             child: const ColoredBox(color: Color(0x66000000)),
           ),
         ),
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 48),
-            child: Material(
-              color: Colors.transparent,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight:
-                      MediaQuery.sizeOf(context).height * maxHeightFactor,
-                  maxWidth: 420,
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 28, vertical: vPad),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final maxH = constraints.maxHeight < screenCap
+                  ? constraints.maxHeight
+                  : screenCap;
+              return Align(
+                alignment: Alignment.center,
+                child: Material(
+                  color: Colors.transparent,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: maxH,
+                      maxWidth: 420,
+                    ),
+                    child: fillMaxHeight
+                        ? SizedBox(
+                            width: double.infinity,
+                            height: maxH,
+                            child: child,
+                          )
+                        : child,
+                  ),
                 ),
-                child: child,
-              ),
-            ),
+              );
+            },
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 冷态骨架：事件列表上方居中提示（与滑动引导大卡并存）。
+class _PredictionVirtualEventsBanner extends StatelessWidget {
+  const _PredictionVirtualEventsBanner({required this.onShell});
+
+  final Color onShell;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '虚拟事件举例',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: onShell.withValues(alpha: 0.9),
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '请右滑补充喂养记录',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: onShell.withValues(alpha: 0.55),
+              ),
         ),
       ],
     );
@@ -1490,7 +1911,12 @@ class _WaterfallCards extends StatelessWidget {
 
   final EdgeInsets padding;
   final List<SmartPredictionRow> rows;
-  final Widget Function(SmartPredictionRow row) itemBuilder;
+  /// 第二参列索引；第三参列内行索引（0=该列顶卡 / 视觉第一行）。
+  final Widget Function(
+    SmartPredictionRow row,
+    int columnIndex,
+    int rowIndexInColumn,
+  ) itemBuilder;
   /// 列数（竖屏 2 / 横屏 3）。
   final int columnCount;
 
@@ -1501,13 +1927,13 @@ class _WaterfallCards extends StatelessWidget {
     for (var i = 0; i < rows.length; i++) {
       cols[i % count].add(rows[i]);
     }
-    Widget column(List<SmartPredictionRow> col) {
+    Widget column(List<SmartPredictionRow> col, int columnIndex) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < col.length; i++) ...[
             if (i > 0) const SizedBox(height: 12),
-            itemBuilder(col[i]),
+            itemBuilder(col[i], columnIndex, i),
           ],
         ],
       );
@@ -1520,7 +1946,7 @@ class _WaterfallCards extends StatelessWidget {
         children: [
           for (var c = 0; c < count; c++) ...[
             if (c > 0) const SizedBox(width: 12),
-            Expanded(child: column(cols[c])),
+            Expanded(child: column(cols[c], c)),
           ],
         ],
       ),
@@ -1732,6 +2158,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
     required this.pastDaysBeforeToday,
     required this.showYAxis,
     required this.relativeText,
+    this.titleInlineLogo = false,
     this.activeTiming,
     this.onToggle,
     this.onCardTap,
@@ -1749,6 +2176,8 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
   final int pastDaysBeforeToday;
   final bool showYAxis;
   final String? relativeText;
+  /// 手机横屏非首行：标题旁小 logo，隐藏倒计时上方大图。
+  final bool titleInlineLogo;
   /// 网格计时中：非 null 时走 active chrome（列表态忽略）。
   final HistoryRecord? activeTiming;
   /// null 时禁用推演开关（冷态骨架）。
@@ -1819,7 +2248,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             ? resolveEventColor(context, leafDef)
             : _rootAccent(context))
         : _rootAccent(context);
-    // 列表标题小 logo；瀑布流大图在倒计时上方；计时中用标题旁小图
+    // 列表 / 计时中 / 手机横屏后列：标题旁小 logo；首列瀑布流仍用倒计时上方大图
     final titleLogoSize = 28.0;
     final heroLogoSize = 52.0;
     final chartH = 96.0;
@@ -1835,6 +2264,16 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             now.difference(activeTimingStartAt(widget.activeTiming!)),
           )
         : null;
+    // 标题旁 logo：列表、计时中、或手机后列紧凑
+    final showTitleLogo =
+        !compact || showActiveTiming || widget.titleInlineLogo;
+    // 大 logo：仅普通 compact 且非后列侧 logo
+    final showHeroLogo = compact &&
+        !showActiveTiming &&
+        !widget.titleInlineLogo &&
+        enabled &&
+        pred != null &&
+        countdown != null;
 
     final content = Opacity(
       opacity: (enabled || showActiveTiming) ? 1 : 0.45,
@@ -1844,11 +2283,16 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         children: [
           Row(
             children: [
-              // 列表 / 计时中：标题旁 logo；普通瀑布流标题行仅名+开关
-              if (!compact || showActiveTiming) ...[
+              // 列表 / 计时中 / 手机后列：标题旁 logo（飞入锚点 + 可选心跳）
+              if (showTitleLogo) ...[
                 KeyedSubtree(
                   key: widget.logoAnchorKey,
-                  child: EventLogo(definition: titleDef, size: titleLogoSize),
+                  child: (widget.heartbeat && !showActiveTiming)
+                      ? _HeartbeatLogo(
+                          definition: titleDef,
+                          size: titleLogoSize,
+                        )
+                      : EventLogo(definition: titleDef, size: titleLogoSize),
                 ),
                 const SizedBox(width: 8),
               ],
@@ -1917,19 +2361,24 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             ],
             if (enabled && pred != null && compact && countdown != null) ...[
               const SizedBox(height: 10),
-              // 倒计时上方居中大图（心跳仅 soonest）
-              Center(
-                child: KeyedSubtree(
-                  key: widget.logoAnchorKey,
-                  child: widget.heartbeat
-                      ? _HeartbeatLogo(
-                          definition: definition,
-                          size: heroLogoSize,
-                        )
-                      : EventLogo(definition: definition, size: heroLogoSize),
+              // 首列（或非手机后列）：倒计时上方居中大图
+              if (showHeroLogo) ...[
+                Center(
+                  child: KeyedSubtree(
+                    key: widget.logoAnchorKey,
+                    child: widget.heartbeat
+                        ? _HeartbeatLogo(
+                            definition: definition,
+                            size: heroLogoSize,
+                          )
+                        : EventLogo(
+                            definition: definition,
+                            size: heroLogoSize,
+                          ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
+                const SizedBox(height: 8),
+              ],
               Center(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,

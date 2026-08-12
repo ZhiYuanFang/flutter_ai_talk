@@ -79,6 +79,22 @@ abstract final class AppEnv {
   /// 与网关约定一致：未配置时由 HTTP 基址推导 `ws(s)://host[:port]/voice/asr/ws`。
   static String get wsVoiceAsrUrlEffective {
     if (wsVoiceAsrUrl.isNotEmpty) return wsVoiceAsrUrl;
+    return _wsPathFromApiBase('/voice/asr/ws');
+  }
+
+  /// 硬件同源语音对话 WebSocket **完整 URL**；为空时由 [apiBaseUrl] 推导 `/voice/chat/ws`。
+  static const wsVoiceChatUrl = String.fromEnvironment(
+    'WS_VOICE_CHAT_URL',
+    defaultValue: '',
+  );
+
+  /// 无鉴权例外通道（与 ASR 同类）：未配置时由 HTTP 基址推导 `ws(s)://host[:port]/voice/chat/ws`。
+  static String get wsVoiceChatUrlEffective {
+    if (wsVoiceChatUrl.isNotEmpty) return wsVoiceChatUrl;
+    return _wsPathFromApiBase('/voice/chat/ws');
+  }
+
+  static String _wsPathFromApiBase(String absolutePath) {
     final u = Uri.parse(apiBaseUrl);
     if (!u.hasScheme || u.host.isEmpty) return '';
     final scheme = u.scheme == 'https' ? 'wss' : 'ws';
@@ -88,7 +104,8 @@ abstract final class AppEnv {
     } else if (p.endsWith('/')) {
       p = p.substring(0, p.length - 1);
     }
-    final path = (p.isEmpty ? '/voice/asr/ws' : '$p/voice/asr/ws').replaceAll('//', '/');
+    final path =
+        (p.isEmpty ? absolutePath : '$p$absolutePath').replaceAll('//', '/');
     return Uri(
       scheme: scheme,
       host: u.host,

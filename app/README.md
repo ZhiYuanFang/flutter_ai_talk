@@ -45,6 +45,8 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
 | `[CareAlert]` | 护理留意日缓存拉取 / 忽略删缓存 / 飞轮固定意图反馈 |
 | `[CashVip]` | VIP 商品/状态/建单/Apple 验单/支付宝回前台轮询 |
+| `[LandscapeKws]` | 横屏唤醒 KWS 模型 CDN 下载 / 解压 / 缺文件 |
+| `[LandscapeVoice]` | 横屏语音 chat WS 就绪 / 唤醒开听各步失败 |
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
 `flutter run` 终端仍会转发设备 **完整 logcat**，其中可能混入：
@@ -104,7 +106,14 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 | UCG 聊天 | `UcgRepository` | `{type: auth, token}` | `ensureFreshSession`（无 deviceNo） |
 | 胖宝诊疗 | `ClinicWsClient` | `{type, accessToken, deviceNo}` | `prepareDeviceWsConnectContext` |
 
-**例外**：语音 ASR（`/voice/asr/ws`）无 access 鉴权，使用独立 `VoiceAsrWsClient`。
+**例外**：语音 ASR（`/voice/asr/ws`）与硬件同源对话（`/voice/chat/ws`）无 access 鉴权，分别使用独立 `VoiceAsrWsClient` / `VoiceChatWsClient`（`start` 携带 `deviceNo`，不上送 JWT `auth` 首帧）。
+
+**`/voice/chat/ws` 轮次契约（双层）**：
+
+- **意图层**：服务端用 `finish_talk` / `exit` 控制是否续聊。`finish_talk=false` → 客户端同连接续听「请说话…」（不回唤醒词）；`true` / 缺省 / `exit` → 回「说你好胖宝」。
+- **传输层**：成功答完后服务端 `waitEndAfterCommit`，客户端再次上送 PCM 前 MUST `end` 再 `start`（`restartAudioRound` / `beginListen` 内自动）。客户端主动结束本段（含横屏 **5s 无声 idle** 退下「我先退下了」）MUST 发 `type=end`，不得只停麦。
+
+**预测横屏语音**：进入预测横屏后由 `LandscapeVoiceController` 显式 `connect`/`disconnect`（provider 创建不得自动建连）。未授权麦克风时先玻璃用途说明框，确认后再系统申请。唤醒词「你好，胖宝」走 Sherpa-ONNX 中文 KWS（Android/iOS 前台横屏）；模型首次从自有 CDN 下载 **mobile** 包到应用支持目录（`resorce.cuplay.top/app/models/kws/…-mobile.tar.bz2`，Wenetspeech 3.3M mobile；分件 prefer int8）。下载/解压失败见 `[LandscapeKws]`。模型失败时可点按左下角临时联调「我在」→ PCM → ASR/thinking/answer/TTS。引入 `sherpa_onnx` 原生库后须按 `openspec/project.md` 做 release + ProGuard。
 
 **Auth error 统一策略**（`handleWsAuthOrQuotaError`）：`isRefreshInFlight` 不弹 UI → 40301 silent refresh + reconnect → hard 失效才登录引导；40302 额度弹框。
 
@@ -505,6 +514,7 @@ flutter run -d chrome --dart-define=MOCK_NEWER_VERSION=true --web-browser-flag "
 | `WECHAT_WEB_APP_ID` | **网站应用** AppId；留空则网页授权使用 `WECHAT_APP_ID` |
 | `WECHAT_OAUTH_REDIRECT_URI` | 网页授权回调完整 URL，须登记为 `…/auth/wechat/callback`（与路由一致） |
 | `WS_HISTORY_URL` | 历史 WebSocket **完整 URL**；**留空**时根据 `API_BASE_URL` 自动推导 `ws(s)://…/device/app/ws/history` |
+| `WS_VOICE_CHAT_URL` | 硬件同源对话 `/voice/chat/ws` **完整 URL**；**留空**时由 `API_BASE_URL` 推导；无 JWT，与 ASR 同类例外 |
 | `REFRESH_TOKEN_PATH` | 静默刷新 access token 的 POST path（相对 [apiBaseUrl]）；请求体字段 **`refreshToken`**；设为空字符串可关闭 |
 | `IOS_APP_STORE_ID` | App Store 数字 ID（占位） |
 | `MOCK_NEWER_VERSION` | `true` 时强制出现「发现新版本」提示（联调 UI） |

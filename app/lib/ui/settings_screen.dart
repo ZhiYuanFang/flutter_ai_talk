@@ -12,6 +12,8 @@ import '../config/event_media_local_store.dart';
 import '../data/models.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../home_widget/home_widget_payload.dart';
+import '../providers/baby_display_provider.dart' show isBabyProfileBoundPending;
+import '../providers/device_no_notifier.dart';
 import '../providers/repositories.dart' show versionRepositoryProvider;
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
@@ -82,6 +84,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final babyAsync = ref.watch(settingsBabyProvider);
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    final deviceNo =
+        ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
     final scheme = Theme.of(context).colorScheme;
 
     // 背景渐变：页底原子 + primaryContainer
@@ -122,7 +126,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               else
                 babyAsync.when(
                   data: (baby) {
-                    if (baby.id.isEmpty) {
+                    // deviceNo 已有但画像仍占位：同步中，勿误导「去绑定」。
+                    if (isBabyProfileBoundPending(baby)) {
+                      if (deviceNo.isNotEmpty) {
+                        return _buildGlassTile(
+                          context,
+                          leading: Icons.sync,
+                          title: '宝宝信息',
+                          subtitle: '正在同步宝宝信息…',
+                          onTap: () => ref.invalidate(settingsBabyProvider),
+                        );
+                      }
                       return _buildGlassTile(
                         context,
                         leading: Icons.add_link,
@@ -142,7 +156,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: CircularProgressIndicator(),
                     ),
                   ),
-                  error: (e, _) => Text('加载失败：$e'),
+                  error: (e, _) => deviceNo.isNotEmpty
+                      ? _buildGlassTile(
+                          context,
+                          leading: Icons.refresh,
+                          title: '宝宝信息',
+                          subtitle: '同步失败，点击重试',
+                          onTap: () => ref.invalidate(settingsBabyProvider),
+                        )
+                      : Text('加载失败：$e'),
                 ),
               const SizedBox(height: 12),
               // 语音识别模块已隐藏；陪伴页仍可读持久化/默认引擎

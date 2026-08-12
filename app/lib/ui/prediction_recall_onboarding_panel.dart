@@ -112,11 +112,11 @@ class _PredictionRecallOnboardingPanelState
   Future<void> _onSkip() async {
     final root = _current;
     if (root == null) return;
-    await ref
-        .read(forecastDisabledIdsProvider.notifier)
-        .setEnabled(root.id, false);
-    if (!mounted) return;
+    // 先反馈并翻页；开关持久化后台跑，避免 prefs 卡住像「点了没反应」
     showAppToast('已跳过，暂不预测「${root.name}」');
+    unawaited(
+      ref.read(forecastDisabledIdsProvider.notifier).setEnabled(root.id, false),
+    );
     await _advanceToNextRoot();
   }
 
@@ -269,232 +269,250 @@ class _PredictionRecallOnboardingPanelState
     final scheme = Theme.of(context).colorScheme;
     // 浮层内文案跟 modal 前景原子
     final onShell = AppColor.textOnModal(context);
+    final root = _current;
+    final accent = (!_isFinalePage && root != null)
+        ? resolveEventColor(context, root)
+        : null;
 
+    // 单一玻璃壳 + 底栏在 PageView 外：邻页不再叠禁用按钮吞点击。
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Stack(
-        children: [
-          PageView.builder(
-            controller: _pageController,
-            // 禁止用户左右拖滑；仅确认/跳过/继续程序切页
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _pageCount,
-            onPageChanged: (i) {
-              setState(() {
-                _pageIndex = i;
-                if (!_isFinalePage) _resetCardDefaults();
-              });
-            },
-            itemBuilder: (context, index) {
-              if (index >= _queue.length) {
-                return _FloatingCard(
-                  child: _buildFinaleBody(onShell, scheme),
-                );
-              }
-              final root = _queue[index];
-              return _FloatingCard(
-                eventAccent: resolveEventColor(context, root),
-                child: _buildCardBody(
-                  onShell,
-                  scheme,
-                  root: root,
-                  progress: '${index + 1}/${_queue.length}',
-                  active: index == _pageIndex && !_showThinking,
-                ),
-              );
-            },
-          ),
-          if (_showThinking && !_isFinalePage)
-            Positioned.fill(
-              child: _FloatingCard(
-                eventAccent: _current == null
-                    ? null
-                    : resolveEventColor(context, _current!),
-                child: _buildThinkingBody(onShell, scheme),
+      child: _FloatingCard(
+        eventAccent: accent,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  PageView.builder(
+                    controller: _pageController,
+                    // 禁止用户左右拖滑；仅确认/跳过/继续程序切页
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _pageCount,
+                    onPageChanged: (i) {
+                      setState(() {
+                        _pageIndex = i;
+                        if (!_isFinalePage) _resetCardDefaults();
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      if (index >= _queue.length) {
+                        return _buildFinaleScroll(onShell, scheme);
+                      }
+                      final pageRoot = _queue[index];
+                      return _buildCardScroll(
+                        onShell,
+                        scheme,
+                        root: pageRoot,
+                        progress: '${index + 1}/${_queue.length}',
+                        // 仅当前页展示真实选择值；邻页用占位避免错乱
+                        interactive: index == _pageIndex,
+                      );
+                    },
+                  ),
+                  if (_showThinking && !_isFinalePage)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: AppColor.modalFill(context),
+                        child: _buildThinkingScroll(onShell, scheme),
+                      ),
+                    ),
+                ],
               ),
             ),
+            const SizedBox(height: 12),
+            if (_showThinking && !_isFinalePage)
+              _buildThinkingFooter(onShell, scheme)
+            else if (_isFinalePage)
+              FilledButton(
+                onPressed: widget.onFinished,
+                child: const Text('体验胖宝智能预测'),
+              )
+            else
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => unawaited(_onSkip()),
+                    child: const Text('跳过此事件'),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () => unawaited(_onConfirm()),
+                    child: const Text('确认'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 卡片可滚内容（不含底栏按钮）。
+  Widget _buildCardScroll(
+    Color onShell,
+    ColorScheme scheme, {
+    required EventDefinition root,
+    required String progress,
+    required bool interactive,
+  }) {
+    final isTime = root.parsedEventType == EventCatalogEventType.time;
+    final kids = _childEvents(root);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '为宝宝量身定做 · $progress',
+            style: TextStyle(
+              fontSize: 13,
+              color: onShell.withValues(alpha: 0.55),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              EventLogo(definition: root, size: 36),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  root.name,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: onShell,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isTime ? '还记得上次结束是什么时候吗？' : '还记得上次发生是什么时候吗？',
+            style: TextStyle(
+              fontSize: 15,
+              color: onShell.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _SelectTile(
+            label: isTime ? '上次结束时间' : '上次发生时间',
+            value: _timeFmt.format(interactive ? _lastAt : DateTime.now()),
+            onTap: interactive ? () => unawaited(_pickLastAt()) : () {},
+          ),
+          const SizedBox(height: 10),
+          _SelectTile(
+            label: '大概多久一次',
+            value: _formatInterval(interactive ? _intervalMinutes : 180),
+            onTap: interactive ? () => unawaited(_pickInterval()) : () {},
+          ),
+          if (kids.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(
+              '该事件包含',
+              style: TextStyle(
+                fontSize: 13,
+                color: onShell.withValues(alpha: 0.55),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final kid in kids)
+                  Chip(
+                    label: Text(kid.name),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildCardBody(
-    Color onShell,
-    ColorScheme scheme, {
-    required EventDefinition root,
-    required String progress,
-    required bool active,
-  }) {
-    final isTime = root.parsedEventType == EventCatalogEventType.time;
-    final kids = _childEvents(root);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          '为宝宝量身定做 · $progress',
-          style: TextStyle(
-            fontSize: 13,
-            color: onShell.withValues(alpha: 0.55),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            EventLogo(definition: root, size: 36),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                root.name,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: onShell,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Text(
-          isTime ? '还记得上次结束是什么时候吗？' : '还记得上次发生是什么时候吗？',
-          style: TextStyle(
-            fontSize: 15,
-            color: onShell.withValues(alpha: 0.75),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _SelectTile(
-          label: isTime ? '上次结束时间' : '上次发生时间',
-          value: _timeFmt.format(active ? _lastAt : DateTime.now()),
-          onTap: active ? () => unawaited(_pickLastAt()) : () {},
-        ),
-        const SizedBox(height: 10),
-        _SelectTile(
-          label: '大概多久一次',
-          value: _formatInterval(active ? _intervalMinutes : 180),
-          onTap: active ? () => unawaited(_pickInterval()) : () {},
-        ),
-        if (kids.isNotEmpty) ...[
-          const SizedBox(height: 14),
+  Widget _buildThinkingScroll(Color onShell, ColorScheme scheme) {
+    final text = _thinkingFull.substring(0, _thinkingVisible);
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Text(
-            '该事件包含',
+            '正在思考…',
             style: TextStyle(
               fontSize: 13,
-              color: onShell.withValues(alpha: 0.55),
+              color: scheme.primary,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final kid in kids)
-                Chip(
-                  label: Text(kid.name),
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-            ],
+          const SizedBox(height: 16),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 16,
+              height: 1.55,
+              color: onShell.withValues(alpha: 0.88),
+            ),
           ),
         ],
-        const Spacer(),
-        Row(
-          children: [
-            TextButton(
-              onPressed: active ? () => unawaited(_onSkip()) : null,
-              child: const Text('跳过此事件'),
-            ),
-            const Spacer(),
-            FilledButton(
-              onPressed: active ? () => unawaited(_onConfirm()) : null,
-              child: const Text('确认'),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildThinkingBody(Color onShell, ColorScheme scheme) {
-    final text = _thinkingFull.substring(0, _thinkingVisible);
+  Widget _buildThinkingFooter(Color onShell, ColorScheme scheme) {
     final done = _thinkingVisible >= _thinkingFull.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          '正在思考…',
-          style: TextStyle(
-            fontSize: 13,
-            color: scheme.primary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 16,
-                height: 1.55,
-                color: onShell.withValues(alpha: 0.88),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (!done)
-          FilledButton(
-            onPressed: _onSkipThinkingAnimation,
-            child: const Text('跳过动画'),
-          )
-        else
+    if (!done) {
+      return FilledButton(
+        onPressed: _onSkipThinkingAnimation,
+        child: const Text('跳过动画'),
+      );
+    }
+    return Text(
+      '即将继续…',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 13,
+        color: onShell.withValues(alpha: 0.55),
+      ),
+    );
+  }
+
+  Widget _buildFinaleScroll(Color onShell, ColorScheme scheme) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 12),
+          Icon(Icons.auto_awesome, size: 40, color: scheme.primary),
+          const SizedBox(height: 16),
           Text(
-            '即将继续…',
+            '已按你的情况准备好智能预测',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 13,
-              color: onShell.withValues(alpha: 0.55),
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: onShell,
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildFinaleBody(Color onShell, ColorScheme scheme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Spacer(),
-        Icon(Icons.auto_awesome, size: 40, color: scheme.primary),
-        const SizedBox(height: 16),
-        Text(
-          '已按你的情况准备好智能预测',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: onShell,
+          const SizedBox(height: 10),
+          Text(
+            '本地算法会结合回忆节奏持续学习；之后的真实喂养记录会让预测更准。',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: onShell.withValues(alpha: 0.7),
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          '本地算法会结合回忆节奏持续学习；之后的真实喂养记录会让预测更准。',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 14,
-            height: 1.45,
-            color: onShell.withValues(alpha: 0.7),
-          ),
-        ),
-        const Spacer(),
-        FilledButton(
-          onPressed: widget.onFinished,
-          child: const Text('体验胖宝智能预测'),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

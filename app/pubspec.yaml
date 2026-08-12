@@ -1,5 +1,5 @@
 name: pangbao_app
-description: 胖宝 — 语音/文本驱动的母婴记录客户端
+description: ?? ? ??/????????????
 publish_to: "none"
 version: 2.1.0+10
 
@@ -9,7 +9,7 @@ fluwx:
   ios:
     universal_link: https://example.com/pangbao-wechat-ul/
 
-# 支付宝：Android-only path 包 packages/tobias_android（iOS 不注册插件 / 不链 AlipaySDK）
+# ????Android-only path ? packages/tobias_android?iOS ????? / ?? AlipaySDK?
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -51,16 +51,19 @@ dependencies:
   device_info_plus: ^11.3.0
   uuid: ^4.5.1
   flutter_app_badger: ^1.5.0
-  # 0.9+ 才有 iOS SPM，Extension 才能经 FlutterGeneratedPluginSwiftPackage import home_widget
+  # 0.9+ ?? iOS SPM?Extension ??? FlutterGeneratedPluginSwiftPackage import home_widget
   home_widget: ^0.9.3
   flex_color_picker: ^3.8.0
   markdown_widget: ^2.3.2+8
   cached_network_image: ^3.4.1
   in_app_purchase: ^3.2.1
   wakelock_plus: ^1.2.8
-  # 上游 tobias 5.3.4 裁剪为仅 Android，避免 iOS archive 链接 UTDevice
+  # ?? tobias 5.3.4 ???? Android??? iOS archive ?? UTDevice
   tobias:
     path: ../packages/tobias_android
+  audioplayers: ^6.7.1
+  sherpa_onnx: ^1.12.15
+  archive: ^4.0.7
 
 dev_dependencies:
   flutter_test:
@@ -85,3 +88,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/audio/
