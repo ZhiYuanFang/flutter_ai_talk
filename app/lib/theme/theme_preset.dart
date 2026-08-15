@@ -391,6 +391,28 @@ VisualBundle deriveDarkBundle(Color seed) {
   );
 }
 
+/// 预测横屏 TV 压暗：对浅色 shell/surface 黑叠降亮，保留 seed 与相对色差。
+/// 不得把粉彩 seed 夹死到同一暗区（对比 [deriveDarkBundle]）。
+VisualBundle deriveLandscapeTvDimBundle(VisualBundle light) {
+  // 黑叠压暗近白淡染壳，粉/蓝相对差得以保留
+  final shell = Color.alphaBlend(
+    Colors.black.withValues(alpha: 0.44),
+    light.shellColor,
+  );
+  final surface = Color.alphaBlend(
+    Colors.black.withValues(alpha: 0.32),
+    light.surfaceColor,
+  );
+  final isDarkShell = shell.computeLuminance() < _darkLuminanceThreshold;
+  return VisualBundle(
+    seedColor: light.seedColor,
+    shellColor: shell,
+    surfaceColor: surface,
+    isDarkShell: isDarkShell,
+    preset: light.preset,
+  );
+}
+
 /// 自暗色输入派生 panelGlass / ColorScheme 用亮染料（结构对齐 kNightSkyAccent）。
 Color _darkChromeAccentFromSeed(HSLColor seedHsl) {
   final accentL = (seedHsl.lightness + 0.38).clamp(0.42, 0.58);

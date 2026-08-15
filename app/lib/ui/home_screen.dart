@@ -56,6 +56,7 @@ import '../providers/event_catalog_notifier.dart';
 import '../providers/history_event_fly_provider.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/home_pager.dart';
+import '../providers/prediction_range_history_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/baby_display_provider.dart';
@@ -105,6 +106,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   StreamSubscription<bool>? _voiceAsrReadySub;
   HistoryWsPhase _historyWsPhase = HistoryWsPhase.disconnected;
   var _historyWsManualReconnecting = false;
+  /// resume 喂养+预测 range 短窗去重起点
+  DateTime? _lastPredictionHistoryResumeAt;
+  /// resume 历史刷新 single-flight
+  Future<void>? _predictionHistoryResumeInFlight;
   var _gaveUpSnackbarShown = false;
   var _voiceAsrReady = false;
   var _voiceAsrConnecting = false;
@@ -718,12 +723,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// 回前台：先单飞 ensureFreshSession，再 WS resume，最后 unread HTTP（push 仅 activate/token 路径）。
+  /// 回前台：先单飞 ensureFreshSession，再 WS resume，未读 HTTP，最后喂养+预测 range。
   Future<void> _onAppLifecycleResumed() async {
     await ref.read(sessionProvider).ensureFreshSession();
     ref.read(feedRepositoryProvider).onAppLifecycleResumed();
     ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
     await ref.read(ucgUnreadSyncProvider)();
+    // 已登录：刷喂养历史 + 预测 7 日 range，避免只停预测页时数据陈旧
+    await _refreshPredictionHistoryOnResumeIfNeeded();
+  }
+
+  /// 副作用 HTTP：短窗去重 + in-flight 合并；未登录跳过。
+  Future<void> _refreshPredictionHistoryOnResumeIfNeeded() async {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    final now = DateTime.now();
+    final last = _lastPredictionHistoryResumeAt;
+    // 约 4s 短窗：系统连发 resumed 不重复打满
+    if (last != null &&
+        now.difference(last) < const Duration(seconds: 4)) {
+      return;
+    }
+    final existing = _predictionHistoryResumeInFlight;
+    if (existing != null) {
+      await existing;
+      return;
+    }
+    _lastPredictionHistoryResumeAt = now;
+    final flight = () async {
+      try {
+        await Future.wait<void>([
+          _history.bootstrap(),
+          ref
+              .read(predictionRangeHistoryProvider.notifier)
+              .ensureLoaded(force: true),
+        ]);
+      } finally {
+        _predictionHistoryResumeInFlight = null;
+      }
+    }();
+    _predictionHistoryResumeInFlight = flight;
+    await flight;
   }
 
   Future<void> _reloadHistoryIfLoggedIn() async {

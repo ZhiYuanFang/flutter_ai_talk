@@ -152,7 +152,7 @@ ThemeData buildAppThemeFromBundle(VisualBundle bundle, BabySex sex) {
   );
 }
 
-/// 预测横屏投屏护眼：浅壳 → [deriveDarkBundle] 暗壳（保留 seed tint）；已暗透传。
+/// 预测横屏投屏护眼：浅壳 → [deriveLandscapeTvDimBundle] TV 压暗；已暗透传。
 /// 仅派生内存 ThemeData，**不**写 [ThemePreferences] / baseline。
 ThemeData landscapeTvSafeThemeOf({
   required ThemeData current,
@@ -170,7 +170,7 @@ ThemeData landscapeTvSafeThemeOf({
     seed: effectiveSeed,
     preset: effectivePreset,
   );
-  // 显式 deriveDarkBundle，禁止浅 seed 误入 lightTintedBundle
-  final darkBundle = deriveDarkBundle(lightBundle.seedColor);
-  return buildAppThemeFromBundle(darkBundle, sex);
+  // TV 压暗：禁止 deriveDarkBundle 抹平浅色差异
+  final dimmed = deriveLandscapeTvDimBundle(lightBundle);
+  return buildAppThemeFromBundle(dimmed, sex);
 }

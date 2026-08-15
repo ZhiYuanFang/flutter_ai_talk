@@ -91,6 +91,9 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   var _turnBusy = false;
   var _exitInFlight = false;
 
+  /// 思考/TTS 阶段已 resume KWS，可唤醒打断。
+  var _bargeInArmed = false;
+
   /// 本轮开听是否已出现有效音（跨 soft rearm 保留）。
   var _heardEffectiveSpeech = false;
 
@@ -228,7 +231,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _wake ??= createLandscapeWakeWord();
     _wakeSub?.cancel();
     _wakeSub = _wake!.detections.listen((_) {
-      unawaited(_onWake());
+      unawaited(_onWakeDetection());
     });
     final wakeOk = await _wake!.start(
       onStatus: (s) {
@@ -268,11 +271,59 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _turnBusy = false;
     _exitInFlight = false;
     _heardEffectiveSpeech = false;
+    _bargeInArmed = false;
+  }
+
+  void _disarmBargeIn({required String reason}) {
+    if (!_bargeInArmed) return;
+    _bargeInArmed = false;
+    AppDebugLog.landscapeVoice('bargeIn disarm reason=$reason');
+  }
+
+  /// 思考/TTS 窗口：停上行麦后 resume KWS，供再说唤醒词打断。
+  Future<void> _armBargeInWake() async {
+    if (!_active || _exitInFlight) return;
+    final chat = ref.read(voiceChatWsClientProvider);
+    if (chat.isListening) return;
+    if (!state.awakened) return;
+
+    await chat.ensureMicStopped();
+    await Future<void>.delayed(_afterExitResumeGap);
+    if (!_active || _exitInFlight || chat.isListening || !state.awakened) {
+      return;
+    }
+
+    _bargeInArmed = true;
+    AppDebugLog.landscapeVoice('bargeIn arm');
+    final wake = _wake;
+    if (wake == null) return;
+
+    var ok = await wake.resume();
+    if (!ok && _active) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      ok = await wake.resume();
+    }
+    if (!ok && _active) {
+      ok = await wake.start(
+        onStatus: (s) {
+          if (_active) state = state.copyWith(statusCaption: s);
+        },
+      );
+    }
+    if (!_active || !_bargeInArmed) return;
+    if (ok) {
+      state = state.copyWith(listening: true);
+      AppDebugLog.landscapeVoice('bargeIn arm ok');
+    } else {
+      _disarmBargeIn(reason: 'arm_fail');
+      AppDebugLog.landscapeVoice('bargeIn arm fail');
+    }
   }
 
   Future<void> _failWakeStart(String caption) async {
     AppDebugLog.landscapeVoice('wake start fail caption=$caption');
     _cancelIdleNoSpeechTimer(reason: 'wake_fail');
+    _disarmBargeIn(reason: 'wake_fail');
     _heardEffectiveSpeech = false;
     state = state.copyWith(
       statusCaption: caption,
@@ -286,9 +337,91 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     await _restoreWakeListening(statusIfOk: caption);
   }
 
+  /// 检测分流：对话段内 barge-in vs 待唤醒普通唤醒。
+  Future<void> _onWakeDetection() async {
+    if (!_active) return;
+    if (_bargeInArmed && state.awakened) {
+      await _onBargeInWake();
+      return;
+    }
+    await _onWake();
+  }
+
+  /// 思考/TTS 中再说唤醒词：停 TTS → end →「我在」→ 开听。
+  Future<void> _onBargeInWake() async {
+    if (!_active || _turnBusy) return;
+    _turnBusy = true;
+    _disarmBargeIn(reason: 'hit');
+    _exitInFlight = false;
+    _heardEffectiveSpeech = false;
+    _cancelIdleNoSpeechTimer(reason: 'barge_in');
+    AppDebugLog.landscapeVoice('bargeIn hit');
+
+    final chat = ref.read(voiceChatWsClientProvider);
+    chat.onEffectiveSpeech = _onEffectiveSpeechDetected;
+    try {
+      await chat.stopTts();
+      await chat.endSession(reason: 'wake_barge_in');
+      _setSubtitle('我在', kind: LandscapeVoiceSubtitleKind.asr);
+      state = state.copyWith(
+        awakened: true,
+        thinking: '',
+        statusCaption: '我在听…',
+        chatListening: false,
+      );
+
+      state = state.copyWith(statusCaption: '正在让出麦克风…');
+      AppDebugLog.landscapeVoice('bargeIn step=pause');
+      await _wake?.pause().timeout(_micHandoffTimeout);
+      await Future<void>.delayed(_micHandoffGap);
+
+      if (!_active) {
+        _turnBusy = false;
+        return;
+      }
+      state = state.copyWith(statusCaption: '我在听…');
+      AppDebugLog.landscapeVoice('bargeIn step=play_wo_zai');
+      await chat.playAssetWav(kLandscapeWoZaiAsset);
+      _clearSubtitle(reason: 'wo_zai_done');
+      await Future<void>.delayed(_afterPromptGap);
+
+      if (!_active) {
+        _turnBusy = false;
+        return;
+      }
+      state = state.copyWith(statusCaption: '正在接通会话…');
+      AppDebugLog.landscapeVoice('bargeIn step=beginListen');
+      final ok = await chat.beginListen().timeout(_micHandoffTimeout);
+      if (!_active) {
+        _turnBusy = false;
+        return;
+      }
+      if (!ok) {
+        await _failWakeStart('无法开始聆听');
+        return;
+      }
+      _syncChatFlags();
+      state = state.copyWith(
+        statusCaption: '请说话…',
+        chatListening: true,
+        chatConnected: chat.isReady,
+        awakened: true,
+      );
+      _turnBusy = false;
+      _armIdleNoSpeechTimer();
+      AppDebugLog.landscapeVoice('bargeIn step=listening');
+    } on TimeoutException {
+      await _failWakeStart('开麦超时，请再试');
+    } catch (e) {
+      AppDebugLog.landscapeVoice('bargeIn err=$e');
+      await _failWakeStart('打断后启动失败');
+    }
+  }
+
   Future<void> _onWake() async {
     if (!_active || _turnBusy) return;
     _turnBusy = true;
+    _disarmBargeIn(reason: 'normal_wake');
     _exitInFlight = false;
     _heardEffectiveSpeech = false;
     _cancelIdleNoSpeechTimer(reason: 'wake');
@@ -390,10 +523,11 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     }
   }
 
-  /// finish_talk=false：续听并重武装 5s idle。
+  /// finish_talk=false：续听并重武装 5s idle；先 pause barge-in KWS。
   Future<void> _continueListenAfterServer() async {
     if (!_active || _exitInFlight) return;
     AppDebugLog.landscapeVoice('continueListen after finish_talk=false');
+    _disarmBargeIn(reason: 'continue_listen');
     _heardEffectiveSpeech = false;
     _cancelIdleNoSpeechTimer(reason: 'continue');
     state = state.copyWith(
@@ -404,6 +538,14 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     );
     final chat = ref.read(voiceChatWsClientProvider);
     chat.onEffectiveSpeech = _onEffectiveSpeechDetected;
+    try {
+      // 续听独占麦：交还前若 KWS 在跑则 pause
+      await _wake?.pause().timeout(_micHandoffTimeout);
+      await Future<void>.delayed(_micHandoffGap);
+    } catch (e) {
+      AppDebugLog.landscapeVoice('continueListen pause err=$e');
+    }
+    if (!_active || _exitInFlight) return;
     final ok = await chat.beginListen(resetEffectiveSpeech: true);
     if (!_active || _exitInFlight) return;
     if (!ok) {
@@ -423,11 +565,16 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
 
   Future<void> _onAsrNoResult() async {
     final chat = ref.read(voiceChatWsClientProvider);
+    _disarmBargeIn(reason: 'asr_no_result');
     // 已有有效音：空片段续听，不整轮退下。
     if (_heardEffectiveSpeech || chat.hasEffectiveSpeech) {
       _heardEffectiveSpeech = true;
       _cancelIdleNoSpeechTimer(reason: 'no_result_soft');
       AppDebugLog.landscapeVoice('asr_no_result soft rearm');
+      try {
+        await _wake?.pause().timeout(_micHandoffTimeout);
+        await Future<void>.delayed(_micHandoffGap);
+      } catch (_) {}
       final ok = await chat.beginListen(resetEffectiveSpeech: false);
       if (!_active || _exitInFlight) return;
       if (ok) {
@@ -504,6 +651,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       chatListening: false,
     );
     _syncChatFlags();
+    // 仅有效音后的思考/TTS 窗口武装 barge-in（空结果续听不开）
+    if (_heardEffectiveSpeech) {
+      unawaited(_armBargeInWake());
+    }
   }
 
   /// 结束本段并回唤醒；[alreadyEnded] 时跳过再发 end。
@@ -511,8 +662,16 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     String endReason = 'finish_turn',
     bool alreadyEnded = false,
   }) async {
+    // barge-in 重开听进行中：勿抢 restore
+    if (_turnBusy && endReason != 'wake_fail') {
+      AppDebugLog.landscapeVoice(
+        'finishTurn skip busy endReason=$endReason',
+      );
+      return;
+    }
     _turnBusy = false;
     _heardEffectiveSpeech = false;
+    _disarmBargeIn(reason: 'finish');
     _cancelIdleNoSpeechTimer(reason: 'finish');
     // 兜底：无播音路径也可能残留字幕。
     _clearSubtitle(reason: 'finish_turn');
@@ -599,7 +758,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       await _exitWithWoXianTuiXia();
       return;
     }
-    await _onWake();
+    await _onWakeDetection();
   }
 }
 

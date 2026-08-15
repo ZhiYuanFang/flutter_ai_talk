@@ -115,6 +115,9 @@ class VoiceChatWsClient {
   var _ttsSampleRate = kVoiceChatSampleRate;
   var _ttsPlaying = false;
 
+  /// barge-in 后丢弃迟到 audio_chunk / 抑制 TurnEnded，直至新一轮开听。
+  var _ttsDiscard = false;
+
   bool get isReady => _handshakeOk && _channel != null;
   bool get isListening => _listening;
 
@@ -299,6 +302,8 @@ class VoiceChatWsClient {
   }
 
   Future<void> _onAudioChunk(Map<String, dynamic> map) async {
+    // barge-in 停播后忽略迟到分片
+    if (_ttsDiscard) return;
     final b64 = map['audio'] as String?;
     if (b64 == null || b64.isEmpty) return;
     try {
@@ -319,6 +324,14 @@ class VoiceChatWsClient {
         : (_finishTalkFromAnswer != null ? 'answer_cache' : 'default_true');
     AppDebugLog.landscapeVoice('finish_talk=$finishTalk src=$src');
     _finishTalkFromAnswer = null;
+
+    if (_ttsDiscard) {
+      // 唤醒打断已接管生命周期，勿再发 TurnEnded
+      _ttsPcm.clear();
+      AppDebugLog.landscapeVoice('audio_end skipped ttsDiscard');
+      return;
+    }
+
     // 成功答完后服务端武装 waitEndAfterCommit。
     _needsRoundRestart = true;
 
@@ -330,10 +343,31 @@ class VoiceChatWsClient {
     }
     try {
       await _playPcm16Le(bytes, _ttsSampleRate);
+      if (_ttsDiscard) {
+        AppDebugLog.landscapeVoice('tts play aborted discard');
+        return;
+      }
       _emit(VoiceChatTurnEnded(ok: true, finishTalk: finishTalk));
     } catch (e) {
+      if (_ttsDiscard) {
+        AppDebugLog.landscapeVoice('tts play err discarded e=$e');
+        return;
+      }
       _emit(VoiceChatTurnEnded(ok: false, message: '$e', finishTalk: finishTalk));
     }
+  }
+
+  /// 唤醒打断：立即停 TTS、清缓冲，并丢弃本轮后续音频直至新开听。
+  Future<void> stopTts() async {
+    _ttsDiscard = true;
+    _ttsPcm.clear();
+    if (_ttsPlaying) {
+      try {
+        await _ttsPlayer.stop();
+      } catch (_) {}
+      _ttsPlaying = false;
+    }
+    AppDebugLog.landscapeVoice('stopTts');
   }
 
   Future<void> _playPcm16Le(Uint8List pcm, int sampleRate) async {
@@ -541,6 +575,8 @@ class VoiceChatWsClient {
     }
     await _stopMicOnly();
     _ttsPcm.clear();
+    // 新一轮上行：允许再收 TTS
+    _ttsDiscard = false;
     _pcmAbsSession.reset();
     if (resetEffectiveSpeech) {
       _hasEffectiveSpeech = false;
@@ -631,6 +667,7 @@ class VoiceChatWsClient {
     _sessionStarted = false;
     _needsRoundRestart = false;
     _finishTalkFromAnswer = null;
+    // end 后若未立刻开听，保持 discard 直至 beginListen 清除
   }
 
   Future<void> dispose() async {

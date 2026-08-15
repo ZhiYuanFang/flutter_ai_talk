@@ -2890,31 +2890,32 @@ class _BottomTipMarqueeState extends State<_BottomTipMarquee>
                       builder: (context, _) {
                         final offset =
                             -_ctrl.value * (_textWidth + _gap);
-                        return Stack(
-                          clipBehavior: Clip.hardEdge,
-                          children: [
-                            Transform.translate(
-                              offset: Offset(offset, 0),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    widget.text,
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    style: style,
-                                  ),
-                                  const SizedBox(width: _gap),
-                                  Text(
-                                    widget.text,
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    style: style,
-                                  ),
-                                ],
-                              ),
+                        // OverflowBox：跑马灯双份文案可超宽，由外层 ClipRect 裁切，避免 Row 黄黑条。
+                        return OverflowBox(
+                          alignment: Alignment.centerLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          child: Transform.translate(
+                            offset: Offset(offset, 0),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  widget.text,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: style,
+                                ),
+                                const SizedBox(width: _gap),
+                                Text(
+                                  widget.text,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: style,
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         );
                       },
                     ),
