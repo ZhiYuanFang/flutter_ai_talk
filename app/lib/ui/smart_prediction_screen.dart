@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pangbao_app/ui/widgets/app_glass_overlay.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../config/prediction_layout_store.dart';
@@ -402,8 +403,8 @@ class SmartPredictionScreen extends ConsumerWidget {
         ref.watch(homePagerIndexProvider) == HomePagerPage.prediction;
     final immersiveActive = !kIsWeb && isLandscape && predictionPageVisible;
 
-    final landscapeVoice =
-        isLandscape ? ref.watch(landscapeVoiceControllerProvider) : null;
+    final landscapeVoice = ref.watch(landscapeVoiceControllerProvider);
+    // isLandscape ? ref.watch(landscapeVoiceControllerProvider) : null;
 
     Widget buildCardsBody() {
       if (rows.isEmpty) {
@@ -558,6 +559,7 @@ class SmartPredictionScreen extends ConsumerWidget {
     ];
 
     final Widget pageBody;
+
     if (isLandscape) {
       // 横屏：左竖排身份 + 右三列瀑布；语音悬浮相对整屏左下（非网格左下）。
       final mqPad = MediaQuery.paddingOf(context);
@@ -640,131 +642,199 @@ class SmartPredictionScreen extends ConsumerWidget {
         ],
       );
     } else {
-      pageBody = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      // 竖屏：原有 Column 改为 Stack，叠加语音组件
+      final mqPad = MediaQuery.paddingOf(context);
+      final voiceBottom = 86.0 + mqPad.bottom; // 避开底部导航栏
+
+      pageBody = Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 4, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
-                    child: Row(
-                      children: [
-                        BabyAvatar(
-                          babyId: babyDisplay.babyId,
-                          sex: babyDisplay.sex,
-                          radius: 20,
-                          onTap: openSettings,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                nickname,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: onShell,
+          // 原有竖屏内容
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 4, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
+                        child: Row(
+                          children: [
+                            BabyAvatar(
+                              babyId: babyDisplay.babyId,
+                              sex: babyDisplay.sex,
+                              radius: 20,
+                              onTap: openSettings,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    nickname,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: onShell,
+                                        ),
+                                  ),
+                                  // 未登录/未绑定不展示月龄行。
+                                  if (babyDisplay.showAge &&
+                                      ageText.trim().isNotEmpty)
+                                    Text(
+                                      ageText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color:
+                                                onShell.withValues(alpha: 0.65),
+                                          ),
                                     ),
+                                ],
                               ),
-                              // 未登录/未绑定不展示月龄行。
-                              if (babyDisplay.showAge &&
-                                  ageText.trim().isNotEmpty)
-                                Text(
-                                  ageText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: onShell.withValues(alpha: 0.65),
-                                      ),
-                                ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    // icon button 点击弹出对话框，是否进入投屏模式（下方小字：请自行操作手机投屏到电视上）
+                    IconButton(
+                      onPressed: () async {
+                        final go = await showGlassConfirmDialog(
+                              context,
+                              title: '进入投屏模式',
+                              message: '进入投屏模式后，需重启应用才能退出。\n请将手机画面投屏到电视后继续。',
+                              confirmLabel: '已投屏',
+                            ) ??
+                            false;
+                        if (go && context.mounted) {
+                          // 让手机横屏
+                          SystemChrome.setPreferredOrientations([
+                            DeviceOrientation.landscapeLeft,
+                            DeviceOrientation.landscapeRight,
+                          ]);
+                        }
+                      },
+                      icon: const Icon(Icons.cast),
+                    ),
+
+                    IconButton(
+                      tooltip: layout == PredictionCardsLayout.grid
+                          ? '切换为纵向列表'
+                          : '切换为瀑布流',
+                      onPressed: () {
+                        reopenRecallGateIfNeeded();
+                        ref
+                            .read(predictionCardsLayoutProvider.notifier)
+                            .toggle();
+                      },
+                      icon: Icon(
+                        layout == PredictionCardsLayout.grid
+                            ? Icons.view_agenda_outlined
+                            : Icons.dashboard_customize_outlined,
+                        color: onShell,
+                      ),
+                    ),
+                    const ThemePaletteIconButton(),
+                  ],
                 ),
-                IconButton(
-                  tooltip: layout == PredictionCardsLayout.grid
-                      ? '切换为纵向列表'
-                      : '切换为瀑布流',
-                  onPressed: () {
-                    reopenRecallGateIfNeeded();
-                    ref.read(predictionCardsLayoutProvider.notifier).toggle();
-                  },
-                  icon: Icon(
-                    layout == PredictionCardsLayout.grid
-                        ? Icons.view_agenda_outlined
-                        : Icons.dashboard_customize_outlined,
-                    color: onShell,
-                  ),
+              ),
+              Expanded(
+                child: Stack(
+                  children: [
+                    // 空白 tap 仅再弹量身定做；登录/绑定须骨架卡意图
+                    GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: reopenRecallGateIfNeeded,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (careOrGuide != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: careOrGuide,
+                            ),
+                          // Auth 冷态不展示接下来3小时；已绑定冷态/热态照旧。
+                          if (!authGuestChrome && timelineText != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: _NextThreeHoursTimeline(
+                                body: timelineText,
+                                onOpenFeeding: () {
+                                  ref
+                                      .read(homePagerRequestProvider.notifier)
+                                      .requestPage(HomePagerPage.feeding);
+                                },
+                              ),
+                            ),
+                          // 与滑动引导大卡并存：凡骨架均在事件列表上方提示虚拟举例
+                          if (useDemoSkeleton)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                              child: _PredictionVirtualEventsBanner(
+                                onShell: onShell,
+                              ),
+                            ),
+                          Expanded(child: buildCardsBody()),
+                        ],
+                      ),
+                    ),
+                    ...gateOverlays.map(
+                      (w) => Positioned.fill(child: w),
+                    ),
+                  ],
                 ),
-                const ThemePaletteIconButton(),
-              ],
-            ),
+              ),
+            ],
           ),
-          Expanded(
-            child: Stack(
-              children: [
-                // 空白 tap 仅再弹量身定做；登录/绑定须骨架卡意图
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: reopenRecallGateIfNeeded,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (careOrGuide != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: careOrGuide,
-                        ),
-                      // Auth 冷态不展示接下来3小时；已绑定冷态/热态照旧。
-                      if (!authGuestChrome && timelineText != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: _NextThreeHoursTimeline(
-                            body: timelineText,
-                            onOpenFeeding: () {
-                              ref
-                                  .read(homePagerRequestProvider.notifier)
-                                  .requestPage(HomePagerPage.feeding);
-                            },
-                          ),
-                        ),
-                      // 与滑动引导大卡并存：凡骨架均在事件列表上方提示虚拟举例
-                      if (useDemoSkeleton)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                          child: _PredictionVirtualEventsBanner(
-                            onShell: onShell,
-                          ),
-                        ),
-                      Expanded(child: buildCardsBody()),
-                    ],
+
+          // 竖屏语音组件（仅在语音可用时显示）
+          if (landscapeVoice != null) ...[
+            // 竖屏语音生命周期绑定（零尺寸）
+            _LandscapeVoiceLifecycleBinder(
+              landscape: false,
+              predictionVisible: predictionPageVisible,
+            ),
+            // 竖屏语音监听按钮（右下角）
+            Positioned(
+              left: 16 + mqPad.left,
+              bottom: 16 + mqPad.bottom,
+              child: _LandscapeVoiceListenChip(
+                caption: landscapeVoice.statusCaption,
+                chatConnected: landscapeVoice.chatConnected,
+                chatListening: landscapeVoice.chatListening,
+                onTap: () => ref
+                    .read(landscapeVoiceControllerProvider.notifier)
+                    .onListenChipTap(context),
+              ),
+            ),
+            // 竖屏语音字幕 toast
+            if (landscapeVoice.subtitle.trim().isNotEmpty)
+              Positioned(
+                left: 64 + mqPad.left,
+                right: 116 + mqPad.right, // 给语音按钮留空间
+                bottom: voiceBottom + 68, // 在语音按钮上方
+                child: IgnorePointer(
+                  child: _LandscapeVoiceSubtitleToast(
+                    text: landscapeVoice.subtitle,
+                    isThinking: landscapeVoice.subtitleKind ==
+                        LandscapeVoiceSubtitleKind.thinking,
                   ),
                 ),
-                ...gateOverlays.map(
-                  (w) => Positioned.fill(child: w),
-                ),
-              ],
-            ),
-          ),
+              ),
+          ],
         ],
       );
     }
-
     Widget host = _PredictionLandscapeImmersiveHost(
       active: immersiveActive,
       child: Material(
@@ -844,7 +914,7 @@ class _LandscapeVoiceLifecycleBinderState
     syncLandscapeVoiceLifecycle(
       ref,
       context: context,
-      landscape: widget.landscape,
+      landscape: true, //让竖屏也支持语音
       predictionVisible: widget.predictionVisible,
     );
   }
@@ -1150,7 +1220,7 @@ class _PredictionSwipeGuideCardState extends State<_PredictionSwipeGuideCard>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '右滑去喂养记账',
+                          '右滑查看喂养记录',
                           textAlign: TextAlign.center,
                           style:
                               Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -2060,66 +2130,67 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Column(
-  crossAxisAlignment: CrossAxisAlignment.stretch,
-  children: [
-    Row(
-      children: [
-        if (showTitleLogo) ...[
-          KeyedSubtree(
-            key: widget.logoAnchorKey,
-            child: (widget.heartbeat && !showActiveTiming)
-                ? _HeartbeatLogo(
-                    definition: titleDef,
-                    size: titleLogoSize,
-                  )
-                : EventLogo(definition: titleDef, size: titleLogoSize),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  if (showTitleLogo) ...[
+                    KeyedSubtree(
+                      key: widget.logoAnchorKey,
+                      child: (widget.heartbeat && !showActiveTiming)
+                          ? _HeartbeatLogo(
+                              definition: titleDef,
+                              size: titleLogoSize,
+                            )
+                          : EventLogo(
+                              definition: titleDef, size: titleLogoSize),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      titleName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: compact ? 14 : 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColor.textOnPanelGlass(context),
+                      ),
+                    ),
+                  ),
+                  Tooltip(
+                    message: '预测推演',
+                    child: Transform.scale(
+                      scale: switchScale,
+                      child: Switch.adaptive(
+                        value: enabled,
+                        onChanged: widget.onToggle,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Transform.translate(
+                offset: const Offset(0, -6), // 往上移，抵消 Column 的间距
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 10.0),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '${enabled ? "关闭" : "开启"}$titleName预测',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: accent.withAlpha(153),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-        ],
-        Expanded(
-          child: Text(
-            titleName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: compact ? 14 : 16,
-              fontWeight: FontWeight.w600,
-              color: AppColor.textOnPanelGlass(context),
-            ),
-          ),
-        ),
-        Tooltip(
-          message: '预测推演',
-          child: Transform.scale(
-            scale: switchScale,
-            child: Switch.adaptive(
-              value: enabled,
-              onChanged: widget.onToggle,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ),
-      ],
-    ),
-    Transform.translate(
-      offset: const Offset(0, -6), // 往上移，抵消 Column 的间距
-      child: Padding(
-        padding: const EdgeInsets.only(right: 10.0),
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            '${enabled ? "关闭" : "开启"}$titleName预测',
-            style: TextStyle(
-              fontSize: 10,
-              color: accent.withAlpha(153),
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ),
-      ),
-    ),
-  ],
-),
           if (showActiveTiming && activeElapsed != null) ...[
             const SizedBox(height: 12),
             Center(

@@ -183,7 +183,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     final dn = ref.read(deviceNoNotifierProvider).asData?.value;
     if (dn == null || dn.isEmpty) {
       state = state.copyWith(
-        statusCaption: '绑定宝宝后可语音对话',
+        statusCaption: '绑定宝宝后可语音完成喂养记录',
         micDenied: false,
         chatConnected: false,
         chatListening: false,
