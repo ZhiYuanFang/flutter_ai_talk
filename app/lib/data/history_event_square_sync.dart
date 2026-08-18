@@ -10,6 +10,7 @@ import '../ucg/data/ucg_media_picker.dart';
 import '../ucg/data/ucg_presign.dart';
 import '../ucg/data/ucg_repository.dart';
 import '../config/env.dart';
+import '../ucg/data/ucg_feature_flags.dart';
 import '../ucg/data/ucg_video_upload.dart';
 
 /// 广场同步帖子正文：第一行「{宝宝名}的{事件名}」，备注非空时第二行。
@@ -68,6 +69,37 @@ Future<HistoryEventSquareSyncResult> runHistoryEventMediaSideEffects({
   double? lng,
 }) async {
   final meta = historyEditMediaMetadata(media);
+  // 暂停闸门：仅本地媒体缓存，不 create/update/delete UCG 帖
+  if (!kHistorySquareSyncEnabled) {
+    if (!kIsWeb && media.isNotEmpty) {
+      final sources = <({String kind, File file})>[];
+      for (final item in media) {
+        if (item is HistoryEditLocalFile) {
+          final file = File(item.path);
+          if (await file.exists()) {
+            sources.add((kind: item.isVideo ? 'video' : 'image', file: file));
+          }
+        }
+      }
+      if (sources.isNotEmpty) {
+        await EventMediaLocalStore.persistLocalMedia(
+          historyId: historyId,
+          sourceFiles: sources,
+        );
+      } else {
+        await EventMediaLocalStore.saveEntries(historyId, const []);
+      }
+    } else if (media.isEmpty) {
+      await EventMediaLocalStore.saveEntries(historyId, const []);
+    }
+    return HistoryEventSquareSyncResult(
+      postId: existingPostId,
+      mediaType: meta.mediaType,
+      imageKeys: meta.imageKeys,
+      videoKey: meta.videoKey,
+    );
+  }
+
   final effectiveSync = syncEnabled && media.isNotEmpty;
   final caption = formatHistorySquareSyncCaption(
     babyNickname: babyNickname,

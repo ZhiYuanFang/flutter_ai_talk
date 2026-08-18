@@ -25,6 +25,7 @@ import '../../ui/history_event_fly_overlay.dart';
 import '../../ui/home_screen.dart';
 import '../../ui/prediction_card_fly_landing.dart';
 import '../../ui/smart_prediction_screen.dart';
+import '../data/ucg_feature_flags.dart';
 import 'ucg_shell.dart';
 
 class UcgHomeShell extends ConsumerStatefulWidget {
@@ -158,27 +159,36 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
     if (index == HomePagerPage.prediction) {
       _onEnterPredictionPage();
     }
-    if (index == HomePagerPage.ucg) _markUcgMounted();
+    // UCG 暂停时不会出现 index==ucg；保留分支便于翻回闸门
+    if (kUcgHomePagerEnabled && index == HomePagerPage.ucg) {
+      _markUcgMounted();
+    }
     setState(() => _pageIndex = index);
     ref.read(homePagerIndexProvider.notifier).state = index;
   }
 
   Future<void> _goToPage(int page) async {
+    // UCG 暂停：落到预测，避免空白页
+    final target = (!kUcgHomePagerEnabled && page == HomePagerPage.ucg)
+        ? HomePagerPage.prediction
+        : page;
     // 预测页重抽/ensure 由 onPageChanged 统一处理；已在预测页时仅补 ensure
-    if (page == HomePagerPage.prediction &&
+    if (target == HomePagerPage.prediction &&
         _pageIndex == HomePagerPage.prediction) {
       _ensureCareAlertOnPredictionVisible();
     }
-    if (page == HomePagerPage.ucg) _markUcgMounted();
-    if (page == HomePagerPage.prediction) _markPredictionMounted();
+    if (kUcgHomePagerEnabled && target == HomePagerPage.ucg) {
+      _markUcgMounted();
+    }
+    if (target == HomePagerPage.prediction) _markPredictionMounted();
     await _pageController.animateToPage(
-      page,
+      target,
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
     );
     if (mounted) {
-      setState(() => _pageIndex = page);
-      ref.read(homePagerIndexProvider.notifier).state = page;
+      setState(() => _pageIndex = target);
+      ref.read(homePagerIndexProvider.notifier).state = target;
     }
   }
 
@@ -199,8 +209,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
   void _onRootBackInvoked() {
     if (!_isAndroid) return;
     if (_pageIndex == HomePagerPage.feeding ||
-        _pageIndex == HomePagerPage.ucg) {
-      // 喂养/广场：先回预测主页
+        (kUcgHomePagerEnabled && _pageIndex == HomePagerPage.ucg)) {
+      // 喂养（及开启时的广场）：先回预测主页
       unawaited(_goToHomeHub());
     } else if (_pageIndex == HomePagerPage.prediction) {
       _onPredictionExitBackPress();
@@ -278,6 +288,10 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
               return const SizedBox.expand();
             }
             return const _KeepAlivePredictionPage();
+          }
+          // UCG 页：仅闸门开启且 itemCount=3 时可达
+          if (!kUcgHomePagerEnabled) {
+            return const SizedBox.expand();
           }
           if (!_ucgEverMounted) {
             return const SizedBox.expand();

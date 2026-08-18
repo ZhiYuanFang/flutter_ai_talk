@@ -17,6 +17,7 @@ import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../theme/app_color.dart';
 import '../ucg/data/ucg_album_picker.dart';
+import '../ucg/data/ucg_feature_flags.dart';
 import '../ucg/data/ucg_location.dart';
 import '../ucg/data/ucg_video_upload.dart';
 import '../ucg/providers/ucg_providers.dart';
@@ -416,7 +417,10 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
 
       if (syncEnabled && syncResult.postId > 0) {
         ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
-      } else if (!syncEnabled && existingPostId > 0) {
+      } else if (kHistorySquareSyncEnabled &&
+          !syncEnabled &&
+          existingPostId > 0) {
+        // 仅闸门开启且用户关同步时才会删帖，才通知广场刷新
         ref.read(ucgPostsChangedProvider.notifier).update((n) => n + 1);
       }
     }
@@ -475,7 +479,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     return true;
   }
 
-  bool get _effectiveSyncToSquare => _syncToSquare && _media.isNotEmpty;
+  bool get _effectiveSyncToSquare =>
+      kHistorySquareSyncEnabled && _syncToSquare && _media.isNotEmpty;
 
   Future<void> _confirmDelete() async {
     final r = _record;
@@ -706,7 +711,7 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                       child: Text(_deleting ? '删除中…' : '删除'),
                     ),
                     const Spacer(),
-                    if (_media.isNotEmpty) ...[
+                    if (kHistorySquareSyncEnabled && _media.isNotEmpty) ...[
                       Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,

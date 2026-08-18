@@ -7,6 +7,7 @@ import '../providers/session_provider.dart';
 import '../config/env.dart';
 import 'focus_cleanup_observer.dart';
 import '../ucg/ui/ucg_home_shell.dart';
+import '../ucg/data/ucg_feature_flags.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
 import '../ui/dev/ios_login_http_probe_screen.dart';
 import '../ui/login_screen.dart';
@@ -41,6 +42,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         return '/home';
       }
       final loc = state.matchedLocation;
+      if (loc == '/vip/purchase' && !kVipPurchaseEnabled) {
+        return '/home';
+      }
       final splash = loc == '/splash';
       final loggingIn = loc == '/login';
       final registering = loc == '/register';
@@ -137,8 +141,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        // VIP 购买：需登录（redirect 已拦截）
+        // VIP 购买：暂停闸门下 redirect；开启时需登录（全局 redirect 已拦截）
         path: '/vip/purchase',
+        redirect: (context, state) {
+          if (!kVipPurchaseEnabled) return '/home';
+          return null;
+        },
         builder: (context, state) => const VipPurchaseScreen(),
       ),
       GoRoute(

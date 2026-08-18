@@ -92,15 +92,11 @@ class _ChatItem {
   /// 本地展示用消息时间；无则不上时间小字
   DateTime? at;
 
-  /// clinic answer_done 下发的回答 ID；非空且未反馈时可点赞/踩
+  /// clinic answer_done 下发的回答 ID（展示用；无显式点赞）
   String? answerId;
   var thinkingExpanded = false;
   var isError = false;
   String? errorMessage;
-
-  /// 用户反馈：null=未反馈，1=thumbs up，-1=thumbs down（提交后不可改）
-  int? feedback;
-  var feedbackSubmitting = false;
 }
 
 /// 同日 HH:mm；跨日 M月d日 HH:mm；跨年带 yyyy年。

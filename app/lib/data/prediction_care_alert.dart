@@ -46,17 +46,7 @@ CareAlertType careAlertTypeFromApi(String? raw) {
 
 /// 类型短标签（跑马灯/详情）。
 String careAlertTypeLabel(CareAlertType t, {String? raw}) {
-  switch (t) {
-    case CareAlertType.elongatedInterval:
-      return '间隔较以往偏长';
-    case CareAlertType.longActive:
-      return '进行中时间偏久';
-    case CareAlertType.suddenAbsence:
-      return '近两日未见记录';
-    case CareAlertType.other:
-      final s = (raw ?? '').trim();
-      return s.isEmpty ? '其他' : s;
-  }
+  return (raw ?? '').trim();
 }
 
 /// 可传路由 extra 的结构化原因（非诊断）。
@@ -89,16 +79,22 @@ class CareAlertReason {
 
   final String eventId;
   final String eventName;
+  // 评分
   final double score;
   final bool expectationUsed;
   final int? ageMonths;
   final Duration? medianGap;
   final Duration? lastGap;
   final Duration? expectGapMax;
+  // 75% 持续时间
   final Duration? p75Dur;
+  // 已持续时间
   final Duration? elapsed;
+  // 期望持续时间最大值
   final Duration? expectDurMax;
+  // 日均次数
   final double? dailyAvg;
+  // 近 48 小时次数
   final int? recent48hCount;
   final bool? stillExpected;
 
@@ -128,11 +124,17 @@ String formatCareDuration(Duration? d) {
 /// 按事件聚合的留意项（跑马灯一行 / 详情全量原因）。
 class CareAlertEventItem {
   const CareAlertEventItem({
+    // 服务端当日作用域 UUID
     required this.suggestionId,
+    // 事件 ID
     required this.eventId,
+    // 事件名称
     required this.eventName,
+    // 详情全量原因
     required this.reasons,
+    // 跑马灯单行摘要
     required this.summaryLine,
+    // 追问时原样传入树洞的提示文案
     this.followUpPrompt = '',
   });
 

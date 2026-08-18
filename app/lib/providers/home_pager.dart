@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// `/home` PageView 页索引：喂养 | 智能预测（主页）| UCG。
+import '../ucg/data/ucg_feature_flags.dart';
+
+/// `/home` PageView 页索引：喂养 | 智能预测（主页）| UCG（可暂停）。
 abstract final class HomePagerPage {
   /// 喂养记账页（左侧）。
   static const feeding = 0;
@@ -11,7 +13,9 @@ abstract final class HomePagerPage {
   /// @Deprecated('使用 HomePagerPage.prediction') 兼容旧引用。
   static const companion = prediction;
   static const ucg = 2;
-  static const count = 3;
+
+  /// 暂停 UCG 主壳页时为 2，否则为 3。
+  static int get count => kUcgHomePagerEnabled ? 3 : 2;
 }
 
 /// 请求主页 PageView 切到指定页（壳层 listen 后 animateTo）。
@@ -26,7 +30,12 @@ class HomePagerRequestNotifier extends Notifier<int?> {
   int? build() => null;
 
   /// 请求切到 [page]（须为 [HomePagerPage] 常量之一）。
+  /// UCG 主壳暂停时指向 [HomePagerPage.ucg] 的请求落到预测页，避免空白第三页。
   void requestPage(int page) {
+    if (!kUcgHomePagerEnabled && page == HomePagerPage.ucg) {
+      state = HomePagerPage.prediction;
+      return;
+    }
     state = page;
   }
 

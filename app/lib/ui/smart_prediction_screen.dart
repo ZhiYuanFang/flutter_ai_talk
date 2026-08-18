@@ -18,9 +18,7 @@ import '../data/models.dart';
 import '../data/prediction_care_alert.dart';
 import '../data/prediction_demo_skeleton.dart';
 import '../data/smart_prediction_rows.dart';
-import '../home_widget/home_widget_sync.dart';
-import '../providers/cash_vip_provider.dart';
-import '../providers/clinic_ws_provider.dart';
+import '../home_widget/format_widget_relative_time.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/forecast_toggle_provider.dart';
@@ -153,7 +151,6 @@ class SmartPredictionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final realRows = ref.watch(smartPredictionRowsProvider);
-    final tipAsync = ref.watch(widgetTipCardTextProvider);
     final ensureAsync = ref.watch(predictionRangeEnsureProvider);
     final rangeState = ref.watch(predictionRangeHistoryProvider);
     final catalog = ref.watch(eventCatalogProvider).items;
@@ -161,14 +158,11 @@ class SmartPredictionScreen extends ConsumerWidget {
         PredictionCardsLayout.grid;
     final now =
         ref.watch(predictionClockProvider).asData?.value ?? DateTime.now();
-    final chartsLoading = ensureAsync.isLoading ||
-        ensureAsync.isRefreshing ||
-        rangeState.loading;
+    final chartsLoading =
+        ensureAsync.isLoading || ensureAsync.isRefreshing || rangeState.loading;
     // 仅「未 ready 且仍在拉」算 pending；失败/跳过后不得永久「正在加载中」
     final rangePending =
         !rangeState.ready && (rangeState.loading || chartsLoading);
-    final tipText = tipAsync.asData?.value;
-    final showTip = tipText != null && tipText.isNotEmpty;
     final babyDisplay = ref.watch(babyDisplayProvider);
     // 身份顶栏：经展示快照 Provider（L2）。
     final nickname = babyDisplay.nickname;
@@ -208,8 +202,7 @@ class SmartPredictionScreen extends ConsumerWidget {
     } else if (!bound) {
       gateKind = PredictionGateKind.bind;
     } else if (emptyHistoryEligible &&
-        (recallSession ||
-            (gapRoots.isNotEmpty && !recallDismissed))) {
+        (recallSession || (gapRoots.isNotEmpty && !recallDismissed))) {
       gateKind = PredictionGateKind.recall;
     } else {
       gateKind = PredictionGateKind.none;
@@ -278,7 +271,9 @@ class SmartPredictionScreen extends ConsumerWidget {
           ref.read(predictionBindGateVisibleProvider.notifier).state = false;
         });
       }
-      if (prevDn.isNotEmpty && dn.isEmpty && ref.read(sessionProvider).isLoggedIn) {
+      if (prevDn.isNotEmpty &&
+          dn.isEmpty &&
+          ref.read(sessionProvider).isLoggedIn) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           ref.read(predictionBindGateVisibleProvider.notifier).state = false;
         });
@@ -293,14 +288,7 @@ class SmartPredictionScreen extends ConsumerWidget {
 
     final showLoginGate =
         gateKind == PredictionGateKind.login && loginGateVisible;
-    final showBindGate =
-        gateKind == PredictionGateKind.bind && bindGateVisible;
-
-    Future<void> openCompanion() async {
-      await activateCompanionClinicWs(ref);
-      if (!context.mounted) return;
-      await context.push('/companion');
-    }
+    final showBindGate = gateKind == PredictionGateKind.bind && bindGateVisible;
 
     void openSettings() {
       if (!ref.read(sessionProvider).isLoggedIn) {
@@ -353,61 +341,31 @@ class SmartPredictionScreen extends ConsumerWidget {
       ref.read(predictionRecallSessionRootsProvider.notifier).state = const [];
     }
 
-    // Auth 冷态（未登录/未绑定）：滑动引导大卡，不展示留意/3小时/底 tip。
+    // Auth 冷态（未登录/未绑定）：滑动引导大卡，不展示留意/3小时。
     final authGuestChrome = !loggedIn || !bound;
 
     final Widget? careOrGuide;
     if (authGuestChrome) {
       careOrGuide = const _PredictionSwipeGuideCard();
     } else if (useDemoSkeleton) {
-      careOrGuide = const _CareAlertDemoHealthyPanel();
+      // 冷态：不展示健康假卡
+      careOrGuide = null;
     } else {
       final careItems = ref.watch(predictionCareAlertProvider);
       final careState = ref.watch(predictionCareAlertStateProvider);
-      // 仅 isVip==true 走异常+刷新；未知/失败按非 VIP（与详情 CTA 对齐）
-      final isVip = ref.watch(
-        vipStatusProvider.select((async) {
-          final s = async.valueOrNull;
-          if (s == null) return false;
-          return s.isVip;
-        }),
-      );
-      careOrGuide = _CareAlertPanel(
-        state: careState,
-        items: careItems,
-        isVip: isVip,
-        onTapItem: (item) {
-          context.push('/prediction/alert', extra: item);
-        },
-        onRefresh: () {
-          unawaited(
-            ref
-                .read(predictionCareAlertStateProvider.notifier)
-                .ensureLoaded(force: true),
-          );
-        },
-        onOpenCompanion: () {
-          unawaited(openCompanion());
-        },
-        onOpenVip: () {
-          Future<void> openVip() async {
-            if (kIsWeb) {
-              showAppToast('请使用手机 App 开通 VIP');
-              return;
-            }
-            await context.push<bool>('/vip/purchase');
-            // 回流：刷新权益；已是会员才强制重拉日缓存
-            await ref.read(vipStatusProvider.notifier).refresh();
-            final status = ref.read(vipStatusProvider).valueOrNull;
-            if (status?.isVip != true) return;
-            await ref
-                .read(predictionCareAlertStateProvider.notifier)
-                .ensureLoaded(force: true);
-          }
-
-          unawaited(openVip());
-        },
-      );
+      // 仅成功且非空展示；loading / 空 / 失败整块隐藏
+      final showCare = careState.ready &&
+          !careState.failed &&
+          !careState.loading &&
+          careItems.isNotEmpty;
+      careOrGuide = showCare
+          ? _CareAlertPanel(
+              items: careItems,
+              onTapItem: (item) {
+                context.push('/prediction/alert', extra: item);
+              },
+            )
+          : null;
     }
 
     // 网格计时中 chrome：从喂养历史匹配进行中记录
@@ -429,29 +387,23 @@ class SmartPredictionScreen extends ConsumerWidget {
         : null;
     final pageTheme = landscapeTheme ?? Theme.of(context);
     final pageTokens = pageTheme.extension<AppVisualTokens>();
-    final shell =
-        pageTokens?.shellColor ?? pageTheme.colorScheme.surface;
-    final onShell =
-        pageTokens?.onShell ?? pageTheme.colorScheme.onSurface;
+    final shell = pageTokens?.shellColor ?? pageTheme.colorScheme.surface;
+    final onShell = pageTokens?.onShell ?? pageTheme.colorScheme.onSurface;
     // 横屏强制瀑布；竖屏尊重本地偏好。
-    final useGridLayout =
-        isLandscape || layout == PredictionCardsLayout.grid;
+    final useGridLayout = isLandscape || layout == PredictionCardsLayout.grid;
     // 竖屏 2；手机横屏 3；平板横屏（shortestSide≥600）5。
     final shortestSide = MediaQuery.sizeOf(context).shortestSide;
     final isTabletLandscape = isLandscape && shortestSide >= 600;
-    final waterfallColumns =
-        !isLandscape ? 2 : (isTabletLandscape ? 5 : 3);
+    final waterfallColumns = !isLandscape ? 2 : (isTabletLandscape ? 5 : 3);
     // 仅手机横屏后列侧 logo；平板横屏不启用。
     final phoneLandscape = isLandscape && !isTabletLandscape;
     // KeepAlive 下须结合当前 pager 页，滑离预测即释放沉浸/常亮。
     final predictionPageVisible =
         ref.watch(homePagerIndexProvider) == HomePagerPage.prediction;
-    final immersiveActive =
-        !kIsWeb && isLandscape && predictionPageVisible;
+    final immersiveActive = !kIsWeb && isLandscape && predictionPageVisible;
 
-    final landscapeVoice = isLandscape
-        ? ref.watch(landscapeVoiceControllerProvider)
-        : null;
+    final landscapeVoice =
+        isLandscape ? ref.watch(landscapeVoiceControllerProvider) : null;
 
     Widget buildCardsBody() {
       if (rows.isEmpty) {
@@ -484,8 +436,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                     catalog: catalog,
                   );
             // 手机横屏且非首行（列内行索引>0）：标题旁小 logo，降高度。
-            final titleInlineLogo =
-                phoneLandscape && rowIndexInColumn > 0;
+            final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
             return _PredictionEventCard(
               row: row,
               definition: lookupEventById(catalog, row.eventId),
@@ -598,8 +549,7 @@ class SmartPredictionScreen extends ConsumerWidget {
             maxHeightFactor: isLandscape ? 0.90 : 0.72,
             fillMaxHeight: true,
             child: PredictionRecallOnboardingPanel(
-              gapRoots:
-                  sessionRoots.isNotEmpty ? sessionRoots : gapRoots,
+              gapRoots: sessionRoots.isNotEmpty ? sessionRoots : gapRoots,
               catalog: catalog,
               onFinished: finishRecallOnboarding,
             ),
@@ -736,8 +686,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                                       .textTheme
                                       .bodySmall
                                       ?.copyWith(
-                                        color:
-                                            onShell.withValues(alpha: 0.65),
+                                        color: onShell.withValues(alpha: 0.65),
                                       ),
                                 ),
                             ],
@@ -753,9 +702,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                       : '切换为瀑布流',
                   onPressed: () {
                     reopenRecallGateIfNeeded();
-                    ref
-                        .read(predictionCardsLayoutProvider.notifier)
-                        .toggle();
+                    ref.read(predictionCardsLayoutProvider.notifier).toggle();
                   },
                   icon: Icon(
                     layout == PredictionCardsLayout.grid
@@ -778,15 +725,15 @@ class SmartPredictionScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                        child: careOrGuide,
-                      ),
+                      if (careOrGuide != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: careOrGuide,
+                        ),
                       // Auth 冷态不展示接下来3小时；已绑定冷态/热态照旧。
                       if (!authGuestChrome && timelineText != null)
                         Padding(
-                          padding:
-                              const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                           child: _NextThreeHoursTimeline(
                             body: timelineText,
                             onOpenFeeding: () {
@@ -799,22 +746,12 @@ class SmartPredictionScreen extends ConsumerWidget {
                       // 与滑动引导大卡并存：凡骨架均在事件列表上方提示虚拟举例
                       if (useDemoSkeleton)
                         Padding(
-                          padding:
-                              const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                           child: _PredictionVirtualEventsBanner(
                             onShell: onShell,
                           ),
                         ),
                       Expanded(child: buildCardsBody()),
-                      if (!authGuestChrome && showTip)
-                        Padding(
-                          padding:
-                              const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: _BottomTipMarquee(
-                            text: tipText,
-                            onTap: openCompanion,
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -1029,8 +966,7 @@ class _LandscapeVoiceSubtitleToast extends StatefulWidget {
 }
 
 class _LandscapeVoiceSubtitleToastState
-    extends State<_LandscapeVoiceSubtitleToast>
-    with TickerProviderStateMixin {
+    extends State<_LandscapeVoiceSubtitleToast> with TickerProviderStateMixin {
   late final AnimationController _fade;
   late final AnimationController _pulse;
 
@@ -1206,60 +1142,43 @@ class _PredictionSwipeGuideCardState extends State<_PredictionSwipeGuideCard>
                         Text(
                           '左右滑动，看看别处',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: onPanel,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: onPanel,
+                                  ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '左滑进广场 · 右滑去喂养',
+                          '右滑去喂养记账',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(
-                                color: onPanel.withValues(alpha: 0.75),
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: onPanel.withValues(alpha: 0.75),
+                                  ),
                         ),
                       ],
                     ),
                   ),
-                  Transform.translate(
-                    offset: Offset(rightDx, 0),
-                    child: ScaleTransition(
-                      scale: _scale,
-                      child: Icon(
-                        Icons.chevron_right_rounded,
-                        size: 36,
-                        color: onPanel.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ),
+                  // 占位符
+                  const SizedBox(width: 36),
+
+                  // Transform.translate(
+                  //   offset: Offset(rightDx, 0),
+                  //   child: ScaleTransition(
+                  //     scale: _scale,
+                  //     child: Icon(
+                  //       Icons.chevron_right_rounded,
+                  //       size: 36,
+                  //       color: onPanel.withValues(alpha: 0.9),
+                  //     ),
+                  //   ),
+                  // ),
                 ],
               );
             },
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// 冷态固定健康文案（不请求接口、无详情副作用）。
-class _CareAlertDemoHealthyPanel extends StatelessWidget {
-  const _CareAlertDemoHealthyPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _CareAlertShell(
-      body: _CareAlertStaticLine(
-        height: 44,
-        text: '宝宝很健康，继续保持～',
-        showChevron: false,
       ),
     );
   }
@@ -1283,7 +1202,8 @@ class _PredictionSoftGateOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     // 横屏略放宽可用高度，并减小上下留白。
     final factor = landscape
         ? (maxHeightFactor < 0.88 ? 0.88 : maxHeightFactor)
@@ -1421,7 +1341,6 @@ class _PredictionAuthGateCard extends StatelessWidget {
   }
 }
 
-
 /// 「接下来3小时」：折行 + 展开/收起；主区点进喂养页。
 class _NextThreeHoursTimeline extends StatefulWidget {
   const _NextThreeHoursTimeline({
@@ -1555,98 +1474,20 @@ class _ExpandToggle extends StatelessWidget {
   }
 }
 
-/// 值得留意卡片：加载 / 空态（进陪伴）/ 失败分流 / 跑马灯。
+/// 值得留意卡片：仅非空跑马灯（调用方已过滤空/失败/loading）。
 class _CareAlertPanel extends StatelessWidget {
   const _CareAlertPanel({
-    required this.state,
     required this.items,
-    required this.isVip,
     required this.onTapItem,
-    required this.onRefresh,
-    required this.onOpenCompanion,
-    required this.onOpenVip,
   });
 
-  final PredictionCareAlertState state;
   final List<CareAlertEventItem> items;
-  final bool isVip;
   final ValueChanged<CareAlertEventItem> onTapItem;
-  final VoidCallback onRefresh;
-  final VoidCallback onOpenCompanion;
-  final VoidCallback onOpenVip;
 
   static const _rowHeight = 44.0;
 
   @override
   Widget build(BuildContext context) {
-    // 失败优先于 loading（force 重试时仍可能短暂 loading）
-    if (state.failed && !state.loading) {
-      // VIP：真异常可刷新；非 VIP：开通入口（无刷新）
-      if (isVip) {
-        return _CareAlertShell(
-          trailing: IconButton(
-            tooltip: '重新加载',
-            onPressed: onRefresh,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              Icons.refresh,
-              size: 20,
-              color: Theme.of(context).colorScheme.tertiary,
-            ),
-          ),
-          body: const _CareAlertStaticLine(
-            height: _rowHeight,
-            text: '接口异常',
-            showChevron: false,
-          ),
-        );
-      }
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onOpenVip,
-          child: const _CareAlertShell(
-            body: _CareAlertStaticLine(
-              height: _rowHeight,
-              text: '开通会员查看每日提醒',
-              showChevron: true,
-            ),
-          ),
-        ),
-      );
-    }
-    // 仅真正拉取中显示加载；!ready 且未 loading（门控未放行）不当假加载
-    if (state.loading) {
-      return const _CareAlertShell(
-        body: _CareAlertStaticLine(
-          height: _rowHeight,
-          text: '加载中…',
-          showChevron: false,
-        ),
-      );
-    }
-    if (!state.ready) {
-      return const SizedBox.shrink();
-    }
-    if (items.isEmpty) {
-      // 空态：无「值得留意」标题；点进陪伴
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onOpenCompanion,
-          child: const _CareAlertShell(
-            showTitle: false,
-            body: _CareAlertStaticLine(
-              height: _rowHeight,
-              text: '宝宝成长得真棒！',
-              showChevron: true,
-            ),
-          ),
-        ),
-      );
-    }
     return _CareAlertShell(
       body: _CareAlertMarquee(
         items: items,
@@ -1657,17 +1498,11 @@ class _CareAlertPanel extends StatelessWidget {
   }
 }
 
-/// 玻璃拟化外壳（可选标题 + 正文区）。
+/// 玻璃拟化外壳（标题 + 正文区）。
 class _CareAlertShell extends StatelessWidget {
-  const _CareAlertShell({
-    required this.body,
-    this.trailing,
-    this.showTitle = true,
-  });
+  const _CareAlertShell({required this.body});
 
   final Widget body;
-  final Widget? trailing;
-  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -1685,82 +1520,20 @@ class _CareAlertShell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (showTitle)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '值得留意',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColor.textOnPanelGlass(context),
-                          ),
-                        ),
-                      ),
-                      if (trailing != null) trailing!,
-                    ],
-                  ),
-                )
-              else if (trailing != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8, top: 4),
-                    child: trailing!,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
+                child: Text(
+                  '值得留意',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColor.textOnPanelGlass(context),
                   ),
                 ),
+              ),
               body,
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 单行静态文案（空态可点进陪伴 / 加载 / 错误）。
-class _CareAlertStaticLine extends StatelessWidget {
-  const _CareAlertStaticLine({
-    required this.height,
-    required this.text,
-    required this.showChevron,
-  });
-
-  final double height;
-  final String text;
-  final bool showChevron;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: height,
-      child: Padding(
-        // 无标题时略增上边距，避免贴边
-        padding: EdgeInsets.fromLTRB(16, showChevron ? 10 : 0, 8, 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.2,
-                  color: AppColor.textOnPanelGlass(context),
-                ),
-              ),
-            ),
-            if (showChevron)
-              Icon(
-                Icons.chevron_right,
-                size: 20,
-                color: AppColor.textOnPanelGlassMuted(context),
-              ),
-          ],
         ),
       ),
     );
@@ -1911,12 +1684,14 @@ class _WaterfallCards extends StatelessWidget {
 
   final EdgeInsets padding;
   final List<SmartPredictionRow> rows;
+
   /// 第二参列索引；第三参列内行索引（0=该列顶卡 / 视觉第一行）。
   final Widget Function(
     SmartPredictionRow row,
     int columnIndex,
     int rowIndexInColumn,
   ) itemBuilder;
+
   /// 列数（竖屏 2 / 横屏 3）。
   final int columnCount;
 
@@ -2166,6 +1941,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 
   final SmartPredictionRow row;
   final EventDefinition? definition;
+
   /// 当前展示 EventLogo 槽（计时叶子 / 普通根图共用）。
   final GlobalKey logoAnchorKey;
   final DateTime now;
@@ -2176,10 +1952,13 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
   final int pastDaysBeforeToday;
   final bool showYAxis;
   final String? relativeText;
+
   /// 手机横屏非首行：标题旁小 logo，隐藏倒计时上方大图。
   final bool titleInlineLogo;
+
   /// 网格计时中：非 null 时走 active chrome（列表态忽略）。
   final HistoryRecord? activeTiming;
+
   /// null 时禁用推演开关（冷态骨架）。
   final ValueChanged<bool>? onToggle;
 
@@ -2225,8 +2004,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final enabled = row.forecastEnabled;
     final pred = row.prediction;
     // 计时中仅网格：名旁小 logo + elapsed + 停止
-    final showActiveTiming =
-        compact && widget.activeTiming != null;
+    final showActiveTiming = compact && widget.activeTiming != null;
     // 计时中：叶子图/名/色；目录不可解析则回退根
     final catalog = showActiveTiming
         ? ref.watch(eventCatalogProvider).items
@@ -2281,46 +2059,67 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              // 列表 / 计时中 / 手机后列：标题旁 logo（飞入锚点 + 可选心跳）
-              if (showTitleLogo) ...[
-                KeyedSubtree(
-                  key: widget.logoAnchorKey,
-                  child: (widget.heartbeat && !showActiveTiming)
-                      ? _HeartbeatLogo(
-                          definition: titleDef,
-                          size: titleLogoSize,
-                        )
-                      : EventLogo(definition: titleDef, size: titleLogoSize),
-                ),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: Text(
-                  titleName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: compact ? 14 : 16,
-                    fontWeight: FontWeight.w600,
-                    color: AppColor.textOnPanelGlass(context),
-                  ),
-                ),
-              ),
-              Tooltip(
-                message: '推演',
-                child: Transform.scale(
-                  scale: switchScale,
-                  child: Switch.adaptive(
-                    value: enabled,
-                    onChanged: widget.onToggle,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ),
-            ],
+          Column(
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+    Row(
+      children: [
+        if (showTitleLogo) ...[
+          KeyedSubtree(
+            key: widget.logoAnchorKey,
+            child: (widget.heartbeat && !showActiveTiming)
+                ? _HeartbeatLogo(
+                    definition: titleDef,
+                    size: titleLogoSize,
+                  )
+                : EventLogo(definition: titleDef, size: titleLogoSize),
           ),
+          const SizedBox(width: 8),
+        ],
+        Expanded(
+          child: Text(
+            titleName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: compact ? 14 : 16,
+              fontWeight: FontWeight.w600,
+              color: AppColor.textOnPanelGlass(context),
+            ),
+          ),
+        ),
+        Tooltip(
+          message: '预测推演',
+          child: Transform.scale(
+            scale: switchScale,
+            child: Switch.adaptive(
+              value: enabled,
+              onChanged: widget.onToggle,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ),
+      ],
+    ),
+    Transform.translate(
+      offset: const Offset(0, -6), // 往上移，抵消 Column 的间距
+      child: Padding(
+        padding: const EdgeInsets.only(right: 10.0),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            '${enabled ? "关闭" : "开启"}$titleName预测',
+            style: TextStyle(
+              fontSize: 10,
+              color: accent.withAlpha(153),
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ),
+    ),
+  ],
+),
           if (showActiveTiming && activeElapsed != null) ...[
             const SizedBox(height: 12),
             Center(
@@ -2379,20 +2178,36 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 ),
                 const SizedBox(height: 8),
               ],
-              Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    countdown,
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 距离下次对应事件倒计时，小字展示
+                  Text(
+                    '距离下次$titleName倒计时',
                     style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w700,
-                      color: accent,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      letterSpacing: 0.5,
+                      fontSize: 10,
+                      color: accent.withAlpha(153),
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 4), // 间距
+                  // 原有的倒计时
+                  Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        countdown,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          color: accent,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
             if (enabled && pred != null && !compact) ...[
@@ -2645,7 +2460,8 @@ class _LookbackChart extends StatelessWidget {
         ),
         titlesData: FlTitlesData(
           show: true,
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           bottomTitles: AxisTitles(
@@ -2654,9 +2470,7 @@ class _LookbackChart extends StatelessWidget {
               reservedSize: 18,
               interval: 1,
               getTitlesWidget: (v, _) {
-                if (v < 0 ||
-                    v > maxDayIndex ||
-                    v != v.roundToDouble()) {
+                if (v < 0 || v > maxDayIndex || v != v.roundToDouble()) {
                   return const SizedBox.shrink();
                 }
                 final d = day0.add(Duration(days: v.toInt()));
@@ -2750,179 +2564,6 @@ class _LookbackChart extends StatelessWidget {
                   ),
               ];
             },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 预测页底栏 tip：短文静止，长文横向循环滚；点击进陪伴。
-class _BottomTipMarquee extends StatefulWidget {
-  const _BottomTipMarquee({required this.text, required this.onTap});
-
-  final String text;
-  final VoidCallback onTap;
-
-  @override
-  State<_BottomTipMarquee> createState() => _BottomTipMarqueeState();
-}
-
-class _BottomTipMarqueeState extends State<_BottomTipMarquee>
-    with SingleTickerProviderStateMixin {
-  static const _gap = 48.0;
-  static const _pxPerSec = 18.0;
-
-  late final AnimationController _ctrl;
-  var _overflow = false;
-  var _textWidth = 0.0;
-  var _viewWidth = 0.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(vsync: this);
-  }
-
-  @override
-  void didUpdateWidget(covariant _BottomTipMarquee oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.text != widget.text) {
-      _syncAnim();
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  TextStyle _style(ColorScheme scheme) => TextStyle(
-        fontSize: 14,
-        height: 1.25,
-        color: scheme.onSurface.withValues(alpha: 0.92),
-      );
-
-  void _measure(double viewW, TextStyle style) {
-    final painter = TextPainter(
-      text: TextSpan(text: widget.text, style: style),
-      maxLines: 1,
-      textDirection: TextDirection.ltr,
-    )..layout();
-    _textWidth = painter.width;
-    _viewWidth = viewW;
-    final nextOverflow = _textWidth > _viewWidth + 0.5;
-    if (nextOverflow != _overflow) {
-      setState(() => _overflow = nextOverflow);
-    } else {
-      _overflow = nextOverflow;
-    }
-    _syncAnim();
-  }
-
-  void _syncAnim() {
-    if (!_overflow) {
-      if (_ctrl.isAnimating) _ctrl.stop();
-      _ctrl.value = 0;
-      return;
-    }
-    final distance = _textWidth + _gap;
-    final ms = ((distance / _pxPerSec) * 1000).round().clamp(3000, 24000);
-    if (_ctrl.duration?.inMilliseconds != ms) {
-      _ctrl.duration = Duration(milliseconds: ms);
-    }
-    if (!_ctrl.isAnimating) {
-      unawaited(_ctrl.repeat());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final style = _style(scheme);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: widget.onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              width: double.infinity,
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.centerLeft,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.28),
-                ),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    scheme.primary.withValues(alpha: 0.22),
-                    Colors.white.withValues(alpha: 0.14),
-                  ],
-                ),
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // 布局后测量，决定静止 / 横滚
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    _measure(constraints.maxWidth, style);
-                  });
-                  if (!_overflow) {
-                    return Text(
-                      widget.text,
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                      style: style,
-                    );
-                  }
-                  return ClipRect(
-                    child: AnimatedBuilder(
-                      animation: _ctrl,
-                      builder: (context, _) {
-                        final offset =
-                            -_ctrl.value * (_textWidth + _gap);
-                        // OverflowBox：跑马灯双份文案可超宽，由外层 ClipRect 裁切，避免 Row 黄黑条。
-                        return OverflowBox(
-                          alignment: Alignment.centerLeft,
-                          minWidth: 0,
-                          maxWidth: double.infinity,
-                          child: Transform.translate(
-                            offset: Offset(offset, 0),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  widget.text,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: style,
-                                ),
-                                const SizedBox(width: _gap),
-                                Text(
-                                  widget.text,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: style,
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
-            ),
           ),
         ),
       ),

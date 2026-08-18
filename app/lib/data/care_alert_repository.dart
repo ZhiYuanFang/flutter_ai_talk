@@ -59,31 +59,16 @@ class CareAlertRepository {
     }
   }
 
-  /// 固定意图飞轮：ignore | follow_up（无 NLP 文本）。
+  /// 已废弃：Care 无飞轮；ignore/follow_up 仅本地/日缓存 UI。
+  @Deprecated('Care 无飞轮；勿再调用')
   Future<bool> postFeedback({
     required String deviceNo,
     required String suggestionId,
     required String intent,
   }) async {
-    final dn = deviceNo.trim();
-    final id = suggestionId.trim();
-    final intentNorm = intent.trim();
-    if (dn.isEmpty || id.isEmpty) return false;
-    if (intentNorm != 'ignore' && intentNorm != 'follow_up') return false;
-    try {
-      await _api.postJsonEnvelope(
-        '/device/api/care-alert/feedback',
-        {
-          'deviceNo': dn,
-          'suggestionId': id,
-          'intent': intentNorm,
-        },
-      );
-      AppDebugLog.careAlert('feedback ok intent=$intentNorm idLen=${id.length}');
-      return true;
-    } catch (e) {
-      AppDebugLog.careAlert('feedback err=$e');
-      return false;
-    }
+    AppDebugLog.careAlert(
+      'postFeedback noop intent=${intent.trim()} (Care flywheel retired)',
+    );
+    return true;
   }
 }

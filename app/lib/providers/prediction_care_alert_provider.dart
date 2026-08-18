@@ -161,7 +161,7 @@ class PredictionCareAlertNotifier
     );
   }
 
-  /// 忽略：本地移除 + DELETE 缓存 + feedback ignore（按 suggestionId 去重）。
+  /// 忽略：本地移除 + DELETE 日缓存项；不打飞轮、不打 Python。
   Future<void> ignoreSuggestion(CareAlertEventItem item) {
     final id = item.suggestionId.trim();
     if (id.isEmpty) return Future.value();
@@ -172,38 +172,23 @@ class PredictionCareAlertNotifier
         AppDebugLog.careAlert('ignore skipped no deviceNo');
         return;
       }
-      final repo = _ref.read(careAlertRepositoryProvider);
-      final deleted = await repo.deleteDailyItem(
+      final deleted = await _ref.read(careAlertRepositoryProvider).deleteDailyItem(
         deviceNo: dn,
         suggestionId: id,
       );
-      final fb = await repo.postFeedback(
-        deviceNo: dn,
-        suggestionId: id,
-        intent: 'ignore',
-      );
-      AppDebugLog.careAlert('ignore done deleted=$deleted feedback=$fb');
+      AppDebugLog.careAlert('ignore done deleted=$deleted (UI/cache only)');
     }).whenComplete(() {
       _actionInFlight.remove(id);
     });
   }
 
-  /// 追问飞轮（不移除本地项）；调用方负责打开树洞。
+  /// 追问：仅本地标记；不打飞轮、不打 Python（调用方负责打开树洞）。
   Future<void> reportFollowUp(CareAlertEventItem item) {
     final id = item.suggestionId.trim();
     if (id.isEmpty) return Future.value();
     final key = 'fu:$id';
     return _actionInFlight.putIfAbsent(key, () async {
-      final dn = _deviceNoOrNull() ?? state.deviceNo;
-      if (dn.isEmpty) {
-        AppDebugLog.careAlert('follow_up skipped no deviceNo');
-        return;
-      }
-      await _ref.read(careAlertRepositoryProvider).postFeedback(
-            deviceNo: dn,
-            suggestionId: id,
-            intent: 'follow_up',
-          );
+      AppDebugLog.careAlert('follow_up UI-only idLen=${id.length}');
     }).whenComplete(() {
       _actionInFlight.remove(key);
     });

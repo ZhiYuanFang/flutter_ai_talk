@@ -9,11 +9,12 @@ import 'package:go_router/go_router.dart';
 import '../data/prediction_care_alert.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../providers/care_alert_follow_up_provider.dart';
-import '../providers/cash_vip_provider.dart';
 import '../providers/clinic_ws_provider.dart';
 import '../providers/prediction_care_alert_provider.dart';
 import '../theme/app_visual_tokens.dart';
-import 'widgets/app_toast.dart'; // Web 开通提示
+import '../ucg/data/ucg_feature_flags.dart';
+import 'widgets/app_toast.dart';
+import 'package:markdown_widget/markdown_widget.dart';
 
 /// 护理留意详情：展示该事件全部原因 + 忽略 / 追问（非医疗诊断）。
 class PredictionCareAlertScreen extends ConsumerWidget {
@@ -27,15 +28,8 @@ class PredictionCareAlertScreen extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final shell = tokens?.shellColor ?? scheme.surface;
     final onShell = tokens?.onShell ?? scheme.onSurface;
-    // 非 VIP / 状态失败：展示开通入口（未知当非 VIP）
-    final showVipCta = false;
-    // ref.watch(
-    //   vipStatusProvider.select((async) {
-    //     final s = async.valueOrNull;
-    //     if (s == null) return true;
-    //     return !s.isVip;
-    //   }),
-    // );
+    // VIP 购买暂停（kVipPurchaseEnabled=false）：不开通 CTA
+    final showVipCta = kVipPurchaseEnabled;
 
     Future<void> onIgnore() async {
       // 乐观移除 + pop；同步刷新桌面 tip（忽略后列表可能变空）
@@ -64,16 +58,6 @@ class PredictionCareAlertScreen extends ConsumerWidget {
       await context.push('/companion');
     }
 
-    Future<void> onOpenVip() async {
-      if (kIsWeb) {
-        showAppToast('请使用手机 App 开通 VIP');
-        return;
-      }
-      await context.push<bool>('/vip/purchase');
-      // 购买页已 Toast；此处仅刷新以隐藏 CTA
-      await ref.read(vipStatusProvider.notifier).refresh();
-    }
-
     return Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
@@ -85,13 +69,20 @@ class PredictionCareAlertScreen extends ConsumerWidget {
           onPressed: () => context.pop(),
         ),
       ),
+      // 暂停期 showVipCta 恒 false；翻回 kVipPurchaseEnabled 后需再接 VIP 状态分流
       bottomNavigationBar: showVipCta
           ? SafeArea(
               minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: () => unawaited(onOpenVip()),
+                  onPressed: () {
+                    if (kIsWeb) {
+                      showAppToast('请使用手机 App 开通 VIP');
+                      return;
+                    }
+                    unawaited(context.push<bool>('/vip/purchase'));
+                  },
                   child: const Text('开通 VIP'),
                 ),
               ),
@@ -151,23 +142,11 @@ class PredictionCareAlertScreen extends ConsumerWidget {
                     _kv(onShell, '月龄', '${reason.ageMonths} 个月')
                   else
                     _kv(onShell, '月龄', '未使用（生日不可用）'),
-                  _kv(
-                    onShell,
-                    '期望表',
-                    reason.expectationUsed ? '已对照' : '未使用',
-                  ),
-                  ..._typeRows(onShell, reason),
                   for (final line in reason.detailLines)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        line,
-                        style: TextStyle(
-                          fontSize: 14,
-                          height: 1.4,
-                          color: onShell.withValues(alpha: 0.88),
-                        ),
-                      ),
+                      // 渲染 markdown
+                      child:MarkdownWidget(data: line),
                     ),
                 ],
               ),
@@ -194,49 +173,6 @@ class PredictionCareAlertScreen extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  List<Widget> _typeRows(Color onShell, CareAlertReason r) {
-    switch (r.type) {
-      case CareAlertType.elongatedInterval:
-        return [
-          _kv(onShell, '自身中位间隔', formatCareDuration(r.medianGap)),
-          _kv(onShell, '最近已间隔', formatCareDuration(r.lastGap)),
-          _kv(
-            onShell,
-            '月龄期望间隔上限',
-            r.expectationUsed ? formatCareDuration(r.expectGapMax) : '未使用',
-          ),
-        ];
-      case CareAlertType.longActive:
-        return [
-          _kv(onShell, '当前已持续', formatCareDuration(r.elapsed)),
-          _kv(onShell, '自身近7日时长 P75', formatCareDuration(r.p75Dur)),
-          _kv(
-            onShell,
-            '月龄单次上限',
-            r.expectationUsed ? formatCareDuration(r.expectDurMax) : '未使用',
-          ),
-        ];
-      case CareAlertType.suddenAbsence:
-        return [
-          _kv(
-            onShell,
-            '近7日日均次数',
-            r.dailyAvg == null ? '—' : r.dailyAvg!.toStringAsFixed(2),
-          ),
-          _kv(onShell, '近48小时次数', '${r.recent48hCount ?? 0}'),
-          _kv(
-            onShell,
-            '月龄仍期望出现',
-            r.stillExpected == null
-                ? '未使用'
-                : (r.stillExpected! ? '是' : '否'),
-          ),
-        ];
-      case CareAlertType.other:
-        return const [];
-    }
   }
 
   Widget _kv(Color onShell, String k, String v) {
