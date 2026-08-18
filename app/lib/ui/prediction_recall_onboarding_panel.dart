@@ -366,7 +366,7 @@ class _PredictionRecallOnboardingPanelState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '为宝宝量身定做 · $progress',
+            '智能预测推演 · $progress',
             style: TextStyle(
               fontSize: 13,
               color: onShell.withValues(alpha: 0.55),

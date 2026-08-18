@@ -46,6 +46,7 @@ import 'prediction_recall_onboarding_panel.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
+import 'widgets/app_empty_state_gallery.dart';
 
 /// 预测页横屏：沉浸藏状态栏 + 常亮；离开/竖屏释放。
 class _PredictionLandscapeImmersiveHost extends StatefulWidget {
@@ -175,7 +176,8 @@ class SmartPredictionScreen extends ConsumerWidget {
     final emptyHistoryEligible =
         ref.watch(predictionRecallEmptyHistoryEligibleProvider);
     // 冷态：未登录 / 未绑定 / 已绑定且 range 空就绪 → 骨架
-    final useDemoSkeleton = !loggedIn || !bound || emptyHistoryEligible;
+    // final useDemoSkeleton = !loggedIn || !bound || emptyHistoryEligible;
+    final useDemoSkeleton = !loggedIn || !bound;
     final mountNonce = ref.watch(predictionDemoMountNonceProvider);
     final mountNow = ref.watch(predictionDemoMountNowProvider);
     final rows = useDemoSkeleton
@@ -234,7 +236,7 @@ class SmartPredictionScreen extends ConsumerWidget {
         ref.read(predictionRecallSessionRootsProvider.notifier).state =
             List<EventDefinition>.from(gapRoots);
         ref.read(predictionRecallSessionActiveProvider.notifier).state = true;
-        ref.read(predictionRecallDialogVisibleProvider.notifier).state = true;
+        ref.read(predictionRecallDialogVisibleProvider.notifier).state = false;
       });
     }
     ref.listen<bool>(predictionRecallEmptyHistoryEligibleProvider,
@@ -299,6 +301,7 @@ class SmartPredictionScreen extends ConsumerWidget {
       context.push('/settings');
     }
 
+    // 关闭门闸
     void softDismissActiveGate() {
       if (gateKind == PredictionGateKind.login) {
         ref.read(predictionLoginGateVisibleProvider.notifier).state = false;
@@ -409,12 +412,22 @@ class SmartPredictionScreen extends ConsumerWidget {
     Widget buildCardsBody() {
       if (rows.isEmpty) {
         return Center(
-          child: Text(
-            (!useDemoSkeleton && rangePending) ? '正在加载中' : '暂无可用预测数据',
-            style: TextStyle(
-              color: onShell.withValues(alpha: 0.55),
-            ),
-          ),
+          child: useDemoSkeleton || !rangePending
+              ? AppEmptyStateGallery(
+                  fallbackIcon: Icons.online_prediction  , // 注意：需要替换为实际的图标名称
+                  title: '智能预测 · 伴随宝宝成长',
+                  subtitle:
+                      '跟随系统引导，体验基础预测。\n随着后续真实的喂养记录累计，预测能力将自动成长。',
+                      // 如果是横屏则不显示actionLabel
+                  actionLabel: '回忆宝宝习惯',
+                  onAction: reopenRecallGateIfNeeded, animationPath: '',
+                )
+              : Text(
+                  '正在加载中',
+                  style: TextStyle(
+                    color: onShell.withValues(alpha: 0.55),
+                  ),
+                ),
         );
       }
       if (useGridLayout) {
@@ -754,7 +767,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                     // 空白 tap 仅再弹量身定做；登录/绑定须骨架卡意图
                     GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onTap: reopenRecallGateIfNeeded,
+                      // onTap: reopenRecallGateIfNeeded,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [

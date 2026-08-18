@@ -8,8 +8,8 @@ import '../ui/widgets/app_glass_overlay.dart';
 /// 横屏语音麦克风用途说明（对齐语音球先告知、UCG 位置用途框节奏）。
 const kLandscapeMicRationaleTitle = '需要使用麦克风';
 const kLandscapeMicRationaleMessage =
-    '胖宝将在预测横屏前台使用麦克风，以便识别唤醒词「你好，胖宝」并完成语音对话转写。'
-    '仅在横屏且 App 位于前台时采集，不会后台录音，也不会用于广告。';
+    '胖宝将在预测前台使用麦克风，以便识别唤醒词「你好，胖宝」并完成语音对话转写。'
+    '仅在 App 位于前台时采集，不会后台录音，也不会用于广告。';
 
 /// 本会话是否已拒绝用途框或系统权限（避免反复硬弹）。
 bool landscapeMicDeniedThisSession = false;

@@ -22,9 +22,9 @@ bool isUsableBabyBirthDate(DateTime birthDate, DateTime now) {
 }
 
 String formatBabyAgeText(DateTime birthDate, DateTime now) {
-  if (!isUsableBabyBirthDate(birthDate, now)) return '不满1个月啦';
+  if (!isUsableBabyBirthDate(birthDate, now)) return '不满1个月';
   final months = babyAgeInMonths(birthDate, now);
-  if (months == 0) return '不满1个月啦';
+  if (months == 0) return '不满1个月';
   if (months < 12) return '$months个月啦';
   final years = months ~/ 12;
   final rem = months % 12;
