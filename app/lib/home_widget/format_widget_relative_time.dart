@@ -74,6 +74,16 @@ String formatWidgetActiveSubtitle(DateTime startAt, DateTime now) {
   return '进行中 · ${formatWidgetActiveElapsed(now.difference(startAt))}';
 }
 
+/// 预测卡片：「上一次{事件名}：{时间}」。
+String formatPredictionLastOccurrenceLabel(
+  String eventName,
+  DateTime? lastAt,
+  DateTime now,
+) {
+  final name = eventName.trim().isEmpty ? '未知事件' : eventName.trim();
+  return '上一次$name：${formatWidgetLastAt(lastAt, now)}';
+}
+
 /// 上次记录时间（native 与 App 预览对齐）。
 String formatWidgetLastAt(DateTime? lastAt, DateTime now) {
   if (lastAt == null) return '暂无';

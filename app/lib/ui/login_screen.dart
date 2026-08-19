@@ -359,13 +359,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-              scheduleInlineAuthScrollOnInset(
-                context,
-                focusedNode: _focusedAuthField,
+              return InlineAuthKeyboardLiftHost(
                 scrollController: _scrollCtrl,
+                focusedNode: _focusedAuthField,
                 anchorKey: _focusedAuthAnchor,
-              );
-              return SingleChildScrollView(
+                child: SingleChildScrollView(
                 controller: _scrollCtrl,
                 padding: EdgeInsets.fromLTRB(0, 0, 0, 16 + bottomInset),
                 child: ConstrainedBox(
@@ -507,6 +505,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ],
                   ),
                 ),
+              ),
               );
             },
           ),

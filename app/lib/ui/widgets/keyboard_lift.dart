@@ -6,7 +6,31 @@ import 'keyboard_input_bridge.dart';
 /// 输入框底边与键盘（或浮层）顶边之间的间距。
 const kKeyboardLiftGap = 5.0;
 
+const _inlineAuthLiftDeltaSkipThreshold = 2.0;
+
 final _lastTapGlobalByFocus = <FocusNode, Offset>{};
+
+FocusNode? _inlineAuthLiftSessionFocus;
+double _inlineAuthLiftLastInsetBucket = -1;
+double _inlineAuthLiftLastScrollTarget = double.nan;
+bool _inlineAuthInsetRetryPending = false;
+
+bool _isInlineAuthLift({
+  required ScrollController? scrollController,
+  required double keyboardOverlayChrome,
+  required bool inlineAuth,
+}) =>
+    inlineAuth && scrollController != null && keyboardOverlayChrome <= 0;
+
+void _syncInlineAuthLiftSession(FocusNode focusNode) {
+  if (_inlineAuthLiftSessionFocus != focusNode) {
+    _inlineAuthLiftSessionFocus = focusNode;
+    _inlineAuthLiftLastInsetBucket = -1;
+    _inlineAuthLiftLastScrollTarget = double.nan;
+  }
+}
+
+double _insetBucket(double inset) => (inset / 8).floorToDouble() * 8;
 
 /// 记录用户点击输入区域时的全局坐标（在锚点组件内 hit test 精确定位子组件）。
 void noteKeyboardLiftTap(FocusNode focusNode, Offset globalPosition) {
@@ -60,6 +84,8 @@ void scrollKeyboardLiftTarget({
   ScrollController? scrollController,
   BuildContext? ensureVisibleContext,
   double keyboardOverlayChrome = 0,
+  bool inlineAuth = false,
+  FocusNode? inlineAuthFocusNode,
 }) {
   final mq = MediaQuery.of(context);
   final keyboardInset = mq.viewInsets.bottom;
@@ -78,6 +104,35 @@ void scrollKeyboardLiftTarget({
   if (controller != null && controller.hasClients) {
     final position = controller.position;
     final next = (position.pixels + delta).clamp(0.0, position.maxScrollExtent);
+    if ((next - position.pixels).abs() < _inlineAuthLiftDeltaSkipThreshold) return;
+
+    final useInlineAuthGuard = _isInlineAuthLift(
+      scrollController: scrollController,
+      keyboardOverlayChrome: keyboardOverlayChrome,
+      inlineAuth: inlineAuth,
+    );
+    if (useInlineAuthGuard && inlineAuthFocusNode != null) {
+      _syncInlineAuthLiftSession(inlineAuthFocusNode);
+      final insetBucket = _insetBucket(keyboardInset);
+      if (insetBucket == _inlineAuthLiftLastInsetBucket &&
+          ! _inlineAuthLiftLastScrollTarget.isNaN &&
+          (next - _inlineAuthLiftLastScrollTarget).abs() < _inlineAuthLiftDeltaSkipThreshold) {
+        return;
+      }
+      _inlineAuthLiftLastInsetBucket = insetBucket;
+      _inlineAuthLiftLastScrollTarget = next;
+      if (position.isScrollingNotifier.value) {
+        position.jumpTo(next);
+      } else {
+        controller.animateTo(
+          next,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+      return;
+    }
+
     controller.animateTo(
       next,
       duration: const Duration(milliseconds: 200),
@@ -106,8 +161,18 @@ void performKeyboardLift({
   ScrollController? scrollController,
   double keyboardOverlayChrome = 0,
   bool allowInsetRetry = false,
+  bool inlineAuth = false,
 }) {
   if (!focusNode.hasFocus) return;
+
+  final useInlineAuth = _isInlineAuthLift(
+    scrollController: scrollController,
+    keyboardOverlayChrome: keyboardOverlayChrome,
+    inlineAuth: inlineAuth,
+  );
+  if (useInlineAuth) {
+    _syncInlineAuthLiftSession(focusNode);
+  }
 
   void lift({required bool retryInsets}) {
     if (!focusNode.hasFocus) return;
@@ -117,9 +182,19 @@ void performKeyboardLift({
     final keyboardInset = mq.viewInsets.bottom;
     if (keyboardInset <= 0 && keyboardOverlayChrome <= 0) {
       if (retryInsets) {
-        Future<void>.delayed(const Duration(milliseconds: 50), () => lift(retryInsets: true));
-        Future<void>.delayed(const Duration(milliseconds: 150), () => lift(retryInsets: true));
-        Future<void>.delayed(const Duration(milliseconds: 300), () => lift(retryInsets: false));
+        if (useInlineAuth) {
+          if (!_inlineAuthInsetRetryPending) {
+            _inlineAuthInsetRetryPending = true;
+            Future<void>.delayed(const Duration(milliseconds: 50), () {
+              _inlineAuthInsetRetryPending = false;
+              lift(retryInsets: false);
+            });
+          }
+        } else {
+          Future<void>.delayed(const Duration(milliseconds: 50), () => lift(retryInsets: true));
+          Future<void>.delayed(const Duration(milliseconds: 150), () => lift(retryInsets: true));
+          Future<void>.delayed(const Duration(milliseconds: 300), () => lift(retryInsets: false));
+        }
       }
       return;
     }
@@ -136,6 +211,8 @@ void performKeyboardLift({
       scrollController: scrollController,
       ensureVisibleContext: anchorKey?.currentContext ?? focusNode.context,
       keyboardOverlayChrome: keyboardOverlayChrome,
+      inlineAuth: inlineAuth,
+      inlineAuthFocusNode: focusNode,
     );
   }
 
@@ -200,5 +277,24 @@ void scheduleKeyboardLift({
         allowInsetRetry: true,
       );
     });
+  });
+}
+
+/// 内联 auth 页聚焦顶起：单层 postFrame，带 inline 幂等 guard。
+void scheduleInlineAuthKeyboardLift({
+  required BuildContext context,
+  required FocusNode focusNode,
+  GlobalKey? anchorKey,
+  ScrollController? scrollController,
+}) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    performKeyboardLift(
+      context: context,
+      focusNode: focusNode,
+      anchorKey: anchorKey,
+      scrollController: scrollController,
+      allowInsetRetry: true,
+      inlineAuth: true,
+    );
   });
 }

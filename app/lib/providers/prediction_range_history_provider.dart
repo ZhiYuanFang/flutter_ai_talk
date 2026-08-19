@@ -6,8 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/app_debug_log.dart';
 import '../data/models.dart';
 import '../data/prediction_range_history.dart';
-import '../home_widget/home_widget_constants.dart';
-import '../home_widget/home_widget_payload.dart';
+import '../home_widget/home_widget_sync.dart';
 import 'device_no_notifier.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
@@ -139,6 +138,9 @@ class PredictionRangeHistoryNotifier
       );
       AppDebugLog.homeWidget('range load ok count=${list.length}');
       await setWidgetHistoryDepthReady(true);
+      if (_ref.read(sessionProvider).isLoggedIn) {
+        unawaited(scheduleHomeWidgetSync(_ref));
+      }
     } catch (e) {
       _consecutiveFailures += 1;
       AppDebugLog.homeWidget('range load err=$e');
@@ -182,13 +184,16 @@ final predictionRangeHistoryProvider = StateNotifierProvider<
   ref.listen(sessionProvider, (prev, next) {
     if (!next.isLoggedIn) n.clear();
   });
-  // deviceNo 从空到有：补拉 range（覆盖 splash/ensure 抢跑）
+  // deviceNo 变更：补拉 range（含空→有、换绑 A→B）
   ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
     final dn = next.asData?.value?.trim();
     if (dn == null || dn.isEmpty) return;
     final prevDn = prev?.asData?.value?.trim();
-    if (prevDn != null && prevDn.isNotEmpty) return;
+    if (prevDn == dn) return;
     if (!ref.read(sessionProvider).isLoggedIn) return;
+    if (prevDn != null && prevDn.isNotEmpty && prevDn != dn) {
+      n.clear();
+    }
     unawaited(n.ensureLoaded(force: true));
   });
   return n;

@@ -11,6 +11,8 @@ import '../api/gateway_json.dart';
 import '../data/models.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/home_history_notifier.dart';
+import '../providers/prediction_range_history_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
@@ -113,6 +115,13 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     super.dispose();
   }
 
+  void _scheduleHistoryBootstrapAfterBind() {
+    unawaited(ref.read(homeHistoryProvider.notifier).onDeviceNoChanged());
+    unawaited(
+      ref.read(predictionRangeHistoryProvider.notifier).ensureLoaded(force: true),
+    );
+  }
+
   Future<void> _bind() async {
     final no = _deviceCtrl.text.trim();
     if (no.isEmpty) return;
@@ -129,6 +138,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(no);
       ref.invalidate(settingsBabyProvider);
+      _scheduleHistoryBootstrapAfterBind();
       unawaited(
         ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
       );
@@ -188,6 +198,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(dn);
       ref.invalidate(settingsBabyProvider);
+      _scheduleHistoryBootstrapAfterBind();
       unawaited(
         ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
       );
@@ -238,22 +249,17 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
               _buildModeSwitcher(scheme, isDark),
               const SizedBox(height: 32),
               Expanded(
-                child: Builder(
-                  builder: (context) {
-                    scheduleInlineAuthScrollOnInset(
-                      context,
-                      focusedNode: _focusedAuthField,
-                      scrollController: _scrollCtrl,
-                      anchorKey: _focusedAuthAnchor,
-                    );
-                    return SingleChildScrollView(
-                      controller: _scrollCtrl,
-                      padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.viewInsetsOf(context).bottom),
-                      child: _mode == _BabyBindMode.bind
-                          ? _buildBindCard(context, scheme, isDark)
-                          : _buildCreateCard(context, scheme, isDark),
-                    );
-                  },
+                child: InlineAuthKeyboardLiftHost(
+                  scrollController: _scrollCtrl,
+                  focusedNode: _focusedAuthField,
+                  anchorKey: _focusedAuthAnchor,
+                  child: SingleChildScrollView(
+                    controller: _scrollCtrl,
+                    padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.viewInsetsOf(context).bottom),
+                    child: _mode == _BabyBindMode.bind
+                        ? _buildBindCard(context, scheme, isDark)
+                        : _buildCreateCard(context, scheme, isDark),
+                  ),
                 ),
               ),
               _buildFooterButtons(scheme, isDark),

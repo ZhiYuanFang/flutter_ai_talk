@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +12,7 @@ import 'platform/native_splash.dart';
 import 'home_widget/home_widget_sync.dart';
 import 'providers/event_catalog_notifier.dart';
 import 'providers/home_history_notifier.dart';
+import 'providers/prediction_range_history_provider.dart';
 import 'providers/session_provider.dart';
 import 'providers/sign_in_channel_provider.dart';
 import 'api/ai_quota_errors.dart';
@@ -144,6 +146,19 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     );
     ref.listen<ThemePreferences>(effectiveThemeProvider, (previous, next) {
       unawaited(scheduleHomeWidgetSyncIfThemeChanged(ref, previous, next));
+    });
+    // range 就绪或 items 变更 → 推桌面预测（非 provider 构造自动 ensure）
+    ref.listen<PredictionRangeHistoryState>(predictionRangeHistoryProvider,
+        (prev, next) {
+      if (!ref.read(sessionProvider).isLoggedIn) return;
+      if (!next.ready || next.loading) return;
+      final becameReady = prev == null || !prev.ready;
+      final itemsChanged = prev != null &&
+          prev.ready &&
+          !listEquals(prev.items, next.items);
+      if (becameReady || itemsChanged) {
+        unawaited(scheduleHomeWidgetSync(ref));
+      }
     });
     final router = ref.watch(goRouterProvider);
     final sex = ref.watch(babySexProvider);

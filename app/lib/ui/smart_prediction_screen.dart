@@ -429,8 +429,7 @@ class SmartPredictionScreen extends ConsumerWidget {
             isTabletLandscape: isTabletLandscape,
           )
         : 2;
-    final waterfallColumns =
-        isLandscape ? landscapeColumnCount : 2;
+    final waterfallColumns = isLandscape ? landscapeColumnCount : 2;
     // 仅手机横屏后列侧 logo；平板横屏不启用。
     final phoneLandscape = isLandscape && !isTabletLandscape;
     // KeepAlive 下须结合当前 pager 页，滑离预测即释放沉浸/常亮。
@@ -446,11 +445,10 @@ class SmartPredictionScreen extends ConsumerWidget {
         return Center(
           child: useDemoSkeleton || !rangePending
               ? AppEmptyStateGallery(
-                  fallbackIcon: Icons.online_prediction  , // 注意：需要替换为实际的图标名称
+                  fallbackIcon: Icons.online_prediction, // 注意：需要替换为实际的图标名称
                   title: '智能预测 · 伴随宝宝成长',
-                  subtitle:
-                      '跟随系统引导，体验基础预测。\n随着后续真实的喂养记录累计，预测能力将自动成长。',
-                      // 如果是横屏则不显示actionLabel
+                  subtitle: '跟随系统引导，体验基础预测。\n随着后续真实的喂养记录累计，预测能力将自动成长。',
+                  // 如果是横屏则不显示actionLabel
                   actionLabel: '回忆宝宝习惯',
                   onAction: reopenRecallGateIfNeeded, animationPath: '',
                 )
@@ -676,7 +674,8 @@ class SmartPredictionScreen extends ConsumerWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(0, 12, densityRailTrailingPad, 8),
+                padding:
+                    const EdgeInsets.fromLTRB(0, 12, densityRailTrailingPad, 8),
                 child: SizedBox(
                   width: densityRailWidth,
                   child: _LandscapeColumnDensitySideRail(
@@ -684,7 +683,8 @@ class SmartPredictionScreen extends ConsumerWidget {
                     onColumnCountChanged: (n) => ref
                         .read(predictionLandscapeColumnProvider.notifier)
                         .setCount(n),
-                    onExitLandscape: () => unawaited(_exitLandscapeToPortrait()),
+                    onExitLandscape: () =>
+                        unawaited(_exitLandscapeToPortrait()),
                     color: onShell,
                   ),
                 ),
@@ -709,7 +709,10 @@ class SmartPredictionScreen extends ConsumerWidget {
             if (landscapeVoice.subtitle.trim().isNotEmpty)
               Positioned(
                 left: 56 + mqPad.left,
-                right: 16 + densityRailWidth + densityRailTrailingPad + mqPad.right,
+                right: 16 +
+                    densityRailWidth +
+                    densityRailTrailingPad +
+                    mqPad.right,
                 bottom: MediaQuery.sizeOf(context).height * 0.18,
                 child: IgnorePointer(
                   child: _LandscapeVoiceSubtitleToast(
@@ -1986,7 +1989,8 @@ class _LandscapeColumnDensityTrack extends StatefulWidget {
       _LandscapeColumnDensityTrackState();
 }
 
-class _LandscapeColumnDensityTrackState extends State<_LandscapeColumnDensityTrack> {
+class _LandscapeColumnDensityTrackState
+    extends State<_LandscapeColumnDensityTrack> {
   double? _dragFraction;
 
   double get _fractionFromCount =>
@@ -2166,8 +2170,8 @@ class _PredictionLandscapeIdentityRail extends StatelessWidget {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   const avatarBlock = 36.0 + 8.0;
-                  final titleLineH =
-                      (titleStyle?.fontSize ?? 16) * (titleStyle?.height ?? 1.15);
+                  final titleLineH = (titleStyle?.fontSize ?? 16) *
+                      (titleStyle?.height ?? 1.15);
                   final ageLineH =
                       (ageStyle?.fontSize ?? 12) * (ageStyle?.height ?? 1.15);
                   final nickTotal = _chars(nickname).length;
@@ -2180,7 +2184,10 @@ class _PredictionLandscapeIdentityRail extends StatelessWidget {
                   var total = avatarBlock + nickH + ageH;
 
                   if (total > constraints.maxHeight && showAge) {
-                    final budget = (constraints.maxHeight - avatarBlock - nickH - ageHeader)
+                    final budget = (constraints.maxHeight -
+                            avatarBlock -
+                            nickH -
+                            ageHeader)
                         .clamp(0.0, double.infinity);
                     ageMax = _maxVerticalChars(budget, ageStyle)
                         .clamp(0, _chars(ageText.trim()).length);
@@ -2215,7 +2222,8 @@ class _PredictionLandscapeIdentityRail extends StatelessWidget {
                         const SizedBox(height: 10),
                         Text(
                           '·',
-                          style: ageStyle?.copyWith(fontWeight: FontWeight.w600),
+                          style:
+                              ageStyle?.copyWith(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 6),
                         _verticalRun(
@@ -2384,6 +2392,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
   final GlobalKey logoAnchorKey;
   final DateTime now;
   final bool chartLoading;
+  // 是否紧凑布局
   final bool compact;
   final bool heartbeat;
   final List<DateTime> chartPoints;
@@ -2473,10 +2482,10 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final heroLogoSize = m?.heroLogoSize ?? 52.0;
     final chartH = 96.0;
     final switchScale = m?.switchScale ?? (compact ? 0.72 : 0.8);
-    final switchColumnWidth =
-        m?.switchColumnWidth ?? (PredictionLandscapeCardMetrics.baselineSwitchWidth * switchScale);
-    final switchColumnHeight =
-        m?.switchColumnHeight ?? (PredictionLandscapeCardMetrics.baselineSwitchHeight * switchScale);
+    final switchColumnWidth = m?.switchColumnWidth ??
+        (PredictionLandscapeCardMetrics.baselineSwitchWidth * switchScale);
+    final switchColumnHeight = m?.switchColumnHeight ??
+        (PredictionLandscapeCardMetrics.baselineSwitchHeight * switchScale);
     final captionRowGap = m?.captionRowGap ?? 6.0;
     final titleFontSize = m?.titleFontSize ?? (compact ? 14.0 : 16.0);
     final relativeFontSize = m?.relativeFontSize ?? (compact ? 12.0 : 13.0);
@@ -2487,10 +2496,15 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final sectionGapMd = m?.sectionGapMd ?? 10.0;
     final sectionGapLg = m?.sectionGapLg ?? 12.0;
     final heroGap = m?.heroGap ?? 8.0;
-    final cardBorderRadius =
-        m?.cardBorderRadius ?? PredictionLandscapeCardMetrics.baselineCardBorderRadius;
+    final cardBorderRadius = m?.cardBorderRadius ??
+        PredictionLandscapeCardMetrics.baselineCardBorderRadius;
     final toggleCaption = '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
+    // 热态卡片展示上次时刻；计时中/骨架（onToggle==null）豁免。
+    final showLastOccurrence = !showActiveTiming && widget.onToggle != null;
+    final lastOccurrenceLabel = showLastOccurrence
+        ? formatPredictionLastOccurrenceLabel(titleName, row.lastAt, now)
+        : null;
     // 瀑布流倒计时文案（停表见 formatPredictionCountdownHms）
     final countdown = (pred == null || showActiveTiming)
         ? null
@@ -2500,9 +2514,6 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             now.difference(activeTimingStartAt(widget.activeTiming!)),
           )
         : null;
-    // 标题旁 logo：列表、计时中、或手机后列紧凑
-    final showTitleLogo =
-        !compact || showActiveTiming || widget.titleInlineLogo;
     // 大 logo：仅普通 compact 且非后列侧 logo
     final showHeroLogo = compact &&
         !showActiveTiming &&
@@ -2511,6 +2522,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         pred != null &&
         countdown != null;
 
+    // 标题旁 logo：列表、计时中、或手机后列紧凑
+    final showTitleLogo = !showHeroLogo;
     final content = Opacity(
       opacity: (enabled || showActiveTiming) ? 1 : 0.45,
       child: Column(
@@ -2548,65 +2561,80 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                       ),
                     ),
                   ),
-                  Tooltip(
-                    message: '预测推演',
-                    child: SizedBox(
-                      width: switchColumnWidth,
-                      height: switchColumnHeight,
-                      child: FittedBox(
-                        fit: BoxFit.contain,
-                        child: Switch.adaptive(
-                          value: enabled,
-                          onChanged: widget.onToggle,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
+                  // 当没有预测数据的时候，不展示开关
+                  if (pred != null) ...[
+                    Tooltip(
+                      message: '预测推演',
+                      child: SizedBox(
+                        width: switchColumnWidth,
+                        height: switchColumnHeight,
+                        child: FittedBox(
+                          fit: BoxFit.contain,
+                          child: Switch.adaptive(
+                            value: enabled,
+                            onChanged: widget.onToggle,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (widget.relativeText != null) ...[
-                            Flexible(
-                              child: Text(
-                                widget.relativeText!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: relativeFontSize,
-                                  color: accent,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: captionRowGap),
-                          ],
-                          Flexible(
-                            child: Text(
-                              toggleCaption,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: captionFontSize,
-                                color: accent.withAlpha(153),
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ),
-                        ],
+                  if (widget.relativeText != null)
+                    Expanded(
+                      child: Text(
+                        widget.relativeText!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.left,
+                        style: TextStyle(
+                          fontSize: relativeFontSize,
+                          color: accent,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    )
+                  else
+                    const Expanded(flex: 0, child: SizedBox.shrink()),
+                  SizedBox(width: captionRowGap),
+                  if (pred != null) ...[
+                    Expanded(
+                      child: Text(
+                        toggleCaption,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          fontSize: captionFontSize,
+                          color: accent.withAlpha(153),
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
+              if (lastOccurrenceLabel != null) ...[
+                SizedBox(height: sectionGapSm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    lastOccurrenceLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: captionFontSize,
+                      color: accent,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
           if (showActiveTiming && activeElapsed != null) ...[

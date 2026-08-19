@@ -534,7 +534,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         context: context,
         candidates: candidates,
         eventCatalog: ref.read(eventCatalogProvider).items,
-        onStop: _stopActiveTimer,
+        // 弹框自有 _stopping 防重；勿走 _stopActiveTimer 的 _stoppingRecordIds 守卫，避免误返 false 导致不关框
+        onStop: (record) => stopActiveTimingRecord(ref: ref, record: record),
         isRecordActivelyTiming: _isRecordActivelyTiming,
         onToast: (msg) => ref.showApiToast(msg),
       );
@@ -584,10 +585,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<bool> _stopActiveTimer(HistoryRecord record) async {
     if (_stoppingRecordIds.contains(record.id)) return false;
     setState(() => _stoppingRecordIds.add(record.id));
-    // 与预测网格卡共用停止语义
-    final ok = await stopActiveTimingRecord(ref: ref, record: record);
-    if (mounted) setState(() => _stoppingRecordIds.remove(record.id));
-    return ok;
+    try {
+      // 与预测网格卡共用停止语义
+      return await stopActiveTimingRecord(ref: ref, record: record);
+    } finally {
+      if (mounted) {
+        setState(() => _stoppingRecordIds.remove(record.id));
+      } else {
+        _stoppingRecordIds.remove(record.id);
+      }
+    }
   }
 
   Future<void> _loadEventUsageAndButtonOrder() async {

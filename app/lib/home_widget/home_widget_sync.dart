@@ -1,15 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../api/app_debug_log.dart';
 import '../data/baby_age.dart';
-import '../data/event_catalog_store.dart';
 import '../data/event_definition.dart';
 import '../data/event_next_predictor.dart';
 import '../data/models.dart';
+import '../data/smart_prediction_rows.dart';
+import '../providers/event_catalog_notifier.dart';
+import '../providers/forecast_toggle_provider.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/prediction_range_history_provider.dart';
+import '../providers/prediction_recall_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/widget_tip_display_epoch_provider.dart';
@@ -29,6 +34,54 @@ export 'format_widget_relative_time.dart';
 export 'home_widget_constants.dart';
 export 'home_widget_payload.dart';
 export 'widget_row_builder.dart';
+
+/// widget sync 读 provider 须走 container，避免 notifier 写入栈内 ref.read 自依赖断言。
+ProviderContainer _widgetSyncContainer(dynamic ref) {
+  if (ref is ProviderContainer) return ref;
+  return (ref as Ref).container;
+}
+
+/// 与智能预测页同源的 widget 预测输入（7 日 range ∪ 种子、内存 catalog、推演关集合）。
+({
+  List<HistoryRecord> history,
+  List<EventDefinition> catalog,
+  Set<String> disabledForecastIds,
+  Set<String> activeEventKeys,
+}) resolveWidgetPredictionInputs(dynamic ref) {
+  final container = _widgetSyncContainer(ref);
+  final history = container.read(predictionHistoryWithRecallSeedsProvider);
+  final catalog = container.read(eventCatalogProvider).items;
+  final disabled =
+      container.read(forecastDisabledIdsProvider).asData?.value ??
+      const <String>{};
+  final rangeItems = container.read(predictionRangeHistoryProvider).items;
+  final homeItems = container.read(homeHistoryProvider).items;
+  final activeKeys = <String>{
+    ...collectActiveTimingRows(rangeItems, catalog: catalog)
+        .map((e) => e.eventId),
+    ...collectActiveTimingRows(homeItems, catalog: catalog)
+        .map((e) => e.eventId),
+  }.where((e) => e.isNotEmpty).toSet();
+  return (
+    history: history,
+    catalog: catalog,
+    disabledForecastIds: disabled,
+    activeEventKeys: activeKeys,
+  );
+}
+
+List<HistoryRecord> _historyForEnabledForecast({
+  required List<HistoryRecord> history,
+  required List<EventDefinition> catalog,
+  required Set<String> disabledForecastIds,
+}) {
+  if (disabledForecastIds.isEmpty) return history;
+  final byKey = groupHistoryByRootEvent(history: history, catalog: catalog);
+  return [
+    for (final e in byKey.entries)
+      if (!disabledForecastIds.contains(e.key)) ...e.value,
+  ];
+}
 
 Future<void> initHomeWidgetBridge() async {
   if (kIsWeb) return;
@@ -51,6 +104,8 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
   String? message,
   HomeWidgetTipPayload? tip,
   DateTime? now,
+  Set<String> disabledForecastIds = const {},
+  Set<String>? activeEventKeysOverride,
 }) async {
   final t = now ?? DateTime.now();
   HomeWidgetHeaderPayload? header;
@@ -62,18 +117,28 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
     );
   }
 
-  final activeKeys = collectActiveTimingRows(history, catalog: catalog)
-      .map((e) => e.eventId)
-      .where((e) => e.isNotEmpty)
-      .toSet();
+  final activeKeys = activeEventKeysOverride ??
+      collectActiveTimingRows(history, catalog: catalog)
+          .map((e) => e.eventId)
+          .where((e) => e.isNotEmpty)
+          .toSet();
+  final enabledActiveKeys = {
+    for (final k in activeKeys)
+      if (!disabledForecastIds.contains(k)) k,
+  };
+  final enabledHistory = _historyForEnabledForecast(
+    history: history,
+    catalog: catalog,
+    disabledForecastIds: disabledForecastIds,
+  );
   final birth = baby?.birthDate ?? DateTime(t.year, 1, 1);
   final predictions = loggedIn
       ? predictAllUpcoming(
-          history: history,
+          history: enabledHistory,
           catalog: catalog,
           now: t,
           birthDate: birth,
-          activeEventKeys: activeKeys,
+          activeEventKeys: enabledActiveKeys,
         )
       : <EventNextPrediction>[];
   // S1：解除已有新记录的 skip；仅 hero 排除 skip，后续留意仍保留
@@ -114,8 +179,6 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
 Future<void> syncHomeWidgetFromRef(dynamic ref, {
   String? forceState,
   String? forceMessage,
-  /// 热路径传入避免在 homeHistory 更新栈内 read 自依赖。
-  List<HistoryRecord>? historyOverride,
   /// 冷启先出预测：跳过慢 tip chat，稍后单独 sync。
   bool skipTip = false,
 }) async {
@@ -134,15 +197,11 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     return;
   }
 
-  // 有 override 不再 read homeHistoryProvider（WS/setItems 同步栈内会自依赖）
-  final history =
-      historyOverride ?? ref.read(homeHistoryProvider).items;
-  List<EventDefinition> catalog = const [];
-  try {
-    catalog = await EventCatalogStore.loadFromDisk();
-  } catch (e) {
-    AppDebugLog.homeWidget('catalog disk err=$e');
-  }
+  final inputs = resolveWidgetPredictionInputs(ref);
+  final history = inputs.history;
+  final catalog = inputs.catalog;
+  final disabledForecastIds = inputs.disabledForecastIds;
+  final activeEventKeys = inputs.activeEventKeys;
 
   BabyProfile? baby;
   try {
@@ -154,14 +213,21 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   var state = forceState ?? 'ready';
   String? message = forceMessage;
   if (state == 'ready') {
-    final active = collectActiveTimingRows(history, catalog: catalog);
-    final activeKeys = active.map((e) => e.eventId).toSet();
-    var preds = predictAllUpcoming(
+    final enabledHistory = _historyForEnabledForecast(
       history: history,
+      catalog: catalog,
+      disabledForecastIds: disabledForecastIds,
+    );
+    final enabledActiveKeys = {
+      for (final k in activeEventKeys)
+        if (!disabledForecastIds.contains(k)) k,
+    };
+    var preds = predictAllUpcoming(
+      history: enabledHistory,
       catalog: catalog,
       now: DateTime.now(),
       birthDate: baby?.birthDate ?? DateTime.now(),
-      activeEventKeys: activeKeys,
+      activeEventKeys: enabledActiveKeys,
     );
     final skipped = await WidgetHeroSkipStore.reconcileAndActiveIds(preds);
     preds = filterPredictionsExcludingSkipped(preds, skipped);
@@ -197,6 +263,8 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     visual: visual,
     message: message,
     tip: tip,
+    disabledForecastIds: disabledForecastIds,
+    activeEventKeysOverride: activeEventKeys,
   );
   await pushHomeWidgetPayload(payload);
   final tipBody = tip?.text.trim() ?? '';
@@ -252,22 +320,19 @@ Future<void> ensureWidgetReadyFromRef(dynamic ref) async {
 
 Future<void>? _widgetSyncInFlight;
 var _widgetSyncRerun = false;
-/// 合并连续触发时保留最新 history 快照。
-List<HistoryRecord>? _pendingHistoryOverride;
 
-/// 历史变更后推送小组件（single-flight，合并连续触发）。
-/// [history]：调用方已持有的列表快照；热路径（homeHistory 更新内）必须传入。
-Future<void> scheduleHomeWidgetSync(
-  dynamic ref, {
-  List<HistoryRecord>? history,
-}) {
+/// 历史/range/资料变更后推送小组件（single-flight，合并连续触发）。
+/// 预测输入在 sync 内读 `predictionHistoryWithRecallSeedsProvider`，勿传 home 分页快照。
+///
+/// 须延迟到下一 event-loop turn：notifier 写入栈内 ref.read 同源 provider 会断言失败。
+Future<void> scheduleHomeWidgetSync(dynamic ref) {
   if (kIsWeb) return Future.value();
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
 
-  if (history != null) {
-    _pendingHistoryOverride = List<HistoryRecord>.from(history);
-  }
+  return Future<void>(() => _scheduleHomeWidgetSyncNow(ref));
+}
 
+Future<void> _scheduleHomeWidgetSyncNow(dynamic ref) {
   if (_widgetSyncInFlight != null) {
     _widgetSyncRerun = true;
     return _widgetSyncInFlight!;
@@ -281,17 +346,12 @@ Future<void> scheduleHomeWidgetSync(
 Future<void> _runWidgetSyncLoop(dynamic ref) async {
   do {
     _widgetSyncRerun = false;
-    final override = _pendingHistoryOverride;
-    _pendingHistoryOverride = null;
-    await syncHomeWidgetFromRef(ref, historyOverride: override);
+    await syncHomeWidgetFromRef(ref);
   } while (_widgetSyncRerun);
 }
 
-Future<void> onHomeHistoryChangedForWidget(
-  dynamic ref, {
-  List<HistoryRecord>? history,
-}) {
-  return scheduleHomeWidgetSync(ref, history: history);
+Future<void> onHomeHistoryChangedForWidget(dynamic ref) {
+  return scheduleHomeWidgetSync(ref);
 }
 
 /// 生效主题 visual 变化时推送小组件。

@@ -165,13 +165,11 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
                   child: Text('当前账号不支持修改密码', style: TextStyle(color: onShell)),
                 );
               }
-              scheduleInlineAuthScrollOnInset(
-                context,
-                focusedNode: _focusedAuthField,
+              return InlineAuthKeyboardLiftHost(
                 scrollController: _scrollCtrl,
+                focusedNode: _focusedAuthField,
                 anchorKey: _focusedAuthAnchor,
-              );
-              return ListView(
+                child: ListView(
                 controller: _scrollCtrl,
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
                 children: [
@@ -255,6 +253,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
                         : const Text('确认修改'),
                   ),
                 ],
+              ),
               );
             },
           ),

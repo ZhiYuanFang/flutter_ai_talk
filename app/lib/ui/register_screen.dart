@@ -176,13 +176,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-              scheduleInlineAuthScrollOnInset(
-                context,
-                focusedNode: _focusedAuthField,
+              return InlineAuthKeyboardLiftHost(
                 scrollController: _scrollCtrl,
+                focusedNode: _focusedAuthField,
                 anchorKey: _focusedAuthAnchor,
-              );
-              return Stack(
+                child: Stack(
                 children: [
                   SingleChildScrollView(
                     controller: _scrollCtrl,
@@ -320,6 +318,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
                   ),
                 ],
+                ),
               );
             },
           ),

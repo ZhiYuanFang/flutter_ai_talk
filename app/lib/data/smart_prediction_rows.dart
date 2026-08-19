@@ -12,6 +12,7 @@ class SmartPredictionRow {
     required this.forecastEnabled,
     required this.prediction,
     required this.chartPoints,
+    this.lastAt,
   });
 
   final String eventId;
@@ -22,6 +23,20 @@ class SmartPredictionRow {
 
   /// 每日至多一点，按日升序；用于解释推算 TOD。
   final List<DateTime> chartPoints;
+
+  /// 该 root 最近一次发生时刻（与 [occurrenceInstant] 一致，含进行中）。
+  final DateTime? lastAt;
+}
+
+/// root 下历史记录的最近发生时刻。
+DateTime? latestOccurrenceAtForRecords(List<HistoryRecord> records) {
+  DateTime? latest;
+  for (final r in records) {
+    final t = occurrenceInstant(r, includeActive: true);
+    if (t == null) continue;
+    if (latest == null || t.isAfter(latest)) latest = t;
+  }
+  return latest;
 }
 
 /// 按根 eventId 聚合历史（与 [predictAllUpcoming] 分组一致）。
@@ -183,6 +198,7 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         forecastEnabled: enabled,
         prediction: pred,
         chartPoints: points,
+        lastAt: latestOccurrenceAtForRecords(entry.value),
       ),
     );
   }

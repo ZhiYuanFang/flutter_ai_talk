@@ -203,8 +203,46 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     _refreshFuture = null;
     _loadPageInFlight = null;
     _flyAnimationFrozen = false;
+    _deviceChangeBootstrapFuture = null;
+    _bootstrapInFlightForDeviceNo = null;
     HomeHistoryMemoryCache.clear();
     state = const HomeHistoryState(initialLoadDone: true);
+  }
+
+  Future<void>? _deviceChangeBootstrapFuture;
+  String? _bootstrapInFlightForDeviceNo;
+
+  /// 宝宝 ID 变更：作废 in-flight、清内存缓存，再 bootstrap 拉取新宝宝历史。
+  Future<void> onDeviceNoChanged() {
+    if (!_ref.read(sessionProvider).isLoggedIn) {
+      return Future.value();
+    }
+    final dn = _deviceNo()?.trim();
+    if (dn == null || dn.isEmpty) {
+      return Future.value();
+    }
+    if (_deviceChangeBootstrapFuture != null &&
+        _bootstrapInFlightForDeviceNo == dn) {
+      return _deviceChangeBootstrapFuture!;
+    }
+
+    _bootstrapInFlightForDeviceNo = dn;
+    _epoch++;
+    _queuedWhileFlyFrozen.clear();
+    _warmFuture = null;
+    _refreshFuture = null;
+    _loadPageInFlight = null;
+    _consecutiveLoadMoreFailures = 0;
+    HomeHistoryMemoryCache.clear();
+    state = const HomeHistoryState();
+
+    _deviceChangeBootstrapFuture = bootstrap().whenComplete(() {
+      if (_bootstrapInFlightForDeviceNo == dn) {
+        _bootstrapInFlightForDeviceNo = null;
+      }
+      _deviceChangeBootstrapFuture = null;
+    });
+    return _deviceChangeBootstrapFuture!;
   }
 
   HomeHistoryCacheSnapshot _currentSnapshot() {
@@ -246,8 +284,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (_ref.read(sessionProvider).isLoggedIn) {
       // 喂养历史变更 → 失效预测 range（防抖重拉），再推小组件
       _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
-      // 传入快照，避免 sync 内 read(homeHistoryProvider) 自依赖
-      unawaited(scheduleHomeWidgetSync(_ref, history: items));
+      unawaited(scheduleHomeWidgetSync(_ref));
     }
     if (persist) unawaited(persistToDisk());
   }
@@ -415,6 +452,11 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
           epoch: epoch,
         );
       }
+      if (_isStale(epoch)) return;
+      if (_ref.read(sessionProvider).isLoggedIn) {
+        _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
+        unawaited(scheduleHomeWidgetSync(_ref));
+      }
       return;
     }
 
@@ -441,7 +483,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (_isStale(epoch)) return;
     if (_ref.read(sessionProvider).isLoggedIn) {
       _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
-      unawaited(scheduleHomeWidgetSync(_ref, history: mergedAsc));
+      unawaited(scheduleHomeWidgetSync(_ref));
     }
   }
 
@@ -546,5 +588,14 @@ HomeHistoryState _homeHistoryInitialState(Ref ref) {
 
 final homeHistoryProvider =
     StateNotifierProvider<HomeHistoryNotifier, HomeHistoryState>((ref) {
-  return HomeHistoryNotifier(ref, _homeHistoryInitialState(ref));
+  final notifier = HomeHistoryNotifier(ref, _homeHistoryInitialState(ref));
+  ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    final nextDn = next.asData?.value?.trim();
+    if (nextDn == null || nextDn.isEmpty) return;
+    final prevDn = prev?.asData?.value?.trim();
+    if (prevDn == nextDn) return;
+    unawaited(notifier.onDeviceNoChanged());
+  });
+  return notifier;
 });
