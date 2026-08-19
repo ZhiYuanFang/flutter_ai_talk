@@ -43,6 +43,7 @@ import 'event_add_actions.dart';
 import 'widgets/app_modal_glass_panel.dart';
 import 'event_logo.dart';
 import 'prediction_recall_onboarding_panel.dart';
+import 'prediction_voice_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
@@ -817,30 +818,36 @@ class SmartPredictionScreen extends ConsumerWidget {
               landscape: false,
               predictionVisible: predictionPageVisible,
             ),
-            // 竖屏语音监听按钮（右下角）
-            Positioned(
-              left: 16 + mqPad.left,
-              bottom: 16 + mqPad.bottom,
-              child: _LandscapeVoiceListenChip(
-                caption: landscapeVoice.statusCaption,
+            // 竖屏语音贴边球（EdgeDockShell）
+            Positioned.fill(
+              child: PredictionVoiceEdgeDock(
+                statusCaption: landscapeVoice.statusCaption,
                 chatConnected: landscapeVoice.chatConnected,
                 chatListening: landscapeVoice.chatListening,
-                onTap: () => ref
+                bottomReserve: voiceBottom,
+                onPointerOccupied: (occupied) {
+                  ref.read(homePagerScrollBlockedProvider.notifier).state =
+                      occupied;
+                },
+                onListenTap: () => ref
                     .read(landscapeVoiceControllerProvider.notifier)
                     .onListenChipTap(context),
               ),
             ),
-            // 竖屏语音字幕 toast
+            // 竖屏语音字幕 toast（底中独立，不随球）
             if (landscapeVoice.subtitle.trim().isNotEmpty)
               Positioned(
-                left: 64 + mqPad.left,
-                right: 116 + mqPad.right, // 给语音按钮留空间
-                bottom: voiceBottom + 68, // 在语音按钮上方
+                left: 24,
+                right: 24,
+                bottom: voiceBottom + 24,
                 child: IgnorePointer(
-                  child: _LandscapeVoiceSubtitleToast(
-                    text: landscapeVoice.subtitle,
-                    isThinking: landscapeVoice.subtitleKind ==
-                        LandscapeVoiceSubtitleKind.thinking,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: _LandscapeVoiceSubtitleToast(
+                      text: landscapeVoice.subtitle,
+                      isThinking: landscapeVoice.subtitleKind ==
+                          LandscapeVoiceSubtitleKind.thinking,
+                    ),
                   ),
                 ),
               ),

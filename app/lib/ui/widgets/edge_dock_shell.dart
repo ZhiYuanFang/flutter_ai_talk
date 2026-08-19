@@ -390,11 +390,8 @@ class _EdgeDockShellState extends State<EdgeDockShell>
     _unlockPageScroll();
 
     if (wasDragging) {
-      // 若已因累计拉入 engage，dragCenter 可能仍在
-      if (_dragCenter != null && !_engaged) {
+      if (_dragCenter != null) {
         unawaited(_finishDrag());
-      } else {
-        setState(() => _dragCenter = null);
       }
       return;
     }

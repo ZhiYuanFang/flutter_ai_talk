@@ -45,5 +45,5 @@ class HomePagerRequestNotifier extends Notifier<int?> {
   }
 }
 
-/// 旧陪伴按住说话禁滑位保留；预测页当前不使用。
+/// 主页 PageView 横滑禁滑：陪伴按住说话、预测竖屏语音贴边球等共用。
 final homePagerScrollBlockedProvider = StateProvider<bool>((ref) => false);

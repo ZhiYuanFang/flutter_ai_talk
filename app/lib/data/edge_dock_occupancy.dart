@@ -3,8 +3,11 @@ import 'dart:ui';
 import 'edge_dock_geometry.dart';
 import 'edge_dock_placement.dart';
 
-/// 首页模式球占位 id（sticky）。
+/// 首页模式球占位 id（sticky；历史，喂养 dock 已移除）。
 const kEdgeDockOccupancyModeId = 'home-input-mode';
+
+/// 预测竖屏语音球占位 id（sticky）。
+const kEdgeDockOccupancyPredictionVoiceId = 'prediction-voice';
 
 /// 首页 tip 球占位 id（非 sticky）。
 const kEdgeDockOccupancyTipId = 'home-tip';

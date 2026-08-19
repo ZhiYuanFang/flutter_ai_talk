@@ -16,11 +16,13 @@ const kDefaultEdgeDockSnapThreshold = 72.0;
 /// 两球圆心最小额外间隙（互不重叠基线）。
 const kDefaultEdgeDockGap = 8.0;
 
-/// 历史别名（输入模式球）。
+/// 历史别名（输入模式球 → 现预测竖屏语音球）。
 const kHomeInputDockDiameter = kDefaultEdgeDockDiameter;
 const kHomeInputDockRadius = kDefaultEdgeDockRadius;
-const kHomeInputDockDefaultEdge = DockEdge.right;
-const kHomeInputDockDefaultAlong = 0.75;
+const kPredictionVoiceDockDefaultEdge = DockEdge.left;
+const kPredictionVoiceDockDefaultAlong = 0.85;
+const kHomeInputDockDefaultEdge = kPredictionVoiceDockDefaultEdge;
+const kHomeInputDockDefaultAlong = kPredictionVoiceDockDefaultAlong;
 const kHomeInputDockSnapThreshold = kDefaultEdgeDockSnapThreshold;
 
 DockEdge? parseDockEdge(String? raw) {
