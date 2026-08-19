@@ -165,11 +165,13 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
   }
 
   void _cancel() {
-    _nicknameCtrl.text = widget.initialBaby.nickname;
-    _sex = widget.initialBaby.sex;
-    _birth = _clampBirthToValidRange(widget.initialBaby.birthDate);
-    setState(() {});
-    showAppToast('已恢复为上次加载的数据');
+    // _nicknameCtrl.text = widget.initialBaby.nickname;
+    // _sex = widget.initialBaby.sex;
+    // _birth = _clampBirthToValidRange(widget.initialBaby.birthDate);
+    // setState(() {});
+    // showAppToast('已恢复为上次加载的数据');
+    // 返回上一级
+    Navigator.of(context).pop();
   }
 
   @override

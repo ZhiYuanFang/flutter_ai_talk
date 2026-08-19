@@ -28,6 +28,7 @@ import '../providers/home_history_notifier.dart';
 import '../providers/home_pager.dart';
 import '../providers/prediction_care_alert_provider.dart';
 import '../providers/prediction_gate_provider.dart';
+import '../providers/prediction_landscape_column_provider.dart';
 import '../providers/prediction_layout_provider.dart';
 import '../providers/prediction_range_history_provider.dart';
 import '../providers/prediction_recall_provider.dart';
@@ -43,11 +44,32 @@ import 'event_add_actions.dart';
 import 'widgets/app_modal_glass_panel.dart';
 import 'event_logo.dart';
 import 'prediction_recall_onboarding_panel.dart';
+import '../config/prediction_landscape_column_store.dart';
+import 'prediction_landscape_card_metrics.dart';
 import 'prediction_voice_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
 import 'widgets/app_empty_state_gallery.dart';
+
+/// 投屏入口：锁定横屏（与 [_exitLandscapeToPortrait] 对称）。
+Future<void> _lockPredictionLandscapeCast() async {
+  if (kIsWeb) return;
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+}
+
+/// 右栏退出：先切竖屏，再恢复全方向旋转。
+Future<void> _exitLandscapeToPortrait() async {
+  if (kIsWeb) return;
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
+  await Future<void>.delayed(const Duration(milliseconds: 100));
+  await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+}
 
 /// 预测页横屏：沉浸藏状态栏 + 常亮；离开/竖屏释放。
 class _PredictionLandscapeImmersiveHost extends StatefulWidget {
@@ -396,10 +418,19 @@ class SmartPredictionScreen extends ConsumerWidget {
     final onShell = pageTokens?.onShell ?? pageTheme.colorScheme.onSurface;
     // 横屏强制瀑布；竖屏尊重本地偏好。
     final useGridLayout = isLandscape || layout == PredictionCardsLayout.grid;
-    // 竖屏 2；手机横屏 3；平板横屏（shortestSide≥600）5。
+    // 竖屏 2；横屏读持久化列数（默认手机 3 / 平板 5，可调 1–7）。
     final shortestSide = MediaQuery.sizeOf(context).shortestSide;
     final isTabletLandscape = isLandscape && shortestSide >= 600;
-    final waterfallColumns = !isLandscape ? 2 : (isTabletLandscape ? 5 : 3);
+    final storedLandscapeColumns =
+        ref.watch(predictionLandscapeColumnProvider).asData?.value;
+    final landscapeColumnCount = isLandscape
+        ? effectiveLandscapeColumnCount(
+            stored: storedLandscapeColumns,
+            isTabletLandscape: isTabletLandscape,
+          )
+        : 2;
+    final waterfallColumns =
+        isLandscape ? landscapeColumnCount : 2;
     // 仅手机横屏后列侧 logo；平板横屏不启用。
     final phoneLandscape = isLandscape && !isTabletLandscape;
     // KeepAlive 下须结合当前 pager 页，滑离预测即释放沉浸/常亮。
@@ -432,76 +463,93 @@ class SmartPredictionScreen extends ConsumerWidget {
         );
       }
       if (useGridLayout) {
-        return _WaterfallCards(
-          padding: EdgeInsets.fromLTRB(
-            isLandscape ? 8 : 16,
-            // 横屏与身份栏 top:12 对齐，避免第一行贴物理顶
-            isLandscape ? 12 : 0,
-            isLandscape ? 8 : 16,
-            24,
-          ),
-          rows: rows,
-          columnCount: waterfallColumns,
-          itemBuilder: (row, columnIndex, rowIndexInColumn) {
-            final activeTiming = useDemoSkeleton
-                ? null
-                : findLatestActiveTimingForRoot(
-                    items: historyItems,
-                    rootEventId: row.eventId,
-                    catalog: catalog,
-                  );
-            // 手机横屏且非首行（列内行索引>0）：标题旁小 logo，降高度。
-            final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
-            return _PredictionEventCard(
-              row: row,
-              definition: lookupEventById(catalog, row.eventId),
-              logoAnchorKey: logoAnchors.keyFor(row.eventId),
-              now: now,
-              chartLoading: useDemoSkeleton ? false : chartsLoading,
-              compact: true,
-              titleInlineLogo: titleInlineLogo,
-              heartbeat: row.eventId == heartbeatId,
-              chartPoints: const [],
-              pastDaysBeforeToday: 2,
-              showYAxis: false,
-              relativeText: activeTiming != null
+        Widget buildGrid({PredictionLandscapeCardMetrics? metrics}) {
+          return _WaterfallCards(
+            padding: EdgeInsets.fromLTRB(
+              isLandscape ? 8 : 16,
+              isLandscape ? 12 : 0,
+              isLandscape ? 8 : 16,
+              24,
+            ),
+            rows: rows,
+            columnCount: waterfallColumns,
+            columnGap: metrics?.columnGap ?? 12,
+            rowGap: metrics?.rowGap ?? 12,
+            itemBuilder: (row, columnIndex, rowIndexInColumn) {
+              final activeTiming = useDemoSkeleton
                   ? null
-                  : _relativeFor(row, now, grid: true),
-              activeTiming: activeTiming,
-              onToggle: useDemoSkeleton
-                  ? null
-                  : (v) {
-                      ref
-                          .read(forecastDisabledIdsProvider.notifier)
-                          .setEnabled(row.eventId, v);
-                    },
-              // 计时中不整卡加事件，避免与停止手势冲突
-              onCardTap: activeTiming != null
-                  ? null
-                  : () {
-                      if (useDemoSkeleton) {
-                        // 未登录/未绑定：复用软门闸 reopen，禁止直达路由。
-                        if (!loggedIn || !bound) {
-                          openGateFromIntent();
+                  : findLatestActiveTimingForRoot(
+                      items: historyItems,
+                      rootEventId: row.eventId,
+                      catalog: catalog,
+                    );
+              final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
+              return _PredictionEventCard(
+                row: row,
+                definition: lookupEventById(catalog, row.eventId),
+                logoAnchorKey: logoAnchors.keyFor(row.eventId),
+                now: now,
+                chartLoading: useDemoSkeleton ? false : chartsLoading,
+                compact: true,
+                titleInlineLogo: titleInlineLogo,
+                heartbeat: row.eventId == heartbeatId,
+                chartPoints: const [],
+                pastDaysBeforeToday: 2,
+                showYAxis: false,
+                relativeText: activeTiming != null
+                    ? null
+                    : _relativeFor(row, now, grid: true),
+                activeTiming: activeTiming,
+                landscapeMetrics: metrics,
+                onToggle: useDemoSkeleton
+                    ? null
+                    : (v) {
+                        ref
+                            .read(forecastDisabledIdsProvider.notifier)
+                            .setEnabled(row.eventId, v);
+                      },
+                onCardTap: activeTiming != null
+                    ? null
+                    : () {
+                        if (useDemoSkeleton) {
+                          if (!loggedIn || !bound) {
+                            openGateFromIntent();
+                            return;
+                          }
+                          showAppToast('先完成量身定做，或去喂养页记一笔吧');
                           return;
                         }
-                        showAppToast('先完成量身定做，或去喂养页记一笔吧');
-                        return;
-                      }
-                      final def = lookupEventById(catalog, row.eventId);
-                      if (def == null) return;
-                      unawaited(
-                        handleEventGridTap(
-                          context: context,
-                          ref: ref,
-                          event: def,
-                          confirmDirectLeafBeforeAdd: true,
-                        ),
-                      );
-                    },
-            );
-          },
-        );
+                        final def = lookupEventById(catalog, row.eventId);
+                        if (def == null) return;
+                        unawaited(
+                          handleEventGridTap(
+                            context: context,
+                            ref: ref,
+                            event: def,
+                            confirmDirectLeafBeforeAdd: true,
+                          ),
+                        );
+                      },
+              );
+            },
+          );
+        }
+
+        if (isLandscape) {
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              const horizontalPad = 16.0;
+              final metrics = PredictionLandscapeCardMetrics.forGrid(
+                gridWidth: (constraints.maxWidth - horizontalPad)
+                    .clamp(1.0, double.infinity),
+                columnCount: waterfallColumns,
+                isTabletLandscape: isTabletLandscape,
+              );
+              return buildGrid(metrics: metrics);
+            },
+          );
+        }
+        return buildGrid();
       }
       return ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -575,9 +623,11 @@ class SmartPredictionScreen extends ConsumerWidget {
     final Widget pageBody;
 
     if (isLandscape) {
-      // 横屏：左竖排身份 + 右三列瀑布；语音悬浮相对整屏左下（非网格左下）。
+      // 横屏：左身份 | 中瀑布 | 右密度轨；语音悬浮相对整屏左下（非网格左下）。
       final mqPad = MediaQuery.paddingOf(context);
       final voiceBottom = 10.0 + mqPad.bottom;
+      const densityRailWidth = 36.0;
+      const densityRailTrailingPad = 6.0;
       pageBody = Stack(
         children: [
           Row(
@@ -586,6 +636,9 @@ class SmartPredictionScreen extends ConsumerWidget {
               _PredictionLandscapeIdentityRail(
                 nickname: nickname,
                 ageText: babyDisplay.showAge ? ageText : '',
+                babyId: babyDisplay.babyId,
+                sex: babyDisplay.sex,
+                onAvatarTap: openSettings,
                 color: onShell,
               ),
               Expanded(
@@ -622,6 +675,20 @@ class SmartPredictionScreen extends ConsumerWidget {
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 12, densityRailTrailingPad, 8),
+                child: SizedBox(
+                  width: densityRailWidth,
+                  child: _LandscapeColumnDensitySideRail(
+                    columnCount: landscapeColumnCount,
+                    onColumnCountChanged: (n) => ref
+                        .read(predictionLandscapeColumnProvider.notifier)
+                        .setCount(n),
+                    onExitLandscape: () => unawaited(_exitLandscapeToPortrait()),
+                    color: onShell,
+                  ),
+                ),
+              ),
             ],
           ),
           if (landscapeVoice != null) ...[
@@ -642,7 +709,7 @@ class SmartPredictionScreen extends ConsumerWidget {
             if (landscapeVoice.subtitle.trim().isNotEmpty)
               Positioned(
                 left: 56 + mqPad.left,
-                right: 16 + mqPad.right,
+                right: 16 + densityRailWidth + densityRailTrailingPad + mqPad.right,
                 bottom: MediaQuery.sizeOf(context).height * 0.18,
                 child: IgnorePointer(
                   child: _LandscapeVoiceSubtitleToast(
@@ -726,16 +793,13 @@ class SmartPredictionScreen extends ConsumerWidget {
                         final go = await showGlassConfirmDialog(
                               context,
                               title: '进入投屏模式',
-                              message: '进入投屏模式后，需重启应用才能退出。\n请将手机画面投屏到电视后继续。',
+                              message:
+                                  '请将手机画面投屏到电视后继续。\n进入横屏后，可点击右侧栏顶部的返回竖屏图标退出，并恢复屏幕旋转。',
                               confirmLabel: '已投屏',
                             ) ??
                             false;
                         if (go && context.mounted) {
-                          // 让手机横屏
-                          SystemChrome.setPreferredOrientations([
-                            DeviceOrientation.landscapeLeft,
-                            DeviceOrientation.landscapeRight,
-                          ]);
+                          unawaited(_lockPredictionLandscapeCast());
                         }
                       },
                       icon: const Icon(Icons.cast),
@@ -1770,6 +1834,8 @@ class _WaterfallCards extends StatelessWidget {
     required this.rows,
     required this.itemBuilder,
     this.columnCount = 2,
+    this.columnGap = 12,
+    this.rowGap = 12,
   });
 
   final EdgeInsets padding;
@@ -1782,8 +1848,10 @@ class _WaterfallCards extends StatelessWidget {
     int rowIndexInColumn,
   ) itemBuilder;
 
-  /// 列数（竖屏 2 / 横屏 3）。
+  /// 列数（竖屏 2 / 横屏可调）。
   final int columnCount;
+  final double columnGap;
+  final double rowGap;
 
   @override
   Widget build(BuildContext context) {
@@ -1797,7 +1865,7 @@ class _WaterfallCards extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < col.length; i++) ...[
-            if (i > 0) const SizedBox(height: 12),
+            if (i > 0) SizedBox(height: rowGap),
             itemBuilder(col[i], columnIndex, i),
           ],
         ],
@@ -1810,7 +1878,7 @@ class _WaterfallCards extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var c = 0; c < count; c++) ...[
-            if (c > 0) const SizedBox(width: 12),
+            if (c > 0) SizedBox(width: columnGap),
             Expanded(child: column(cols[c], c)),
           ],
         ],
@@ -1819,29 +1887,253 @@ class _WaterfallCards extends StatelessWidget {
   }
 }
 
-/// 横屏左栏：昵称 + 月龄竖排（逐字纵向），可滚动防溢出。
+/// 竖排单字列（横屏左栏身份 / 右缘密度提示共用）。
+Widget _landscapeVerticalCharColumn(String text, TextStyle? style) {
+  final chars = text.runes.map(String.fromCharCode).toList(growable: false);
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (final ch in chars)
+        Text(ch, style: style, textAlign: TextAlign.center),
+    ],
+  );
+}
+
+/// 横屏右缘：返回竖屏 + 竖排「拖动调整大小」+ 拉满至屏底的密度轨。
+class _LandscapeColumnDensitySideRail extends StatelessWidget {
+  const _LandscapeColumnDensitySideRail({
+    required this.columnCount,
+    required this.onColumnCountChanged,
+    required this.onExitLandscape,
+    required this.color,
+  });
+
+  final int columnCount;
+  final ValueChanged<int> onColumnCountChanged;
+  final VoidCallback onExitLandscape;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final hintStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: color.withValues(alpha: 0.55),
+          height: 1.15,
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Tooltip(
+          message: '返回竖屏',
+          child: Semantics(
+            button: true,
+            label: '返回竖屏',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onExitLandscape,
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Icon(
+                    Icons.stay_current_portrait,
+                    size: 20,
+                    color: color.withValues(alpha: 0.72),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        _landscapeVerticalCharColumn('拖动调整大小', hintStyle),
+        const SizedBox(height: 8),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return _LandscapeColumnDensityTrack(
+                trackHeight: constraints.maxHeight.clamp(24.0, double.infinity),
+                columnCount: columnCount,
+                onColumnCountChanged: onColumnCountChanged,
+                color: color,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 纵向密度轨（上=少列大卡，下=多列小卡；真拖，无数字）。
+class _LandscapeColumnDensityTrack extends StatefulWidget {
+  const _LandscapeColumnDensityTrack({
+    required this.trackHeight,
+    required this.columnCount,
+    required this.onColumnCountChanged,
+    required this.color,
+  });
+
+  final double trackHeight;
+  final int columnCount;
+  final ValueChanged<int> onColumnCountChanged;
+  final Color color;
+
+  static const _trackWidth = 8.0;
+  static const _thumbSize = 14.0;
+
+  @override
+  State<_LandscapeColumnDensityTrack> createState() =>
+      _LandscapeColumnDensityTrackState();
+}
+
+class _LandscapeColumnDensityTrackState extends State<_LandscapeColumnDensityTrack> {
+  double? _dragFraction;
+
+  double get _fractionFromCount =>
+      (widget.columnCount - kLandscapeColumnCountMin) /
+      (kLandscapeColumnCountMax - kLandscapeColumnCountMin);
+
+  int _countFromFraction(double fraction) {
+    final span = kLandscapeColumnCountMax - kLandscapeColumnCountMin;
+    return (kLandscapeColumnCountMin + fraction * span)
+        .round()
+        .clamp(kLandscapeColumnCountMin, kLandscapeColumnCountMax);
+  }
+
+  void _applyLocalDy(double dy, double trackHeight) {
+    final usable = (trackHeight - _LandscapeColumnDensityTrack._thumbSize)
+        .clamp(1.0, double.infinity);
+    final fraction = (dy / usable).clamp(0.0, 1.0);
+    final next = _countFromFraction(fraction);
+    if (next != widget.columnCount) {
+      widget.onColumnCountChanged(next);
+    }
+    setState(() => _dragFraction = fraction);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = _dragFraction ?? _fractionFromCount;
+    final trackH = widget.trackHeight;
+    final thumbTravel =
+        (trackH - _LandscapeColumnDensityTrack._thumbSize).clamp(0.0, trackH);
+    final thumbTop = fraction * thumbTravel;
+    final fillH = thumbTop + _LandscapeColumnDensityTrack._thumbSize / 2;
+
+    return Semantics(
+      slider: true,
+      label: '拖动调整大小',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: (d) {
+          final box = context.findRenderObject() as RenderBox?;
+          if (box == null) return;
+          _applyLocalDy(box.globalToLocal(d.globalPosition).dy, trackH);
+        },
+        onVerticalDragUpdate: (d) {
+          final box = context.findRenderObject() as RenderBox?;
+          if (box == null) return;
+          _applyLocalDy(box.globalToLocal(d.globalPosition).dy, trackH);
+        },
+        onVerticalDragEnd: (_) => setState(() => _dragFraction = null),
+        onVerticalDragCancel: () => setState(() => _dragFraction = null),
+        child: SizedBox(
+          width: 36,
+          height: trackH,
+          child: Center(
+            child: SizedBox(
+              width: _LandscapeColumnDensityTrack._trackWidth,
+              height: trackH,
+              child: Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(4),
+                      color: widget.color.withValues(alpha: 0.14),
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: fillH.clamp(0.0, trackH),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        color: widget.color.withValues(alpha: 0.38),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: thumbTop,
+                    left: (_LandscapeColumnDensityTrack._trackWidth -
+                            _LandscapeColumnDensityTrack._thumbSize) /
+                        2,
+                    child: Container(
+                      width: _LandscapeColumnDensityTrack._thumbSize,
+                      height: _LandscapeColumnDensityTrack._thumbSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: widget.color.withValues(alpha: 0.88),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 2,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 横屏左栏：头像 + 昵称 + 月龄竖排（全高；高度不足时尾部省略）。
 class _PredictionLandscapeIdentityRail extends StatelessWidget {
   const _PredictionLandscapeIdentityRail({
     required this.nickname,
     required this.ageText,
+    required this.babyId,
+    required this.sex,
     required this.color,
+    this.onAvatarTap,
   });
 
   final String nickname;
   final String ageText;
+  final String babyId;
+  final BabySex sex;
   final Color color;
+  final VoidCallback? onAvatarTap;
 
   static List<String> _chars(String s) {
-    // 按 Unicode 标量拆字（中文昵称足够）；避免引入额外依赖。
     return s.runes.map(String.fromCharCode).toList(growable: false);
   }
 
-  Widget _verticalRun(
-    BuildContext context, {
+  static int _maxVerticalChars(double height, TextStyle? style) {
+    final lineH = (style?.fontSize ?? 12) * (style?.height ?? 1.15);
+    if (lineH <= 0 || height <= 0) return 0;
+    return (height / lineH).floor();
+  }
+
+  Widget _verticalRun({
     required String text,
     required TextStyle? style,
+    int? maxChars,
   }) {
-    final chars = _chars(text);
+    var chars = _chars(text);
+    if (maxChars != null && chars.length > maxChars) {
+      chars = chars.sublist(0, maxChars);
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1867,22 +2159,77 @@ class _PredictionLandscapeIdentityRail extends StatelessWidget {
     return SizedBox(
       width: 48,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(6, 12, 4, 12),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              _verticalRun(context, text: nickname, style: titleStyle),
-              if (showAge) ...[
-                const SizedBox(height: 10),
-                Text(
-                  '·',
-                  style: ageStyle?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 6),
-                _verticalRun(context, text: ageText.trim(), style: ageStyle),
-              ],
-            ],
-          ),
+        padding: const EdgeInsets.fromLTRB(6, 12, 4, 8),
+        child: Column(
+          children: [
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const avatarBlock = 36.0 + 8.0;
+                  final titleLineH =
+                      (titleStyle?.fontSize ?? 16) * (titleStyle?.height ?? 1.15);
+                  final ageLineH =
+                      (ageStyle?.fontSize ?? 12) * (ageStyle?.height ?? 1.15);
+                  final nickTotal = _chars(nickname).length;
+                  var nickMax = nickTotal;
+                  var ageMax = showAge ? _chars(ageText.trim()).length : 0;
+                  final ageHeader = showAge ? 10.0 + ageLineH + 6.0 : 0.0;
+
+                  var nickH = nickMax * titleLineH;
+                  var ageH = ageHeader + ageMax * ageLineH;
+                  var total = avatarBlock + nickH + ageH;
+
+                  if (total > constraints.maxHeight && showAge) {
+                    final budget = (constraints.maxHeight - avatarBlock - nickH - ageHeader)
+                        .clamp(0.0, double.infinity);
+                    ageMax = _maxVerticalChars(budget, ageStyle)
+                        .clamp(0, _chars(ageText.trim()).length);
+                    ageH = ageHeader + ageMax * ageLineH;
+                    total = avatarBlock + nickH + ageH;
+                  }
+
+                  if (total > constraints.maxHeight) {
+                    final budget = (constraints.maxHeight - avatarBlock - ageH)
+                        .clamp(0.0, double.infinity);
+                    nickMax = _maxVerticalChars(budget, titleStyle)
+                        .clamp(0, nickTotal);
+                  }
+
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      BabyAvatar(
+                        babyId: babyId,
+                        sex: sex,
+                        radius: 18,
+                        onTap: onAvatarTap,
+                      ),
+                      const SizedBox(height: 8),
+                      _verticalRun(
+                        text: nickname,
+                        style: titleStyle,
+                        maxChars: nickMax > 0 ? nickMax : null,
+                      ),
+                      if (showAge && ageMax > 0) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          '·',
+                          style: ageStyle?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 6),
+                        _verticalRun(
+                          text: ageText.trim(),
+                          style: ageStyle,
+                          maxChars: ageMax,
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2025,6 +2372,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
     required this.relativeText,
     this.titleInlineLogo = false,
     this.activeTiming,
+    this.landscapeMetrics,
     this.onToggle,
     this.onCardTap,
   });
@@ -2048,6 +2396,9 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 
   /// 网格计时中：非 null 时走 active chrome（列表态忽略）。
   final HistoryRecord? activeTiming;
+
+  /// 横屏 compact：按列宽 scale 的尺寸表；竖屏 grid 为 null。
+  final PredictionLandscapeCardMetrics? landscapeMetrics;
 
   /// null 时禁用推演开关（冷态骨架）。
   final ValueChanged<bool>? onToggle;
@@ -2117,11 +2468,28 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             : _rootAccent(context))
         : _rootAccent(context);
     // 列表 / 计时中 / 手机横屏后列：标题旁小 logo；首列瀑布流仍用倒计时上方大图
-    final titleLogoSize = 28.0;
-    final heroLogoSize = 52.0;
+    final m = widget.landscapeMetrics;
+    final titleLogoSize = m?.titleLogoSize ?? 28.0;
+    final heroLogoSize = m?.heroLogoSize ?? 52.0;
     final chartH = 96.0;
-    // 迷你推演开关（瀑布流 / 纵向共用）
-    final switchScale = compact ? 0.72 : 0.8;
+    final switchScale = m?.switchScale ?? (compact ? 0.72 : 0.8);
+    final switchColumnWidth =
+        m?.switchColumnWidth ?? (PredictionLandscapeCardMetrics.baselineSwitchWidth * switchScale);
+    final switchColumnHeight =
+        m?.switchColumnHeight ?? (PredictionLandscapeCardMetrics.baselineSwitchHeight * switchScale);
+    final captionRowGap = m?.captionRowGap ?? 6.0;
+    final titleFontSize = m?.titleFontSize ?? (compact ? 14.0 : 16.0);
+    final relativeFontSize = m?.relativeFontSize ?? (compact ? 12.0 : 13.0);
+    final captionFontSize = m?.captionFontSize ?? 10.0;
+    final countdownFontSize = m?.countdownFontSize ?? 26.0;
+    final titleLogoGap = m?.titleLogoGap ?? 8.0;
+    final sectionGapSm = m?.sectionGapSm ?? 4.0;
+    final sectionGapMd = m?.sectionGapMd ?? 10.0;
+    final sectionGapLg = m?.sectionGapLg ?? 12.0;
+    final heroGap = m?.heroGap ?? 8.0;
+    final cardBorderRadius =
+        m?.cardBorderRadius ?? PredictionLandscapeCardMetrics.baselineCardBorderRadius;
+    final toggleCaption = '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
     // 瀑布流倒计时文案（停表见 formatPredictionCountdownHms）
     final countdown = (pred == null || showActiveTiming)
@@ -2153,6 +2521,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   if (showTitleLogo) ...[
                     KeyedSubtree(
@@ -2165,7 +2534,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                           : EventLogo(
                               definition: titleDef, size: titleLogoSize),
                     ),
-                    const SizedBox(width: 8),
+                    SizedBox(width: titleLogoGap),
                   ],
                   Expanded(
                     child: Text(
@@ -2173,7 +2542,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: compact ? 14 : 16,
+                        fontSize: titleFontSize,
                         fontWeight: FontWeight.w600,
                         color: AppColor.textOnPanelGlass(context),
                       ),
@@ -2181,45 +2550,74 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                   ),
                   Tooltip(
                     message: '预测推演',
-                    child: Transform.scale(
-                      scale: switchScale,
-                      child: Switch.adaptive(
-                        value: enabled,
-                        onChanged: widget.onToggle,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    child: SizedBox(
+                      width: switchColumnWidth,
+                      height: switchColumnHeight,
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Switch.adaptive(
+                          value: enabled,
+                          onChanged: widget.onToggle,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              Transform.translate(
-                offset: const Offset(0, -6), // 往上移，抵消 Column 的间距
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 10.0),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '${enabled ? "关闭" : "开启"}$titleName预测',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: accent.withAlpha(153),
-                        fontWeight: FontWeight.w400,
+              Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.relativeText != null) ...[
+                            Flexible(
+                              child: Text(
+                                widget.relativeText!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: relativeFontSize,
+                                  color: accent,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: captionRowGap),
+                          ],
+                          Flexible(
+                            child: Text(
+                              toggleCaption,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: captionFontSize,
+                                color: accent.withAlpha(153),
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
           if (showActiveTiming && activeElapsed != null) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: sectionGapLg),
             Center(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
                   activeElapsed,
                   style: TextStyle(
-                    fontSize: 26,
+                    fontSize: countdownFontSize,
                     fontWeight: FontWeight.w700,
                     color: accent,
                     fontFeatures: const [FontFeature.tabularFigures()],
@@ -2228,7 +2626,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: sectionGapMd),
             // 停止独立命中 + 可点时心跳
             _HeartbeatStopButton(
               accent: accent,
@@ -2236,21 +2634,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
               onPressed: () => unawaited(_onStop(widget.activeTiming!)),
             ),
           ] else ...[
-            if (enabled && widget.relativeText != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                widget.relativeText!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: compact ? 12 : 13,
-                  color: accent,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
             if (enabled && pred != null && compact && countdown != null) ...[
-              const SizedBox(height: 10),
+              SizedBox(height: sectionGapMd),
               // 首列（或非手机后列）：倒计时上方居中大图
               if (showHeroLogo) ...[
                 Center(
@@ -2267,29 +2652,27 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                           ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: heroGap),
               ],
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 距离下次对应事件倒计时，小字展示
                   Text(
                     '距离下次$titleName倒计时',
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: captionFontSize,
                       color: accent.withAlpha(153),
                       fontWeight: FontWeight.w400,
                     ),
                   ),
-                  const SizedBox(height: 4), // 间距
-                  // 原有的倒计时
+                  SizedBox(height: sectionGapSm),
                   Center(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
                         countdown,
                         style: TextStyle(
-                          fontSize: 26,
+                          fontSize: countdownFontSize,
                           fontWeight: FontWeight.w700,
                           color: accent,
                           fontFeatures: const [FontFeature.tabularFigures()],
@@ -2331,18 +2714,18 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     );
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(cardBorderRadius),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: Container(
           padding: EdgeInsets.fromLTRB(
-            compact ? 10 : 14,
-            compact ? 8 : 10,
-            compact ? 6 : 8,
-            compact ? 10 : 12,
+            m?.paddingLeft ?? (compact ? 10 : 14),
+            m?.paddingTop ?? (compact ? 8 : 10),
+            m?.paddingRight ?? (compact ? 6 : 8),
+            m?.paddingBottom ?? (compact ? 10 : 12),
           ),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(cardBorderRadius),
             border: Border.all(color: AppColor.divider(context)),
             // 事件品牌色经 accent 注入 panelGlass（α 在原子内）
             gradient: AppColor.panelGlassGradient(context, accent: accent),
@@ -2353,7 +2736,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: widget.onCardTap,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(cardBorderRadius),
                     child: content,
                   ),
                 ),
