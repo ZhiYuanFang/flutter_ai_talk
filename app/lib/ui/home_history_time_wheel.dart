@@ -683,3 +683,253 @@ class _HomeHistoryTimePickerSheetBodyState extends State<_HomeHistoryTimePickerS
     );
   }
 }
+
+/// 单层玻璃 Sheet：默认时分滚轮，左上角点击切换日期；确定返回完整时刻。
+Future<DateTime?> showHomeHistoryDateTimeToggleSheet(
+  BuildContext context, {
+  required DateTime minimumDate,
+  required DateTime maximumDate,
+  required DateTime initialValue,
+  String? title,
+}) {
+  return showGlassAdaptiveBottomSheet<DateTime>(
+    context: context,
+    scrollable: false,
+    bodyBuilder: (ctx) => _HomeHistoryDateTimeToggleSheetBody(
+      minimumDate: minimumDate,
+      maximumDate: maximumDate,
+      initialValue: initialValue,
+      title: title,
+    ),
+  );
+}
+
+enum _DateTimeToggleMode { time, date }
+
+class _HomeHistoryDateTimeToggleSheetBody extends StatefulWidget {
+  const _HomeHistoryDateTimeToggleSheetBody({
+    required this.minimumDate,
+    required this.maximumDate,
+    required this.initialValue,
+    this.title,
+  });
+
+  final DateTime minimumDate;
+  final DateTime maximumDate;
+  final DateTime initialValue;
+  final String? title;
+
+  @override
+  State<_HomeHistoryDateTimeToggleSheetBody> createState() =>
+      _HomeHistoryDateTimeToggleSheetBodyState();
+}
+
+class _HomeHistoryDateTimeToggleSheetBodyState
+    extends State<_HomeHistoryDateTimeToggleSheetBody> {
+  /// 默认先滚时分，点左上角再切日期。
+  var _mode = _DateTimeToggleMode.time;
+  late DateTime _day;
+  late FixedExtentScrollController _hourCtrl;
+  late FixedExtentScrollController _minuteCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final min = homeHistoryDateOnly(widget.minimumDate);
+    final max = homeHistoryDateOnly(widget.maximumDate);
+    final initial = widget.initialValue;
+    _day = homeHistoryClampCalendarDay(initial, min, max);
+    _hourCtrl = FixedExtentScrollController(initialItem: initial.hour.clamp(0, 23));
+    _minuteCtrl = FixedExtentScrollController(initialItem: initial.minute.clamp(0, 59));
+  }
+
+  @override
+  void dispose() {
+    _hourCtrl.dispose();
+    _minuteCtrl.dispose();
+    super.dispose();
+  }
+
+  DateTime _combined() {
+    final hour = _hourCtrl.hasClients ? _hourCtrl.selectedItem : _hourCtrl.initialItem;
+    final minute =
+        _minuteCtrl.hasClients ? _minuteCtrl.selectedItem : _minuteCtrl.initialItem;
+    return DateTime(_day.year, _day.month, _day.day, hour, minute);
+  }
+
+  void _confirm() {
+    var combined = _combined();
+    final latest = DateTime.now();
+    // 不得晚于现在（与两层 Sheet 路径同一钳制）。
+    if (combined.isAfter(latest)) {
+      combined = DateTime(
+        latest.year,
+        latest.month,
+        latest.day,
+        latest.hour,
+        latest.minute,
+      );
+    }
+    Navigator.pop(context, combined);
+  }
+
+  void _toggleMode() {
+    setState(() {
+      _mode = _mode == _DateTimeToggleMode.time
+          ? _DateTimeToggleMode.date
+          : _DateTimeToggleMode.time;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final primary = scheme.primary;
+    final onPrimary = scheme.onPrimary;
+    final glassText = historyEditGlassTextColor(context);
+    final glassLabel = historyEditGlassLabelColor(context);
+    final min = homeHistoryDateOnly(widget.minimumDate);
+    final max = homeHistoryDateOnly(widget.maximumDate);
+    final title = widget.title;
+    final hm = HomeHistoryTimeField.formatHm(_combined());
+    final dayLabel = '${_day.month}月${_day.day}日';
+    // 左上角展示当前模式的值：时分或日期。
+    final toggleLabel = _mode == _DateTimeToggleMode.time ? hm : dayLabel;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              InkWell(
+                onTap: _toggleMode,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        toggleLabel,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: primary,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                      ),
+                      Icon(Icons.unfold_more, size: 18, color: primary),
+                    ],
+                  ),
+                ),
+              ),
+              if (title != null && title.isNotEmpty)
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(color: glassText),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )
+              else
+                const Spacer(),
+            ],
+          ),
+          const SizedBox(height: 8),
+          CupertinoTheme(
+            data: CupertinoThemeData(
+              primaryColor: primary,
+              brightness: Theme.of(context).brightness,
+              textTheme: CupertinoTextThemeData(
+                dateTimePickerTextStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: glassText,
+                    ),
+                pickerTextStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: glassLabel,
+                    ),
+              ),
+            ),
+            child: SizedBox(
+              height: 220,
+              child: IndexedStack(
+                index: _mode == _DateTimeToggleMode.time ? 0 : 1,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CupertinoPicker(
+                          scrollController: _hourCtrl,
+                          itemExtent: 36,
+                          onSelectedItemChanged: (_) => setState(() {}),
+                          selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
+                            background: primary.withValues(alpha: 0.12),
+                          ),
+                          children: List.generate(
+                            24,
+                            (i) => Center(
+                              child: Text(
+                                '${i.toString().padLeft(2, '0')} 时',
+                                style: TextStyle(
+                                  color: glassText,
+                                  fontFeatures: const [FontFeature.tabularFigures()],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: CupertinoPicker(
+                          scrollController: _minuteCtrl,
+                          itemExtent: 36,
+                          onSelectedItemChanged: (_) => setState(() {}),
+                          selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
+                            background: primary.withValues(alpha: 0.12),
+                          ),
+                          children: List.generate(
+                            60,
+                            (i) => Center(
+                              child: Text(
+                                '${i.toString().padLeft(2, '0')} 分',
+                                style: TextStyle(
+                                  color: glassText,
+                                  fontFeatures: const [FontFeature.tabularFigures()],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.date,
+                    initialDateTime: _day,
+                    minimumDate: min,
+                    maximumDate: max,
+                    onDateTimeChanged: (date) {
+                      setState(() => _day = homeHistoryClampCalendarDay(date, min, max));
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: primary,
+              foregroundColor: onPrimary,
+            ),
+            onPressed: _confirm,
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+}

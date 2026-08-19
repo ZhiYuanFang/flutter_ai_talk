@@ -146,7 +146,7 @@ class PredictionCareAlertScreen extends ConsumerWidget {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       // 渲染 markdown
-                      child:MarkdownWidget(data: line),
+                      child:MarkdownWidget(data: line, shrinkWrap: true,),
                     ),
                 ],
               ),

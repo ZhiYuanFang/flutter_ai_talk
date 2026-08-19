@@ -35,6 +35,32 @@ class PredictionRecallOnboardingPanel extends ConsumerStatefulWidget {
       _PredictionRecallOnboardingPanelState();
 }
 
+/// 单根事件卡的会话草稿：当前值 + 首次进入时的默认快照。
+class _RecallCardDraft {
+  _RecallCardDraft({
+    required this.lastAt,
+    required this.intervalMinutes,
+    required this.baselineLastAt,
+    required this.baselineInterval,
+  });
+
+  DateTime lastAt;
+  int intervalMinutes;
+  final DateTime baselineLastAt;
+  final int baselineInterval;
+
+  /// 上次时刻到分钟，或间隔，相对首次默认有一项不同即算改过。
+  bool get isDirty =>
+      !_sameMinute(lastAt, baselineLastAt) || intervalMinutes != baselineInterval;
+}
+
+bool _sameMinute(DateTime a, DateTime b) =>
+    a.year == b.year &&
+    a.month == b.month &&
+    a.day == b.day &&
+    a.hour == b.hour &&
+    a.minute == b.minute;
+
 class _PredictionRecallOnboardingPanelState
     extends ConsumerState<PredictionRecallOnboardingPanel> {
   static final _timeFmt = DateFormat('M月d日 HH:mm');
@@ -46,12 +72,31 @@ class _PredictionRecallOnboardingPanelState
   /// 思考盖在当前卡上，不单独占 PageView 页（避免手滑语义混乱）。
   var _showThinking = false;
 
-  late DateTime _lastAt;
-  var _intervalMinutes = 180;
+  /// 按根 id 缓存草稿；首次进入才写入默认，切页不得覆盖。
+  final _drafts = <String, _RecallCardDraft>{};
+
+  /// 未改表单点确认时，在确认钮上方展示「请认真回忆事件」。
+  var _showRecallHint = false;
+
   String _thinkingFull = '';
   var _thinkingVisible = 0;
   Timer? _typeTimer;
   Timer? _autoAdvanceTimer;
+
+  DateTime get _lastAt {
+    final root = _current;
+    if (root == null) {
+      final now = DateTime.now();
+      return DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    }
+    return _draftFor(root.id).lastAt;
+  }
+
+  int get _intervalMinutes {
+    final root = _current;
+    if (root == null) return 180;
+    return _draftFor(root.id).intervalMinutes;
+  }
 
   /// 页数 = 各根卡片 + 收尾页。
   int get _pageCount => _queue.isEmpty ? 1 : _queue.length + 1;
@@ -70,7 +115,8 @@ class _PredictionRecallOnboardingPanelState
     super.initState();
     _queue = List<EventDefinition>.from(widget.gapRoots);
     _pageController = PageController();
-    _resetCardDefaults();
+    // 首张卡写入默认草稿与快照。
+    _ensureCurrentDraft();
   }
 
   @override
@@ -85,15 +131,33 @@ class _PredictionRecallOnboardingPanelState
   List<EventDefinition> _childEvents(EventDefinition root) =>
       childrenOf(widget.catalog, root.id);
 
-  void _resetCardDefaults() {
-    final now = DateTime.now();
-    _lastAt = DateTime(now.year, now.month, now.day, now.hour, now.minute);
-    _intervalMinutes = 180;
+  /// 首次进入该根才写入此刻+180；已有草稿原样返回。
+  _RecallCardDraft _draftFor(String rootId) {
+    return _drafts.putIfAbsent(rootId, () {
+      final now = DateTime.now();
+      final t = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+      return _RecallCardDraft(
+        lastAt: t,
+        intervalMinutes: 180,
+        baselineLastAt: t,
+        baselineInterval: 180,
+      );
+    });
+  }
+
+  void _ensureCurrentDraft() {
+    final root = _current;
+    if (root == null) return;
+    _draftFor(root.id);
   }
 
   Future<void> _goToPage(int page) async {
     if (!_pageController.hasClients) {
-      setState(() => _pageIndex = page);
+      setState(() {
+        _pageIndex = page;
+        _showRecallHint = false;
+        _ensureCurrentDraft();
+      });
       return;
     }
     await _pageController.animateToPage(
@@ -104,9 +168,16 @@ class _PredictionRecallOnboardingPanelState
     if (mounted) {
       setState(() {
         _pageIndex = page;
-        _resetCardDefaults();
+        _showRecallHint = false;
+        _ensureCurrentDraft();
       });
     }
+  }
+
+  /// 回到上一张表单；思考中 / 首张 / 收尾不得调用。
+  Future<void> _onBack() async {
+    if (_showThinking || _isFinalePage || _pageIndex <= 0) return;
+    await _goToPage(_pageIndex - 1);
   }
 
   Future<void> _onSkip() async {
@@ -123,7 +194,13 @@ class _PredictionRecallOnboardingPanelState
   Future<void> _onConfirm() async {
     final root = _current;
     if (root == null) return;
-    final interval = Duration(minutes: _intervalMinutes);
+    final draft = _draftFor(root.id);
+    // 未改过默认快照：拦截写种子，红字提示认真回忆。
+    if (!draft.isDirty) {
+      setState(() => _showRecallHint = true);
+      return;
+    }
+    final interval = Duration(minutes: draft.intervalMinutes);
     if (interval < kMinIntervalForPrediction) {
       showAppToast('间隔至少 15 分钟', tone: AppToastTone.error);
       return;
@@ -132,22 +209,29 @@ class _PredictionRecallOnboardingPanelState
     final seed = PredictionRecallSeed(
       rootEventId: root.id,
       leafEventId: root.id,
-      lastAt: _lastAt,
+      lastAt: draft.lastAt,
       interval: interval,
       occurrenceAts:
-          synthesizeOccurrenceAts(lastAt: _lastAt, interval: interval),
+          synthesizeOccurrenceAts(lastAt: draft.lastAt, interval: interval),
     );
     await ref.read(predictionRecallSeedsProvider.notifier).upsertSeed(seed);
     if (!mounted) return;
+    // 先跳过再回来确认时，必须重新打开该根推演。
+    unawaited(
+      ref.read(forecastDisabledIdsProvider.notifier).setEnabled(root.id, true),
+    );
 
     final isTime = root.parsedEventType == EventCatalogEventType.time;
     final whenLabel = isTime ? '上次结束' : '上次发生';
     _thinkingFull =
-        '好的，我记下了「${root.name}」：$whenLabel在 ${_timeFmt.format(_lastAt)}，'
-        '大概每 ${_formatInterval(_intervalMinutes)} 一次。'
+        '好的，我记下了「${root.name}」：$whenLabel在 ${_timeFmt.format(draft.lastAt)}，'
+        '大概每 ${_formatInterval(draft.intervalMinutes)} 一次。'
         '正在按你的节奏合成推演样本，为「${root.name}」量身定做智能预测…';
     _thinkingVisible = 0;
-    setState(() => _showThinking = true);
+    setState(() {
+      _showThinking = true;
+      _showRecallHint = false;
+    });
     _startTypewriter();
   }
 
@@ -205,51 +289,32 @@ class _PredictionRecallOnboardingPanelState
 
   Future<void> _pickLastAt() async {
     final root = _current;
-    final isTime = root?.parsedEventType == EventCatalogEventType.time;
+    if (root == null) return;
+    final isTime = root.parsedEventType == EventCatalogEventType.time;
     final title = isTime ? '上次结束时间' : '上次发生时间';
     final now = DateTime.now();
     final minDay = homeHistoryDateOnly(now.subtract(const Duration(days: 365)));
     final maxDay = homeHistoryDateOnly(now);
+    final draft = _draftFor(root.id);
 
-    // 与添加事件同族：先玻璃日期，再玻璃时分
-    final day = await showHomeHistoryDatePickerSheet(
+    // 单层玻璃 Sheet：默认时分，左上角切换日期。
+    final picked = await showHomeHistoryDateTimeToggleSheet(
       context,
       minimumDate: minDay,
       maximumDate: maxDay,
-      initialValue: _lastAt,
-      title: '$title · 日期',
+      initialValue: draft.lastAt,
+      title: title,
     );
-    if (!mounted || day == null) return;
-
-    final time = await showHomeHistoryTimePickerSheet(
-      context,
-      anchorDate: day,
-      initialValue: DateTime(
-        day.year,
-        day.month,
-        day.day,
-        _lastAt.hour,
-        _lastAt.minute,
-      ),
-      title: '$title · 时间',
-    );
-    if (!mounted || time == null) return;
-
-    var combined = DateTime(
-      day.year,
-      day.month,
-      day.day,
-      time.hour,
-      time.minute,
-    );
-    final latest = DateTime.now();
-    if (combined.isAfter(latest)) combined = latest;
-    setState(() => _lastAt = combined);
+    if (!mounted || picked == null) return;
+    setState(() {
+      draft.lastAt = picked;
+      _showRecallHint = false;
+    });
   }
 
   Future<void> _pickInterval() async {
     final items = <int>[
-      for (var m = 15; m <= 12 * 60; m += 15) m,
+      for (var m = 15; m <= 24 * 60; m += 15) m,
     ];
     var idx = items.indexOf(_intervalMinutes);
     if (idx < 0) idx = items.indexOf(180).clamp(0, items.length - 1);
@@ -261,7 +326,12 @@ class _PredictionRecallOnboardingPanelState
       initialIndex: idx,
     );
     if (!mounted || picked == null) return;
-    setState(() => _intervalMinutes = items[picked]);
+    final root = _current;
+    if (root == null) return;
+    setState(() {
+      _draftFor(root.id).intervalMinutes = items[picked];
+      _showRecallHint = false;
+    });
   }
 
   @override
@@ -288,13 +358,15 @@ class _PredictionRecallOnboardingPanelState
                 children: [
                   PageView.builder(
                     controller: _pageController,
-                    // 禁止用户左右拖滑；仅确认/跳过/继续程序切页
+                    // 禁止用户左右拖滑；仅确认 / 跳过 / 上一步程序切页
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _pageCount,
                     onPageChanged: (i) {
                       setState(() {
                         _pageIndex = i;
-                        if (!_isFinalePage) _resetCardDefaults();
+                        _showRecallHint = false;
+                        // 进入该页才确保草稿；已有则不覆盖。
+                        _ensureCurrentDraft();
                       });
                     },
                     itemBuilder: (context, index) {
@@ -332,15 +404,34 @@ class _PredictionRecallOnboardingPanelState
               )
             else
               Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  TextButton(
-                    onPressed: () => unawaited(_onSkip()),
-                    child: const Text('跳过此事件'),
-                  ),
+                  if (_pageIndex > 0)
+                    TextButton(
+                      onPressed: () => unawaited(_onBack()),
+                      child: const Text('上一步'),
+                    ),
                   const Spacer(),
-                  FilledButton(
-                    onPressed: () => unawaited(_onConfirm()),
-                    child: const Text('确认'),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_showRecallHint) ...[
+                        Text(
+                          '请认真回忆事件',
+                          style: TextStyle(
+                            fontSize: 12,
+                            // 语义错误色走 Theme ColorScheme，禁止 Colors.red / 手写 hex。
+                            color: scheme.error,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                      ],
+                      FilledButton(
+                        onPressed: () => unawaited(_onConfirm()),
+                        child: const Text('确认'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -381,6 +472,8 @@ class _PredictionRecallOnboardingPanelState
               Expanded(
                 child: Text(
                   root.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
@@ -388,11 +481,19 @@ class _PredictionRecallOnboardingPanelState
                   ),
                 ),
               ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: interactive ? () => unawaited(_onSkip()) : null,
+                child: const Text('跳过'),
+              ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            isTime ? '还记得上次结束是什么时候吗？' : '还记得上次发生是什么时候吗？',
+            isTime ? '还记得上次结束「${root.name}」是什么时候吗？' : '还记得上次发生「${root.name}」是什么时候吗？',
             style: TextStyle(
               fontSize: 15,
               color: onShell.withValues(alpha: 0.75),
@@ -421,14 +522,23 @@ class _PredictionRecallOnboardingPanelState
             ),
             const SizedBox(height: 8),
             Wrap(
-              spacing: 8,
+              spacing: 10,
               runSpacing: 8,
               children: [
                 for (final kid in kids)
-                  Chip(
-                    label: Text(kid.name),
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      EventLogo(definition: kid, size: 20),
+                      const SizedBox(width: 6),
+                      Text(
+                        kid.name,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: onShell.withValues(alpha: 0.82),
+                        ),
+                      ),
+                    ],
                   ),
               ],
             ),

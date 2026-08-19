@@ -862,7 +862,7 @@ class SmartPredictionScreen extends ConsumerWidget {
     );
     // 横屏子树挂暗壳 Theme，使 AppColor / chip / 弹幕与壳一体；竖屏不覆盖。
     if (landscapeTheme != null) {
-      host = Theme(data: landscapeTheme, child: host);
+      // host = Theme(data: landscapeTheme, child: host);
     }
     return host;
   }
