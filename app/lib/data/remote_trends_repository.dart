@@ -42,18 +42,18 @@ class RemoteTrendsRepository implements TrendsRepository {
   }
 
   @override
-  Future<TrendSeries> loadSeries(
+  Future<TrendPieceBundle> loadPieceBundle(
     String eventKey,
     DateTime startDate,
     DateTime endDate,
   ) async {
     final dn = _deviceNo;
     if (dn == null || dn.isEmpty) {
-      return TrendSeries(eventKey: eventKey, points: const []);
+      return TrendPieceBundle.empty(eventKey);
     }
     final eventId = int.tryParse(eventKey) ?? 0;
     if (eventId <= 0) {
-      return TrendSeries(eventKey: eventKey, points: const []);
+      return TrendPieceBundle.empty(eventKey);
     }
     final start = TrendsDateRangeLogic.dateOnly(startDate);
     final end = TrendsDateRangeLogic.dateOnly(endDate);
@@ -69,7 +69,7 @@ class RemoteTrendsRepository implements TrendsRepository {
         },
       );
       if (data == null) {
-        return TrendSeries(eventKey: eventKey, points: const []);
+        return TrendPieceBundle.empty(eventKey);
       }
       final list = data['list'] as List<dynamic>? ?? const [];
       final pts = <TrendPoint>[];
@@ -79,17 +79,16 @@ class RemoteTrendsRepository implements TrendsRepository {
         if (pt != null) pts.add(pt);
       }
       pts.sort((a, b) => a.t.compareTo(b.t));
-      final filled = normalizeTrendSeriesForBounds(
-        pts,
-        start,
-        end,
-        bounds.$1,
-        bounds.$2,
+      // 近 N 日图恒按日分桶（即使 raw 为空也补齐日期轴便于选柱）。
+      final daily = fillTrendBucketsDaily(
+        raw: pts,
+        startSec: bounds.$1,
+        endSec: bounds.$2,
       );
-      return TrendSeries(eventKey: eventKey, points: filled);
+      return TrendPieceBundle(eventKey: eventKey, raw: pts, daily: daily);
     } on ApiBusinessException catch (e) {
       _toast(e.message);
-      return TrendSeries(eventKey: eventKey, points: const []);
+      return TrendPieceBundle.empty(eventKey);
     }
   }
 

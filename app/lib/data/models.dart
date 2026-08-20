@@ -139,6 +139,28 @@ class TrendSeries {
   final List<TrendPoint> points;
 }
 
+/// 一次 piece 拉取：原始发生点 + 按日聚合桶（供近 N 日图与某日过滤）。
+@immutable
+class TrendPieceBundle {
+  const TrendPieceBundle({
+    required this.eventKey,
+    required this.raw,
+    required this.daily,
+  });
+
+  final String eventKey;
+  /// 单条 piece 映射的发生点（含具体时刻）。
+  final List<TrendPoint> raw;
+  /// 区间内按自然日分桶（缺失日补 0）。
+  final List<TrendPoint> daily;
+
+  static TrendPieceBundle empty(String eventKey) => TrendPieceBundle(
+        eventKey: eventKey,
+        raw: const [],
+        daily: const [],
+      );
+}
+
 @immutable
 class VersionInfo {
   const VersionInfo({

@@ -218,6 +218,7 @@ List<EventDefinition> parseEventOptionsList(List<dynamic> list) {
     out.add(EventDefinition(
       id: def.id,
       name: def.name,
+      unit: def.unit,
       logoUrl: logo == null ? null : resolveEventLogoUrl(logo),
       colorRaw: def.colorRaw,
       eventType: def.eventType,

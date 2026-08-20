@@ -8,7 +8,19 @@ class TrendsDateRange {
   final DateTime end;
 }
 
-/// 趋势日期范围：校验、默认、持久化。
+/// 趋势范围预设（含首尾自然日天数）。
+enum TrendsRangePreset {
+  days7(7, '近7日'),
+  days15(15, '近15日'),
+  days30(30, '近1个月');
+
+  const TrendsRangePreset(this.dayCount, this.label);
+
+  final int dayCount;
+  final String label;
+}
+
+/// 趋势日期范围：校验、默认、预设推导。
 class TrendsDateRangeLogic {
   TrendsDateRangeLogic._();
 
@@ -27,15 +39,19 @@ class TrendsDateRangeLogic {
     return inclusiveCalendarDays(start, end) <= maxInclusiveDays;
   }
 
-  static DateTime mondayOfWeek(DateTime ref) {
-    final d = dateOnly(ref);
-    return d.subtract(Duration(days: d.weekday - DateTime.monday));
+  /// 由预设推导：结束日=今日，开始日=今日往前 n−1 天。
+  static TrendsDateRange rangeForPreset(
+    TrendsRangePreset preset, [
+    DateTime? now,
+  ]) {
+    final today = dateOnly(now ?? DateTime.now());
+    final start = today.subtract(Duration(days: preset.dayCount - 1));
+    return TrendsDateRange(start: start, end: today);
   }
 
-  static TrendsDateRange defaultRange() {
-    final today = dateOnly(DateTime.now());
-    return TrendsDateRange(start: mondayOfWeek(today), end: today);
-  }
+  /// 默认近7日（不再使用「本周一至今天」）。
+  static TrendsDateRange defaultRange([DateTime? now]) =>
+      rangeForPreset(TrendsRangePreset.days7, now);
 
   static TrendsDateRange clampEndToToday(TrendsDateRange range) {
     final today = dateOnly(DateTime.now());
@@ -52,10 +68,15 @@ class TrendsDateRangeLogic {
     return (s.millisecondsSinceEpoch ~/ 1000, e.millisecondsSinceEpoch ~/ 1000);
   }
 
-  static bool isSameDay(DateTime a, DateTime b) =>
-      dateOnly(a) == dateOnly(b);
+  static bool isSameDay(DateTime a, DateTime b) => dateOnly(a) == dateOnly(b);
+
+  static bool dayInRange(DateTime day, DateTime start, DateTime end) {
+    final d = dateOnly(day);
+    return !d.isBefore(dateOnly(start)) && !d.isAfter(dateOnly(end));
+  }
 }
 
+/// 旧版范围持久化（趋势页已不再读写；保留以免其它残留引用编译失败）。
 class TrendsDateRangeStore {
   static const _startKey = 'trends_range_start_v1';
   static const _endKey = 'trends_range_end_v1';

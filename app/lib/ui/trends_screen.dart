@@ -12,13 +12,14 @@ import '../data/event_catalog_tree.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/models.dart';
-import '../data/trend_series_bucket.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../theme/app_color.dart';
 import 'event_logo.dart';
 import 'home_history_edit_glass_panel.dart';
-import 'trend_glass_bar_chart.dart';
+import 'trend_day_detail_chart.dart';
+import 'trend_n_day_bar_chart.dart';
 import 'trends_date_range_glass_sheet.dart';
 import 'trends_event_logo_fly_overlay.dart';
 import 'widgets/app_glass_overlay.dart';
@@ -31,42 +32,34 @@ class TrendsScreen extends ConsumerStatefulWidget {
 }
 
 class _TrendsScreenState extends ConsumerState<TrendsScreen> {
-  static final _rangeFmt = DateFormat('MM-dd');
-  static const _headerLogoSize = 52.0;
+  static final _dayTitleFmt = DateFormat('MM-dd');
+  static const _chromeLogoSize = 28.0;
 
+  TrendsRangePreset _preset = TrendsRangePreset.days7;
   DateTime? _startDate;
   DateTime? _endDate;
+  DateTime? _selectedDay;
   String? _selectedKey;
-  TrendSeries? _series;
+  TrendPieceBundle? _bundle;
   var _loadingSeries = false;
   var _seriesLoadSeq = 0;
   var _selectionReady = false;
   var _barAnimationToken = 0;
   var _holdIntroBarsAtZero = false;
-  var _suppressIntroEmptyState = false;
-  final GlobalKey _headerLogoKey = GlobalKey();
-  double _flyBaseLogoSize = _headerLogoSize;
+  final GlobalKey _chromeLogoKey = GlobalKey();
+  double _flyBaseLogoSize = _chromeLogoSize;
   EventDefinition? _flyingEvent;
   Offset? _flyTargetCenter;
   var _flySession = 0;
   Completer<void>? _flyCompleter;
 
-  TrendBucketMode get _bucketMode {
-    final start = _startDate;
-    final end = _endDate;
-    if (start == null || end == null) return TrendBucketMode.daily;
-    return trendBucketModeForDates(start, end);
-  }
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final memory = await TrendsDateRangeStore.loadValid();
-      final range = memory ?? TrendsDateRangeLogic.defaultRange();
+      // 默认近7日，不恢复上次范围。
+      _applyPreset(TrendsRangePreset.days7, resetSelectedIfNeeded: true);
       final rememberedKey = await TrendsSelectedEventStore.load();
-      _startDate = range.start;
-      _endDate = range.end;
       await ref.read(eventCatalogProvider.notifier).loadFromDisk();
       _syncSelection(preferredKey: rememberedKey);
       _selectionReady = true;
@@ -75,12 +68,25 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
         unawaited(TrendsSelectedEventStore.save(selected));
       }
       _holdIntroBarsAtZero = true;
-      _suppressIntroEmptyState = true;
       if (mounted) setState(() {});
       final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider).items);
-      await _loadSeriesWithIntroAnimation(selectedEvent);
+      await _loadBundleWithIntroAnimation(selectedEvent);
       unawaited(ref.read(eventCatalogProvider.notifier).refreshFromRemote());
     });
+  }
+
+  void _applyPreset(TrendsRangePreset preset, {required bool resetSelectedIfNeeded}) {
+    final range = TrendsDateRangeLogic.rangeForPreset(preset);
+    _preset = preset;
+    _startDate = range.start;
+    _endDate = range.end;
+    final today = TrendsDateRangeLogic.dateOnly(DateTime.now());
+    final sel = _selectedDay;
+    if (sel == null ||
+        resetSelectedIfNeeded ||
+        !TrendsDateRangeLogic.dayInRange(sel, range.start, range.end)) {
+      _selectedDay = today;
+    }
   }
 
   /// 随目录更新选中项；仅当选中 [eventId] 变化时由调用方触发拉数。
@@ -104,49 +110,47 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     }
   }
 
-  void _scheduleSeriesLoadIfReady() {
+  void _scheduleBundleLoadIfReady() {
     if (_selectedKey != null && _startDate != null && _endDate != null) {
-      unawaited(_loadSeriesForSelection());
+      unawaited(_loadBundleForSelection());
     }
   }
 
-  Future<void> _loadSeriesWithIntroAnimation(EventDefinition? selectedEvent) async {
+  Future<void> _loadBundleWithIntroAnimation(EventDefinition? selectedEvent) async {
     final key = _selectedKey;
     final start = _startDate;
     final end = _endDate;
     if (key == null || start == null || end == null) {
       if (mounted) {
         setState(() {
-          _series = null;
+          _bundle = null;
           _holdIntroBarsAtZero = false;
-          _suppressIntroEmptyState = false;
         });
       }
       return;
     }
     final seq = ++_seriesLoadSeq;
     final repo = ref.read(trendsRepositoryProvider);
-    final future = repo.loadSeries(key, start, end);
+    final future = repo.loadPieceBundle(key, start, end);
     unawaited(_playEventLogoFlyAnimation(selectedEvent));
     final s = await future;
     if (!mounted || seq != _seriesLoadSeq) return;
     setState(() {
-      _series = s;
+      _bundle = s;
       _loadingSeries = false;
       _barAnimationToken++;
       _holdIntroBarsAtZero = false;
-      _suppressIntroEmptyState = false;
     });
   }
 
-  Future<void> _loadSeriesForSelection() async {
+  Future<void> _loadBundleForSelection() async {
     final key = _selectedKey;
     final start = _startDate;
     final end = _endDate;
     if (key == null || start == null || end == null) {
       if (mounted) {
         setState(() {
-          _series = null;
+          _bundle = null;
           _holdIntroBarsAtZero = false;
         });
       }
@@ -155,10 +159,10 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final seq = ++_seriesLoadSeq;
     setState(() => _loadingSeries = true);
     final repo = ref.read(trendsRepositoryProvider);
-    final s = await repo.loadSeries(key, start, end);
+    final s = await repo.loadPieceBundle(key, start, end);
     if (!mounted || seq != _seriesLoadSeq) return;
     setState(() {
-      _series = s;
+      _bundle = s;
       _loadingSeries = false;
       _holdIntroBarsAtZero = false;
     });
@@ -170,34 +174,30 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     return lookupEventById(catalog, key);
   }
 
-  String _rangeLabel() {
-    final start = _startDate;
-    final end = _endDate;
-    if (start == null || end == null) return '选择日期';
-    return '${_rangeFmt.format(start)} — ${_rangeFmt.format(end)}';
+  List<TrendPoint> _rawForSelectedDay() {
+    final day = _selectedDay;
+    final raw = _bundle?.raw ?? const <TrendPoint>[];
+    if (day == null) return const [];
+    final key = TrendsDateRangeLogic.dateOnly(day);
+    return raw.where((p) {
+      final l = p.t.toLocal();
+      return DateTime(l.year, l.month, l.day) == key;
+    }).toList();
   }
 
-  Future<void> _openDateRangePicker() async {
-    final start = _startDate;
-    final end = _endDate;
-    if (start == null || end == null) return;
+  Future<void> _openRangePresetPicker() async {
     final selectedEvent = _selectedEvent(ref.read(eventCatalogProvider).items);
     final accent = resolveEventColor(context, selectedEvent);
-    final picked = await showTrendsDateRangeGlassSheet(
+    final picked = await showTrendsRangePresetGlassSheet(
       context,
-      initialStart: start,
-      initialEnd: end,
+      initial: _preset,
       eventAccent: accent,
     );
     if (picked == null || !mounted) return;
-    final newStart = picked.start;
-    final newEnd = picked.end;
-    await TrendsDateRangeStore.save(picked);
     setState(() {
-      _startDate = newStart;
-      _endDate = newEnd;
+      _applyPreset(picked, resetSelectedIfNeeded: false);
     });
-    await _loadSeriesForSelection();
+    await _loadBundleForSelection();
   }
 
   Future<void> _openEventPicker(List<EventDefinition> catalog) async {
@@ -255,27 +255,27 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     }
     final seq = ++_seriesLoadSeq;
     final repo = ref.read(trendsRepositoryProvider);
-    final future = repo.loadSeries(key, start, end);
+    final future = repo.loadPieceBundle(key, start, end);
     unawaited(_playEventLogoFlyAnimation(selectedEvent));
     final s = await future;
     if (!mounted || seq != _seriesLoadSeq) return;
     setState(() {
-      _series = s;
+      _bundle = s;
       _barAnimationToken++;
       _holdIntroBarsAtZero = false;
     });
   }
 
-  Offset? _resolveHeaderLogoCenter() {
-    final ctx = _headerLogoKey.currentContext;
+  Offset? _resolveChromeLogoCenter() {
+    final ctx = _chromeLogoKey.currentContext;
     if (ctx == null) return null;
     final box = ctx.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return null;
     return box.localToGlobal(box.size.center(Offset.zero));
   }
 
-  double? _resolveHeaderLogoSize() {
-    final ctx = _headerLogoKey.currentContext;
+  double? _resolveChromeLogoSize() {
+    final ctx = _chromeLogoKey.currentContext;
     if (ctx == null) return null;
     final box = ctx.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return null;
@@ -290,10 +290,9 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
     final safeTop = MediaQuery.paddingOf(context).top;
-    final width = MediaQuery.sizeOf(context).width;
-    final fallbackEnd = Offset(width / 2, safeTop + 92);
-    final end = _resolveHeaderLogoCenter() ?? fallbackEnd;
-    final baseLogoSize = _resolveHeaderLogoSize() ?? _headerLogoSize;
+    final fallbackEnd = Offset(28, safeTop + 28);
+    final end = _resolveChromeLogoCenter() ?? fallbackEnd;
+    final baseLogoSize = _resolveChromeLogoSize() ?? _chromeLogoSize;
     final completer = Completer<void>();
     setState(() {
       _flySession++;
@@ -316,6 +315,148 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     });
   }
 
+  Widget _chartTitleRow({
+    required EventDefinition? event,
+    required Color accent,
+    required String title,
+    String? subtitle,
+    bool showLogoBesideTitle = true,
+    double logoSize = 18,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (showLogoBesideTitle && event != null) ...[
+              EventLogo(definition: event, size: logoSize),
+              const SizedBox(width: 6),
+            ],
+            Flexible(
+              child: Text(
+                title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: accent,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (event != null) ...[
+                EventLogo(definition: event, size: 12),
+                const SizedBox(width: 4),
+              ],
+              Flexible(
+                child: Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: accent.withValues(alpha: 0.85),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDualCharts({
+    required EventDefinition? selectedEvent,
+    required Color accent,
+    required bool landscape,
+  }) {
+    final day = _selectedDay ?? TrendsDateRangeLogic.dateOnly(DateTime.now());
+    final nDayTitle =
+        '${selectedEvent?.name ?? ''}近${_preset.dayCount}日总量趋势图';
+    final dayMain = _dayTitleFmt.format(day);
+    final daySub = '${selectedEvent?.name ?? ''}24小时内趋势图';
+    final rawDay = _rawForSelectedDay();
+
+    final nDayPane = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _chartTitleRow(event: selectedEvent, accent: accent, title: nDayTitle),
+        const SizedBox(height: 6),
+        Expanded(
+          child: TrendNDayBarChart(
+            daily: _bundle?.daily ?? const [],
+            raw: _bundle?.raw ?? const [],
+            accentColor: accent,
+            eventType: selectedEvent?.parsedEventType,
+            unit: selectedEvent?.unit,
+            selectedDay: day,
+            onSelectDay: (d) {
+              setState(() {
+                _selectedDay = TrendsDateRangeLogic.dateOnly(d);
+              });
+            },
+            barAnimationToken: _barAnimationToken,
+            holdAtZeroBeforeAnimation: _holdIntroBarsAtZero,
+          ),
+        ),
+      ],
+    );
+
+    final dayPane = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _chartTitleRow(
+          event: selectedEvent,
+          accent: accent,
+          title: dayMain,
+          subtitle: daySub,
+          showLogoBesideTitle: false,
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: TrendDayDetailChart(
+            dayLocal: day,
+            rawForDay: rawDay,
+            accentColor: accent,
+            eventType: selectedEvent?.parsedEventType,
+            unit: selectedEvent?.unit,
+          ),
+        ),
+      ],
+    );
+
+    if (landscape) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: nDayPane),
+          const SizedBox(width: 10),
+          Expanded(child: dayPane),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: nDayPane),
+        const SizedBox(height: 10),
+        Expanded(child: dayPane),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final needLoginMask = !ref.watch(sessionProvider.select((s) => s.isLoggedIn));
@@ -331,7 +472,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
         if (selected != null) {
           unawaited(TrendsSelectedEventStore.save(selected));
         }
-        _scheduleSeriesLoadIfReady();
+        _scheduleBundleLoadIfReady();
       }
     });
     final selectedEvent = _selectedEvent(catalog);
@@ -339,6 +480,8 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final rangeReady = _startDate != null && _endDate != null;
     final catalogLoading = catalogState.isRefreshing ||
         (!catalogState.remoteLoadAttempted && catalog.isEmpty);
+    final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final topPad = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
       body: Stack(
@@ -362,35 +505,126 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
                 )
               : !rangeReady
                   ? const Center(child: CircularProgressIndicator())
-                  : _loadingSeries
+                  : _loadingSeries && _bundle == null
                       ? const Center(child: CircularProgressIndicator())
                       : Stack(
                           fit: StackFit.expand,
                           children: [
-                            TrendGlassBarChart(
-                              series: _series,
-                              bucketMode: _bucketMode,
-                              accentColor: accent,
-                              chartTitle: TrendGlassBarChart.chartTitleForEvent(
-                                selectedEvent?.name,
+                            HistoryEditGlassPanel(
+                              eventAccent: accent,
+                              borderRadius: 0,
+                              contentPadding: EdgeInsets.fromLTRB(
+                                8,
+                                topPad + 8,
+                                16,
+                                12,
                               ),
-                              dateRangeLabel: _rangeLabel(),
-                              headerTopOffset: MediaQuery.paddingOf(context).top + 8,
-                              barAnimationToken: _barAnimationToken,
-                              holdAtZeroBeforeAnimation: _holdIntroBarsAtZero,
-                              suppressEmptyState: _suppressIntroEmptyState,
-                              headerLogo: selectedEvent == null
-                                  ? null
-                                  : Opacity(
-                                      opacity: _flyingEvent != null ? 0 : 1,
-                                      child: EventLogo(
-                                        key: _headerLogoKey,
-                                        definition: selectedEvent,
-                                        size: _headerLogoSize,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // 选择行：返回 + logo/事件名 + 范围 chip，纵向居中。
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      IconButton(
+                                        onPressed: () => context.pop(),
+                                        icon: Icon(
+                                          Icons.arrow_back,
+                                          color: accent,
+                                        ),
+                                        tooltip: '返回',
                                       ),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () =>
+                                              unawaited(_openEventPicker(catalog)),
+                                          child: Row(
+                                            children: [
+                                              if (selectedEvent != null)
+                                                Opacity(
+                                                  opacity:
+                                                      _flyingEvent != null ? 0 : 1,
+                                                  child: EventLogo(
+                                                    key: _chromeLogoKey,
+                                                    definition: selectedEvent,
+                                                    size: _chromeLogoSize,
+                                                  ),
+                                                ),
+                                              if (selectedEvent != null)
+                                                const SizedBox(width: 8),
+                                              Flexible(
+                                                child: Text(
+                                                  selectedEvent?.name ?? '选择事件',
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 17,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: accent,
+                                                  ),
+                                                ),
+                                              ),
+                                              Icon(
+                                                Icons.expand_more,
+                                                color: accent,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () =>
+                                            unawaited(_openRangePresetPicker()),
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(20),
+                                            color: accent.withValues(alpha: 0.10),
+                                            border: Border.all(
+                                              color: accent,
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 6,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _preset.label,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: accent,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 2),
+                                                Icon(
+                                                  Icons.expand_more,
+                                                  size: 18,
+                                                  color: accent,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Expanded(
+                                    child: _buildDualCharts(
+                                      selectedEvent: selectedEvent,
+                                      accent: accent,
+                                      landscape: landscape,
                                     ),
-                              onTitleTap: () => unawaited(_openEventPicker(catalog)),
-                              onDateRangeTap: () => unawaited(_openDateRangePicker()),
+                                  ),
+                                ],
+                              ),
                             ),
                             if (needLoginMask)
                               ColoredBox(
@@ -424,21 +658,27 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
                                     event: _flyingEvent!,
                                     targetGlobalCenter: _flyTargetCenter!,
                                     baseLogoSize: _flyBaseLogoSize,
-                                    onComplete: () => _onFlyOverlayComplete(_flySession),
+                                    onComplete: () =>
+                                        _onFlyOverlayComplete(_flySession),
                                   ),
                                 ),
                               ),
                           ],
                         ),
-          Positioned(
-            left: 8,
-            top: MediaQuery.paddingOf(context).top + 4,
-            child: IconButton(
-              onPressed: () => context.pop(),
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              tooltip: '返回',
+          // 目录/加载态无选择行时，保留可退出的返回键。
+          if (catalog.isEmpty || !rangeReady || (_loadingSeries && _bundle == null))
+            Positioned(
+              left: 8,
+              top: topPad + 4,
+              child: IconButton(
+                onPressed: () => context.pop(),
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: AppColor.textPrimary(context),
+                ),
+                tooltip: '返回',
+              ),
             ),
-          ),
         ],
       ),
     );

@@ -91,8 +91,10 @@ class ChartAxisGranularity {
     required double maxY,
     required bool landscape,
     required bool dense,
+    /// 非空时覆盖 [yLabelCount]（趋势双图强制 Y=3）。
+    int? forceYLabelCount,
   }) {
-    final count = yLabelCount(landscape);
+    final count = forceYLabelCount ?? yLabelCount(landscape);
     if (maxY <= 0 || count < 2) {
       return const SideTitles(showTitles: false);
     }

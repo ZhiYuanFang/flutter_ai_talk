@@ -105,7 +105,7 @@ class _ThemePaletteSheetBody extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '自动夜空',
+                    '自动入夜',
                     style: TextStyle(
                       fontSize: 13,
                       color: onSheet.withValues(alpha: 0.75),

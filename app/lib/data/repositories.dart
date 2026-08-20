@@ -39,8 +39,8 @@ abstract class AuthRepository {
 abstract class TrendsRepository {
   Future<List<TrendCatalogItem>> loadCatalog();
 
-  /// [startDate]、[endDate] 为本地自然日（含起止两日）。
-  Future<TrendSeries> loadSeries(
+  /// [startDate]、[endDate] 为本地自然日（含起止两日）；返回 raw + 日桶。
+  Future<TrendPieceBundle> loadPieceBundle(
     String eventKey,
     DateTime startDate,
     DateTime endDate,

@@ -2562,24 +2562,22 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                     ),
                   ),
                   // 当没有预测数据的时候，不展示开关
-                  if (pred != null) ...[
-                    Tooltip(
-                      message: '预测推演',
-                      child: SizedBox(
-                        width: switchColumnWidth,
-                        height: switchColumnHeight,
-                        child: FittedBox(
-                          fit: BoxFit.contain,
-                          child: Switch.adaptive(
-                            value: enabled,
-                            onChanged: widget.onToggle,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
+                  Tooltip(
+                    message: '预测推演',
+                    child: SizedBox(
+                      width: switchColumnWidth,
+                      height: switchColumnHeight,
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Switch.adaptive(
+                          value: enabled,
+                          onChanged: widget.onToggle,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
                         ),
                       ),
                     ),
-                  ],
+                  ),
                 ],
               ),
               Row(

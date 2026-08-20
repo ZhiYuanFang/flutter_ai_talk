@@ -118,7 +118,9 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   void _scheduleHistoryBootstrapAfterBind() {
     unawaited(ref.read(homeHistoryProvider.notifier).onDeviceNoChanged());
     unawaited(
-      ref.read(predictionRangeHistoryProvider.notifier).ensureLoaded(force: true),
+      ref
+          .read(predictionRangeHistoryProvider.notifier)
+          .ensureLoaded(force: true),
     );
   }
 
@@ -128,8 +130,10 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     setState(() => _busy = true);
     try {
       final api = ref.read(authorizedApiClientProvider);
-      await api.postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
-      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
+      await api
+          .postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
+      final synced =
+          await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
       if (!synced) {
         if (mounted) {
           ref.showApiToastError('会话刷新失败，请重新登录后再试');
@@ -140,7 +144,9 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       ref.invalidate(settingsBabyProvider);
       _scheduleHistoryBootstrapAfterBind();
       unawaited(
-        ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
+        ref
+            .read(feedRepositoryProvider)
+            .reconnectHistoryWebSocket(resetStrike: true),
       );
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
@@ -167,6 +173,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     }
 
     setState(() => _busy = true);
+    var shouldPop = false;
     try {
       final api = ref.read(authorizedApiClientProvider);
       final d = _birth.value;
@@ -189,7 +196,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         ref.showApiToastError('创建成功但未返回宝宝ID');
         return;
       }
-      final synced = await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: dn);
+      final synced =
+          await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: dn);
       if (!synced) {
         if (mounted) {
           ref.showApiToastError('会话刷新失败，请重新登录后再试');
@@ -197,15 +205,19 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
         return;
       }
       await ref.read(deviceNoNotifierProvider.notifier).setLocal(dn);
+      shouldPop = true;
       ref.invalidate(settingsBabyProvider);
       _scheduleHistoryBootstrapAfterBind();
       unawaited(
-        ref.read(feedRepositoryProvider).reconnectHistoryWebSocket(resetStrike: true),
+        ref
+            .read(feedRepositoryProvider)
+            .reconnectHistoryWebSocket(resetStrike: true),
       );
       if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
     } finally {
+       if (mounted && shouldPop) context.pop(true);
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -214,11 +226,13 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tokens = visualTokensOf(context);
-    final isDark = tokens?.isDarkShell ?? (Theme.of(context).brightness == Brightness.dark);
+    final isDark = tokens?.isDarkShell ??
+        (Theme.of(context).brightness == Brightness.dark);
 
     // 背景渐变：随主色调变化
     final bgStart = tokens?.shellColor ?? scheme.surface;
-    final bgEnd = Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
+    final bgEnd =
+        Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
@@ -255,7 +269,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                   anchorKey: _focusedAuthAnchor,
                   child: SingleChildScrollView(
                     controller: _scrollCtrl,
-                    padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.viewInsetsOf(context).bottom),
+                    padding: EdgeInsets.fromLTRB(24, 0, 24,
+                        16 + MediaQuery.viewInsetsOf(context).bottom),
                     child: _mode == _BabyBindMode.bind
                         ? _buildBindCard(context, scheme, isDark)
                         : _buildCreateCard(context, scheme, isDark),
@@ -328,7 +343,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
             ),
           ),
@@ -346,7 +362,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     );
   }
 
-  Widget _buildCreateCard(BuildContext context, ColorScheme scheme, bool isDark) {
+  Widget _buildCreateCard(
+      BuildContext context, ColorScheme scheme, bool isDark) {
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,7 +393,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
             ),
           ),
@@ -395,7 +413,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                   if (picked != null) _birth.value = picked;
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     color: AppColor.fieldFill(context),
                     borderRadius: BorderRadius.circular(12),
@@ -403,11 +422,12 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
                   child: Row(
                     children: [
                       Text(
-                         HomeWidgetRowPayload.isoDateUtc(d),
+                        HomeWidgetRowPayload.isoDateUtc(d),
                         style: const TextStyle(fontSize: 16),
                       ),
                       const Spacer(),
-                      Icon(Icons.calendar_today, size: 18, color: scheme.primary),
+                      Icon(Icons.calendar_today,
+                          size: 18, color: scheme.primary),
                     ],
                   ),
                 ),
@@ -471,17 +491,21 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           Expanded(
             flex: 2,
             child: FilledButton(
-              onPressed: _busy ? null : (_mode == _BabyBindMode.bind ? _bind : _create),
+              onPressed: _busy
+                  ? null
+                  : (_mode == _BabyBindMode.bind ? _bind : _create),
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary.withValues(alpha: 0.8),
                 foregroundColor: AppColor.onPrimary(context),
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(99)),
                 elevation: 0,
               ),
               child: Text(
                 _busy ? '处理中...' : '确认',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
           ),
@@ -528,7 +552,9 @@ class _ModeTab extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? scheme.primary : scheme.primary.withValues(alpha: 0.7),
+              color: selected
+                  ? scheme.primary
+                  : scheme.primary.withValues(alpha: 0.7),
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
               fontSize: 15,
             ),
@@ -611,4 +637,3 @@ class _SexChip extends StatelessWidget {
     );
   }
 }
-

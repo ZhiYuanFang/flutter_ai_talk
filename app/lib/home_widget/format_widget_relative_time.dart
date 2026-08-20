@@ -55,12 +55,13 @@ String formatPredictionCountdownHms(DateTime nextAt, DateTime now,
 String formatPredictionGridRelative(DateTime nextAt, DateTime now,
     {required bool overdue}) {
   if (overdue) {
-    var d = now.difference(nextAt);
-    if (d.isNegative) d = Duration.zero;
-    if (d.inMinutes < 1) return '超时 1 分钟';
-    if (d.inMinutes < 60) return '超时 ${d.inMinutes} 分钟';
-    if (d.inHours < 24) return '超时 ${d.inHours} 小时';
-    return '超时 ${d.inDays} 天';
+    // var d = now.difference(nextAt);
+    // if (d.isNegative) d = Duration.zero;
+    // if (d.inMinutes < 1) return '超时 1 分钟';
+    // if (d.inMinutes < 60) return '超时 ${d.inMinutes} 分钟';
+    // if (d.inHours < 24) return '超时 ${d.inHours} 小时';
+    // return '超时 ${d.inDays} 天';
+    return '已超时';
   }
   var d = nextAt.difference(now);
   if (d.isNegative) d = Duration.zero;
