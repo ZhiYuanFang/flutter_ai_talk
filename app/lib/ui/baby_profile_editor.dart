@@ -154,7 +154,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
       ref.invalidate(settingsBabyProvider);
       ref.read(babySexProvider.notifier).state = profile.sex;
       await persistCachedBabySex(profile.sex);
-      await syncHomeWidgetFromRef(ref);
+      // await syncHomeWidgetFromRef(ref);
       if (!mounted) return;
       showAppToast('宝宝信息已保存', tone: AppToastTone.success);
       widget.onSaved?.call();
