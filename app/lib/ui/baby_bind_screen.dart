@@ -148,7 +148,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             .read(feedRepositoryProvider)
             .reconnectHistoryWebSocket(resetStrike: true),
       );
-      if (mounted) context.pop(true);
+      if (mounted) GoRouter.of(context).go('/home');
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
     } finally {
@@ -213,11 +213,11 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
             .read(feedRepositoryProvider)
             .reconnectHistoryWebSocket(resetStrike: true),
       );
-      if (mounted) context.pop(true);
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
     } finally {
-       if (mounted && shouldPop) context.pop(true);
+      // 跳转到主页
+       if (mounted && shouldPop) GoRouter.of(context).go('/home');
       if (mounted) setState(() => _busy = false);
     }
   }

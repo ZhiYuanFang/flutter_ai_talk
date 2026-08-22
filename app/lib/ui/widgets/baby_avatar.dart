@@ -31,7 +31,6 @@ class BabyAvatar extends ConsumerStatefulWidget {
 class _BabyAvatarState extends ConsumerState<BabyAvatar> {
   File? _file;
   var _loading = true;
-  var _lastRevision = -1;
 
   @override
   void initState() {
@@ -58,6 +57,12 @@ class _BabyAvatarState extends ConsumerState<BabyAvatar> {
       return;
     }
     setState(() => _loading = true);
+// 清掉旧缓存
+    if (_file != null) {
+      final oldProvider = FileImage(_file!);
+      await oldProvider.evict();
+    }
+
     final file = await BabyAvatarLocalStore.resolveFile(widget.babyId);
     if (!mounted) return;
     setState(() {
@@ -71,18 +76,19 @@ class _BabyAvatarState extends ConsumerState<BabyAvatar> {
         BabySex.female => BabyProfileClayTheme.accentPink,
         BabySex.unknown => const Color(0xFF9E9E9E),
       };
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    ref.listenManual(babyAvatarRevisionProvider, (previous, next) {
+      if (previous != null && previous != next && mounted) {
+        _reload();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 选图落盘后 revision 自增，触发重载
     final revision = ref.watch(babyAvatarRevisionProvider);
-    if (revision != _lastRevision) {
-      _lastRevision = revision;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _reload();
-      });
-    }
-
     final diameter = widget.radius * 2;
     final child = _loading
         ? SizedBox(
@@ -97,6 +103,7 @@ class _BabyAvatarState extends ConsumerState<BabyAvatar> {
             ),
           )
         : CircleAvatar(
+            key: ValueKey(revision),
             radius: widget.radius,
             backgroundColor: _file == null
                 ? _placeholderColor.withValues(alpha: 0.25)
