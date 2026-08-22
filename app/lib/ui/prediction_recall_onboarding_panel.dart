@@ -28,7 +28,9 @@ class PredictionRecallOnboardingPanel extends ConsumerStatefulWidget {
 
   final List<EventDefinition> gapRoots;
   final List<EventDefinition> catalog;
-  final VoidCallback onFinished;
+
+  /// [permanentDismiss] 为 true 时标记本空历史周期永久收尾；全跳过须为 false 以便再开。
+  final void Function({required bool permanentDismiss}) onFinished;
 
   @override
   ConsumerState<PredictionRecallOnboardingPanel> createState() =>
@@ -51,7 +53,8 @@ class _RecallCardDraft {
 
   /// 上次时刻到分钟，或间隔，相对首次默认有一项不同即算改过。
   bool get isDirty =>
-      !_sameMinute(lastAt, baselineLastAt) || intervalMinutes != baselineInterval;
+      !_sameMinute(lastAt, baselineLastAt) ||
+      intervalMinutes != baselineInterval;
 }
 
 bool _sameMinute(DateTime a, DateTime b) =>
@@ -399,7 +402,13 @@ class _PredictionRecallOnboardingPanelState
               _buildThinkingFooter(onShell, scheme)
             else if (_isFinalePage)
               FilledButton(
-                onPressed: widget.onFinished,
+                onPressed: () {
+                  final seedsAsync = ref.read(predictionRecallSeedsProvider);
+                  final seedsMap = seedsAsync.value ??
+                      const <String, PredictionRecallSeed>{};
+                  final hasAnyConfirmed = seedsMap.isNotEmpty;
+                  widget.onFinished(permanentDismiss: hasAnyConfirmed);
+                },
                 child: const Text('体验胖宝智能预测'),
               )
             else
@@ -493,7 +502,9 @@ class _PredictionRecallOnboardingPanelState
           ),
           const SizedBox(height: 6),
           Text(
-            isTime ? '还记得上次结束「${root.name}」是什么时候吗？' : '还记得上次发生「${root.name}」是什么时候吗？',
+            isTime
+                ? '还记得上次结束「${root.name}」是什么时候吗？'
+                : '还记得上次发生「${root.name}」是什么时候吗？',
             style: TextStyle(
               fontSize: 15,
               color: onShell.withValues(alpha: 0.75),

@@ -13,6 +13,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../config/prediction_layout_store.dart';
 import '../data/active_timing_stop.dart';
 import '../data/event_branding.dart';
+import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
 import '../data/models.dart';
@@ -355,14 +356,36 @@ class SmartPredictionScreen extends ConsumerWidget {
     }
 
     /// 空白/切布局：仅再弹量身定做，不得打开登录/绑定。
-    void reopenRecallGateIfNeeded() {
+    Future<void> reopenRecallGateIfNeeded() async {
+      ref.read(predictionRecallFinaleDismissedProvider.notifier).state = false;
       if (recallSessionLive && !recallDialogVisible) {
         ref.read(predictionRecallDialogVisibleProvider.notifier).state = true;
+        return;
       }
+      if (!bound || !emptyHistoryEligible || recallSession) return;
+
+      var roots = gapRoots;
+      if (roots.isEmpty) {
+        // 全跳过后 gapRoots 为空：重开目录根推演再拉起会话。
+        final toggle = ref.read(forecastDisabledIdsProvider.notifier);
+        for (final root in rootEvents(catalog)) {
+          if (root.id.isEmpty) continue;
+          await toggle.setEnabled(root.id, true);
+        }
+        roots = ref.read(predictionRecallGapRootsProvider);
+      }
+      if (roots.isEmpty) return;
+
+      ref.read(predictionRecallSessionRootsProvider.notifier).state =
+          List<EventDefinition>.from(roots);
+      ref.read(predictionRecallSessionActiveProvider.notifier).state = true;
+      ref.read(predictionRecallDialogVisibleProvider.notifier).state = true;
     }
 
-    void finishRecallOnboarding() {
-      ref.read(predictionRecallFinaleDismissedProvider.notifier).state = true;
+    void finishRecallOnboarding({required bool permanentDismiss}) {
+      if (permanentDismiss) {
+        ref.read(predictionRecallFinaleDismissedProvider.notifier).state = true;
+      }
       ref.read(predictionRecallSessionActiveProvider.notifier).state = false;
       ref.read(predictionRecallDialogVisibleProvider.notifier).state = false;
       ref.read(predictionRecallSessionRootsProvider.notifier).state = const [];
@@ -450,7 +473,8 @@ class SmartPredictionScreen extends ConsumerWidget {
                   subtitle: '跟随系统引导，体验基础预测。\n随着后续真实的喂养记录累计，预测能力将自动成长。',
                   // 如果是横屏则不显示actionLabel
                   actionLabel: '回忆宝宝习惯',
-                  onAction: reopenRecallGateIfNeeded, animationPath: '',
+                  onAction: () => unawaited(reopenRecallGateIfNeeded()),
+                  animationPath: '',
                 )
               : Text(
                   '正在加载中',
@@ -661,7 +685,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                         Expanded(
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: reopenRecallGateIfNeeded,
+                            // onTap: reopenRecallGateIfNeeded,
                             child: buildCardsBody(),
                           ),
                         ),
@@ -813,7 +837,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                           ? '切换为纵向列表'
                           : '切换为瀑布流',
                       onPressed: () {
-                        reopenRecallGateIfNeeded();
+                        // reopenRecallGateIfNeeded();
                         ref
                             .read(predictionCardsLayoutProvider.notifier)
                             .toggle();
@@ -938,7 +962,11 @@ class SmartPredictionScreen extends ConsumerWidget {
     if (landscapeTheme != null) {
       // host = Theme(data: landscapeTheme, child: host);
     }
-    return host;
+    // 供全局 showAppToast（SnackBar）挂载；本页无传统 AppBar。
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: host,
+    );
   }
 
   static String? _relativeFor(
