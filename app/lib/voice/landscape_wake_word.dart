@@ -6,6 +6,7 @@ import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import '../api/app_debug_log.dart';
+import '../audio/app_voice_record_config.dart';
 import 'landscape_kws_models.dart';
 
 /// 横屏前台唤醒词检测（「你好，胖宝」）。
@@ -139,12 +140,7 @@ class SherpaLandscapeWakeWord implements LandscapeWakeWord {
         return false;
       }
 
-      const cfg = RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: 16000,
-        numChannels: 1,
-      );
-      final pcm = await _recorder.startStream(cfg);
+      final pcm = await _recorder.startStream(AppVoiceRecordConfig.pcm16kMono);
       _pcmSub = pcm.listen(_onPcm);
       _running = true;
       _paused = false;
@@ -162,7 +158,10 @@ class SherpaLandscapeWakeWord implements LandscapeWakeWord {
     if (bytes.length < 2) return;
     try {
       final samples = _pcm16ToFloat32(bytes);
-      _stream!.acceptWaveform(samples: samples, sampleRate: 16000);
+      _stream!.acceptWaveform(
+        samples: samples,
+        sampleRate: AppVoiceRecordConfig.sampleRate,
+      );
       while (_spotter!.isReady(_stream!)) {
         _spotter!.decode(_stream!);
         final kw = _spotter!.getResult(_stream!).keyword.trim();
@@ -253,13 +252,8 @@ class SherpaLandscapeWakeWord implements LandscapeWakeWord {
       }
       await Future<void>.delayed(const Duration(milliseconds: 200));
       _stream = _spotter!.createStream();
-      const cfg = RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: 16000,
-        numChannels: 1,
-      );
       final pcm = await _recorder
-          .startStream(cfg)
+          .startStream(AppVoiceRecordConfig.pcm16kMono)
           .timeout(const Duration(seconds: 5));
       _pcmSub = pcm.listen(_onPcm);
       _reason = null;

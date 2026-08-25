@@ -5,12 +5,11 @@ import 'dart:typed_data';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../audio/app_voice_record_config.dart';
 import '../audio/pcm_level.dart';
 import '../config/env.dart';
 
 typedef DeviceNoGetter = String? Function();
-
-const _asrSampleRate = 16000;
 
 /// `/voice/asr/ws`：仅实时转写，无鉴权；`start` 携带 [deviceNo]。
 class VoiceAsrWsClient {
@@ -248,7 +247,7 @@ class VoiceAsrWsClient {
     final start = jsonEncode({
       'type': 'start',
       'deviceNo': dn,
-      'sampleRate': _asrSampleRate,
+      'sampleRate': AppVoiceRecordConfig.sampleRate,
       'bits': 16,
       'channels': 1,
       'length': 32000,
@@ -267,18 +266,12 @@ class VoiceAsrWsClient {
       return false;
     }
 
-    final stream = await _recorder.startStream(_recordConfig);
+    final stream = await _recorder.startStream(AppVoiceRecordConfig.pcm16kMono);
     _pcmSub = stream.listen((bytes) {
       unawaited(_sendPcm(bytes));
     });
     return true;
   }
-
-  static final _recordConfig = const RecordConfig(
-    encoder: AudioEncoder.pcm16bits,
-    sampleRate: _asrSampleRate,
-    numChannels: 1,
-  );
 
   Future<void> _sendPcm(Uint8List bytes) async {
     if (!_utteranceActive || !isReady || bytes.isEmpty || _feedBusy) return;

@@ -115,6 +115,8 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 
 **预测横屏语音**：进入预测横屏后由 `LandscapeVoiceController` 显式 `connect`/`disconnect`（provider 创建不得自动建连）。未授权麦克风时先玻璃用途说明框，确认后再系统申请。唤醒词「你好，胖宝」走 Sherpa-ONNX 中文 KWS（Android/iOS 前台横屏）；模型首次从自有 CDN 下载 **mobile** 包到应用支持目录（`resorce.cuplay.top/app/models/kws/…-mobile.tar.bz2`，Wenetspeech 3.3M mobile；分件 prefer int8）。下载/解压失败见 `[LandscapeKws]`。模型失败时可点按左下角临时联调「我在」→ PCM → ASR/thinking/answer/TTS。引入 `sherpa_onnx` 原生库后须按 `openspec/project.md` 做 release + ProGuard。
 
+**App 语音 PCM 采集**（`AppVoiceRecordConfig`，`app/lib/audio/app_voice_record_config.dart`）：凡经 `record` 包流式上送 PCM 的路径 **MUST** 共用 `pcm16kMono`（16 kHz / mono / PCM16、`autoGain: true`、Android `voiceRecognition`；v1 关闭 NS/AEC）。消费方：`VoiceChatWsClient`、`VoiceAsrWsClient`、`LandscapeWakeWord`（`start`/`resume`）。横屏有效音门槛见 `effectiveChunkAvgAbs`（初值 130）；服务端 Go 对齐见 `go_ai_talk/internal/controller/ws_protocol.go` 的 `pcmEffectiveAvgAbsThreshold`（150）。**例外**：设置中心「系统识别」（`speech_to_text`）不走 `AppVoiceRecordConfig`。远场真机验收脚本见 `openspec/changes/app-voice-far-field-capture/manual-acceptance.md`。
+
 **Auth error 统一策略**（`handleWsAuthOrQuotaError`）：`isRefreshInFlight` 不弹 UI → 40301 silent refresh + reconnect → hard 失效才登录引导；40302 额度弹框。
 
 **前置条件重试**：`shouldConnect`/`prepareToken` 失败时传输层自动短退避重试；`bindAuthenticatedWsSession` 在 refresh 结束后 reconnect。胖宝 clinic 使用 `requireHandshakePong: false`（auth_ok 即 ready）。

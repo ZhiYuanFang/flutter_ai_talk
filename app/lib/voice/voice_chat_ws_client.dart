@@ -4,17 +4,17 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../api/app_debug_log.dart';
+import '../audio/app_voice_record_config.dart';
 import '../audio/pcm_level.dart';
 import '../config/env.dart';
 
 typedef DeviceNoGetter = String? Function();
-
-const kVoiceChatSampleRate = 16000;
 
 /// `/voice/chat/ws` 下行事件（供横屏字幕 / TTS）。
 sealed class VoiceChatEvent {
@@ -100,19 +100,17 @@ class VoiceChatWsClient {
   /// 自 `answer` 缓存的 finish_talk；以 `audio_end` 为准覆盖。
   bool? _finishTalkFromAnswer;
 
-  /// 本轮开听是否已出现有效语音能量（略低于服务端 effective）。
+  /// 本轮开听是否已出现有效语音能量（见 AppVoiceRecordConfig.effectiveChunkAvgAbs）。
   var _hasEffectiveSpeech = false;
   bool get hasEffectiveSpeech => _hasEffectiveSpeech;
 
   /// 首次检出有效音时回调（供取消无声 5s）。
   void Function()? onEffectiveSpeech;
 
-  /// 块级能量阈值（对齐服务端 avgAbs≈220，略低一点）。
-  static const _effectiveChunkAvgAbs = 200;
-
   final _ttsPlayer = AudioPlayer();
   final BytesBuilder _ttsPcm = BytesBuilder(copy: false);
-  var _ttsSampleRate = kVoiceChatSampleRate;
+  var _ttsSampleRate = AppVoiceRecordConfig.sampleRate;
+  var _pcmDiagChunkCount = 0;
   var _ttsPlaying = false;
 
   /// barge-in 后丢弃迟到 audio_chunk / 抑制 TurnEnded，直至新一轮开听。
@@ -511,7 +509,7 @@ class VoiceChatWsClient {
     final start = jsonEncode({
       'type': 'start',
       'deviceNo': dn,
-      'sampleRate': kVoiceChatSampleRate,
+      'sampleRate': AppVoiceRecordConfig.sampleRate,
       'bits': 16,
       'channels': 1,
       'length': 32000,
@@ -578,13 +576,14 @@ class VoiceChatWsClient {
     // 新一轮上行：允许再收 TTS
     _ttsDiscard = false;
     _pcmAbsSession.reset();
+    _pcmDiagChunkCount = 0;
     if (resetEffectiveSpeech) {
       _hasEffectiveSpeech = false;
     }
     try {
       AppDebugLog.landscapeVoice('beginListen startStream');
       final stream = await _recorder
-          .startStream(_recordConfig)
+          .startStream(AppVoiceRecordConfig.pcm16kMono)
           .timeout(const Duration(seconds: 5));
       _listening = true;
       _pcmSub = stream.listen((bytes) {
@@ -602,20 +601,23 @@ class VoiceChatWsClient {
     }
   }
 
-  static final _recordConfig = const RecordConfig(
-    encoder: AudioEncoder.pcm16bits,
-    sampleRate: kVoiceChatSampleRate,
-    numChannels: 1,
-  );
-
   Future<void> _sendPcm(Uint8List bytes) async {
     if (!_listening || !isReady || bytes.isEmpty || _feedBusy) return;
     _feedBusy = true;
     try {
       // 会话级 avgAbs 累计；并检测本轮有效音。
       final metrics = pcm16ProcessChunk(bytes, _pcmAbsSession);
+      _pcmDiagChunkCount++;
+      if (kDebugMode &&
+          (_pcmDiagChunkCount % 25 == 0 ||
+              metrics.chunkAvgAbs >=
+                  AppVoiceRecordConfig.effectiveChunkAvgAbs)) {
+        AppDebugLog.landscapeVoice(
+          'pcm chunkAvgAbs=${metrics.chunkAvgAbs} sessionAvgAbs=${metrics.sessionAvgAbs}',
+        );
+      }
       if (!_hasEffectiveSpeech &&
-          metrics.chunkAvgAbs >= _effectiveChunkAvgAbs) {
+          metrics.chunkAvgAbs >= AppVoiceRecordConfig.effectiveChunkAvgAbs) {
         _hasEffectiveSpeech = true;
         AppDebugLog.landscapeVoice(
           'effectiveSpeech avgAbs=${metrics.chunkAvgAbs}',
