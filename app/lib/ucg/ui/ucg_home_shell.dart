@@ -9,8 +9,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../api/app_debug_log.dart';
 import '../../bootstrap/gateway_bootstrap_gate.dart';
 import '../../bootstrap/history_ws_home_bridge.dart';
+import '../../bootstrap/history_ws_silent_heal.dart';
 import '../../bootstrap/pangbao_transport_release.dart';
+import '../../data/feed_repository.dart';
 import '../../data/models.dart';
+import '../../data/prediction_care_alert.dart';
 import '../../home_widget/home_widget_sync.dart';
 import '../../providers/device_no_notifier.dart';
 import '../../providers/home_pager.dart';
@@ -35,7 +38,8 @@ class UcgHomeShell extends ConsumerStatefulWidget {
   ConsumerState<UcgHomeShell> createState() => _UcgHomeShellState();
 }
 
-class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
+class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
+    with WidgetsBindingObserver {
   static const _exitConfirmWindow = Duration(seconds: 3);
   static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
 
@@ -51,6 +55,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
 
   /// 主壳历史 WS 单一订阅（喂养页不得再挂）
   StreamSubscription<SseHistoryPayload>? _historyWsSub;
+  StreamSubscription<bool>? _historyWsReadySub;
   var _historyWsActivateInFlight = false;
 
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
@@ -58,6 +63,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 主壳会话门闸：允许 history reconnect / UCG desired
     PangbaoHomeTransportGate.onHomeMounted();
     // 首帧即触发预测页 CareAlert ensure（可见即拉）；同步飞入门闸页索引
@@ -71,6 +77,9 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _historyWsReadySub?.cancel();
+    _historyWsReadySub = null;
     _historyWsSub?.cancel();
     _historyWsSub = null;
     PangbaoHomeTransportGate.onHomeUnmounted();
@@ -80,6 +89,38 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
     } catch (_) {}
     _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_onShellLifecycleResumed());
+    }
+  }
+
+  /// 主壳 resume：历史 WS 静默自愈（不依赖喂养页 mount）。
+  Future<void> _onShellLifecycleResumed() async {
+    if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+    if (!GatewayBootstrapGate.isLoggedInComplete) return;
+    await ref.read(sessionProvider).ensureFreshSession();
+    if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+    final feed = ref.read(feedRepositoryProvider);
+    if (feed.isHistoryWebSocketReady) {
+      HistoryWsSilentHeal.onReady();
+      return;
+    }
+    // gaveUp / 未 ready：预算内 resetStrike+reconnect；预算尽则停
+    if (HistoryWsSilentHeal.hasBudget) {
+      await HistoryWsSilentHeal.tryHeal(
+        feed: feed,
+        isLoggedIn: ref.read(sessionProvider).isLoggedIn,
+        shellMounted: PangbaoHomeTransportGate.isHomeMounted,
+        reason: 'resume',
+      );
+    } else if (feed.historyWsPhase != HistoryWsPhase.gaveUp) {
+      // 预算耗尽但仍非 gaveUp：走传输层轻量 resume（不 resetStrike）
+      feed.onAppLifecycleResumed();
+    }
   }
 
   /// gateway 后订阅 + ensure；游客跳过；single-flight。
@@ -100,15 +141,49 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
       _historyWsSub ??= feed.watchLatest().listen(
             (payload) => applyHistoryWsPayloadToHome(ref, payload),
           );
+      // ready 上升沿清自愈预算
+      _historyWsReadySub ??= feed.historyWsReadyStream.listen((ready) {
+        if (ready) HistoryWsSilentHeal.onReady();
+      });
+      // 激活前清 strike，避免同进程残留 gaveUp 导致 ensure 空转
+      feed.resetHistoryWebSocketStrike();
       feed.ensureHistoryWebSocketConnected();
+      unawaited(_watchHistoryWsReadyAfterActivate());
     } finally {
       _historyWsActivateInFlight = false;
     }
   }
 
+  /// 激活后观察 ready；超时/gaveUp 且预算未尽则静默自愈。
+  Future<void> _watchHistoryWsReadyAfterActivate() async {
+    if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+    final feed = ref.read(feedRepositoryProvider);
+    final result = await feed.waitForHistoryWsReadyOrTerminal(
+      timeout: HistoryWsSilentHeal.readyWatchTimeout,
+    );
+    if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+    if (result.ready) {
+      HistoryWsSilentHeal.onReady();
+      return;
+    }
+    AppDebugLog.wsTransport(
+      'history postActivate notReady detail=${result.detail} '
+      'phase=${result.phase.name}',
+    );
+    await HistoryWsSilentHeal.tryHeal(
+      feed: feed,
+      isLoggedIn: ref.read(sessionProvider).isLoggedIn,
+      shellMounted: PangbaoHomeTransportGate.isHomeMounted,
+      reason: 'postActivate',
+    );
+  }
+
   void _onHistorySessionLoggedOut() {
+    _historyWsReadySub?.cancel();
+    _historyWsReadySub = null;
     _historyWsSub?.cancel();
     _historyWsSub = null;
+    HistoryWsSilentHeal.reset();
   }
 
   void _markPredictionMounted() {
@@ -121,7 +196,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
     setState(() => _ucgEverMounted = true);
   }
 
-  /// 进入预测页：仅真历史非空时日拉取（冷态禁止副作用 HTTP）。
+  /// 进入预测页：仅上海昨日有真历史时才日拉取（冷态/仅今日记录禁止副作用 HTTP）。
   void _ensureCareAlertOnPredictionVisible() {
     final allowed = ref.read(predictionCareAlertFetchAllowedProvider);
     if (!allowed) {
@@ -132,7 +207,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
       AppDebugLog.careAlert(
         'ensure skipped gate loggedIn=$loggedIn dnLen=${dn.length} '
         'rangeReady=${range.ready} rangeLoading=${range.loading} '
-        'itemCount=${range.items.length}',
+        'itemCount=${range.items.length} '
+        'hasYesterday=${rangeHasShanghaiYesterdayOccurrence(range.items)}',
       );
       return;
     }
@@ -250,12 +326,17 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell> {
       _ensureCareAlertOnPredictionVisible();
     });
 
-    // 真历史从空变为非空：冗余补拉（与 fetchAllowed 边沿重叠时 single-flight）
+    // 真历史从空变为非空，或门闸 false→true：冗余补拉（single-flight 合并）
     ref.listen(predictionRangeHistoryProvider, (prev, next) {
       if (_pageIndex != HomePagerPage.prediction) return;
-      if (!next.ready || next.loading || next.items.isEmpty) return;
-      final wasEmpty = prev == null || !prev.ready || prev.items.isEmpty;
-      if (wasEmpty) _ensureCareAlertOnPredictionVisible();
+      if (!ref.read(predictionCareAlertFetchAllowedProvider)) return;
+      final wasAllowed = prev != null &&
+          careAlertDailyFetchGate(
+            loggedIn: ref.read(sessionProvider).isLoggedIn,
+            deviceNo: ref.read(deviceNoNotifierProvider).asData?.value,
+            range: prev,
+          );
+      if (!wasAllowed) _ensureCareAlertOnPredictionVisible();
     });
 
     final voiceHoldBlocksScroll = ref.watch(homePagerScrollBlockedProvider);

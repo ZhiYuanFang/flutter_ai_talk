@@ -6,6 +6,7 @@ import '../providers/repositories.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../ucg/providers/ucg_providers.dart';
 import 'gateway_bootstrap_gate.dart';
+import 'history_ws_silent_heal.dart';
 
 /// 主壳（[UcgHomeShell]）是否挂载；仅挂载时允许 history/UCG WS desired 与 token 轮换 reconnect。
 ///
@@ -38,6 +39,8 @@ Future<void> releasePangbaoHomeTransports(dynamic ref) async {
   // 离开 Home 时断开陪伴 Clinic WS（滑页保持，离壳释放）
   deactivateCompanionClinicWs(ref);
   GatewayBootstrapGate.reset();
+  // 清历史 WS 静默自愈预算，避免跨登录会话残留
+  HistoryWsSilentHeal.reset();
 }
 
 /// gate 完成后串行激活 UCG（unread → WS → push）；须主壳仍挂载。

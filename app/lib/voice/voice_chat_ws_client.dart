@@ -107,6 +107,9 @@ class VoiceChatWsClient {
   /// 首次检出有效音时回调（供取消无声 5s）。
   void Function()? onEffectiveSpeech;
 
+  /// 即将播回复 TTS 前（编排层 pause KWS）；可 async。
+  Future<void> Function()? onBeforeTtsPlay;
+
   final _ttsPlayer = AudioPlayer();
   final BytesBuilder _ttsPcm = BytesBuilder(copy: false);
   var _ttsSampleRate = AppVoiceRecordConfig.sampleRate;
@@ -116,8 +119,19 @@ class VoiceChatWsClient {
   /// barge-in 后丢弃迟到 audio_chunk / 抑制 TurnEnded，直至新一轮开听。
   var _ttsDiscard = false;
 
+  /// audio_chunk / audio_end 串行，避免 end 抢先 takeBytes。
+  Future<void> _audioPipeline = Future<void>.value();
+
+  /// 播完等待：PCM 时长 + slack，夹在下限与硬上限之间（替换固定 2min）。
+  static const _ttsPlaySlack = Duration(seconds: 4);
+  static const _ttsPlayMinTimeout = Duration(seconds: 8);
+  static const _ttsPlayHardCap = Duration(seconds: 60);
+
   bool get isReady => _handshakeOk && _channel != null;
   bool get isListening => _listening;
+
+  /// 回复 TTS 是否正在播放（供编排层播中门闩）。
+  bool get isTtsPlaying => _ttsPlaying;
 
   void _emitReady(bool v) {
     if (!_readyController.isClosed) _readyController.add(v);
@@ -269,9 +283,10 @@ class VoiceChatWsClient {
             '';
         if (text.isNotEmpty) _emit(VoiceChatAnswer(text));
       case 'audio_chunk':
-        unawaited(_onAudioChunk(map));
+        // 串行入队：保证 audio_end 取缓冲前 chunk 已 append
+        _enqueueAudioFrame(() => _onAudioChunk(map));
       case 'audio_end':
-        unawaited(_onAudioEnd(map));
+        _enqueueAudioFrame(() => _onAudioEnd(map));
       case 'interrupt_commit':
         _emit(const VoiceChatInterruptCommit());
         unawaited(_stopMicOnly());
@@ -291,6 +306,17 @@ class VoiceChatWsClient {
         // 未知 type：忽略不断连（对齐硬件客户端）
         break;
     }
+  }
+
+  /// 将 chunk/end 接在同一 Future 链上，错误吞掉以免掐断后续帧。
+  void _enqueueAudioFrame(Future<void> Function() work) {
+    _audioPipeline = _audioPipeline.then((_) async {
+      try {
+        await work();
+      } catch (e) {
+        AppDebugLog.landscapeVoice('audio pipeline err=$e');
+      }
+    });
   }
 
   Future<void> _onServerExit() async {
@@ -340,17 +366,37 @@ class VoiceChatWsClient {
       return;
     }
     try {
+      // 开播前让编排层 pause KWS，避免 AudioRecord pause MediaPlayer
+      final before = onBeforeTtsPlay;
+      if (before != null) {
+        try {
+          await before();
+        } catch (e) {
+          AppDebugLog.landscapeVoice('onBeforeTtsPlay err=$e');
+        }
+      }
+      if (_ttsDiscard) {
+        AppDebugLog.landscapeVoice('tts play skipped discard after before');
+        return;
+      }
       await _playPcm16Le(bytes, _ttsSampleRate);
       if (_ttsDiscard) {
         AppDebugLog.landscapeVoice('tts play aborted discard');
         return;
       }
+      // 含 timeout seal：播完或看门狗后一律收口
+      AppDebugLog.landscapeVoice(
+        'tts seal TurnEnded finishTalk=$finishTalk',
+      );
       _emit(VoiceChatTurnEnded(ok: true, finishTalk: finishTalk));
     } catch (e) {
       if (_ttsDiscard) {
         AppDebugLog.landscapeVoice('tts play err discarded e=$e');
         return;
       }
+      AppDebugLog.landscapeVoice(
+        'tts seal TurnEnded err=$e finishTalk=$finishTalk',
+      );
       _emit(VoiceChatTurnEnded(ok: false, message: '$e', finishTalk: finishTalk));
     }
   }
@@ -382,13 +428,18 @@ class VoiceChatWsClient {
         '${dir.path}${Platform.pathSeparator}voice_chat_tts_${DateTime.now().millisecondsSinceEpoch}.wav',
       );
       await file.writeAsBytes(wav, flush: true);
+      final timeout = _ttsPlayTimeoutForPcm(pcm, sampleRate);
       await _ttsPlayer.play(DeviceFileSource(file.path));
       try {
-        await _ttsPlayer.onPlayerComplete.first.timeout(
-          const Duration(minutes: 2),
-        );
+        await _ttsPlayer.onPlayerComplete.first.timeout(timeout);
       } on TimeoutException {
-        AppDebugLog.landscapeVoice('tts play timeout');
+        // 声停但 complete 未到：停播并返回，由 _onAudioEnd seal TurnEnded
+        AppDebugLog.landscapeVoice(
+          'tts play timeout seal timeoutMs=${timeout.inMilliseconds}',
+        );
+        try {
+          await _ttsPlayer.stop();
+        } catch (_) {}
       }
       try {
         await file.delete();
@@ -396,6 +447,21 @@ class VoiceChatWsClient {
     } finally {
       _ttsPlaying = false;
     }
+  }
+
+  /// timeout = clamp(pcmDuration + slack, minFloor, hardCap)。
+  static Duration _ttsPlayTimeoutForPcm(Uint8List pcm, int sampleRate) {
+    final sr = sampleRate > 0 ? sampleRate : AppVoiceRecordConfig.sampleRate;
+    final durationMs =
+        sr <= 0 ? 0 : ((pcm.length / 2) / sr * 1000).ceil();
+    var ms = durationMs + _ttsPlaySlack.inMilliseconds;
+    if (ms < _ttsPlayMinTimeout.inMilliseconds) {
+      ms = _ttsPlayMinTimeout.inMilliseconds;
+    }
+    if (ms > _ttsPlayHardCap.inMilliseconds) {
+      ms = _ttsPlayHardCap.inMilliseconds;
+    }
+    return Duration(milliseconds: ms);
   }
 
   /// 本地短 wav（「我在」/「我先退下了」等）。
@@ -472,6 +538,8 @@ class VoiceChatWsClient {
     _sessionStarted = false;
     _needsRoundRestart = false;
     _finishTalkFromAnswer = null;
+    // 断连后丢弃未执行完的 chunk/end 链
+    _audioPipeline = Future<void>.value();
     final pong = _pongCompleter;
     if (pong != null && !pong.isCompleted) {
       pong.completeError(StateError('disconnected'));
@@ -575,6 +643,7 @@ class VoiceChatWsClient {
     _ttsPcm.clear();
     // 新一轮上行：允许再收 TTS
     _ttsDiscard = false;
+    _audioPipeline = Future<void>.value();
     _pcmAbsSession.reset();
     _pcmDiagChunkCount = 0;
     if (resetEffectiveSpeech) {

@@ -19,6 +19,8 @@ import '../data/history_line_format.dart';
 import '../data/models.dart';
 import '../data/prediction_care_alert.dart';
 import '../data/prediction_demo_skeleton.dart';
+import '../data/prediction_recall_seed.dart';
+import '../data/event_next_predictor.dart';
 import '../data/smart_prediction_rows.dart';
 import '../home_widget/format_widget_relative_time.dart';
 import '../providers/device_no_notifier.dart';
@@ -44,6 +46,7 @@ import '../theme/app_visual_tokens.dart';
 import 'event_add_actions.dart';
 import 'widgets/app_modal_glass_panel.dart';
 import 'event_logo.dart';
+import 'prediction_recall_interval_picker.dart';
 import 'prediction_recall_onboarding_panel.dart';
 import '../config/prediction_landscape_column_store.dart';
 import 'prediction_landscape_card_metrics.dart';
@@ -2318,23 +2321,25 @@ class _HeartbeatLogoState extends State<_HeartbeatLogo>
   }
 }
 
-/// 计时中「停止」：可点时持续心跳；忙碌时静止。
-class _HeartbeatStopButton extends StatefulWidget {
-  const _HeartbeatStopButton({
+/// 事件色实心按钮：可点时持续心跳；忙碌时静止。
+class _HeartbeatAccentButton extends StatefulWidget {
+  const _HeartbeatAccentButton({
     required this.accent,
     required this.busy,
+    required this.label,
     required this.onPressed,
   });
 
   final Color accent;
   final bool busy;
+  final String label;
   final VoidCallback? onPressed;
 
   @override
-  State<_HeartbeatStopButton> createState() => _HeartbeatStopButtonState();
+  State<_HeartbeatAccentButton> createState() => _HeartbeatAccentButtonState();
 }
 
-class _HeartbeatStopButtonState extends State<_HeartbeatStopButton>
+class _HeartbeatAccentButtonState extends State<_HeartbeatAccentButton>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
@@ -2353,7 +2358,7 @@ class _HeartbeatStopButtonState extends State<_HeartbeatStopButton>
   }
 
   @override
-  void didUpdateWidget(covariant _HeartbeatStopButton oldWidget) {
+  void didUpdateWidget(covariant _HeartbeatAccentButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.busy != widget.busy) _syncAnim();
   }
@@ -2385,11 +2390,34 @@ class _HeartbeatStopButtonState extends State<_HeartbeatStopButton>
           padding: const EdgeInsets.symmetric(vertical: 8),
           visualDensity: VisualDensity.compact,
         ),
-        child: Text(widget.busy ? '…' : '停止'),
+        child: Text(widget.busy ? '…' : widget.label),
       ),
     );
     if (widget.busy) return button;
     return ScaleTransition(scale: _scale, child: button);
+  }
+}
+
+/// 计时中「停止」：可点时持续心跳；忙碌时静止。
+class _HeartbeatStopButton extends StatelessWidget {
+  const _HeartbeatStopButton({
+    required this.accent,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final Color accent;
+  final bool busy;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return _HeartbeatAccentButton(
+      accent: accent,
+      busy: busy,
+      label: '停止',
+      onPressed: onPressed,
+    );
   }
 }
 
@@ -2450,6 +2478,49 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 
 class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   var _stopping = false;
+  var _recallBusy = false;
+
+  /// 热态单事件样本不足：仅间隔 Sheet 写回忆种子（不写喂养历史）。
+  Future<void> _onPickIntervalRecall({
+    required EventDefinition? definition,
+    required String eventName,
+  }) async {
+    final row = widget.row;
+    final lastAt = row.lastAt;
+    if (lastAt == null || _recallBusy) return;
+    final minutes = await pickRecallIntervalMinutes(
+      context,
+      definition: definition,
+      eventName: eventName,
+    );
+    if (!mounted || minutes == null) return;
+    final interval = Duration(minutes: minutes);
+    if (interval < kMinIntervalForPrediction) {
+      showAppToast('间隔至少 15 分钟', tone: AppToastTone.error);
+      return;
+    }
+    setState(() => _recallBusy = true);
+    try {
+      final seed = PredictionRecallSeed(
+        rootEventId: row.eventId,
+        leafEventId: row.eventId,
+        lastAt: lastAt,
+        interval: interval,
+        occurrenceAts:
+            synthesizeOccurrenceAts(lastAt: lastAt, interval: interval),
+      );
+      await ref.read(predictionRecallSeedsProvider.notifier).upsertSeed(seed);
+      if (!mounted) return;
+      unawaited(
+        ref
+            .read(forecastDisabledIdsProvider.notifier)
+            .setEnabled(row.eventId, true),
+      );
+      showAppToast('已记录大概间隔', tone: AppToastTone.success);
+    } finally {
+      if (mounted) setState(() => _recallBusy = false);
+    }
+  }
 
   Color _rootAccent(BuildContext context) {
     final parsed = _parseHex(widget.row.colorHex);
@@ -2549,6 +2620,20 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         enabled &&
         pred != null &&
         countdown != null;
+    // 空库量身定做进行中时不展示 per-card CTA，避免与 Dialog 重复写种子
+    final recallSession = ref.watch(predictionRecallSessionActiveProvider);
+    final emptyEligible =
+        ref.watch(predictionRecallEmptyHistoryEligibleProvider);
+    final gapRoots = ref.watch(predictionRecallGapRootsProvider);
+    final recallDismissed = ref.watch(predictionRecallFinaleDismissedProvider);
+    final recallBlocksPerCard = recallSession ||
+        (emptyEligible && gapRoots.isNotEmpty && !recallDismissed);
+    final showIntervalRecall = enabled &&
+        !showActiveTiming &&
+        pred == null &&
+        row.lastAt != null &&
+        widget.onToggle != null &&
+        !recallBlocksPerCard;
 
     // 标题旁 logo：列表、计时中、或手机后列紧凑
     final showTitleLogo = !showHeroLogo;
@@ -2659,6 +2744,18 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                       fontWeight: FontWeight.w400,
                     ),
                   ),
+                ),
+              ],
+              if (showIntervalRecall) ...[
+                SizedBox(height: sectionGapMd),
+                _HeartbeatAccentButton(
+                  accent: accent,
+                  busy: _recallBusy,
+                  label: '补充大概多久一次',
+                  onPressed: () => unawaited(_onPickIntervalRecall(
+                    definition: titleDef ?? definition,
+                    eventName: titleName,
+                  )),
                 ),
               ],
             ],

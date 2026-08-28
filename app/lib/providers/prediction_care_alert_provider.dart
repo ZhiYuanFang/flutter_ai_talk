@@ -96,6 +96,21 @@ class PredictionCareAlertNotifier
       return;
     }
 
+    final range = _ref.read(predictionRangeHistoryProvider);
+    if (!careAlertDailyFetchGate(
+      loggedIn: true,
+      deviceNo: dn,
+      range: range,
+    )) {
+      AppDebugLog.careAlert(
+        'ensure skipped gate rangeReady=${range.ready} '
+        'rangeLoading=${range.loading} itemCount=${range.items.length} '
+        'hasYesterday=${rangeHasShanghaiYesterdayOccurrence(range.items)}',
+      );
+      state = const PredictionCareAlertState();
+      return;
+    }
+
     final day = careAlertShanghaiDayKey();
     // 同日同设备已成功：幂等跳过（除非 force）
     if (!force &&
@@ -223,14 +238,25 @@ final predictionCareAlertEnsureProvider = FutureProvider<void>((ref) async {
   await ref.read(predictionCareAlertStateProvider.notifier).ensureLoaded();
 });
 
-/// 是否允许 care-alert 日拉取（已登录 + deviceNo + range 真历史非空）。
-final predictionCareAlertFetchAllowedProvider = Provider<bool>((ref) {
-  if (!ref.watch(sessionProvider).isLoggedIn) return false;
-  final dn = ref.watch(deviceNoNotifierProvider).asData?.value?.trim();
-  if (dn == null || dn.isEmpty) return false;
-  final range = ref.watch(predictionRangeHistoryProvider);
+/// 是否允许 care-alert 日拉取（已登录 + deviceNo + range 就绪 + 上海昨日有发生记录）。
+bool careAlertDailyFetchGate({
+  required bool loggedIn,
+  required String? deviceNo,
+  required PredictionRangeHistoryState range,
+}) {
+  if (!loggedIn) return false;
+  final dn = deviceNo?.trim() ?? '';
+  if (dn.isEmpty) return false;
   if (!range.ready || range.loading) return false;
-  return range.items.isNotEmpty;
+  return rangeHasShanghaiYesterdayOccurrence(range.items);
+}
+
+final predictionCareAlertFetchAllowedProvider = Provider<bool>((ref) {
+  return careAlertDailyFetchGate(
+    loggedIn: ref.watch(sessionProvider).isLoggedIn,
+    deviceNo: ref.watch(deviceNoNotifierProvider).asData?.value,
+    range: ref.watch(predictionRangeHistoryProvider),
+  );
 });
 
 /// 推演关闭过滤后的展示列表；加载/失败时为空（卡片仍由 state 驱动空态/错误态）。
@@ -245,11 +271,11 @@ final predictionCareAlertProvider = Provider<List<CareAlertEventItem>>((ref) {
   final loggedIn = ref.watch(sessionProvider).isLoggedIn;
   final dn =
       ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-  final canFetch = loggedIn &&
-      dn.isNotEmpty &&
-      range.ready &&
-      !range.loading &&
-      range.items.isNotEmpty;
+  final canFetch = careAlertDailyFetchGate(
+    loggedIn: loggedIn,
+    deviceNo: dn,
+    range: range,
+  );
   if (canFetch && st.ready && st.dayKey.isNotEmpty && st.dayKey != day) {
     // 日切且具备拉取条件：隐藏面板并 force ensure
     Future.microtask(() {

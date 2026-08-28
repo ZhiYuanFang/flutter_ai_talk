@@ -66,11 +66,14 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
   );
   bindAuthenticatedWsSession(
     ref,
+    watchDeviceNo: true,
     reconnect: ({bool resetStrike = false}) async {
       tryReconnectHistoryWs(resetStrike: resetStrike);
     },
     shouldReconnect: () {
+      if (!ref.read(sessionProvider).isLoggedIn) return false;
       if (!PangbaoHomeTransportGate.isHomeMounted) return false;
+      if (!GatewayBootstrapGate.isLoggedInComplete) return false;
       if (AppEnv.wsHistoryUrlEffective.isEmpty) return false;
       final dn = ref.read(deviceNoNotifierProvider).asData?.value;
       return dn != null && dn.isNotEmpty;

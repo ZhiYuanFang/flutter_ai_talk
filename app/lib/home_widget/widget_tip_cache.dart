@@ -1,13 +1,13 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/app_debug_log.dart';
-import '../data/feed_repository.dart';
 import 'home_widget_payload.dart';
 
 const kWidgetTipDayKey = 'widget_tip_day_v1';
 const kWidgetTipTextKey = 'widget_tip_text_v1';
 /// 未截断全文，供陪伴注入；桌面仍用 [kWidgetTipTextKey] trim 版。
 const kWidgetTipFullTextKey = 'widget_tip_full_text_v1';
+/// 已废弃：fail-day 熔断已移除；清理时仍 remove 以迁移旧安装。
 const kWidgetTipFailDayKey = 'widget_tip_fail_day_v1';
 /// 已注入陪伴的自然日 yyyy-MM-dd；清理陪伴记录不得清除此键。
 const kWidgetTipInjectedDayKey = 'widget_tip_injected_day_v1';
@@ -15,38 +15,41 @@ const kWidgetTipInjectedDayKey = 'widget_tip_injected_day_v1';
 const _kMaxTipLines = 5;
 const _kMaxTipChars = 160;
 
-Future<HomeWidgetTipPayload?> resolveWidgetTip({
-  required FeedRepository feed,
+/// 从 prefs 读取已缓存 tip（供 sync 在留意未 ready 时复用推送）。
+Future<HomeWidgetTipPayload?> loadWidgetTipSnapshotFromPrefs({
   required DateTime now,
 }) async {
   final prefs = await SharedPreferences.getInstance();
+  final trimmed = prefs.getString(kWidgetTipTextKey)?.trim() ?? '';
+  if (trimmed.isEmpty) return null;
+  return HomeWidgetTipPayload(text: trimmed, fetchedAt: now);
+}
+
+/// 将派生 tip 正文写入 prefs；[clearWhenEmpty] 为 false 且正文空时保留原缓存。
+Future<HomeWidgetTipPayload?> persistWidgetTipSnapshot({
+  required String? derivedText,
+  required DateTime now,
+  bool clearWhenEmpty = true,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
   final dayKey = _dayKey(now);
-  final cachedDay = prefs.getString(kWidgetTipDayKey);
-  final cachedText = prefs.getString(kWidgetTipTextKey) ?? '';
-  if (cachedDay == dayKey && cachedText.isNotEmpty) {
-    return HomeWidgetTipPayload(text: cachedText, fetchedAt: now);
-  }
-  final failDay = prefs.getString(kWidgetTipFailDayKey);
-  if (failDay == dayKey) {
-    if (cachedText.isNotEmpty) {
-      return HomeWidgetTipPayload(text: cachedText, fetchedAt: now);
+  // 迁移：移除旧 fail-day 锁死键
+  await prefs.remove(kWidgetTipFailDayKey);
+
+  final full = derivedText?.trim() ?? '';
+  if (full.isEmpty) {
+    if (!clearWhenEmpty) {
+      return loadWidgetTipSnapshotFromPrefs(now: now);
     }
+    await prefs.remove(kWidgetTipDayKey);
+    await prefs.remove(kWidgetTipTextKey);
+    await prefs.remove(kWidgetTipFullTextKey);
     return null;
   }
-  final reply = await _fetchTipInFlight(feed);
-  if (reply == null || reply.trim().isEmpty) {
-    await prefs.setString(kWidgetTipFailDayKey, dayKey);
-    if (cachedText.isNotEmpty) {
-      return HomeWidgetTipPayload(text: cachedText, fetchedAt: now);
-    }
-    return null;
-  }
-  final full = reply.trim();
   final trimmed = _trimTipText(full);
   await prefs.setString(kWidgetTipDayKey, dayKey);
   await prefs.setString(kWidgetTipTextKey, trimmed);
   await prefs.setString(kWidgetTipFullTextKey, full);
-  await prefs.remove(kWidgetTipFailDayKey);
   AppDebugLog.homeWidget(
     'tip refreshed day=$dayKey trimLen=${trimmed.length} fullLen=${full.length}',
   );
@@ -97,15 +100,6 @@ Future<void> clearWidgetTipCache() async {
   await prefs.remove(kWidgetTipFullTextKey);
   await prefs.remove(kWidgetTipFailDayKey);
   await prefs.remove(kWidgetTipInjectedDayKey);
-}
-
-Future<String?>? _tipFetchInFlight;
-
-Future<String?> _fetchTipInFlight(FeedRepository feed) {
-  if (_tipFetchInFlight != null) return _tipFetchInFlight!;
-  return _tipFetchInFlight = feed.fetchWidgetFeedingTip().whenComplete(() {
-    _tipFetchInFlight = null;
-  });
 }
 
 String _dayKey(DateTime t) =>

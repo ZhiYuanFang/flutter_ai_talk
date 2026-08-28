@@ -13,8 +13,10 @@ import '../data/smart_prediction_rows.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/forecast_toggle_provider.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/prediction_care_alert_provider.dart';
 import '../providers/prediction_range_history_provider.dart';
 import '../providers/prediction_recall_provider.dart';
+import '../data/prediction_care_alert.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/widget_tip_display_epoch_provider.dart';
@@ -245,10 +247,33 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   HomeWidgetTipPayload? tip;
   if (state == 'ready' && !skipTip) {
     try {
-      tip = await resolveWidgetTip(
-        feed: ref.read(feedRepositoryProvider),
-        now: DateTime.now(),
-      );
+      final now = DateTime.now();
+      String? derived;
+      var careReady = false;
+      final gate = ref.read(predictionCareAlertFetchAllowedProvider);
+      if (gate) {
+        var st = ref.read(predictionCareAlertStateProvider);
+        if (!st.ready && !st.loading && !st.failed) {
+          await ref
+              .read(predictionCareAlertStateProvider.notifier)
+              .ensureLoaded();
+          st = ref.read(predictionCareAlertStateProvider);
+        }
+        careReady = st.ready && !st.failed && !st.loading;
+        if (careReady) {
+          final items = ref.read(predictionCareAlertProvider);
+          derived = deriveWidgetTipTextFromCareAlert(items);
+        }
+      }
+      if (derived != null && derived.trim().isNotEmpty) {
+        tip = await persistWidgetTipSnapshot(derivedText: derived, now: now);
+      } else if (gate && careReady) {
+        // 留意已 ready 且列表/摘要为空：清除 tip
+        tip = await persistWidgetTipSnapshot(derivedText: null, now: now);
+      } else {
+        // 门闸未过或留意未 ready：保留 prefs 快照推 widget
+        tip = await loadWidgetTipSnapshotFromPrefs(now: now);
+      }
     } catch (e) {
       AppDebugLog.homeWidget('tip err=$e');
     }

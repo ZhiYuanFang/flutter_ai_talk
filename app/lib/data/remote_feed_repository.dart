@@ -21,7 +21,6 @@ import 'history_list_page.dart';
 import 'home_history_store.dart';
 import 'models.dart';
 import 'feed_repository.dart';
-import '../providers/prediction_care_alert_provider.dart';
 
 typedef DeviceNoGetter = String? Function();
 
@@ -121,6 +120,19 @@ class RemoteFeedRepository implements FeedRepository {
 
   @override
   void onAppLifecycleResumed() => _wsClient.onAppLifecycleResumed();
+
+  @override
+  Future<({bool ready, HistoryWsPhase phase, String detail})>
+      waitForHistoryWsReadyOrTerminal({
+    Duration timeout = const Duration(seconds: 25),
+  }) async {
+    final r = await _wsClient.waitForReadyOrTerminal(timeout: timeout);
+    return (
+      ready: r.ready,
+      phase: historyWsPhaseFromShared(r.phase),
+      detail: r.detail,
+    );
+  }
 
   void _mergeInbound(HistoryRecord incoming) {
     final i = _cache.indexWhere((e) => e.id == incoming.id);
@@ -629,28 +641,8 @@ class RemoteFeedRepository implements FeedRepository {
 
   @override
   Future<String?> fetchWidgetFeedingTip() async {
-    // 拿到值得留意的列表
-    final careItems = _ref.watch(predictionCareAlertProvider);
-    if (careItems.isNotEmpty) {
-      // 返回值得留意的列表的所有的reasons里面所有的reson.detailLines用换行符连接起来
-      return careItems.map((e) => e.reasons.map((e) => e.detailLines.join('\n')).join('\n')).join('\n');
-    }
+    // tip 已由 home_widget_sync 从留意日缓存派生；此处保留接口兼容、不再拉 HTTP/watch。
     return null;
-
-    // final dn = _deviceNoGetter();
-    // if (dn == null || dn.isEmpty) return null;
-    // try {
-    //   // tip chat 易超时；不得拖死冷启主路径（调用方亦应 skipTip）
-    //   final data = await _api
-    //       .postJsonEnvelope(
-    //         '/device/history/api/chat',
-    //         {'deviceNo': dn, 'transcript': '接下来需要注意什么？'},
-    //       )
-    //       .timeout(const Duration(seconds: 35));
-    //   return data?['reply'] as String?;
-    // } catch (_) {
-    //   return null;
-    // }
   }
 
   @override

@@ -19,8 +19,7 @@
 
 ### Modified Capabilities
 
-- `history-ws-reconnect`：放宽「resume 不得在 gave-up 自动重试」为「主壳会话内有限次静默自愈可 resetStrike 再连」；明确 login/壳激活 resetStrike；deviceNo 变更须能唤醒 reconnect（不仅绑定页显式调用）。
-- `history-ws-shell-session`：补充「激活后未 ready 须自愈」「resume owner=主壳」；与喂养页解耦的保活责任落在壳层。
+- `history-ws-reconnect`：放宽「resume 不得在 gave-up 自动重试」为「主壳会话内有限次静默自愈可 resetStrike 再连」；明确壳激活路径 resetStrike；deviceNo 变更须能唤醒 reconnect（不仅绑定页显式调用）。
 
 ## Impact
 

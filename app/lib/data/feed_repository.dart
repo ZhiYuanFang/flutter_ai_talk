@@ -87,7 +87,7 @@ abstract class FeedRepository {
   /// answer 首帧到达后后续事件 type 均为 answer，收到 [DONE] 后流正常结束。
   Stream<ChatStreamEvent> sendCommand(String text);
 
-  /// 小组件每日喂养建议；纯 HTTP、不依赖 WS、失败不 Toast。
+  /// 小组件 tip 正文；已由 [home_widget_sync] 从留意日缓存派生，保留接口兼容。
   Future<String?> fetchWidgetFeedingTip();
   Stream<SseHistoryPayload> watchLatest();
 
@@ -115,8 +115,14 @@ abstract class FeedRepository {
   /// 登出或 tearDown：关闭订阅与连接，不发起新 connect。
   void disconnectHistoryWebSocket();
 
-  /// App 从后台 resume；gave-up 态下不得自动重连。
+  /// App 从后台 resume；非 gaveUp 时尝试自动重连（gaveUp 由主壳静默自愈处理）。
   void onAppLifecycleResumed();
+
+  /// 等到历史 WS ready、gaveUp 或超时（供主壳激活后观察是否需静默自愈）。
+  Future<({bool ready, HistoryWsPhase phase, String detail})>
+      waitForHistoryWsReadyOrTerminal({
+    Duration timeout = const Duration(seconds: 25),
+  });
 
   /// 清除本地历史缓存（内存与持久化）。
   Future<void> clearCache();

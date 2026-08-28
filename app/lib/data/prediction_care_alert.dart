@@ -1,6 +1,9 @@
 // 护理留意：服务端日缓存列表的展示 DTO（非医疗诊断）。
 // 本地规则引擎已移除；解析见 parseCareAlertEventItems。
 
+import 'event_next_predictor.dart';
+import 'models.dart';
+
 /// 护理留意预警类型（排序优先级：间隔拉长 > 进行中过久 > 突然消失 > 其他）。
 enum CareAlertType {
   /// 间隔拉长
@@ -293,4 +296,44 @@ String careAlertShanghaiDayKey([DateTime? now]) {
   final mo = sh.month.toString().padLeft(2, '0');
   final d = sh.day.toString().padLeft(2, '0');
   return '$y-$mo-$d';
+}
+
+/// 将任意时刻映射为 Asia/Shanghai 日历日（本地 DateTime，时分归零）。
+DateTime careAlertShanghaiCalendarDay(DateTime instant) {
+  final sh = instant.toUtc().add(const Duration(hours: 8));
+  return DateTime(sh.year, sh.month, sh.day);
+}
+
+/// 当前上海自然日的「昨日」日历日。
+DateTime careAlertShanghaiYesterdayCalendarDay([DateTime? now]) {
+  final utc = (now ?? DateTime.now()).toUtc();
+  final sh = utc.add(const Duration(hours: 8));
+  final today = DateTime(sh.year, sh.month, sh.day);
+  return today.subtract(const Duration(days: 1));
+}
+
+/// 7 日 range 内是否至少有一条真历史落在上海「昨日」。
+bool rangeHasShanghaiYesterdayOccurrence(
+  List<HistoryRecord> records, [
+  DateTime? now,
+]) {
+  if (records.isEmpty) return false;
+  final yesterday = careAlertShanghaiYesterdayCalendarDay(now);
+  for (final r in records) {
+    final t = occurrenceInstant(r, includeActive: true);
+    if (t == null) continue;
+    if (careAlertShanghaiCalendarDay(t) == yesterday) return true;
+  }
+  return false;
+}
+
+/// 由过滤后的留意列表派生小组件 tip：仅非空 summaryLine，多项以空行拼接。
+String? deriveWidgetTipTextFromCareAlert(List<CareAlertEventItem> items) {
+  if (items.isEmpty) return null;
+  final parts = <String>[
+    for (final item in items)
+      if (item.summaryLine.trim().isNotEmpty) item.summaryLine.trim(),
+  ];
+  if (parts.isEmpty) return null;
+  return parts.join('\n\n');
 }

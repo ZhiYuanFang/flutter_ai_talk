@@ -730,10 +730,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// 回前台：先单飞 ensureFreshSession，再 WS resume，未读 HTTP，最后喂养+预测 range。
+  /// 回前台：先单飞 ensureFreshSession，再 UCG resume / 未读，最后喂养+预测 range。
+  /// 历史 WS resume 由主壳 [UcgHomeShell] 静默自愈统一编排，此处不再调用以免双触发。
   Future<void> _onAppLifecycleResumed() async {
     await ref.read(sessionProvider).ensureFreshSession();
-    ref.read(feedRepositoryProvider).onAppLifecycleResumed();
     ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
     await ref.read(ucgUnreadSyncProvider)();
     // 已登录：刷喂养历史 + 预测 7 日 range，避免只停预测页时数据陈旧
