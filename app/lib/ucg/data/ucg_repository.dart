@@ -13,6 +13,7 @@ import '../../network/ws_connection_phase.dart';
 import '../../providers/ai_quota_dialog_bus.dart';
 import '../../session/token_expiry.dart';
 import 'ucg_api_client.dart';
+import 'ucg_force_models.dart';
 import 'ucg_models.dart';
 
 import 'ucg_presign.dart';
@@ -192,6 +193,24 @@ class UcgRepository {
   Future<UcgProfile?> fetchMyProfile() async {
     final data = await _api.get('/profile/me');
     return data == null ? null : UcgProfile.fromJson(data);
+  }
+
+  /// GET `/ucg/app/api/force/ledger`：当前用户原力积分与流水。
+  Future<UcgForceLedgerPage> fetchForceLedger({
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final data = await _api.get(
+      '/force/ledger',
+      query: {
+        'limit': '$limit',
+        'offset': '$offset',
+      },
+    );
+    if (data == null) {
+      throw StateError('原力流水查询失败');
+    }
+    return UcgForceLedgerPage.fromJson(data);
   }
 
   Future<UcgProfile?> fetchProfile(

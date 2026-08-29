@@ -7,14 +7,24 @@ import 'package:go_router/go_router.dart';
 
 import '../data/cash_vip_models.dart';
 import '../data/feature_unlock_models.dart';
+import '../providers/authorized_api_client_provider.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
+import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/settings_glass_panel.dart';
 
+String _resolveInviteGroupQrUrl(String raw, String apiBaseUrl) {
+  final u = raw.trim();
+  if (u.isEmpty) return '';
+  if (u.startsWith('http://') || u.startsWith('https://')) return u;
+  final base = Uri.tryParse(apiBaseUrl.trim());
+  if (base == null || !base.hasScheme) return u;
+  return base.resolve(u.startsWith('/') ? u : '/$u').toString();
+}
 /// 开通更多功能（商业变现唯一入口页）。
 class FeatureUnlockHubScreen extends ConsumerStatefulWidget {
   const FeatureUnlockHubScreen({super.key});
@@ -48,19 +58,28 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
     final catalog = ref.watch(featureCatalogStateProvider);
     final vip = ref.watch(vipStatusProvider).valueOrNull;
     final isVip = vip?.isVip == true;
+    final vipProductAsync = ref.watch(vipProductProvider);
+    final apiBase = ref.watch(authorizedApiClientProvider).baseUrl;
+    final qrUrl =
+        _resolveInviteGroupQrUrl(catalog.inviteGroupQrUrl, apiBase);
 
     return Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
         backgroundColor: shell,
         foregroundColor: onShell,
-        title: const Text('开通更多功能'),
+        title: const Text(''),
       ),
       body: RefreshIndicator(
         onRefresh: _refreshAll,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           children: [
+            if (qrUrl.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _InviteGroupQrBlock(qrUrl: qrUrl, onShell: onShell),
+              ),
             if (catalog.loading && !catalog.ready)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 48),
@@ -87,38 +106,168 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
                   ),
                 ),
               ),
-            const SizedBox(height: 8),
-            SettingsGlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    '开通月卡解锁所有功能',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: onShell,
-                        ),
+            // 为底部悬浮月卡留出滚动空间
+            const SizedBox(height: 140),
+          ],
+        ),
+      ),
+      // bottomNavigationBar: _VipStickyBar(
+      //   isVip: isVip,
+      //   expireAt: vip?.expireAt ?? 0,
+      //   vipProductAsync: vipProductAsync,
+      //   onShell: onShell,
+      //   onOpenPurchase: !kVipPurchaseEnabled
+      //       ? null
+      //       : () => context.push('/vip/purchase'),
+      // ),
+    );
+  }
+}
+
+/// 页级微信群二维码：文案居中在图正上方；加载失败则整块不渲染。
+class _InviteGroupQrBlock extends StatefulWidget {
+  const _InviteGroupQrBlock({
+    required this.qrUrl,
+    required this.onShell,
+  });
+
+  final String qrUrl;
+  final Color onShell;
+
+  @override
+  State<_InviteGroupQrBlock> createState() => _InviteGroupQrBlockState();
+}
+
+class _InviteGroupQrBlockState extends State<_InviteGroupQrBlock> {
+  /// 图片加载失败后隐藏整块（含文案），避免「有标题无图」。
+  var _loadFailed = false;
+
+  @override
+  void didUpdateWidget(covariant _InviteGroupQrBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.qrUrl != widget.qrUrl) {
+      _loadFailed = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadFailed) return const SizedBox.shrink();
+    return SettingsGlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '加入微信群获取邀请码',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: widget.onShell.withValues(alpha: 0.9),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                widget.qrUrl,
+                width: 200,
+                height: 200,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) {
+                  // 首帧 errorBuilder 在 build 内，延后 setState 避免同步重建冲突。
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && !_loadFailed) {
+                      setState(() => _loadFailed = true);
+                    }
+                  });
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 底部悬浮月卡：与功能列表滚动分离，含有效期文案。
+class _VipStickyBar extends StatelessWidget {
+  const _VipStickyBar({
+    required this.isVip,
+    required this.expireAt,
+    required this.vipProductAsync,
+    required this.onShell,
+    this.onOpenPurchase,
+  });
+
+  final bool isVip;
+  final int expireAt;
+  final AsyncValue<CashVipProduct> vipProductAsync;
+  final Color onShell;
+  final VoidCallback? onOpenPurchase;
+
+  String _validityCopy() {
+    if (isVip && expireAt > 0) {
+      final end = DateTime.fromMillisecondsSinceEpoch(expireAt * 1000).toLocal();
+      final days = end.difference(DateTime.now()).inDays;
+      final dateStr =
+          '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
+      if (days >= 0) {
+        return '月卡有效期至 $dateStr（${featureRemainingDaysCopy(expireAt)}）';
+      }
+      return '月卡已过期';
+    }
+    final days = vipProductAsync.valueOrNull?.durationDays ?? 30;
+    if (days > 0) {
+      return '开通后有效期 $days 天，可覆盖功能目录与预测事件锁（不含 UCG 入场门槛）';
+    }
+    return '开通月卡可覆盖功能目录与预测事件锁（不含 UCG 入场门槛）';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 8,
+      color: Theme.of(context).extension<AppVisualTokens>()?.shellColor ??
+          Theme.of(context).colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: SettingsGlassPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isVip ? '月卡已开通' : '开通月卡解锁所有功能',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: onShell,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _validityCopy(),
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: onShell.withValues(alpha: 0.65),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '月卡可覆盖功能目录与预测事件锁（不含 UCG 入场门槛）',
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.35,
-                      color: onShell.withValues(alpha: 0.65),
-                    ),
-                  ),
+                ),
+                if (!isVip) ...[
                   const SizedBox(height: 12),
                   FilledButton(
-                    onPressed: !kVipPurchaseEnabled
-                        ? null
-                        : () => context.push('/vip/purchase'),
+                    onPressed: onOpenPurchase,
                     child: const Text('去开通月卡'),
                   ),
                 ],
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -138,11 +287,17 @@ class _FeatureUnlockCard extends ConsumerWidget {
   final Color onShell;
   final Future<void> Function() onChanged;
 
+  bool get _isPrediction => item.featureId == kFeatureIdPredictionUnlock;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unlocked = isFeatureEffectivelyUnlocked(item: item, isVip: isVip);
     final method = displayUnlockMethod(item: item, isVip: isVip);
     final product = item.defaultProduct;
+    // 一套 CTA：预测未达非叶子天花板则显示（含 VIP）；其它功能仅未有效开通时显示。
+    final showUnlockCtas = _isPrediction
+        ? shouldShowPredictionAccumulationCtas(item)
+        : !unlocked;
 
     return SettingsGlassPanel(
       child: Column(
@@ -173,15 +328,12 @@ class _FeatureUnlockCard extends ConsumerWidget {
                         ),
                       ),
                     ],
-                    if (item.featureId == kFeatureIdPredictionUnlock &&
-                        item.allowedCount != null) ...[
+                    if (_isPrediction && item.allowedCount != null) ...[
                       const SizedBox(height: 6),
                       Text(
                         item.isPredictionFullAccess
-                            ? (item.expiresAt > 0
-                                ? '预测事项：期限内全部可看'
-                                : '预测事项：全部可看')
-                            : '当前可展示预测事项：${item.allowedCount} 个',
+                            ? '预测事项：永久条数待同步'
+                            : '每次开通永久 +1 条预测事项',
                         style: TextStyle(
                           fontSize: 12,
                           color: onShell.withValues(alpha: 0.55),
@@ -191,7 +343,19 @@ class _FeatureUnlockCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (unlocked)
+              if (_isPrediction && item.allowedCount != null)
+                // 徽章：已激活 N / 已全部激活（N vs 服务端非叶子 total；非可见行数）
+                Text(
+                  item.predictionActivationBadgeCopy,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: item.isPredictionFullyActivated
+                        ? Theme.of(context).colorScheme.primary
+                        : onShell.withValues(alpha: 0.65),
+                  ),
+                )
+              else if (unlocked)
                 Text(
                   '已开通',
                   style: TextStyle(
@@ -203,17 +367,7 @@ class _FeatureUnlockCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (unlocked)
-            Text(
-              '开通方式：${featureUnlockMethodLabel(method)}'
-              '${item.unlocked && item.expiresAt > 0 ? ' · ${featureRemainingDaysCopy(item.expiresAt)}' : (method == 'vip' ? '' : (item.unlocked ? ' · 永久' : ''))}',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 13,
-                color: onShell.withValues(alpha: 0.75),
-              ),
-            )
-          else
+          if (showUnlockCtas)
             Wrap(
               alignment: WrapAlignment.end,
               spacing: 8,
@@ -221,25 +375,42 @@ class _FeatureUnlockCard extends ConsumerWidget {
               children: [
                 if (item.supportsPayment && product != null)
                   OutlinedButton(
+                    style: _kUnlockCtaButtonStyle,
                     onPressed: () => unawaited(
                       _openPaymentDialog(context, ref, item, product),
                     ),
-                    child: Text(
-                      '支付开通 ¥${formatVipFenYuan(product.priceFen)}',
-                    ),
+                    child: _isPrediction
+                        ? _PayPerUnitLabel(product: product, onShell: onShell)
+                        : Text(
+                            '支付开通 ¥${formatVipFenYuan(product.priceFen)}',
+                            style: _kUnlockCtaTextStyle,
+                          ),
                   ),
                 if (item.supportsAd)
                   OutlinedButton(
-                    onPressed: () => unawaited(_openAdDialog(context, ref, item)),
-                    child: const Text('看广告'),
+                    style: _kUnlockCtaButtonStyle,
+                    onPressed: () =>
+                        unawaited(_openAdDialog(context, ref, item)),
+                    child: const Text('看广告', style: _kUnlockCtaTextStyle),
                   ),
                 if (item.supportsInviteCode)
                   OutlinedButton(
+                    style: _kUnlockCtaButtonStyle,
                     onPressed: () =>
                         unawaited(_openInviteDialog(context, ref, item)),
-                    child: const Text('激活码'),
+                    child: const Text('输入邀请码开通', style: _kUnlockCtaTextStyle),
                   ),
               ],
+            )
+          else
+            Text(
+              '开通方式：${featureUnlockMethodLabel(method)}'
+              '${item.unlocked && item.expiresAt > 0 ? ' · ${featureRemainingDaysCopy(item.expiresAt)}' : (method == 'vip' ? (isVip && !_isPrediction ? ' · ${featureRemainingDaysCopy(ref.watch(vipStatusProvider).valueOrNull?.expireAt ?? 0)}' : '') : (item.unlocked ? ' · 永久' : ''))}',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 13,
+                color: onShell.withValues(alpha: 0.75),
+              ),
             ),
         ],
       ),
@@ -252,13 +423,19 @@ class _FeatureUnlockCard extends ConsumerWidget {
     FeatureCatalogItem item,
     FeatureCatalogProduct product,
   ) async {
+    final isPerUnit = item.featureId == kFeatureIdPredictionUnlock;
     final days = featureDurationCopy(product.durationDays);
-    final ok = await showGlassConfirmDialog(
+    // 价串挂确认键右侧小字括号；正文不重复「价格：」。
+    final priceLine = isPerUnit
+        ? '¥${formatVipFenYuan(product.priceFen)}/个'
+        : '¥${formatVipFenYuan(product.priceFen)}';
+    final message = isPerUnit
+        ? '永久 +1 条预测事项'
+        : '开通「${item.title}」有效期：$days';
+    final ok = await _showFeaturePayConfirmDialog(
       context,
-      title: '支付开通',
-      message: '开通「${item.title}」有效期：$days\n'
-          '价格：¥${formatVipFenYuan(product.priceFen)}',
-      confirmLabel: kIsWeb ? '仅 App 可支付' : '去支付',
+      message: message,
+      priceLine: priceLine,
     );
     if (ok != true || !context.mounted || kIsWeb) return;
     final outcome =
@@ -281,8 +458,9 @@ class _FeatureUnlockCard extends ConsumerWidget {
     final ok = await showGlassConfirmDialog(
       context,
       title: '看广告开通',
-      message: '观看一段广告即可开通「${item.title}」。\n'
-          '点击确定后视为已观看（演示）。',
+      message: item.featureId == kFeatureIdPredictionUnlock
+          ? '观看一段广告即可为「${item.title}」永久 +1 条。\n点击确定后视为已观看（演示）。'
+          : '观看一段广告即可开通「${item.title}」。\n点击确定后视为已观看（演示）。',
       confirmLabel: '确定看广告',
     );
     if (ok != true || !context.mounted) return;
@@ -315,22 +493,24 @@ class _FeatureUnlockCard extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '输入激活码',
+              '输入邀请码',
               textAlign: TextAlign.center,
               style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              '可向群主获取免费激活码',
+            Text(
+              item.featureId == kFeatureIdPredictionUnlock
+                  ? '输入好友邀请码，永久 +1 条预测事项'
+                  : '输入邀请码开通此功能',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: controller,
               decoration: const InputDecoration(
-                hintText: '请输入激活码',
+                hintText: '请输入邀请码',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -368,7 +548,129 @@ class _FeatureUnlockCard extends ConsumerWidget {
       await onChanged();
     } catch (e) {
       if (!context.mounted) return;
-      showAppToast('兑换失败，请检查激活码', tone: AppToastTone.error);
+      showAppToast('兑换失败，请检查邀请码', tone: AppToastTone.error);
     }
+  }
+}
+
+/// 开通中心 CTA 字号（支付 / 广告 / 邀请统一）。
+const _kUnlockCtaTextStyle = TextStyle(fontSize: 10);
+
+final _kUnlockCtaButtonStyle = OutlinedButton.styleFrom(
+  textStyle: _kUnlockCtaTextStyle,
+  visualDensity: VisualDensity.compact,
+  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+);
+
+/// 支付确认：专用 glass 弹窗；确认键「去支付」+ 右侧小字括号价。
+Future<bool?> _showFeaturePayConfirmDialog(
+  BuildContext context, {
+  required String message,
+  required String priceLine,
+}) {
+  final actionLabel = kIsWeb ? '仅 App 可支付' : '去支付';
+  return showGlassDialog<bool>(
+    context: context,
+    contentBuilder: (ctx) {
+      final glassText = historyEditGlassTextColor(ctx);
+      final glassLabel = historyEditGlassLabelColor(ctx);
+      final scheme = Theme.of(ctx).colorScheme;
+      final onPrimary = scheme.onPrimary;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '支付开通',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.25,
+              fontWeight: FontWeight.w600,
+              color: glassText,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, height: 1.4, color: glassLabel),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                style: TextButton.styleFrom(
+                  foregroundColor: glassLabel,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: const Text('取消'),
+              ),
+              const Spacer(),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: onPrimary,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: const StadiumBorder(),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(actionLabel),
+                    Text(
+                      ' ($priceLine)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.2,
+                        color: onPrimary.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// 预测按次购买价签：现价 + 删除线原价 + /个。
+class _PayPerUnitLabel extends StatelessWidget {
+  const _PayPerUnitLabel({
+    required this.product,
+    required this.onShell,
+  });
+
+  final FeatureCatalogProduct product;
+  final Color onShell;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '¥${formatVipFenYuan(product.priceFen)}',
+          style: _kUnlockCtaTextStyle,
+        ),
+        if (product.showOriginalPrice) ...[
+          const SizedBox(width: 4),
+          Text(
+            '¥${formatVipFenYuan(product.originalPriceFen)}',
+            style: _kUnlockCtaTextStyle.copyWith(
+              decoration: TextDecoration.lineThrough,
+              color: onShell.withValues(alpha: 0.55),
+            ),
+          ),
+        ],
+        const Text('/个', style: _kUnlockCtaTextStyle),
+      ],
+    );
   }
 }

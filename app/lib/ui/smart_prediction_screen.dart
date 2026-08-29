@@ -58,7 +58,7 @@ import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
 import 'widgets/app_empty_state_gallery.dart';
-import 'widgets/feature_lock_overlay.dart';
+import 'widgets/feeding_eligibility_progress_text.dart';
 import 'widgets/prediction_widget_showcase_fab.dart';
 
 /// 投屏入口：锁定横屏（与 [_exitLandscapeToPortrait] 对称）。
@@ -78,6 +78,43 @@ Future<void> _exitLandscapeToPortrait() async {
   ]);
   await Future<void>.delayed(const Duration(milliseconds: 100));
   await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+}
+
+/// 预测开关闸：关始终放行；开时 VIP 放行，否则已开启数须 < 永久 allowedCount。
+/// 满额弹框确认后进入开通中心。返回是否已执行开启。
+Future<bool> _requestForecastToggle({
+  required BuildContext context,
+  required WidgetRef ref,
+  required String eventId,
+  required bool enable,
+  required int enabledCount,
+  required bool currentlyEnabled,
+  required int allowedCount,
+  required bool isVip,
+}) async {
+  if (!enable) {
+    await ref.read(forecastDisabledIdsProvider.notifier).setEnabled(eventId, false);
+    return true;
+  }
+  if (currentlyEnabled) return true;
+  // allowedCount < 0：历史全开哨兵，视为不限名额。
+  final capped = !isVip && allowedCount >= 0 && enabledCount >= allowedCount;
+  if (capped) {
+    final go = await showGlassConfirmDialog(
+      context,
+      title: '预测槽位已满',
+      message: allowedCount <= 0
+          ? '当前还没有可开启的预测槽位。'
+          : '已开启 $enabledCount 个预测事件。输入邀请码开启更多预测槽位。',
+      confirmLabel: '去开通',
+    );
+    if (go == true && context.mounted) {
+      context.push('/features/unlock');
+    }
+    return false;
+  }
+  await ref.read(forecastDisabledIdsProvider.notifier).setEnabled(eventId, true);
+  return true;
 }
 
 /// 预测页横屏：沉浸藏状态栏 + 常亮；离开/竖屏释放。
@@ -220,20 +257,22 @@ class SmartPredictionScreen extends ConsumerWidget {
           )
         : realRows;
     final isVip = ref.watch(vipStatusProvider).valueOrNull?.isVip == true;
+    // 永久可开启条数；开关闸按「已开启计数」占用，非排序下标。
     final allowedCount =
         ref.watch(featureCatalogStateProvider).predictionAllowedCount;
-    Widget lockIfNeeded(Widget card, int realIndex) {
-      if (useDemoSkeleton ||
-          isVip ||
-          FeatureCatalogState.predictionIndexUnlocked(
-            realIndex,
-            allowedCount,
-          )) {
-        return card;
-      }
-      return FeatureLockOverlay(
-        child: card,
-        onTap: () => context.push('/features/unlock'),
+    final enabledCount = rows.where((r) => r.forecastEnabled).length;
+    Future<void> onForecastToggle(String eventId, bool enable) async {
+      final currentlyEnabled =
+          rows.any((r) => r.eventId == eventId && r.forecastEnabled);
+      await _requestForecastToggle(
+        context: context,
+        ref: ref,
+        eventId: eventId,
+        enable: enable,
+        enabledCount: enabledCount,
+        currentlyEnabled: currentlyEnabled,
+        allowedCount: allowedCount,
+        isVip: isVip,
       );
     }
     final heartbeatId = soonestHeartbeatEventId(rows, now);
@@ -431,17 +470,36 @@ class SmartPredictionScreen extends ConsumerWidget {
       final careState = ref.watch(predictionCareAlertStateProvider);
       // 未合格 / 资格失败：仍展示卡片进度；合格且有数据：跑马灯。
       if (!careElig.isQualified) {
-        final subtitle = careElig.loading
-            ? '正在校验喂养记录…'
-            : (careElig.failed
-                ? '资格校验失败，请稍后重试'
-                : (careElig.data?.careAlertProgressCopy() ??
-                    '需累计有效喂养日以激活值得留意'));
-        careOrGuide = _CareAlertPanel(
-          items: const [],
-          progressSubtitle: subtitle,
-          onTapItem: (_) {},
-        );
+        if (careElig.loading) {
+          careOrGuide = _CareAlertPanel(
+            items: const [],
+            progressSubtitle: '正在校验喂养记录…',
+            onTapItem: (_) {},
+          );
+        } else if (careElig.failed) {
+          careOrGuide = _CareAlertPanel(
+            items: const [],
+            progressSubtitle: '资格校验失败，请稍后重试',
+            onTapItem: (_) {},
+          );
+        } else if (careElig.data != null) {
+          careOrGuide = _CareAlertPanel(
+            items: const [],
+            progressSubtitleWidget: FeedingEligibilityProgressText(
+              eligibility: careElig.data!,
+              kind: FeedingEligibilityProgressKind.careAlert,
+              textAlign: TextAlign.start,
+              numberScale: 1.65,
+            ),
+            onTapItem: (_) {},
+          );
+        } else {
+          careOrGuide = _CareAlertPanel(
+            items: const [],
+            progressSubtitle: '需累计有效喂养日以激活值得留意',
+            onTapItem: (_) {},
+          );
+        }
       } else {
         final showCare = careState.ready &&
             !careState.failed &&
@@ -552,7 +610,6 @@ class SmartPredictionScreen extends ConsumerWidget {
             columnGap: metrics?.columnGap ?? 12,
             rowGap: metrics?.rowGap ?? 12,
             itemBuilder: (row, columnIndex, rowIndexInColumn) {
-              final realIndex = rows.indexOf(row);
               final activeTiming = useDemoSkeleton
                   ? null
                   : findLatestActiveTimingForRoot(
@@ -561,15 +618,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                       catalog: catalog,
                     );
               final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
-              final locked = !useDemoSkeleton &&
-                  !isVip &&
-                  realIndex >= 0 &&
-                  !FeatureCatalogState.predictionIndexUnlocked(
-                    realIndex,
-                    allowedCount,
-                  );
-              return lockIfNeeded(
-                _PredictionEventCard(
+              return _PredictionEventCard(
                 row: row,
                 definition: lookupEventById(catalog, row.eventId),
                 logoAnchorKey: logoAnchors.keyFor(row.eventId),
@@ -586,14 +635,12 @@ class SmartPredictionScreen extends ConsumerWidget {
                     : _relativeFor(row, now, grid: true),
                 activeTiming: activeTiming,
                 landscapeMetrics: metrics,
-                onToggle: (useDemoSkeleton || locked)
+                onToggle: useDemoSkeleton
                     ? null
                     : (v) {
-                        ref
-                            .read(forecastDisabledIdsProvider.notifier)
-                            .setEnabled(row.eventId, v);
+                        unawaited(onForecastToggle(row.eventId, v));
                       },
-                onCardTap: (locked || activeTiming != null)
+                onCardTap: activeTiming != null
                     ? null
                     : () {
                         if (useDemoSkeleton) {
@@ -615,8 +662,6 @@ class SmartPredictionScreen extends ConsumerWidget {
                           ),
                         );
                       },
-              ),
-                realIndex < 0 ? rows.length : realIndex,
               );
             },
           );
@@ -644,11 +689,7 @@ class SmartPredictionScreen extends ConsumerWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, i) {
           final row = rows[i];
-          final locked = !useDemoSkeleton &&
-              !isVip &&
-              !FeatureCatalogState.predictionIndexUnlocked(i, allowedCount);
-          return lockIfNeeded(
-            _PredictionEventCard(
+          return _PredictionEventCard(
             row: row,
             definition: lookupEventById(catalog, row.eventId),
             logoAnchorKey: logoAnchors.keyFor(row.eventId),
@@ -660,15 +701,11 @@ class SmartPredictionScreen extends ConsumerWidget {
             pastDaysBeforeToday: 6,
             showYAxis: !useDemoSkeleton,
             relativeText: _relativeFor(row, now, grid: false),
-            onToggle: (useDemoSkeleton || locked)
+            onToggle: useDemoSkeleton
                 ? null
                 : (v) {
-                    ref
-                        .read(forecastDisabledIdsProvider.notifier)
-                        .setEnabled(row.eventId, v);
+                    unawaited(onForecastToggle(row.eventId, v));
                   },
-          ),
-            i,
           );
         },
       );
@@ -1741,30 +1778,43 @@ class _CareAlertPanel extends StatelessWidget {
     required this.items,
     required this.onTapItem,
     this.progressSubtitle,
+    this.progressSubtitleWidget,
   });
 
   final List<CareAlertEventItem> items;
   final ValueChanged<CareAlertEventItem> onTapItem;
   final String? progressSubtitle;
+  final Widget? progressSubtitleWidget;
 
   @override
   Widget build(BuildContext context) {
     final progress = progressSubtitle?.trim() ?? '';
-    if (progress.isNotEmpty) {
+    final hasRich = progressSubtitleWidget != null;
+    if (hasRich || progress.isNotEmpty) {
+      final onSurface = Theme.of(context)
+          .colorScheme
+          .onSurface
+          .withValues(alpha: 0.72);
       return _CareAlertShell(
         body: Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-          child: Text(
-            progress,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.35,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.72),
-            ),
-          ),
+          child: hasRich
+              ? DefaultTextStyle(
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: onSurface,
+                  ),
+                  child: progressSubtitleWidget!,
+                )
+              : Text(
+                  progress,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: onSurface,
+                  ),
+                ),
         ),
       );
     }
@@ -2603,11 +2653,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
       );
       await ref.read(predictionRecallSeedsProvider.notifier).upsertSeed(seed);
       if (!mounted) return;
-      unawaited(
-        ref
-            .read(forecastDisabledIdsProvider.notifier)
-            .setEnabled(row.eventId, true),
-      );
+      // 走父级 onToggle 闸（满额弹框）；无开关时不强制开启。
+      widget.onToggle?.call(true);
       showAppToast('已记录大概间隔', tone: AppToastTone.success);
     } finally {
       if (mounted) setState(() => _recallBusy = false);

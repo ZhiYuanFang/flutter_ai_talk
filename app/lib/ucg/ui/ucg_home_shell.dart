@@ -28,6 +28,7 @@ import '../../ui/home_screen.dart';
 import '../../ui/prediction_card_fly_landing.dart';
 import '../../ui/smart_prediction_screen.dart';
 import '../../ui/widgets/feature_lock_overlay.dart';
+import '../../ui/widgets/feeding_eligibility_progress_text.dart';
 import '../data/ucg_feature_flags.dart';
 import 'ucg_shell.dart';
 
@@ -375,14 +376,23 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
           if (eligibility.isQualified) {
             return shell;
           }
-          final subtitle = eligibility.data?.progressCopy() ??
-              (eligibility.failed
+          final data = eligibility.data;
+          final String? subtitle = data != null
+              ? null
+              : (eligibility.failed
                   ? '资格校验失败，请稍后重试或返回预测页'
                   : '正在校验喂养记录天数…');
+          final Widget? subtitleWidget = data == null
+              ? null
+              : FeedingEligibilityProgressText(
+                  eligibility: data,
+                  kind: FeedingEligibilityProgressKind.ucgEntry,
+                );
           return FeatureLockOverlay(
             fullScreen: true,
-            centerLabel: '广场暂未开放',
+            centerLabel: '仅真实带娃家庭可进入',
             subtitle: subtitle,
+            subtitleWidget: subtitleWidget,
             onTap: null,
             footer: FilledButton(
               onPressed: () => unawaited(_goToHomeHub()),

@@ -11,10 +11,13 @@ import '../../../ui/theme_palette_sheet.dart';
 import '../data/ucg_feature_flags.dart';
 import '../data/ucg_media_picker.dart';
 import '../data/ucg_models.dart';
+import '../../providers/invite_provider.dart';
 import '../providers/ucg_providers.dart';
 import 'ucg_login_gate.dart';
 import 'ucg_post_detail_screen.dart';
 import 'ucg_profile_screens.dart' show UcgFollowListScreen;
+import 'ucg_force_detail_screen.dart';
+import 'ucg_invite_detail_screen.dart';
 import 'widgets/ucg_my_post_timeline_item.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_profile_header.dart';
@@ -615,6 +618,16 @@ class UcgProfileOwnerHeaderCard extends ConsumerStatefulWidget {
 class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeaderCard> {
   var _saving = false;
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.wxBound) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.invalidate(inviteMineProvider);
+      });
+    }
+  }
+
   Future<bool> _ensureWxBound() async {
     if (widget.wxBound) return true;
     return requireUcgWxAccount(context, ref);
@@ -717,6 +730,24 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
   Widget build(BuildContext context) {
     final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
         Theme.of(context).colorScheme.onSurface;
+    final inviteAsync = ref.watch(inviteMineProvider);
+
+    void openForceDetail() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => UcgForceDetailScreen(
+            initialForceValue: widget.profile.forceValue,
+            initialForceTier: widget.profile.forceTier,
+          ),
+        ),
+      );
+    }
+
+    void openInviteDetail() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const UcgInviteDetailScreen()),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -735,6 +766,7 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
           followingCount: widget.profile.followingCount,
           forceValue: widget.profile.forceValue,
           forceTier: widget.profile.forceTier,
+          onForceTierTap: openForceDetail,
           onFollowingTap: widget.wxBound
               ? () {
                   Navigator.of(context).push(
@@ -757,6 +789,63 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
             onPressed: _saving ? null : () => unawaited(_startNicknameEdit()),
           ),
         ),
+        if (widget.wxBound) ...[
+          const SizedBox(height: 12),
+          UcgSurfaceCard(
+            onTap: openInviteDetail,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Icon(Icons.card_giftcard_outlined, size: 20, color: widget.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '我的邀请码',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: fg,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      inviteAsync.when(
+                        loading: () => Text(
+                          '加载中…',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: fg.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        error: (_, __) => Text(
+                          '点击查看详情',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: fg.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        data: (mine) => Text(
+                          mine.code.isEmpty
+                              ? '点击查看详情'
+                              : '${mine.code} · 已邀请 ${mine.redeemedCount} 人',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: fg.withValues(alpha: 0.62),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: fg.withValues(alpha: 0.45)),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }

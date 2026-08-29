@@ -11,27 +11,22 @@ class FeatureUnlockRepository {
 
   final ApiClient _api;
 
-  /// 合成目录（含开通态 + products[]）。
-  Future<List<FeatureCatalogItem>> fetchCatalog() async {
+  /// 合成目录（含开通态 + products[] + 页级群二维码 URL）。
+  Future<FeatureCatalogPayload> fetchCatalog() async {
     try {
       final data = await _api.getEnvelope('/cash/app/api/feature/catalog');
       if (data == null) {
         AppDebugLog.featureUnlock('catalog empty data');
-        return const [];
+        return const FeatureCatalogPayload();
       }
-      final raw = data['list'];
-      final out = <FeatureCatalogItem>[];
-      if (raw is List) {
-        for (final e in raw) {
-          if (e is Map<String, dynamic>) {
-            out.add(FeatureCatalogItem.fromJson(e));
-          } else if (e is Map) {
-            out.add(FeatureCatalogItem.fromJson(Map<String, dynamic>.from(e)));
-          }
-        }
-      }
-      AppDebugLog.featureUnlock('catalog ok count=${out.length}');
-      return out;
+      final payload = FeatureCatalogPayload.fromJson(
+        Map<String, dynamic>.from(data),
+      );
+      AppDebugLog.featureUnlock(
+        'catalog ok count=${payload.items.length} '
+        'qr=${payload.inviteGroupQrUrl.isNotEmpty}',
+      );
+      return payload;
     } on ApiBusinessException catch (e) {
       AppDebugLog.featureUnlock('catalog business err=${e.code} ${e.message}');
       rethrow;
@@ -158,5 +153,41 @@ class FeatureUnlockRepository {
     }
     await _api.postJsonEnvelope('/cash/app/api/feature/ad/complete', body);
     AppDebugLog.featureUnlock('ad complete ok featureId=${featureId.trim()}');
+  }
+
+  /// GET `/cash/app/api/invite/mine`：当前用户邀请码与成功兑换数。
+  Future<InviteMine> fetchInviteMine() async {
+    final data = await _api.getEnvelope('/cash/app/api/invite/mine');
+    if (data == null) {
+      AppDebugLog.featureUnlock('invite mine empty data');
+      throw ApiBusinessException(-1, '邀请码查询失败');
+    }
+    final mine = InviteMine.fromJson(data);
+    AppDebugLog.featureUnlock(
+      'invite mine ok codeLen=${mine.code.length} redeemed=${mine.redeemedCount}',
+    );
+    return mine;
+  }
+
+  /// GET `/cash/app/api/invite/invitees`：成功使用我码的用户列表。
+  Future<List<InviteInvitee>> fetchInviteInvitees() async {
+    final data = await _api.getEnvelope('/cash/app/api/invite/invitees');
+    if (data == null) {
+      AppDebugLog.featureUnlock('invite invitees empty data');
+      return const [];
+    }
+    final raw = data['list'];
+    final out = <InviteInvitee>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map<String, dynamic>) {
+          out.add(InviteInvitee.fromJson(e));
+        } else if (e is Map) {
+          out.add(InviteInvitee.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+    AppDebugLog.featureUnlock('invite invitees ok count=${out.length}');
+    return out;
   }
 }

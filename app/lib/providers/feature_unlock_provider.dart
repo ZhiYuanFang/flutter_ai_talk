@@ -26,6 +26,7 @@ final featurePaymentServiceProvider = Provider<FeaturePaymentService>((ref) {
 class FeatureCatalogState {
   const FeatureCatalogState({
     this.items = const [],
+    this.inviteGroupQrUrl = '',
     this.loading = false,
     this.ready = false,
     this.failed = false,
@@ -34,6 +35,7 @@ class FeatureCatalogState {
   });
 
   final List<FeatureCatalogItem> items;
+  final String inviteGroupQrUrl;
   final bool loading;
   final bool ready;
   final bool failed;
@@ -42,6 +44,7 @@ class FeatureCatalogState {
 
   FeatureCatalogState copyWith({
     List<FeatureCatalogItem>? items,
+    String? inviteGroupQrUrl,
     bool? loading,
     bool? ready,
     bool? failed,
@@ -50,6 +53,7 @@ class FeatureCatalogState {
   }) {
     return FeatureCatalogState(
       items: items ?? this.items,
+      inviteGroupQrUrl: inviteGroupQrUrl ?? this.inviteGroupQrUrl,
       loading: loading ?? this.loading,
       ready: ready ?? this.ready,
       failed: failed ?? this.failed,
@@ -58,8 +62,9 @@ class FeatureCatalogState {
     );
   }
 
-  /// 预测锁数量；缺项按 0。
-  /// `-1` 为服务端哨兵：临时/永久全开（全部真实预测行可看）。
+  /// 预测永久可开槽位数；缺项按 0。
+  /// 语义：解锁「当前排序列表」前 N 行（槽位），非固定 eventId。
+  /// `-1` 为历史哨兵（全开）；本变更后 catalog 预期不再下发。
   int get predictionAllowedCount {
     for (final it in items) {
       if (it.featureId == kFeatureIdPredictionUnlock) {
@@ -70,6 +75,7 @@ class FeatureCatalogState {
   }
 
   /// 预测行是否在数量锁下已解锁（不含 VIP；VIP 由调用方另判）。
+  /// [realIndex] 为当前展示列表排序后的下标；重排后槽位跟下标走。
   /// [allowedCount] < 0（哨兵 -1）表示全开。
   static bool predictionIndexUnlocked(int realIndex, int allowedCount) {
     if (allowedCount < 0) return true;
@@ -143,10 +149,11 @@ class FeatureCatalogNotifier extends StateNotifier<FeatureCatalogState> {
 
     state = state.copyWith(loading: true, failed: false, deviceNo: dn);
     try {
-      final list =
+      final payload =
           await _ref.read(featureUnlockRepositoryProvider).fetchCatalog();
       state = FeatureCatalogState(
-        items: list,
+        items: payload.items,
+        inviteGroupQrUrl: payload.inviteGroupQrUrl,
         loading: false,
         ready: true,
         failed: false,
@@ -155,7 +162,7 @@ class FeatureCatalogNotifier extends StateNotifier<FeatureCatalogState> {
       );
       _circuitUntil = null;
       AppDebugLog.featureUnlock(
-        'catalog ready count=${list.length} '
+        'catalog ready count=${payload.items.length} '
         'predictionAllowed=${state.predictionAllowedCount}',
       );
     } catch (e) {
@@ -302,12 +309,21 @@ final ucgEligibilityStateProvider =
 });
 
 /// 目录功能是否有效开通（含 isVip 覆盖；不含 UCG）。
+/// 预测：仅当永久条数达服务端非叶子 total 才算「已全部激活」；VIP 不抬 Hub 库存态。
 bool isFeatureEffectivelyUnlocked({
   required FeatureCatalogItem? item,
   required bool isVip,
 }) {
+  if (item?.featureId == kFeatureIdPredictionUnlock) {
+    return item?.isPredictionFullyActivated == true;
+  }
   if (isVip) return true;
   return item?.unlocked == true;
+}
+
+/// 预测累加 CTA：未达非叶子天花板即展示（VIP 不隐藏）；与列表可见行数无关。
+bool shouldShowPredictionAccumulationCtas(FeatureCatalogItem item) {
+  return !item.isPredictionFullyActivated;
 }
 
 /// 展示用开通方式：设备 grant 优先，否则 VIP→月卡。

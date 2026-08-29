@@ -38,6 +38,74 @@ class FeatureCatalogProduct {
   }
 }
 
+/// GET `/cash/app/api/invite/mine`。
+class InviteMine {
+  const InviteMine({
+    required this.code,
+    required this.redeemedCount,
+  });
+
+  final String code;
+  final int redeemedCount;
+
+  factory InviteMine.fromJson(Map<String, dynamic> json) {
+    return InviteMine(
+      code: (json['code'] ?? '').toString(),
+      redeemedCount: _asInt(json['redeemedCount']),
+    );
+  }
+}
+
+/// GET `/cash/app/api/invite/invitees` 单项。
+class InviteInvitee {
+  const InviteInvitee({
+    required this.wxId,
+    required this.nickname,
+    required this.redeemedAt,
+  });
+
+  final int wxId;
+  final String nickname;
+  final int redeemedAt;
+
+  factory InviteInvitee.fromJson(Map<String, dynamic> json) {
+    return InviteInvitee(
+      wxId: _asInt(json['wxId']),
+      nickname: (json['nickname'] ?? '').toString(),
+      redeemedAt: _asInt(json['redeemedAt']),
+    );
+  }
+}
+
+/// GET `/cash/app/api/feature/catalog` 整包（含页级群二维码）。
+class FeatureCatalogPayload {
+  const FeatureCatalogPayload({
+    this.items = const [],
+    this.inviteGroupQrUrl = '',
+  });
+
+  final List<FeatureCatalogItem> items;
+  final String inviteGroupQrUrl;
+
+  factory FeatureCatalogPayload.fromJson(Map<String, dynamic> json) {
+    final raw = json['list'];
+    final out = <FeatureCatalogItem>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map<String, dynamic>) {
+          out.add(FeatureCatalogItem.fromJson(e));
+        } else if (e is Map) {
+          out.add(FeatureCatalogItem.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+    return FeatureCatalogPayload(
+      items: out,
+      inviteGroupQrUrl: (json['inviteGroupQrUrl'] ?? '').toString().trim(),
+    );
+  }
+}
+
 /// GET `/cash/app/api/feature/catalog` 单项。
 class FeatureCatalogItem {
   const FeatureCatalogItem({
@@ -49,6 +117,7 @@ class FeatureCatalogItem {
     this.unlockMethod = '',
     this.expiresAt = 0,
     this.allowedCount,
+    this.totalActivatableCount,
     this.products = const [],
   });
 
@@ -63,9 +132,33 @@ class FeatureCatalogItem {
   final int expiresAt;
   final int? allowedCount;
 
+  /// 预测可激活天花板：Go catalog 聚合的字典**非叶子**总数（仅 prediction_unlock）。
+  /// 「已全部激活」只认本字段；不得用客户端可见预测行数重算。
+  final int? totalActivatableCount;
+
   /// 预测临时/永久全开哨兵（与服务端 AllowedCountFullAccessSentinel 一致）。
   bool get isPredictionFullAccess => allowedCount != null && allowedCount! < 0;
   final List<FeatureCatalogProduct> products;
+
+  /// 永久已激活条数（≥0；哨兵 -1 不计入库存展示）= 解锁槽位数 N。
+  int get permanentActivatedCount {
+    final ac = allowedCount;
+    if (ac == null || ac < 0) return 0;
+    return ac;
+  }
+
+  /// 是否已全部永久激活：仅对照服务端非叶子 total（须 total>0 且 activated≥total）。
+  bool get isPredictionFullyActivated {
+    final total = totalActivatableCount ?? 0;
+    if (total <= 0) return false;
+    return permanentActivatedCount >= total;
+  }
+
+  /// 开通中心预测卡右上角文案（库存态；与列表可见行数解耦）。
+  String get predictionActivationBadgeCopy {
+    if (isPredictionFullyActivated) return '已全部激活';
+    return '已激活 $permanentActivatedCount 个';
+  }
 
   /// 解析后的开通方式集合。
   Set<String> get unlockMethodSet {
@@ -102,6 +195,7 @@ class FeatureCatalogItem {
       }
     }
     final ac = json['allowedCount'];
+    final tac = json['totalActivatableCount'];
     return FeatureCatalogItem(
       featureId: (json['featureId'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
@@ -111,6 +205,7 @@ class FeatureCatalogItem {
       unlockMethod: (json['unlockMethod'] ?? '').toString(),
       expiresAt: _asInt(json['expiresAt']),
       allowedCount: ac == null ? null : _asInt(ac),
+      totalActivatableCount: tac == null ? null : _asInt(tac),
       products: products,
     );
   }
@@ -140,28 +235,6 @@ class UcgEligibility {
       remainingDays: _asInt(json['remainingDays']),
       message: (json['message'] ?? '').toString(),
     );
-  }
-
-  /// 浮层天数文案：优先服务端 message。
-  String progressCopy() {
-    final m = message.trim();
-    if (m.isNotEmpty) return m;
-    final n = requiredDays > 0 ? requiredDays : 7;
-    final x = effectiveDays;
-    final y = remainingDays;
-    return '为保障广场内为真实宝妈/宝爸经验共享，需要有效喂养记录$n天后才可进入，'
-        '已有效记录$x天，距离广场开放还需持续记录$y天';
-  }
-
-  /// 值得留意未激活进度文案。
-  String careAlertProgressCopy() {
-    final m = message.trim();
-    if (m.isNotEmpty) return m;
-    final n = requiredDays > 0 ? requiredDays : 2;
-    final x = effectiveDays;
-    final y = remainingDays;
-    return '需连续有效喂养记录满$n天才能激活值得留意，'
-        '已有效$x天，还需持续记录$y天';
   }
 }
 
@@ -206,7 +279,7 @@ String featureUnlockMethodLabel(String method) {
     case 'ad':
       return '看广告';
     case 'invite_code':
-      return '激活码';
+      return '邀请码';
     case 'vip':
       return '月卡';
     default:

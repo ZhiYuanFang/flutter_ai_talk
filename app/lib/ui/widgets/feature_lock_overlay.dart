@@ -17,6 +17,7 @@ class FeatureLockOverlay extends StatelessWidget {
     this.onTap,
     this.centerLabel = '点击开通',
     this.subtitle,
+    this.subtitleWidget,
     this.footer,
     this.borderRadius = 16,
     this.fullScreen = false,
@@ -31,8 +32,11 @@ class FeatureLockOverlay extends StatelessWidget {
   /// 中心主文案（预测默认「点击开通」）。
   final String centerLabel;
 
-  /// 次文案（UCG 天数进度等）。
+  /// 次文案（UCG 天数进度等）；与 [subtitleWidget] 同时存在时优先 Widget。
   final String? subtitle;
+
+  /// 富文本次文案（如放大剩余喂养天数）。
+  final Widget? subtitleWidget;
 
   /// 底部槽位（如「返回预测页」按钮）。
   final Widget? footer;
@@ -81,6 +85,7 @@ class FeatureLockOverlay extends StatelessWidget {
                           onPanel: onScrim,
                           centerLabel: centerLabel,
                           subtitle: subtitle,
+                          subtitleWidget: subtitleWidget,
                           footer: footer,
                         );
                       },
@@ -108,6 +113,7 @@ class _LockOverlayBody extends StatelessWidget {
     required this.onPanel,
     required this.centerLabel,
     this.subtitle,
+    this.subtitleWidget,
     this.footer,
   });
 
@@ -116,6 +122,7 @@ class _LockOverlayBody extends StatelessWidget {
   final Color onPanel;
   final String centerLabel;
   final String? subtitle;
+  final Widget? subtitleWidget;
   final Widget? footer;
 
   @override
@@ -165,17 +172,31 @@ class _LockOverlayBody extends StatelessWidget {
           ),
         ),
         if (!compact &&
-            subtitle != null &&
-            subtitle!.trim().isNotEmpty) ...[
+            (subtitleWidget != null ||
+                (subtitle != null && subtitle!.trim().isNotEmpty))) ...[
           const SizedBox(height: 10),
-          Text(
-            subtitle!,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: onPanel.withValues(alpha: 0.78),
-                  height: 1.35,
-                ),
-          ),
+          if (subtitleWidget != null)
+            DefaultTextStyle(
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: onPanel.withValues(alpha: 0.78),
+                        height: 1.35,
+                      ) ??
+                  TextStyle(
+                    color: onPanel.withValues(alpha: 0.78),
+                    height: 1.35,
+                  ),
+              textAlign: TextAlign.center,
+              child: subtitleWidget!,
+            )
+          else
+            Text(
+              subtitle!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: onPanel.withValues(alpha: 0.78),
+                    height: 1.35,
+                  ),
+            ),
         ],
         if (!compact && footer != null) ...[
           const SizedBox(height: 20),

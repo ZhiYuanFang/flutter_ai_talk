@@ -21,6 +21,7 @@ class UcgProfileHeader extends StatelessWidget {
     this.actions,
     this.nicknameLiftKey,
     this.bioLiftKey,
+    this.onForceTierTap,
   });
 
   final Widget avatar;
@@ -37,6 +38,7 @@ class UcgProfileHeader extends StatelessWidget {
   final Widget? actions;
   final GlobalKey? nicknameLiftKey;
   final GlobalKey? bioLiftKey;
+  final VoidCallback? onForceTierTap;
 
   @override
   Widget build(BuildContext context) {
@@ -86,8 +88,14 @@ class UcgProfileHeader extends StatelessWidget {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        UcgForceTierIcon(forceValue: forceValue, forceTier: forceTier, size: 12),
-                        if (forceValue >= 500) const SizedBox(width: 4),
+                        UcgForceTierIcon(
+                          forceValue: forceValue,
+                          forceTier: forceTier,
+                          size: 12,
+                          onTap: onForceTierTap,
+                        ),
+                        if (forceValue >= 500 || onForceTierTap != null)
+                          const SizedBox(width: 4),
                         UcgFollowingCountChip(
                           count: followingCount!,
                           onTap: onFollowingTap,
