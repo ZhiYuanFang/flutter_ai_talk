@@ -45,6 +45,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
 | `[CareAlert]` | 护理留意日缓存拉取 / 忽略删缓存 / 飞轮固定意图反馈 |
 | `[CashVip]` | VIP 商品/状态/建单/Apple 验单/支付宝回前台轮询 |
+| `[FeatureUnlock]` | 功能 catalog/UCG 资格/建单/邀请码/广告开通 |
 | `[LandscapeKws]` | 横屏唤醒 KWS 模型 CDN 下载 / 解压 / 缺文件 |
 | `[LandscapeVoice]` | 横屏语音 chat WS 就绪 / 唤醒开听各步失败 |
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。

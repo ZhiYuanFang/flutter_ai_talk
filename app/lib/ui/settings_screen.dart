@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,7 +11,11 @@ import '../data/models.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../home_widget/home_widget_payload.dart';
 import '../providers/baby_display_provider.dart' show isBabyProfileBoundPending;
+import '../data/cash_vip_models.dart';
+import '../data/feature_unlock_models.dart';
+import '../providers/cash_vip_provider.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/feature_unlock_provider.dart';
 import '../providers/repositories.dart' show versionRepositoryProvider;
 import '../providers/settings_baby.dart';
 import '../providers/session_provider.dart';
@@ -25,7 +27,6 @@ import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
 import 'widgets/settings_glass_panel.dart';
-import 'home_widget_settings_section.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -42,6 +43,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _loadCurrentVersion();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
+      unawaited(ref.read(vipStatusProvider.notifier).refresh());
+    });
   }
 
   Future<void> _loadCurrentVersion() async {
@@ -317,87 +322,132 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final birthStr = HomeWidgetRowPayload.isoDateUtc(baby.birthDate);
     final onShell = AppColor.textPrimary(context);
+    final vip = ref.watch(vipStatusProvider).valueOrNull;
+    final catalog = ref.watch(featureCatalogStateProvider);
+    final summary = _unlockSummaryText(vip: vip, catalog: catalog);
 
     return SettingsGlassPanel(
       contentPadding: EdgeInsets.zero,
-      child: InkWell(
-        onTap: () => context.push('/settings/baby'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Padding(
-              //   padding: const EdgeInsets.symmetric(horizontal: 10),
-              //   child: Row(
-              //     children: [
-              //       Text(
-              //         '宝宝信息',
-              //         style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              //               fontWeight: FontWeight.bold,
-              //               color: onShell,
-              //             ),
-              //       ),
-              //       const Spacer(),
-              //       Text(
-              //         '编辑',
-              //         style: TextStyle(
-              //           color: Theme.of(context).colorScheme.primary,
-              //           fontWeight: FontWeight.w500,
-              //           fontSize: 13,
-              //         ),
-              //       ),
-              //       Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.primary, size: 16),
-              //     ],
-              //   ),
-              // ),
-              const SizedBox(height: 12),
-              // 只读卡同步展示本地头像
-              Center(
-                child: BabyAvatar(
-                  babyId: baby.id,
-                  sex: baby.sex,
-                  radius: 32,
-                ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: BabyAvatar(
+                babyId: baby.id,
+                sex: baby.sex,
+                radius: 32,
               ),
-              const SizedBox(height: 10),
-              _readonlyRow(
-                context,
-                '昵称',
-                baby.nickname.isEmpty ? '待设置' : baby.nickname,
-              ),
-              _readonlyRow(context, '性别', _sexLabel(baby.sex)),
-              _readonlyRow(context, '生日', birthStr),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            ),
+            const SizedBox(height: 8),
+            // 头像下开通摘要：独立点击进开通中心
+            InkWell(
+              onTap: () => context.push('/features/unlock'),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Row(
                   children: [
                     Expanded(
                       child: Text(
-                        'ID：${baby.id}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: onShell.withValues(alpha: 0.5),
-                            ),
+                        summary,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.3,
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: baby.id));
-                        if (context.mounted) {
-                          ref.showApiToast('ID 已复制');
-                        }
-                      },
-                      icon: Icon(Icons.copy_rounded, size: 14, color: onShell.withValues(alpha: 0.5)),
-                      tooltip: '复制 ID',
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+            // 资料区：进宝宝编辑
+            InkWell(
+              onTap: () => context.push('/settings/baby'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _readonlyRow(
+                    context,
+                    '昵称',
+                    baby.nickname.isEmpty ? '待设置' : baby.nickname,
+                  ),
+                  _readonlyRow(context, '性别', _sexLabel(baby.sex)),
+                  _readonlyRow(context, '生日', birthStr),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'ID：${baby.id}',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: onShell.withValues(alpha: 0.5),
+                                    ),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: baby.id),
+                            );
+                            if (context.mounted) {
+                              ref.showApiToast('ID 已复制');
+                            }
+                          },
+                          icon: Icon(
+                            Icons.copy_rounded,
+                            size: 14,
+                            color: onShell.withValues(alpha: 0.5),
+                          ),
+                          tooltip: '复制 ID',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  static String _unlockSummaryText({
+    required CashVipStatus? vip,
+    required FeatureCatalogState catalog,
+  }) {
+    final isVip = vip?.isVip == true;
+    if (isVip) {
+      return '月卡 · ${featureRemainingDaysCopy(vip?.expireAt ?? 0)}';
+    }
+    final unlocked = catalog.items.where((e) => e.unlocked).toList();
+    if (unlocked.isEmpty) {
+      return '暂无已开通能力 · 去开通';
+    }
+    var soonest = 0;
+    var hasTimed = false;
+    for (final e in unlocked) {
+      if (e.expiresAt > 0) {
+        hasTimed = true;
+        if (soonest == 0 || e.expiresAt < soonest) soonest = e.expiresAt;
+      }
+    }
+    if (!hasTimed) {
+      return '已开通 ${unlocked.length} 项 · 永久';
+    }
+    return '已开通 ${unlocked.length} 项 · ${featureRemainingDaysCopy(soonest)}';
   }
 }

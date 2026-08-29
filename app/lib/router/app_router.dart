@@ -24,6 +24,8 @@ import '../ui/prediction_care_alert_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
 import '../ui/vip_purchase_screen.dart';
+import '../ui/feature_unlock_hub_screen.dart';
+import '../ui/home_widget_showcase_screen.dart';
 
 /// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
 /// 若此处 watch 会在 Splash 等异步流程中途销毁整个路由树，导致白屏与
@@ -53,6 +55,8 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/bind-baby',
         '/settings/change-password',
         '/settings/feedback',
+        '/features/unlock',
+        '/vip/purchase',
       };
       final guestAllowed = splash ||
           loggingIn ||
@@ -62,7 +66,8 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           loc == '/home' ||
           loc == '/trends' ||
           loc == '/pangbao' ||
-          loc == '/settings';
+          loc == '/settings' ||
+          loc == '/widgets/showcase';
       if (guestAllowed) {
         if (session.isLoggedIn && (loggingIn || registering)) {
           return AppEnv.postLoginRoute;
@@ -141,13 +146,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        // VIP 购买：暂停闸门下 redirect；开启时需登录（全局 redirect 已拦截）
+        // VIP 购买：暂停闸门下 redirect；开启时需登录
         path: '/vip/purchase',
         redirect: (context, state) {
           if (!kVipPurchaseEnabled) return '/home';
           return null;
         },
         builder: (context, state) => const VipPurchaseScreen(),
+      ),
+      GoRoute(
+        path: '/features/unlock',
+        builder: (context, state) => const FeatureUnlockHubScreen(),
+      ),
+      GoRoute(
+        path: '/widgets/showcase',
+        builder: (context, state) => const HomeWidgetShowcaseScreen(),
       ),
       GoRoute(
         path: '/settings',

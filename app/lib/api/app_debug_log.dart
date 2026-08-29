@@ -72,6 +72,12 @@ abstract final class AppDebugLog {
     debugPrint('[CashVip] ${_ts()} $message');
   }
 
+  /// 商业功能 catalog / 资格 / 建单 / 邀请码 / 广告。
+  static void featureUnlock(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[FeatureUnlock] ${_ts()} $message');
+  }
+
   /// 横屏 KWS 模型下载 / 解压 / 完整性。
   static void landscapeKws(String message) {
     if (!kDebugMode) return;

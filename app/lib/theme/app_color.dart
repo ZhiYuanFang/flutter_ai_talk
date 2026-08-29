@@ -84,6 +84,15 @@ abstract final class AppColor {
   /// 遮罩：Dialog / Sheet 背后的半透明 barrier。
   static Color barrier(BuildContext context) => _tokens(context).barrierColor;
 
+  /// 功能锁定浅透罩：压在 [BackdropFilter] 之上，底图依稀可辨但看不清（勿用实心 panelGlass）。
+  static Color lockScrim(BuildContext context) {
+    final t = _tokens(context);
+    if (t.isDarkShell) {
+      return t.shellColor.withValues(alpha: 0.40);
+    }
+    return t.surfaceColor.withValues(alpha: 0.34);
+  }
+
   /// 页内 chrome 渐变顶：tip / 留意壳 / 预测卡外壳（暗壳为略亮主题色，非近白 contentCard）。
   static Color panelGlassTop(BuildContext context) =>
       _tokens(context).panelGlassTop;

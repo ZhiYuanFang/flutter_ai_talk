@@ -4,17 +4,146 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
 import '../data/care_alert_repository.dart';
+import '../data/feature_unlock_models.dart';
+import '../data/feature_unlock_repository.dart';
 import '../data/prediction_care_alert.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
 import 'forecast_toggle_provider.dart';
-import 'prediction_range_history_provider.dart';
 import 'session_provider.dart';
 import 'smart_prediction_provider.dart';
 
-/// Care-alert API 仓储。
+/// Care-alert 日列表 API 仓储。
 final careAlertRepositoryProvider = Provider<CareAlertRepository>((ref) {
   return CareAlertRepository(ref.watch(authorizedApiClientProvider));
+});
+
+/// cash 资格 / 功能仓储（值得留意 eligibility 走 cash）。
+final careAlertFeatureUnlockRepositoryProvider =
+    Provider<FeatureUnlockRepository>((ref) {
+  return FeatureUnlockRepository(ref.watch(authorizedApiClientProvider));
+});
+
+/// cash 值得留意喂养资格态。
+class CareAlertEligibilityState {
+  const CareAlertEligibilityState({
+    this.data,
+    this.loading = false,
+    this.ready = false,
+    this.failed = false,
+    this.deviceNo = '',
+  });
+
+  final UcgEligibility? data;
+  final bool loading;
+  final bool ready;
+  final bool failed;
+  final String deviceNo;
+
+  bool get isQualified => data?.qualified == true;
+
+  CareAlertEligibilityState copyWith({
+    UcgEligibility? data,
+    bool? loading,
+    bool? ready,
+    bool? failed,
+    String? deviceNo,
+  }) {
+    return CareAlertEligibilityState(
+      data: data ?? this.data,
+      loading: loading ?? this.loading,
+      ready: ready ?? this.ready,
+      failed: failed ?? this.failed,
+      deviceNo: deviceNo ?? this.deviceNo,
+    );
+  }
+}
+
+class CareAlertEligibilityNotifier
+    extends StateNotifier<CareAlertEligibilityState> {
+  CareAlertEligibilityNotifier(this._ref)
+      : super(const CareAlertEligibilityState());
+
+  final Ref _ref;
+  Future<void>? _inFlight;
+
+  String? _deviceNoOrNull() {
+    final v = _ref.read(deviceNoNotifierProvider).asData?.value?.trim();
+    if (v == null || v.isEmpty) return null;
+    return v;
+  }
+
+  Future<void> ensureLoaded({bool force = false}) {
+    if (!_ref.read(sessionProvider).isLoggedIn) {
+      state = const CareAlertEligibilityState();
+      return Future.value();
+    }
+    return _inFlight ??= _ensureImpl(force: force).whenComplete(() {
+      _inFlight = null;
+    });
+  }
+
+  Future<void> _ensureImpl({required bool force}) async {
+    var dn = _deviceNoOrNull();
+    if (dn == null) {
+      await _ref.read(deviceNoNotifierProvider.notifier).refresh();
+      dn = _deviceNoOrNull();
+    }
+    if (dn == null) {
+      state = const CareAlertEligibilityState();
+      return;
+    }
+    if (!force &&
+        state.ready &&
+        !state.failed &&
+        state.deviceNo == dn &&
+        !state.loading) {
+      return;
+    }
+    state = state.copyWith(loading: true, failed: false, deviceNo: dn);
+    try {
+      final e = await _ref
+          .read(careAlertFeatureUnlockRepositoryProvider)
+          .fetchCareAlertEligibility();
+      state = CareAlertEligibilityState(
+        data: e,
+        loading: false,
+        ready: true,
+        failed: false,
+        deviceNo: dn,
+      );
+    } catch (err) {
+      AppDebugLog.careAlert('eligibility ensure err=$err');
+      state = CareAlertEligibilityState(
+        data: null,
+        loading: false,
+        ready: false,
+        failed: true,
+        deviceNo: dn,
+      );
+    }
+  }
+
+  void clear() {
+    _inFlight = null;
+    state = const CareAlertEligibilityState();
+  }
+}
+
+final careAlertEligibilityStateProvider = StateNotifierProvider<
+    CareAlertEligibilityNotifier, CareAlertEligibilityState>((ref) {
+  final n = CareAlertEligibilityNotifier(ref);
+  ref.listen(sessionProvider, (prev, next) {
+    if (!next.isLoggedIn) n.clear();
+  });
+  ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
+    final dn = next.asData?.value?.trim();
+    if (dn == null || dn.isEmpty) return;
+    final prevDn = prev?.asData?.value?.trim();
+    if (prevDn == dn) return;
+    n.clear();
+  });
+  return n;
 });
 
 /// 日拉取状态：原始服务端列表（未做推演过滤）。
@@ -54,7 +183,7 @@ class PredictionCareAlertState {
   }
 }
 
-/// 日缓存拉取：single-flight + 同日成功幂等；失败不熔断，下次 ensure 再试。
+/// 日缓存拉取：须先 cash 资格合格；single-flight + 同日成功幂等。
 class PredictionCareAlertNotifier
     extends StateNotifier<PredictionCareAlertState> {
   PredictionCareAlertNotifier(this._ref)
@@ -63,7 +192,6 @@ class PredictionCareAlertNotifier
   final Ref _ref;
   Future<void>? _inFlight;
 
-  /// suggestionId → 进行中的忽略/反馈 Future（用户点击去重）
   final Map<String, Future<void>> _actionInFlight = {};
 
   String? _deviceNoOrNull() {
@@ -72,7 +200,7 @@ class PredictionCareAlertNotifier
     return v;
   }
 
-  /// 显式 ensure（预测页可见时调用）；provider create 不自动打 HTTP。
+  /// 显式 ensure：先资格，合格再拉日列表。
   Future<void> ensureLoaded({bool force = false}) {
     if (!_ref.read(sessionProvider).isLoggedIn) {
       AppDebugLog.careAlert('ensure skipped not logged in');
@@ -96,23 +224,22 @@ class PredictionCareAlertNotifier
       return;
     }
 
-    final range = _ref.read(predictionRangeHistoryProvider);
-    if (!careAlertDailyFetchGate(
-      loggedIn: true,
-      deviceNo: dn,
-      range: range,
-    )) {
+    // 先确保 cash 喂养资格（替代「昨日有发生」）。
+    await _ref
+        .read(careAlertEligibilityStateProvider.notifier)
+        .ensureLoaded(force: force);
+    final elig = _ref.read(careAlertEligibilityStateProvider);
+    if (!elig.isQualified) {
       AppDebugLog.careAlert(
-        'ensure skipped gate rangeReady=${range.ready} '
-        'rangeLoading=${range.loading} itemCount=${range.items.length} '
-        'hasYesterday=${rangeHasShanghaiYesterdayOccurrence(range.items)}',
+        'ensure skipped not qualified failed=${elig.failed} '
+        'ready=${elig.ready}',
       );
+      // 清空日列表；UI 用 eligibility 展示进度卡。
       state = const PredictionCareAlertState();
       return;
     }
 
     final day = careAlertShanghaiDayKey();
-    // 同日同设备已成功：幂等跳过（除非 force）
     if (!force &&
         state.ready &&
         !state.failed &&
@@ -164,7 +291,6 @@ class PredictionCareAlertNotifier
     }
   }
 
-  /// 乐观本地移除（忽略后跑马灯立刻更新）。
   void removeLocally(String suggestionId) {
     final id = suggestionId.trim();
     if (id.isEmpty) return;
@@ -176,7 +302,6 @@ class PredictionCareAlertNotifier
     );
   }
 
-  /// 忽略：本地移除 + DELETE 日缓存项；不打飞轮、不打 Python。
   Future<void> ignoreSuggestion(CareAlertEventItem item) {
     final id = item.suggestionId.trim();
     if (id.isEmpty) return Future.value();
@@ -197,7 +322,6 @@ class PredictionCareAlertNotifier
     });
   }
 
-  /// 追问：仅本地标记；不打飞轮、不打 Python（调用方负责打开树洞）。
   Future<void> reportFollowUp(CareAlertEventItem item) {
     final id = item.suggestionId.trim();
     if (id.isEmpty) return Future.value();
@@ -222,7 +346,6 @@ final predictionCareAlertStateProvider = StateNotifierProvider<
   ref.listen(sessionProvider, (prev, next) {
     if (!next.isLoggedIn) n.clear();
   });
-  // deviceNo 变更：清空旧列表，等待下次 ensure
   ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
     final dn = next.asData?.value?.trim();
     if (dn == null || dn.isEmpty) return;
@@ -233,51 +356,48 @@ final predictionCareAlertStateProvider = StateNotifierProvider<
   return n;
 });
 
-/// UI ensure FutureProvider（内部 single-flight）；仅显式 watch/invalidate 时拉取。
 final predictionCareAlertEnsureProvider = FutureProvider<void>((ref) async {
   await ref.read(predictionCareAlertStateProvider.notifier).ensureLoaded();
 });
 
-/// 是否允许 care-alert 日拉取（已登录 + deviceNo + range 就绪 + 上海昨日有发生记录）。
-bool careAlertDailyFetchGate({
+/// 是否允许尝试拉取：已登录 + deviceNo（资格由 cash eligibility 决定）。
+bool careAlertSessionReady({
   required bool loggedIn,
   required String? deviceNo,
-  required PredictionRangeHistoryState range,
 }) {
   if (!loggedIn) return false;
   final dn = deviceNo?.trim() ?? '';
-  if (dn.isEmpty) return false;
-  if (!range.ready || range.loading) return false;
-  return rangeHasShanghaiYesterdayOccurrence(range.items);
+  return dn.isNotEmpty;
+}
+
+/// 兼容旧名：不再要求「昨日有发生」；range 参数忽略。
+bool careAlertDailyFetchGate({
+  required bool loggedIn,
+  required String? deviceNo,
+  Object? range,
+}) {
+  return careAlertSessionReady(loggedIn: loggedIn, deviceNo: deviceNo);
 }
 
 final predictionCareAlertFetchAllowedProvider = Provider<bool>((ref) {
-  return careAlertDailyFetchGate(
+  return careAlertSessionReady(
     loggedIn: ref.watch(sessionProvider).isLoggedIn,
     deviceNo: ref.watch(deviceNoNotifierProvider).asData?.value,
-    range: ref.watch(predictionRangeHistoryProvider),
   );
 });
 
-/// 推演关闭过滤后的展示列表；加载/失败时为空（卡片仍由 state 驱动空态/错误态）。
-/// 不再因 watch 本 provider 而自动 ensure（冷态禁止副作用 HTTP）。
 final predictionCareAlertProvider = Provider<List<CareAlertEventItem>>((ref) {
-  // 时钟用于跨上海自然日失效重拉
   final now =
       ref.watch(predictionClockProvider).asData?.value ?? DateTime.now();
   final day = careAlertShanghaiDayKey(now);
   final st = ref.watch(predictionCareAlertStateProvider);
-  final range = ref.watch(predictionRangeHistoryProvider);
+  final elig = ref.watch(careAlertEligibilityStateProvider);
   final loggedIn = ref.watch(sessionProvider).isLoggedIn;
   final dn =
       ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-  final canFetch = careAlertDailyFetchGate(
-    loggedIn: loggedIn,
-    deviceNo: dn,
-    range: range,
-  );
+  final canFetch = careAlertSessionReady(loggedIn: loggedIn, deviceNo: dn) &&
+      elig.isQualified;
   if (canFetch && st.ready && st.dayKey.isNotEmpty && st.dayKey != day) {
-    // 日切且具备拉取条件：隐藏面板并 force ensure
     Future.microtask(() {
       ref.invalidate(predictionCareAlertEnsureProvider);
       unawaited(

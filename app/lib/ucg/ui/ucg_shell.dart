@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/feature_unlock_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../session/token_expiry.dart';
 import '../data/ucg_feature_flags.dart';
@@ -60,7 +61,9 @@ class _UcgShellState extends ConsumerState<UcgShell> {
   }
 
   /// C1：进 UCG 仅 HTTP 校准未读（会话 + 互动），不预挂载消息/我的 Tab。
+  /// 入场锁未解除时跳过，避免锁下副作用。
   void _ensureShellWs() {
+    if (!ref.read(ucgEligibilityStateProvider).isQualified) return;
     final wxId = ref.read(ucgCurrentUserIdProvider);
     if (!isUcgWxAccountBound(wxId)) return;
     unawaited(ref.read(ucgUnreadSyncProvider)());
@@ -156,6 +159,12 @@ class _UcgShellState extends ConsumerState<UcgShell> {
   Widget build(BuildContext context) {
     ref.listen<String?>(ucgCurrentUserIdProvider, (prev, next) {
       if (isUcgWxAccountBound(next)) {
+        _ensureShellWs();
+      }
+    });
+    // 资格从锁态变为合格后再校准未读
+    ref.listen(ucgEligibilityStateProvider, (prev, next) {
+      if (next.isQualified && !(prev?.isQualified ?? false)) {
         _ensureShellWs();
       }
     });

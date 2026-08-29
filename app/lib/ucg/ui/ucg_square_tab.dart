@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../providers/feature_unlock_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../theme/app_color.dart';
 import '../data/ucg_location.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
+import '../providers/ucg_square_layout_provider.dart';
 import 'ucg_login_gate.dart';
 import 'ucg_post_detail_screen.dart';
 import 'ucg_profile_screens.dart';
@@ -142,7 +144,13 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load(refresh: true));
+    // 仅资格合格后才定位+拉 Feed；锁态下挂载壳不得弹权限
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(ucgEligibilityStateProvider).isQualified) {
+        unawaited(_load(refresh: true));
+      }
+    });
   }
 
   @override
@@ -164,6 +172,8 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
   }
 
   Future<void> _load({required bool refresh, bool fromPullRefresh = false}) async {
+    // 入场锁未解除：禁止定位与 Feed（fail-closed / 校验中同理）
+    if (!ref.read(ucgEligibilityStateProvider).isQualified) return;
     if (_loading) return;
     if (_mode == _SquareFeedMode.following && !ref.read(sessionProvider).isLoggedIn) return;
     final pullRefresh = fromPullRefresh && _initialLoaded;
@@ -357,15 +367,37 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         unawaited(_load(refresh: true));
       }
     });
+    // 锁态挂载后变为合格：补一次首屏定位+Feed
+    ref.listen(ucgEligibilityStateProvider, (prev, next) {
+      if (next.isQualified && !(prev?.isQualified ?? false) && !_initialLoaded) {
+        unawaited(_load(refresh: true));
+      }
+    });
 
     final fg = AppColor.textPrimary(context);
     final primary = Theme.of(context).colorScheme.primary;
     final loggedIn = ref.watch(sessionProvider.select((s) => s.isLoggedIn));
+    final layout = ref.watch(ucgSquareFeedLayoutProvider).asData?.value ??
+        UcgSquareFeedLayout.list;
+    final isWaterfall = layout == UcgSquareFeedLayout.waterfall;
 
     return UcgTabPage(
       title: '',
       showTitle: false,
       leading: ucgBackLeading(context, widget.onBackToFeeding),
+      actions: [
+        IconButton(
+          tooltip: isWaterfall ? '切换为列表' : '切换为瀑布流',
+          onPressed: () =>
+              unawaited(ref.read(ucgSquareFeedLayoutProvider.notifier).toggle()),
+          icon: Icon(
+            isWaterfall
+                ? Icons.view_agenda_outlined
+                : Icons.dashboard_outlined,
+            color: fg.withValues(alpha: 0.85),
+          ),
+        ),
+      ],
       titleWidget: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -397,9 +429,9 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         children: [
           const UcgLocationSettingsHint(),
           Expanded(
-            child: RefreshIndicator(
+              child: RefreshIndicator(
               onRefresh: () => _load(refresh: true, fromPullRefresh: true),
-              child: _buildBody(fg, loggedIn),
+              child: _buildBody(fg, loggedIn, isWaterfall),
             ),
           ),
         ],
@@ -416,7 +448,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     );
   }
 
-  Widget _buildBody(Color fg, bool loggedIn) {
+  Widget _buildBody(Color fg, bool loggedIn, bool waterfall) {
     if (_mode == _SquareFeedMode.following && !loggedIn) {
       return _followingEmptyList();
     }
@@ -427,8 +459,11 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
           UcgEmptyState(
             icon: Icons.cloud_off_rounded,
             title: '加载失败',
-            subtitle: '请检查网络后重试',
-            action: TextButton(onPressed: () => _load(refresh: true), child: const Text('重试')),
+            subtitle: _error!,
+            action: TextButton(
+              onPressed: () => _load(refresh: true),
+              child: const Text('重试'),
+            ),
           ),
         ],
       );
@@ -444,7 +479,7 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         ],
       );
     }
-    if (_initialLoaded && _items.isEmpty) {
+    if (_items.isEmpty && !_loading) {
       if (_mode == _SquareFeedMode.following) {
         return _followingEmptyList();
       }
@@ -462,7 +497,6 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
     final selfId = ref.watch(ucgCurrentUserIdProvider);
     final showLoadFooter =
         _loading && !_pullRefreshing && _loadPhase == _SquareLoadPhase.fetchingFeed;
-    final itemCount = _items.length + (showLoadFooter ? 1 : 0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -470,52 +504,157 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
         if (_loading && !_pullRefreshing && _loadPhase != _SquareLoadPhase.idle)
           _SquareLoadStatusPanel(phase: _loadPhase, mode: _mode, compact: true),
         Expanded(
-          child: CustomScrollView(
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      if (index >= _items.length) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: _SquareLoadStatusPanel(
-                            phase: _loadPhase,
-                            mode: _mode,
-                            compact: true,
-                          ),
-                        );
-                      }
-                      final post = _items[index];
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: index < _items.length - 1 ? 10 : 0),
-                        child: post.isDebate
-                            ? UcgDebateFeedCard(
-                                post: post,
-                                currentUserId: selfId,
-                                onAvatarTap: () => _openUserProfile(post.authorId),
-                                onUserTap: _openUserProfile,
-                                onVote: (side) => unawaited(_voteOnPost(post, side)),
-                                onCommentAdded: (added) async =>
-                                    _onPostCommentAdded(post.id, added),
-                              )
-                            : UcgMasonryFeedCard(
-                                post: post,
-                                currentUserId: selfId,
-                                onTap: () => _openDetail(post),
-                                onAvatarTap: () => _openUserProfile(post.authorId),
-                                onLikeTap: () => unawaited(_toggleLikeOnPost(post)),
-                              ),
-                      );
-                    },
-                    childCount: itemCount,
+          child: waterfall
+              ? _buildWaterfall(selfId, showLoadFooter)
+              : _buildList(selfId, showLoadFooter),
+        ),
+      ],
+    );
+  }
+
+  Widget _postCard(UcgPost post, String? selfId) {
+    return post.isDebate
+        ? UcgDebateFeedCard(
+            post: post,
+            currentUserId: selfId,
+            onAvatarTap: () => _openUserProfile(post.authorId),
+            onUserTap: _openUserProfile,
+            onVote: (side) => unawaited(_voteOnPost(post, side)),
+            onCommentAdded: (added) async =>
+                _onPostCommentAdded(post.id, added),
+          )
+        : UcgMasonryFeedCard(
+            post: post,
+            currentUserId: selfId,
+            onTap: () => _openDetail(post),
+            onAvatarTap: () => _openUserProfile(post.authorId),
+            onLikeTap: () => unawaited(_toggleLikeOnPost(post)),
+          );
+  }
+
+  Widget _buildList(String? selfId, bool showLoadFooter) {
+    final itemCount = _items.length + (showLoadFooter ? 1 : 0);
+    return CustomScrollView(
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                if (index >= _items.length) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: _SquareLoadStatusPanel(
+                      phase: _loadPhase,
+                      mode: _mode,
+                      compact: true,
+                    ),
+                  );
+                }
+                final post = _items[index];
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index < _items.length - 1 ? 10 : 0,
                   ),
-                ),
-              ),
-            ],
+                  child: _postCard(post, selfId),
+                );
+              },
+              childCount: itemCount,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 瀑布流：双列；辩论/PK 打断为全宽带。
+  Widget _buildWaterfall(String? selfId, bool showLoadFooter) {
+    final segments = <List<UcgPost>>[];
+    var bucket = <UcgPost>[];
+    for (final post in _items) {
+      if (post.isDebate) {
+        if (bucket.isNotEmpty) {
+          segments.add(bucket);
+          bucket = <UcgPost>[];
+        }
+        segments.add([post]);
+      } else {
+        bucket.add(post);
+      }
+    }
+    if (bucket.isNotEmpty) segments.add(bucket);
+
+    return CustomScrollView(
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, segIndex) {
+                if (showLoadFooter && segIndex == segments.length) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: _SquareLoadStatusPanel(
+                      phase: _loadPhase,
+                      mode: _mode,
+                      compact: true,
+                    ),
+                  );
+                }
+                final seg = segments[segIndex];
+                if (seg.length == 1 && seg.first.isDebate) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _postCard(seg.first, selfId),
+                  );
+                }
+                final left = <UcgPost>[];
+                final right = <UcgPost>[];
+                for (var i = 0; i < seg.length; i++) {
+                  if (i.isEven) {
+                    left.add(seg[i]);
+                  } else {
+                    right.add(seg[i]);
+                  }
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          children: [
+                            for (final p in left)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _postCard(p, selfId),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            for (final p in right)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _postCard(p, selfId),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              childCount: segments.length + (showLoadFooter ? 1 : 0),
+            ),
           ),
         ),
       ],

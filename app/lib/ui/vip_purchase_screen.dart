@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/cash_vip_models.dart';
 import '../providers/cash_vip_provider.dart';
+import '../providers/feature_unlock_provider.dart';
 import '../theme/app_visual_tokens.dart';
 import 'widgets/app_toast.dart';
 
@@ -26,6 +27,9 @@ class _VipPurchaseScreenState extends ConsumerState<VipPurchaseScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
+    });
   }
 
   @override
@@ -117,6 +121,12 @@ class _VipPurchaseScreenState extends ConsumerState<VipPurchaseScreen>
           onShell: onShell,
           paying: _paying,
           onPay: () => unawaited(_onPay(product)),
+          catalogTitles: ref
+              .watch(featureCatalogStateProvider)
+              .items
+              .map((e) => e.title.trim().isEmpty ? e.featureId : e.title)
+              .where((t) => t.isNotEmpty)
+              .toList(),
         ),
       ),
     );
@@ -129,12 +139,14 @@ class _PurchaseBody extends StatelessWidget {
     required this.onShell,
     required this.paying,
     required this.onPay,
+    this.catalogTitles = const [],
   });
 
   final CashVipProduct product;
   final Color onShell;
   final bool paying;
   final VoidCallback onPay;
+  final List<String> catalogTitles;
 
   @override
   Widget build(BuildContext context) {
@@ -208,6 +220,50 @@ class _PurchaseBody extends StatelessWidget {
               ],
             ],
           ),
+          if (catalogTitles.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            Text(
+              '月卡包含的更多功能',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: onShell,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...catalogTitles.map(
+              (t) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline_rounded,
+                      size: 18,
+                      color: scheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        t,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: onShell.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '不含 UCG 广场入场门槛（仍须有效喂养记录达标）',
+              style: TextStyle(
+                fontSize: 12,
+                color: onShell.withValues(alpha: 0.5),
+              ),
+            ),
+          ],
           const Spacer(),
           if (kIsWeb)
             Text(

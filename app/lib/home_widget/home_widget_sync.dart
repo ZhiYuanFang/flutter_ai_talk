@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 
@@ -38,9 +39,20 @@ export 'home_widget_payload.dart';
 export 'widget_row_builder.dart';
 
 /// widget sync 读 provider 须走 container，避免 notifier 写入栈内 ref.read 自依赖断言。
+///
+/// 支持 [ProviderContainer]、[Ref]（Notifier 内）、以及 [WidgetRef]
+///（实现上是 [ConsumerStatefulElement] 等 [BuildContext]，经 [ProviderScope.containerOf] 取容器；
+/// **不能** `as Ref`，也 **没有** `container` getter）。
 ProviderContainer _widgetSyncContainer(dynamic ref) {
   if (ref is ProviderContainer) return ref;
-  return (ref as Ref).container;
+  if (ref is Ref) return ref.container;
+  if (ref is BuildContext) {
+    return ProviderScope.containerOf(ref, listen: false);
+  }
+  throw ArgumentError(
+    'home_widget sync 需要 ProviderContainer、Ref 或 WidgetRef(BuildContext)，'
+    '实际为 ${ref.runtimeType}',
+  );
 }
 
 /// 与智能预测页同源的 widget 预测输入（7 日 range ∪ 种子、内存 catalog、推演关集合）。

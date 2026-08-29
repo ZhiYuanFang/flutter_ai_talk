@@ -13,13 +13,12 @@ import '../../bootstrap/history_ws_silent_heal.dart';
 import '../../bootstrap/pangbao_transport_release.dart';
 import '../../data/feed_repository.dart';
 import '../../data/models.dart';
-import '../../data/prediction_care_alert.dart';
 import '../../home_widget/home_widget_sync.dart';
 import '../../providers/device_no_notifier.dart';
+import '../../providers/feature_unlock_provider.dart';
 import '../../providers/home_pager.dart';
 import '../../providers/history_event_fly_provider.dart';
 import '../../providers/prediction_care_alert_provider.dart';
-import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
 import '../../providers/session_provider.dart';
@@ -28,6 +27,7 @@ import '../../ui/history_event_fly_overlay.dart';
 import '../../ui/home_screen.dart';
 import '../../ui/prediction_card_fly_landing.dart';
 import '../../ui/smart_prediction_screen.dart';
+import '../../ui/widgets/feature_lock_overlay.dart';
 import '../data/ucg_feature_flags.dart';
 import 'ucg_shell.dart';
 
@@ -66,11 +66,16 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     WidgetsBinding.instance.addObserver(this);
     // 主壳会话门闸：允许 history reconnect / UCG desired
     PangbaoHomeTransportGate.onHomeMounted();
-    // 首帧即触发预测页 CareAlert ensure（可见即拉）；同步飞入门闸页索引
+    // 首帧：冷启落在预测页时 onPageChanged 不会触发，须在此 ensure
+    // catalog（预测锁 allowedCount）与 care-alert；并同步飞入门闸页索引。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(homePagerIndexProvider.notifier).state = _pageIndex;
-      _ensureCareAlertOnPredictionVisible();
+      if (_pageIndex == HomePagerPage.prediction) {
+        _onEnterPredictionPage();
+      } else {
+        _ensureCareAlertOnPredictionVisible();
+      }
       unawaited(_activateHistoryWsSessionIfNeeded());
     });
   }
@@ -196,19 +201,15 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     setState(() => _ucgEverMounted = true);
   }
 
-  /// 进入预测页：仅上海昨日有真历史时才日拉取（冷态/仅今日记录禁止副作用 HTTP）。
+  /// 进入预测页：先 cash 资格再按需拉值得留意。
   void _ensureCareAlertOnPredictionVisible() {
     final allowed = ref.read(predictionCareAlertFetchAllowedProvider);
     if (!allowed) {
       final loggedIn = ref.read(sessionProvider).isLoggedIn;
       final dn =
           ref.read(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-      final range = ref.read(predictionRangeHistoryProvider);
       AppDebugLog.careAlert(
-        'ensure skipped gate loggedIn=$loggedIn dnLen=${dn.length} '
-        'rangeReady=${range.ready} rangeLoading=${range.loading} '
-        'itemCount=${range.items.length} '
-        'hasYesterday=${rangeHasShanghaiYesterdayOccurrence(range.items)}',
+        'ensure skipped gate loggedIn=$loggedIn dnLen=${dn.length}',
       );
       return;
     }
@@ -229,6 +230,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     ref.read(predictionDemoMountNonceProvider.notifier).state =
         now.microsecondsSinceEpoch;
     _ensureCareAlertOnPredictionVisible();
+    // 预测事件锁：catalog.allowedCount（与 care-alert 门闸独立）
+    unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
   }
 
   void _onPageChanged(int index) {
@@ -238,6 +241,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     // UCG 暂停时不会出现 index==ucg；保留分支便于翻回闸门
     if (kUcgHomePagerEnabled && index == HomePagerPage.ucg) {
       _markUcgMounted();
+      unawaited(ref.read(ucgEligibilityStateProvider.notifier).ensureLoaded());
     }
     setState(() => _pageIndex = index);
     ref.read(homePagerIndexProvider.notifier).state = index;
@@ -319,24 +323,11 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       }));
     });
 
-    // 门闸 false→true：稳定补 ensure（覆盖首帧 range 未就绪竞态）
+    // 门闸 false→true：稳定补 ensure
     ref.listen<bool>(predictionCareAlertFetchAllowedProvider, (prev, next) {
       if (_pageIndex != HomePagerPage.prediction) return;
       if (prev == true || next != true) return;
       _ensureCareAlertOnPredictionVisible();
-    });
-
-    // 真历史从空变为非空，或门闸 false→true：冗余补拉（single-flight 合并）
-    ref.listen(predictionRangeHistoryProvider, (prev, next) {
-      if (_pageIndex != HomePagerPage.prediction) return;
-      if (!ref.read(predictionCareAlertFetchAllowedProvider)) return;
-      final wasAllowed = prev != null &&
-          careAlertDailyFetchGate(
-            loggedIn: ref.read(sessionProvider).isLoggedIn,
-            deviceNo: ref.read(deviceNoNotifierProvider).asData?.value,
-            range: prev,
-          );
-      if (!wasAllowed) _ensureCareAlertOnPredictionVisible();
     });
 
     final voiceHoldBlocksScroll = ref.watch(homePagerScrollBlockedProvider);
@@ -378,7 +369,27 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
             return const SizedBox.expand();
           }
           // 回调名保留；行为回预测主页
-          return UcgShell(onBackToFeeding: _goToHomeHub);
+          final eligibility = ref.watch(ucgEligibilityStateProvider);
+          final shell = UcgShell(onBackToFeeding: _goToHomeHub);
+          // fail-closed：仅 qualified=true 放行；isVip 不得解除
+          if (eligibility.isQualified) {
+            return shell;
+          }
+          final subtitle = eligibility.data?.progressCopy() ??
+              (eligibility.failed
+                  ? '资格校验失败，请稍后重试或返回预测页'
+                  : '正在校验喂养记录天数…');
+          return FeatureLockOverlay(
+            fullScreen: true,
+            centerLabel: '广场暂未开放',
+            subtitle: subtitle,
+            onTap: null,
+            footer: FilledButton(
+              onPressed: () => unawaited(_goToHomeHub()),
+              child: const Text('返回预测页'),
+            ),
+            child: shell,
+          );
         },
       ),
     );
