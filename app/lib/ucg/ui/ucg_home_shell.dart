@@ -381,7 +381,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
               ? null
               : (eligibility.failed
                   ? '资格校验失败，请稍后重试或返回预测页'
-                  : '正在校验喂养记录天数…');
+                  : '真实喂养记录天数未满足要求…');
           final Widget? subtitleWidget = data == null
               ? null
               : FeedingEligibilityProgressText(

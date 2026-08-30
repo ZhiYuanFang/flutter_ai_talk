@@ -47,6 +47,7 @@ import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
 import 'event_add_actions.dart';
+import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_modal_glass_panel.dart';
 import 'event_logo.dart';
 import 'prediction_recall_interval_picker.dart';
@@ -115,6 +116,55 @@ Future<bool> _requestForecastToggle({
   }
   await ref.read(forecastDisabledIdsProvider.notifier).setEnabled(eventId, true);
   return true;
+}
+
+/// Auth 冷态滑动引导：点箭头教滑动，不跳页、不开门闸。
+Future<void> _showSwipeGuideTeachDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+}) {
+  return showGlassDialog<void>(
+    context: context,
+    contentBuilder: (ctx) {
+      final glassText = historyEditGlassTextColor(ctx);
+      final glassLabel = historyEditGlassLabelColor(ctx);
+      final scheme = Theme.of(ctx).colorScheme;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.25,
+              fontWeight: FontWeight.w600,
+              color: glassText,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, height: 1.4, color: glassLabel),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+              shape: const StadiumBorder(),
+            ),
+            child: const Text('知道了'),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 /// 预测页横屏：沉浸藏状态栏 + 常亮；离开/竖屏释放。
@@ -564,9 +614,10 @@ class SmartPredictionScreen extends ConsumerWidget {
         ref.watch(homePagerIndexProvider) == HomePagerPage.prediction;
     final immersiveActive = !kIsWeb && isLandscape && predictionPageVisible;
 
-    // 竖屏秀小组件入口：列表底留白避免遮挡
-    final showWidgetShowcaseFab =
-        !isLandscape && PredictionWidgetShowcaseFab.isPlatformSupported;
+    // 竖屏秀小组件入口：须已绑定；列表底留白避免遮挡
+    final showWidgetShowcaseFab = bound &&
+        !isLandscape &&
+        PredictionWidgetShowcaseFab.isPlatformSupported;
     final cardsBottomPad = showWidgetShowcaseFab ? 96.0 : 24.0;
 
     // 竖屏语音暂停时仅横屏 watch，避免竖屏无入口仍驱动会话状态
@@ -1425,14 +1476,25 @@ class _PredictionSwipeGuideCardState extends State<_PredictionSwipeGuideCard>
               final rightDx = 8.0 * t;
               return Row(
                 children: [
+                  // 左箭头：弹框教左滑进广场，不直接跳转。
                   Transform.translate(
                     offset: Offset(leftDx, 0),
                     child: ScaleTransition(
                       scale: _scale,
-                      child: Icon(
-                        Icons.chevron_left_rounded,
-                        size: 36,
-                        color: onPanel.withValues(alpha: 0.9),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => unawaited(
+                          _showSwipeGuideTeachDialog(
+                            context,
+                            title: '请向左滑动',
+                            message: '左滑可进入广场，看看真实带娃家庭',
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.chevron_left_rounded,
+                          size: 36,
+                          color: onPanel.withValues(alpha: 0.9),
+                        ),
                       ),
                     ),
                   ),
@@ -1461,14 +1523,25 @@ class _PredictionSwipeGuideCardState extends State<_PredictionSwipeGuideCard>
                       ],
                     ),
                   ),
+                  // 右箭头：弹框教右滑去喂养，不直接跳转。
                   Transform.translate(
                     offset: Offset(rightDx, 0),
                     child: ScaleTransition(
                       scale: _scale,
-                      child: Icon(
-                        Icons.chevron_right_rounded,
-                        size: 36,
-                        color: onPanel.withValues(alpha: 0.9),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => unawaited(
+                          _showSwipeGuideTeachDialog(
+                            context,
+                            title: '请向右滑动',
+                            message: '右滑可进入喂养，记录宝宝作息',
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.chevron_right_rounded,
+                          size: 36,
+                          color: onPanel.withValues(alpha: 0.9),
+                        ),
                       ),
                     ),
                   ),

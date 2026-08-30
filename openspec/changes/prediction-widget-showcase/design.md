@@ -28,7 +28,9 @@
 ### D2：入口
 
 - 仅竖屏 + Android/iOS；叠在预测 Stack 底部（避开安全区）。
+- **额外门闸**：须已登录且已绑定（`loggedIn && deviceNo.trim().isNotEmpty`，与预测页 `bound` 一致）；未登录或未绑定 **不**展示 FAB，底留白跟 flag 收窄。
 - 列表底部留白，避免最后一行被挡。
+- 绑定判定放在预测页调用方，不塞进 `PredictionWidgetShowcaseFab.isPlatformSupported`。
 
 ### D3：展示页两态
 

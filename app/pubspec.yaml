@@ -1,7 +1,7 @@
 name: pangbao_app
 description: 胖宝 App - 宝宝喂养预测
 publish_to: "none"
-version: 2.1.1+11
+version: 2.1.2+12
 
 fluwx:
   app_id: 'wxe713de83c921f341'

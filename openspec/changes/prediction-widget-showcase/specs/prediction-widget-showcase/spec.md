@@ -2,19 +2,29 @@
 
 ### Requirement: Portrait prediction SHALL expose a floating home-widget showcase entry
 
-On the smart prediction page in **portrait** orientation on Android or iOS, the client MUST show a fixed floating affordance that navigates to the home-widget showcase screen. The label MUST be「添加桌面小组件」when no pangbao home widget is pinned, and「查看桌面小组件」when at least one is pinned, as determined by `HomeWidget.getInstalledWidgets()` (or equivalent). The client MUST NOT show this affordance in landscape, on Web, or on platforms without home widgets. When install-state lookup fails, the client MUST treat the user as not pinned (show「添加桌面小组件」).
+On the smart prediction page in **portrait** orientation on Android or iOS, when the user is **logged in and bound** to a baby (`deviceNo` non-empty), the client MUST show a fixed floating affordance that navigates to the home-widget showcase screen. The label MUST be「添加桌面小组件」when no pangbao home widget is pinned, and「查看桌面小组件」when at least one is pinned, as determined by `HomeWidget.getInstalledWidgets()` (or equivalent). The client MUST NOT show this affordance when the user is not logged in, when logged in but unbound, in landscape, on Web, or on platforms without home widgets. When install-state lookup fails, the client MUST treat the user as not pinned (show「添加桌面小组件」) if the affordance is otherwise shown.
 
-智能预测**竖屏**（Android/iOS）**必须** 展示固定悬浮入口进入小组件展示页；未钉文案「添加桌面小组件」，已钉「查看桌面小组件」。横屏 / Web / 无小组件平台 **必须 NOT** 展示。查询失败 **必须** 按未钉处理。
+智能预测**竖屏**（Android/iOS）且**已登录已绑定**时 **必须** 展示固定悬浮入口进入小组件展示页；未钉文案「添加桌面小组件」，已钉「查看桌面小组件」。未登录、未绑定、横屏 / Web / 无小组件平台 **必须 NOT** 展示。查询失败且入口可见时 **必须** 按未钉处理。
 
 #### Scenario: 未钉竖屏文案
 
-- **WHEN** 用户在预测页竖屏且 `getInstalledWidgets` 为空
+- **WHEN** 用户已登录已绑定、在预测页竖屏且 `getInstalledWidgets` 为空
 - **THEN** 悬浮入口 MUST 展示「添加桌面小组件」
 
 #### Scenario: 已钉竖屏文案
 
-- **WHEN** 用户在预测页竖屏且已钉至少一个胖宝小组件
+- **WHEN** 用户已登录已绑定、在预测页竖屏且已钉至少一个胖宝小组件
 - **THEN** 悬浮入口 MUST 展示「查看桌面小组件」
+
+#### Scenario: 未登录无入口
+
+- **WHEN** 用户未登录并进入预测页竖屏
+- **THEN** UI MUST NOT 展示该悬浮入口
+
+#### Scenario: 未绑定无入口
+
+- **WHEN** 用户已登录、无可用 deviceNo，进入预测页竖屏
+- **THEN** UI MUST NOT 展示该悬浮入口
 
 #### Scenario: 横屏无入口
 
@@ -74,3 +84,9 @@ large 预览 **必须** 复用与桌面 sync 同源的行/头/视觉语义；**�
 The in-app large preview MUST render event logos for hero and recent cells (from enriched `logoFile` and/or catalog logo assets with placeholder fallback) and MUST NOT use color-bar-only rows as the primary event affordance. The preview layout MUST follow the desktop large structure: header with brand mark, optional tip section, centered upcoming hero row with logo, and a horizontal recent strip (up to three cells with logos). Pixel-perfect RemoteViews parity is NOT required.
 
 应用内 large 预览 **必须** 展示事件 logo（enrich/`logoFile` 或 catalog 占位），**不得** 仅以色条作为主标识；排版 **必须** 对齐桌面 large（头+品牌标、tip、居中 hero+logo、横向最多三格 recent+logo）。
+
+#### Scenario: Logo and large layout
+
+- **WHEN** large 预览渲染有事件行
+- **THEN** hero 与 recent MUST 展示事件 logo（或占位）
+- **AND** 布局 MUST 含头、可选 tip、居中 hero、横向 recent

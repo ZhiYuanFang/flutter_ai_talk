@@ -12,6 +12,7 @@ import '../providers/cash_vip_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
+import '../ucg/ui/widgets/ucg_media_viewer.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
@@ -167,23 +168,29 @@ class _InviteGroupQrBlockState extends State<_InviteGroupQrBlock> {
             ),
           ),
           const SizedBox(height: 12),
+          // 仅图可点：打开全屏可缩放预览，便于微信扫码。
           Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                widget.qrUrl,
-                width: 200,
-                height: 200,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) {
-                  // 首帧 errorBuilder 在 build 内，延后 setState 避免同步重建冲突。
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted && !_loadFailed) {
-                      setState(() => _loadFailed = true);
-                    }
-                  });
-                  return const SizedBox.shrink();
-                },
+            child: GestureDetector(
+              onTap: () => unawaited(
+                showUcgPhotoLightbox(context, urls: [widget.qrUrl]),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  widget.qrUrl,
+                  width: 200,
+                  height: 200,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) {
+                    // 首帧 errorBuilder 在 build 内，延后 setState 避免同步重建冲突。
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && !_loadFailed) {
+                        setState(() => _loadFailed = true);
+                      }
+                    });
+                    return const SizedBox.shrink();
+                  },
+                ),
               ),
             ),
           ),

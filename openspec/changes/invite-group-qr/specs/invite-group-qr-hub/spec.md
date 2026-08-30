@@ -14,3 +14,14 @@ The client SHALL parse top-level `inviteGroupQrUrl` from the feature catalog res
 #### Scenario: Image load failure
 - **WHEN** `inviteGroupQrUrl` is non-empty but the image fails to load
 - **THEN** the hub MUST NOT show the caption or an empty QR panel
+
+### Requirement: Tap QR opens zoomable fullscreen preview
+The client SHALL allow the user to tap the QR image to open a fullscreen zoomable preview of the same URL. The client MUST reuse the existing photo lightbox (`showUcgPhotoLightbox`) rather than a one-off dialog. The caption text MUST NOT open the preview when tapped. The client MUST NOT require a separate「点击放大」hint label. 点击二维码图打开全屏可缩放预览（复用 lightbox）；仅图可点；不加副文案提示。
+
+#### Scenario: Tap image opens lightbox
+- **WHEN** the group-QR block is visible and the user taps the QR image
+- **THEN** the client opens a fullscreen preview of that image that supports pinch-zoom
+
+#### Scenario: Caption alone does not open preview
+- **WHEN** the user taps only the caption「加入微信群获取邀请码」
+- **THEN** the client MUST NOT open the fullscreen preview
