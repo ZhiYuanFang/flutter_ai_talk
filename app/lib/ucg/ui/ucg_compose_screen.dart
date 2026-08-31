@@ -820,29 +820,29 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                                   },
                                 ),
                               ],
-                              if (_showAiPolish) ...[
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: TextButton.icon(
-                                    onPressed: _polishing ? null : () => unawaited(_polishWithAi()),
-                                    icon: _polishing
-                                        ? SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: scheme.primary,
-                                            ),
-                                          )
-                                        : Icon(Icons.auto_fix_high_outlined, size: 18, color: scheme.primary),
-                                    label: Text(
-                                      _polishing ? '润笔中…' : 'AI润笔',
-                                      style: TextStyle(color: shellFg),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                              // if (_showAiPolish) ...[
+                              //   const SizedBox(height: 8),
+                              //   Align(
+                              //     alignment: Alignment.centerLeft,
+                              //     child: TextButton.icon(
+                              //       onPressed: _polishing ? null : () => unawaited(_polishWithAi()),
+                              //       icon: _polishing
+                              //           ? SizedBox(
+                              //               width: 16,
+                              //               height: 16,
+                              //               child: CircularProgressIndicator(
+                              //                 strokeWidth: 2,
+                              //                 color: scheme.primary,
+                              //               ),
+                              //             )
+                              //           : Icon(Icons.auto_fix_high_outlined, size: 18, color: scheme.primary),
+                              //       label: Text(
+                              //         _polishing ? '润笔中…' : 'AI润笔',
+                              //         style: TextStyle(color: shellFg),
+                              //       ),
+                              //     ),
+                              //   ),
+                              // ],
                             ],
                           ),
                         ),

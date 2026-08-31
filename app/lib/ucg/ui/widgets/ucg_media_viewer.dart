@@ -10,7 +10,9 @@ import 'package:video_player/video_player.dart';
 
 import '../../../api/app_debug_log.dart';
 import '../../../theme/app_color.dart';
+import '../../../ui/widgets/app_toast.dart';
 import '../../data/ucg_playback_log.dart';
+import '../../data/ucg_save_image_to_album.dart';
 import '../../data/ucg_video_playback.dart';
 import '../../theme/ucg_theme.dart';
 import 'ucg_android_local_video.dart';
@@ -190,6 +192,87 @@ bool _lightboxHasDistinctThumbnail(String? thumbnailUrl, String fullUrl) {
   return thumb != fullUrl;
 }
 
+/// 长按大图：确认后写入系统相册（Web 提示不支持）。
+Future<void> _ucgLightboxConfirmSaveImage(
+  BuildContext context, {
+  String? url,
+  String? filePath,
+  Uint8List? bytes,
+}) async {
+  if (kIsWeb) {
+    showAppToast('当前平台不支持保存到相册');
+    return;
+  }
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('保存到相册'),
+      content: const Text('将当前图片保存到系统相册？'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('保存'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final nav = Navigator.of(context, rootNavigator: true);
+  // 保存中遮罩（不 await：Future 在 pop 后才完成）
+  final loading = showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => const PopScope(
+      canPop: false,
+      child: Center(child: CircularProgressIndicator()),
+    ),
+  );
+
+  var saved = false;
+  var denied = false;
+  try {
+    final allowed = await ucgEnsureAlbumWritePermission();
+    if (!allowed) {
+      denied = true;
+    } else {
+      final resolved = await ucgResolveImageBytesForAlbum(
+        url: url,
+        filePath: filePath,
+        bytes: bytes,
+      );
+      if (resolved == null || resolved.isEmpty) {
+        AppDebugLog.ucgFeed('lightbox save: empty bytes');
+      } else {
+        saved = await ucgSaveImageBytesToAlbum(
+          resolved,
+          filename: ucgAlbumFilenameFromUrl(url ?? filePath),
+          ensurePermission: false,
+        );
+      }
+    }
+  } finally {
+    if (nav.canPop()) nav.pop();
+    await loading;
+  }
+
+  if (!context.mounted) return;
+  if (denied) {
+    showAppToast('需要相册权限才能保存', tone: AppToastTone.error);
+    return;
+  }
+  if (saved) {
+    showAppToast('已保存到相册', tone: AppToastTone.success);
+  } else {
+    showAppToast('保存失败', tone: AppToastTone.error);
+  }
+}
+
 /// Fullscreen pinch-zoom for a single local/remote image.
 Future<void> showUcgLocalImageLightbox(
   BuildContext context, {
@@ -336,12 +419,24 @@ class _UcgLocalImageLightbox extends StatelessWidget {
         child: Stack(
           children: [
             Positioned.fill(
-              child: _UcgFullscreenDismissLayer(
-                onDismiss: () => Navigator.of(context).pop(),
-                child: _ResetZoomLocalImage(
-                  filePath: filePath,
-                  bytes: bytes,
-                  url: url,
+              child: GestureDetector(
+                onLongPress: () {
+                  unawaited(
+                    _ucgLightboxConfirmSaveImage(
+                      context,
+                      url: url,
+                      filePath: filePath,
+                      bytes: bytes,
+                    ),
+                  );
+                },
+                child: _UcgFullscreenDismissLayer(
+                  onDismiss: () => Navigator.of(context).pop(),
+                  child: _ResetZoomLocalImage(
+                    filePath: filePath,
+                    bytes: bytes,
+                    url: url,
+                  ),
                 ),
               ),
             ),
@@ -798,15 +893,22 @@ class _UcgPhotoLightboxState extends State<_UcgPhotoLightbox> {
                           if (_zoomed != zoomed) setState(() => _zoomed = zoomed);
                         },
                       );
-                return _UcgFullscreenDismissLayer(
-                  enabled: !_zoomed,
-                  onDismiss: () => Navigator.of(context).pop(),
-                  onDragActiveChanged: (active) {
-                    if (_blockPageScroll != active) {
-                      setState(() => _blockPageScroll = active);
-                    }
+                return GestureDetector(
+                  onLongPress: () {
+                    unawaited(
+                      _ucgLightboxConfirmSaveImage(context, url: fullUrl),
+                    );
                   },
-                  child: zoomPhoto,
+                  child: _UcgFullscreenDismissLayer(
+                    enabled: !_zoomed,
+                    onDismiss: () => Navigator.of(context).pop(),
+                    onDragActiveChanged: (active) {
+                      if (_blockPageScroll != active) {
+                        setState(() => _blockPageScroll = active);
+                      }
+                    },
+                    child: zoomPhoto,
+                  ),
                 );
               },
             ),

@@ -4,7 +4,7 @@
 
 编写或修改代码、OpenSpec 产物前，**必须**阅读：
 
-1. **[openspec/project.md](openspec/project.md)** — 工程约束全文（WebSocket、日志、Android R8、测试、OpenSpec 基线、归档等）。
+1. **[openspec/project.md](openspec/project.md)** — 工程约束全文（WebSocket、日志、Android R8、测试、弹框 TextEditingController、OpenSpec 基线、归档等）。
 2. **[openspec/specs/v2.1.0.md](openspec/specs/v2.1.0.md)** — 当前合并行为基线（Requirement / Scenario 验收）。
 
 OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 project.md 为准，本文仅摘要高频 MUST。
@@ -42,6 +42,11 @@ OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 proje
 
 - Riverpod `listen`、原生/SDK 回调、lifecycle 触发的 HTTP **必须** single-flight、失败熔断、自触发 ignore、成功幂等跳过；provider 创建 **不得** 自动 push/未读/WS。
 - 细则见 **`openspec/project.md`**「副作用 HTTP 治理」；范例见 `syncUcgUnreadFromServer`、`_syncUcgUnreadInFlight`。
+
+## 弹框 TextEditingController（强制）
+
+- 带输入的 dialog / glass / bottom sheet：**必须**由弹层 `State` 持有并 dispose controller；**禁止** `await showDialog` 返回后立刻 dispose。
+- 细则见 **`openspec/project.md`**「弹框 TextEditingController / FocusNode」；范例 `_GlassTextConfirmDialogBody`、`_InviteCodeDialogBody`。
 
 ## OpenSpec 工作流
 

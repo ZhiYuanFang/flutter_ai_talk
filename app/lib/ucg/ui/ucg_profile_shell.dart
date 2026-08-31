@@ -68,25 +68,100 @@ class UcgProfileShell extends ConsumerStatefulWidget {
 }
 
 class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
-  /// 资料卡内边距（[UcgSurfaceCard] 默认 16×2）。
+  /// 资料卡内边距（[UcgSurfaceCard] 默认 16×2）——仅用于占位估算，非测高终值。
   static const _kProfileCardPadding = 32.0;
   static const _kProfileCardRowHeight = 86.0;
   static const _kProfileCardActionsBlock = 34.0;
   static const _kProfileCardBioBlock = 46.0;
+  /// 测高变化小于此值不 setState，减少抖动。
+  static const _kMeasureEpsilon = 1.0;
 
-  static double _headerExpandedHeight({
+  final GlobalKey _profileCardKey = GlobalKey(debugLabel: 'ucgProfileCard');
+
+  /// 实测资料卡高度；null 时用占位（重测期间保留旧值，避免闪回过矮）。
+  double? _measuredCardHeight;
+  var _measureScheduled = false;
+  /// 测高 sanity 上限（约 0.55×屏高）；超过则丢弃，防 Column.max 吃满全屏。
+  double _measureMaxSaneCardHeight = 400;
+
+  /// 仅占位：偏高/贴近旧布局，测高成功后不得再当终值。
+  static double _placeholderCardHeight({
     required bool showOwnerActions,
-    required double flexibleTopPad,
     required bool hasViewerActions,
     required bool hasBio,
+    required bool wxBound,
   }) {
-    if (showOwnerActions) return 248.0;
-    if (!hasViewerActions) return 228.0;
-    final cardHeight = _kProfileCardPadding +
+    if (showOwnerActions) {
+      // 主人：偏高以覆盖邀请行等；略高再收到实测可接受
+      return wxBound ? 280.0 : 220.0;
+    }
+    return _kProfileCardPadding +
         _kProfileCardRowHeight +
         (hasBio ? _kProfileCardBioBlock : 0) +
-        _kProfileCardActionsBlock;
-    return _kProfileToolbarHeight + flexibleTopPad + cardHeight;
+        (hasViewerActions ? _kProfileCardActionsBlock : 0);
+  }
+
+  double _headerMaxExtent({
+    required double flexibleTopPad,
+    required bool showOwnerActions,
+    required bool hasViewerActions,
+    required bool hasBio,
+    required bool wxBound,
+  }) {
+    final measured = _measuredCardHeight;
+    // 丢弃历史错误的近屏高实测，回退占位
+    final card = (measured != null && measured <= _measureMaxSaneCardHeight)
+        ? measured
+        : _placeholderCardHeight(
+            showOwnerActions: showOwnerActions,
+            hasViewerActions: hasViewerActions,
+            hasBio: hasBio,
+            wxBound: wxBound,
+          );
+    return _kProfileToolbarHeight + flexibleTopPad + card;
+  }
+
+  void _scheduleMeasureCard() {
+    if (_measureScheduled) return;
+    _measureScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _measureScheduled = false;
+      _measureCardHeight();
+    });
+  }
+
+  void _measureCardHeight() {
+    if (!mounted) return;
+    final ctx = _profileCardKey.currentContext;
+    if (ctx == null) return;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    final h = box.size.height;
+    if (!h.isFinite || h <= 0) return;
+    // 探针未 shrink-wrap 时会量到近屏高；丢弃以免撑爆 maxExtent
+    if (h > _measureMaxSaneCardHeight) {
+      if (_measuredCardHeight != null &&
+          _measuredCardHeight! > _measureMaxSaneCardHeight) {
+        setState(() => _measuredCardHeight = null);
+      }
+      return;
+    }
+    final prev = _measuredCardHeight;
+    if (prev != null && (h - prev).abs() < _kMeasureEpsilon) return;
+    setState(() => _measuredCardHeight = h);
+  }
+
+  @override
+  void didUpdateWidget(covariant UcgProfileShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 身份/绑定/模式变化：保留旧实测直至新帧测完（不置 null，防闪矮）
+    if (oldWidget.profile != widget.profile ||
+        oldWidget.wxBound != widget.wxBound ||
+        oldWidget.showOwnerActions != widget.showOwnerActions ||
+        oldWidget.onFollow != widget.onFollow ||
+        oldWidget.leading != widget.leading) {
+      _scheduleMeasureCard();
+    }
   }
 
   @override
@@ -101,12 +176,19 @@ class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
     final flexibleTopPad = leading != null ? 32.0 : 4.0;
     final hasViewerActions = !showOwnerActions && widget.onFollow != null;
     final hasBio = profile.bio.trim().isNotEmpty;
-    final headerExpandedHeight = _headerExpandedHeight(
-      showOwnerActions: showOwnerActions,
+    // 邀请异步变高：watch 以触发重建 + 重测
+    if (showOwnerActions && widget.wxBound) {
+      ref.watch(inviteMineProvider);
+    }
+    _measureMaxSaneCardHeight = MediaQuery.sizeOf(context).height * 0.55;
+    final headerExpandedHeight = _headerMaxExtent(
       flexibleTopPad: flexibleTopPad,
+      showOwnerActions: showOwnerActions,
       hasViewerActions: hasViewerActions,
       hasBio: hasBio,
+      wxBound: widget.wxBound,
     );
+    _scheduleMeasureCard();
 
     final postsTab = UcgProfilePostsTab(
       postsSource: widget.postsSource,
@@ -197,10 +279,71 @@ class _UcgProfileShellState extends ConsumerState<UcgProfileShell> {
           : postsTab,
     );
 
-    if (!kUcgTreasureEnabled) return nestedScroll;
+    // 定宽 Offstage 测高：竖直必须 shrink-wrap（heightFactor），
+    // 否则 Column(MainAxisSize.max) 会吃满全屏高，maxExtent 膨胀。
+    final measureWidth =
+        (MediaQuery.sizeOf(context).width - 32).clamp(1.0, double.infinity);
+    final measureProbe = Offstage(
+      offstage: true,
+      child: IgnorePointer(
+        child: Align(
+          alignment: Alignment.topLeft,
+          widthFactor: 1,
+          heightFactor: 1,
+          child: SizedBox(
+            width: measureWidth,
+            child: KeyedSubtree(
+              key: _profileCardKey,
+              child: UcgSurfaceCard(
+                child: showOwnerActions
+                    ? UcgProfileOwnerHeaderCard(
+                        profile: profile,
+                        wxBound: widget.wxBound,
+                        primary: primary,
+                        forMeasure: true,
+                        avatarPlaceholder: const SizedBox(
+                          width: _kProfileExpandedAvatarOuter,
+                          height: _kProfileExpandedAvatarOuter,
+                        ),
+                      )
+                    : UcgProfileHeader(
+                        avatar: const SizedBox(
+                          width: _kProfileExpandedAvatarOuter,
+                          height: _kProfileExpandedAvatarOuter,
+                        ),
+                        nickname: profile.nickname,
+                        bio: profile.bio.isNotEmpty ? profile.bio : null,
+                        followingCount: profile.followingCount,
+                        forceValue: profile.forceValue,
+                        forceTier: profile.forceTier,
+                        ipLocationText: profile.ipLocationDisplay,
+                        actions: widget.onFollow != null
+                            ? UcgProfileActionRow(
+                                isFollowing: widget.isFollowing,
+                                followBusy: widget.followBusy,
+                                onFollow: widget.onFollow,
+                                onMessage: widget.onMessage,
+                              )
+                            : null,
+                      ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
 
-    // 双 Tab 需 DefaultTabController 与 header TabBar 联动。
-    return DefaultTabController(length: 2, child: nestedScroll);
+    final nestedHost = kUcgTreasureEnabled
+        ? DefaultTabController(length: 2, child: nestedScroll)
+        : nestedScroll;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        nestedHost,
+        measureProbe,
+      ],
+    );
   }
 }
 
@@ -604,12 +747,15 @@ class UcgProfileOwnerHeaderCard extends ConsumerStatefulWidget {
     required this.wxBound,
     required this.primary,
     this.avatarPlaceholder,
+    /// Offstage 测高副本：跳过邀请 invalidate 等副作用。
+    this.forMeasure = false,
   });
 
   final UcgProfile profile;
   final bool wxBound;
   final Color primary;
   final Widget? avatarPlaceholder;
+  final bool forMeasure;
 
   @override
   ConsumerState<UcgProfileOwnerHeaderCard> createState() => _UcgProfileOwnerHeaderCardState();
@@ -621,7 +767,7 @@ class _UcgProfileOwnerHeaderCardState extends ConsumerState<UcgProfileOwnerHeade
   @override
   void initState() {
     super.initState();
-    if (widget.wxBound) {
+    if (widget.wxBound && !widget.forMeasure) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ref.invalidate(inviteMineProvider);
       });

@@ -1,26 +1,32 @@
 ## Why
 
-智能预测事件卡依赖本地近 7 日 range 历史（及喂养 `homeHistory` 的进行中计时）推算；App 回前台时目前不重拉这些快照，用户须进喂养页手动刷新后预测才准。需要在已登录唤醒时一次性刷新喂养历史与预测 range（方案 B）。
+智能预测事件卡依赖本地近 7 日 range 历史（及喂养 `homeHistory` 的进行中计时）推算；后台期间他人加记录后，用户停在预测页回前台常看不到更新，又缺少手动刷新意识。首版曾把 HTTP 刷新挂在 `HomeScreen` resume，冷启默认预测时喂养页未必 mount，刷新会漏。需迁到主壳，并一并校准值得留意与 UCG 未读。
 
 ## What Changes
 
-- App 从后台回到前台且已登录时：**MUST** 触发喂养历史刷新（`homeHistory` bootstrap / 等价拉新）与预测 range `ensureLoaded(force: true)`（或等价 force 重拉）。
-- 遵守副作用 HTTP 治理：single-flight、失败熔断、成功幂等/短窗去重，避免连切后台狂打。
-- 不改变「预测仍由本地历史推演」的模型；不新增预测专用服务端 API。
-- 不因本变更在 gave-up 态自动重试历史 WS（既有 WS resume 规则保持）。
+- App resume 且已登录时，在 **`UcgHomeShell`**（非喂养页）编排副作用 HTTP：**MUST** 不依赖喂养页已 mount。
+- 短窗去重 + single-flight 并行刷新：
+  - `homeHistory.bootstrap()`（或等价）
+  - `predictionRangeHistory.ensureLoaded(force: true)`
+  - 值得留意 **full ensure**（`predictionCareAlert…ensureLoaded(force: true)`，内含资格再按需日列表）
+  - `ucgUnreadSync`（从 `HomeScreen` **上移**到 shell）
+- 历史 WS 静默自愈与 HTTP bundle **解耦**：`WS ready → return` MUST NOT 跳过 HTTP。
+- 从 `HomeScreen` **移除** resume 历史刷新与 unread sync，避免双 observer 双打。
+- 不因本变更在 gave-up 态自动重连历史 WS；不新建测试。
+- **Non-Goals：** 预测页「广场球」入口 UI（另 change）；不恢复 tip 球。
 
 ## Capabilities
 
 ### New Capabilities
 
-- `prediction-history-resume-refresh`：已登录 App resume 时刷新喂养历史与预测 7 日 range，使预测页无需先手动刷喂养页。
+- （无；沿用本 change 既有 capability 名）
 
 ### Modified Capabilities
 
-- （无）基线未收录「resume 拉预测历史」要求。
+- `prediction-history-resume-refresh`：挂载点改主壳；resume bundle 含喂养历史、预测 range、值得留意 full ensure、UCG unread。
 
 ## Impact
 
-- 代码：`home_screen.dart` 的 `_onAppLifecycleResumed`（或集中 resume 编排）；`homeHistory` bootstrap；`predictionRangeHistoryProvider.ensureLoaded(force: true)`。
-- 对照 `openspec/project.md` 副作用 HTTP 条款。
-- 测试：不新建 `**/test/**`；手工杀后台再进 / 仅预测页停留再回前台验收。
+- 代码：`ucg_home_shell.dart` resume；`home_screen.dart` 删历史/unread resume；既有 providers。
+- 对照 `openspec/project.md` 副作用 HTTP。
+- 手工：仅预测页后台回前台；喂养从未进过仍刷新；未读 count 更新。

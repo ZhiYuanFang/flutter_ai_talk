@@ -16,9 +16,11 @@ import '../../data/models.dart';
 import '../../home_widget/home_widget_sync.dart';
 import '../../providers/device_no_notifier.dart';
 import '../../providers/feature_unlock_provider.dart';
+import '../../providers/home_history_notifier.dart';
 import '../../providers/home_pager.dart';
 import '../../providers/history_event_fly_provider.dart';
 import '../../providers/prediction_care_alert_provider.dart';
+import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
 import '../../providers/session_provider.dart';
@@ -30,6 +32,7 @@ import '../../ui/smart_prediction_screen.dart';
 import '../../ui/widgets/feature_lock_overlay.dart';
 import '../../ui/widgets/feeding_eligibility_progress_text.dart';
 import '../data/ucg_feature_flags.dart';
+import '../providers/ucg_providers.dart';
 import 'ucg_shell.dart';
 
 class UcgHomeShell extends ConsumerStatefulWidget {
@@ -58,6 +61,11 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   StreamSubscription<SseHistoryPayload>? _historyWsSub;
   StreamSubscription<bool>? _historyWsReadySub;
   var _historyWsActivateInFlight = false;
+
+  /// resume HTTP bundle 短窗去重起点（约 4s）
+  DateTime? _lastResumeHttpBundleAt;
+  /// resume HTTP bundle single-flight
+  Future<void>? _resumeHttpBundleInFlight;
 
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
@@ -104,12 +112,18 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     }
   }
 
-  /// 主壳 resume：历史 WS 静默自愈（不依赖喂养页 mount）。
+  /// 主壳 resume：HTTP bundle 与历史 WS 静默自愈并行；ready 早退不得跳过 HTTP。
   Future<void> _onShellLifecycleResumed() async {
     if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
     if (!GatewayBootstrapGate.isLoggedInComplete) return;
     await ref.read(sessionProvider).ensureFreshSession();
     if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+
+    // UCG 聊天 WS resume（不依赖喂养页 mount）
+    ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
+    // HTTP：历史 / range / 值得留意 / 未读 —— 与下方 WS heal 解耦
+    unawaited(_refreshHomeHttpOnResumeIfNeeded());
+
     final feed = ref.read(feedRepositoryProvider);
     if (feed.isHistoryWebSocketReady) {
       HistoryWsSilentHeal.onReady();
@@ -127,6 +141,42 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       // 预算耗尽但仍非 gaveUp：走传输层轻量 resume（不 resetStrike）
       feed.onAppLifecycleResumed();
     }
+  }
+
+  /// 副作用 HTTP：短窗去重 + in-flight 合并；未登录跳过。
+  Future<void> _refreshHomeHttpOnResumeIfNeeded() async {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    final now = DateTime.now();
+    final last = _lastResumeHttpBundleAt;
+    // 约 4s 短窗：系统连发 resumed 不重复打满
+    if (last != null &&
+        now.difference(last) < const Duration(seconds: 4)) {
+      return;
+    }
+    final existing = _resumeHttpBundleInFlight;
+    if (existing != null) {
+      await existing;
+      return;
+    }
+    _lastResumeHttpBundleAt = now;
+    final flight = () async {
+      try {
+        await Future.wait<void>([
+          ref.read(homeHistoryProvider.notifier).bootstrap(),
+          ref
+              .read(predictionRangeHistoryProvider.notifier)
+              .ensureLoaded(force: true),
+          ref
+              .read(predictionCareAlertStateProvider.notifier)
+              .ensureLoaded(force: true),
+          ref.read(ucgUnreadSyncProvider)(),
+        ]);
+      } finally {
+        _resumeHttpBundleInFlight = null;
+      }
+    }();
+    _resumeHttpBundleInFlight = flight;
+    await flight;
   }
 
   /// gateway 后订阅 + ensure；游客跳过；single-flight。
@@ -233,6 +283,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     _ensureCareAlertOnPredictionVisible();
     // 预测事件锁：catalog.allowedCount（与 care-alert 门闸独立）
     unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
+    // 广场球可见性依赖资格：预测着陆即预热，不必先滑入 UCG
+    unawaited(ref.read(ucgEligibilityStateProvider.notifier).ensureLoaded());
   }
 
   void _onPageChanged(int index) {

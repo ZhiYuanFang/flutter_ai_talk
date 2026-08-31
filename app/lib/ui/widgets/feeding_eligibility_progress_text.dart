@@ -11,9 +11,9 @@ enum FeedingEligibilityProgressKind {
   careAlert,
 }
 
-/// 客户端自拼剩余天数文案，并放大 [UcgEligibility.remainingDays] 数字。
+/// 客户端自拼进度文案：已累计 X/N + 还需 Y 天；放大数字。
 ///
-/// 不展示服务端 `message`（避免盖住可强调的数字）。
+/// 不展示服务端 `message`（进度数字以字段为准）。
 class FeedingEligibilityProgressText extends StatelessWidget {
   const FeedingEligibilityProgressText({
     super.key,
@@ -39,25 +39,38 @@ class FeedingEligibilityProgressText extends StatelessWidget {
         theme.textTheme.bodyMedium?.copyWith(height: 1.35) ??
         const TextStyle(fontSize: 14, height: 1.35);
     final baseSize = base.fontSize ?? 14;
-    // 放大剩余天数：更大字号 + 加粗 + 主题色，一眼可读。
+    // 放大天数数字：更大字号 + 加粗 + 主题色，一眼可读。
     final numberStyle = base.copyWith(
       fontSize: baseSize * numberScale,
       fontWeight: FontWeight.w800,
       color: theme.colorScheme.primary,
       height: 1.05,
     );
+    // 负值钳为 0，避免异常字段破版。
+    final x = eligibility.effectiveDays < 0 ? 0 : eligibility.effectiveDays;
+    final n = eligibility.requiredDays < 0 ? 0 : eligibility.requiredDays;
     final y = eligibility.remainingDays < 0 ? 0 : eligibility.remainingDays;
 
-    final List<InlineSpan> children;
+    // 第一行：已累计进度（两场景共用）。
+    final completedLine = <InlineSpan>[
+      const TextSpan(text: '已累计 '),
+      TextSpan(text: '$x', style: numberStyle),
+      const TextSpan(text: ' / '),
+      TextSpan(text: '$n', style: numberStyle),
+      const TextSpan(text: ' 天有效喂养'),
+    ];
+
+    // 第二行：剩余天数 + 场景目标。
+    final List<InlineSpan> remainingLine;
     switch (kind) {
       case FeedingEligibilityProgressKind.ucgEntry:
-        children = [
+        remainingLine = [
           const TextSpan(text: '还需要连续喂养 '),
           TextSpan(text: '$y', style: numberStyle),
           const TextSpan(text: ' 天宝宝作息，\n解锁广场与真实带娃家庭分享经验'),
         ];
       case FeedingEligibilityProgressKind.careAlert:
-        children = [
+        remainingLine = [
           const TextSpan(text: '还需连续记录 '),
           TextSpan(text: '$y', style: numberStyle),
           const TextSpan(text: ' 天宝宝作息，激活AI贴心提醒'),
@@ -65,7 +78,14 @@ class FeedingEligibilityProgressText extends StatelessWidget {
     }
 
     return Text.rich(
-      TextSpan(style: base, children: children),
+      TextSpan(
+        style: base,
+        children: [
+          ...completedLine,
+          const TextSpan(text: '\n'),
+          ...remainingLine,
+        ],
+      ),
       textAlign: textAlign,
     );
   }

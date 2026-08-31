@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../api/api_exceptions.dart';
 import '../data/cash_vip_models.dart';
 import '../data/feature_unlock_models.dart';
 import '../providers/authorized_api_client_provider.dart';
@@ -411,7 +412,7 @@ class _FeatureUnlockCard extends ConsumerWidget {
             )
           else
             Text(
-              '开通方式：${featureUnlockMethodLabel(method)}'
+              // '开通方式：${featureUnlockMethodLabel(method)}'
               '${item.unlocked && item.expiresAt > 0 ? ' · ${featureRemainingDaysCopy(item.expiresAt)}' : (method == 'vip' ? (isVip && !_isPrediction ? ' · ${featureRemainingDaysCopy(ref.watch(vipStatusProvider).valueOrNull?.expireAt ?? 0)}' : '') : (item.unlocked ? ' · 永久' : ''))}',
               textAlign: TextAlign.right,
               style: TextStyle(
@@ -480,7 +481,14 @@ class _FeatureUnlockCard extends ConsumerWidget {
       if (!context.mounted) return;
       showAppToast('已开通', tone: AppToastTone.success);
       await onChanged();
-    } catch (e) {
+    } on ApiBusinessException catch (e) {
+      if (!context.mounted) return;
+      // 业务失败：展示服务端 message
+      showAppToast(
+        e.message.isNotEmpty ? e.message : '开通失败',
+        tone: AppToastTone.error,
+      );
+    } catch (_) {
       if (!context.mounted) return;
       showAppToast('开通失败，请稍后重试', tone: AppToastTone.error);
     }
@@ -491,60 +499,16 @@ class _FeatureUnlockCard extends ConsumerWidget {
     WidgetRef ref,
     FeatureCatalogItem item,
   ) async {
-    final controller = TextEditingController();
-    final ok = await showGlassDialog<bool>(
+    // 码由弹层 State 持有；pop(String?) 带回，避免 await 后 dispose 与退场动画竞态
+    final code = await showGlassDialog<String>(
       context: context,
-      contentBuilder: (ctx) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '输入邀请码',
-              textAlign: TextAlign.center,
-              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              item.featureId == kFeatureIdPredictionUnlock
-                  ? '输入好友邀请码，永久 +1 条预测事项'
-                  : '输入邀请码开通此功能',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: '请输入邀请码',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('取消'),
-                  ),
-                ),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('兑换'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        );
-      },
+      contentBuilder: (ctx) => _InviteCodeDialogBody(
+        subtitle: item.featureId == kFeatureIdPredictionUnlock
+            ? '输入好友邀请码，永久 +1 条预测事项'
+            : '输入邀请码开通此功能',
+      ),
     );
-    final code = controller.text.trim();
-    controller.dispose();
-    if (ok != true || code.isEmpty || !context.mounted) return;
+    if (code == null || code.isEmpty || !context.mounted) return;
     try {
       await ref.read(featureUnlockRepositoryProvider).redeemInviteCode(
             code: code,
@@ -553,10 +517,93 @@ class _FeatureUnlockCard extends ConsumerWidget {
       if (!context.mounted) return;
       showAppToast('兑换成功', tone: AppToastTone.success);
       await onChanged();
-    } catch (e) {
+    } on ApiBusinessException catch (e) {
       if (!context.mounted) return;
-      showAppToast('兑换失败，请检查邀请码', tone: AppToastTone.error);
+      // 业务失败：展示服务端 message（如「不可使用自己的邀请码」）
+      showAppToast(
+        e.message.isNotEmpty ? e.message : '兑换失败',
+        tone: AppToastTone.error,
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      showAppToast('兑换失败，请稍后重试', tone: AppToastTone.error);
     }
+  }
+}
+
+/// 邀请码输入体：controller 生命周期绑定 State，对齐 `_GlassTextConfirmDialogBody`。
+class _InviteCodeDialogBody extends StatefulWidget {
+  const _InviteCodeDialogBody({required this.subtitle});
+
+  final String subtitle;
+
+  @override
+  State<_InviteCodeDialogBody> createState() => _InviteCodeDialogBodyState();
+}
+
+class _InviteCodeDialogBodyState extends State<_InviteCodeDialogBody> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '输入邀请码',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          widget.subtitle,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controller,
+          decoration: const InputDecoration(
+            hintText: '请输入邀请码',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                // 取消 / 无码：pop null
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+            ),
+            Expanded(
+              child: FilledButton(
+                // 兑换：pop 修剪后的码（空串由外层忽略）
+                onPressed: () =>
+                    Navigator.pop(context, _controller.text.trim()),
+                child: const Text('兑换'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 

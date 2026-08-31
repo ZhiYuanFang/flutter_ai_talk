@@ -18,7 +18,6 @@ import '../config/recording_diagnostics_store.dart';
 import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
 import '../providers/voice_asr_ws_provider.dart';
-import '../ucg/providers/ucg_providers.dart';
 import '../bootstrap/cold_start_background_sync.dart';
 import '../bootstrap/gateway_bootstrap_gate.dart';
 import '../bootstrap/pangbao_transport_release.dart';
@@ -56,7 +55,6 @@ import '../providers/event_catalog_notifier.dart';
 import '../providers/history_event_fly_provider.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/home_pager.dart';
-import '../providers/prediction_range_history_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/baby_display_provider.dart';
@@ -89,8 +87,7 @@ const _kVoiceOrbVisualSize = 132.0;
 const _kInputPanelAnimationDuration = Duration(milliseconds: 220);
 const _kImmersiveHeaderContentSpacing = 10.0;
 
-class _HomeScreenState extends ConsumerState<HomeScreen>
-    with WidgetsBindingObserver {
+class _HomeScreenState extends ConsumerState<HomeScreen> {
   HomeSpeechRecognizer? _recognizer;
   var _voiceReady = false;
   var _listening = false;
@@ -106,10 +103,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   StreamSubscription<bool>? _voiceAsrReadySub;
   HistoryWsPhase _historyWsPhase = HistoryWsPhase.disconnected;
   var _historyWsManualReconnecting = false;
-  /// resume 喂养+预测 range 短窗去重起点
-  DateTime? _lastPredictionHistoryResumeAt;
-  /// resume 历史刷新 single-flight
-  Future<void>? _predictionHistoryResumeInFlight;
   var _gaveUpSnackbarShown = false;
   var _voiceAsrReady = false;
   var _voiceAsrConnecting = false;
@@ -165,7 +158,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _voiceLevelNotifier = ValueNotifier(0);
     _voiceLevelSmoother = VoiceLevelSmoother(_voiceLevelNotifier);
     _recordingDiagnosticsNotifier =
@@ -723,55 +715,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(_onAppLifecycleResumed());
-    }
-  }
-
-  /// 回前台：先单飞 ensureFreshSession，再 UCG resume / 未读，最后喂养+预测 range。
-  /// 历史 WS resume 由主壳 [UcgHomeShell] 静默自愈统一编排，此处不再调用以免双触发。
-  Future<void> _onAppLifecycleResumed() async {
-    await ref.read(sessionProvider).ensureFreshSession();
-    ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
-    await ref.read(ucgUnreadSyncProvider)();
-    // 已登录：刷喂养历史 + 预测 7 日 range，避免只停预测页时数据陈旧
-    await _refreshPredictionHistoryOnResumeIfNeeded();
-  }
-
-  /// 副作用 HTTP：短窗去重 + in-flight 合并；未登录跳过。
-  Future<void> _refreshPredictionHistoryOnResumeIfNeeded() async {
-    if (!ref.read(sessionProvider).isLoggedIn) return;
-    final now = DateTime.now();
-    final last = _lastPredictionHistoryResumeAt;
-    // 约 4s 短窗：系统连发 resumed 不重复打满
-    if (last != null &&
-        now.difference(last) < const Duration(seconds: 4)) {
-      return;
-    }
-    final existing = _predictionHistoryResumeInFlight;
-    if (existing != null) {
-      await existing;
-      return;
-    }
-    _lastPredictionHistoryResumeAt = now;
-    final flight = () async {
-      try {
-        await Future.wait<void>([
-          _history.bootstrap(),
-          ref
-              .read(predictionRangeHistoryProvider.notifier)
-              .ensureLoaded(force: true),
-        ]);
-      } finally {
-        _predictionHistoryResumeInFlight = null;
-      }
-    }();
-    _predictionHistoryResumeInFlight = flight;
-    await flight;
-  }
-
   Future<void> _reloadHistoryIfLoggedIn() async {
     await _history.bootstrap();
   }
@@ -1100,7 +1043,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _wsReadySub?.cancel();
     _wsPhaseSub?.cancel();
     _voiceAsrReadySub?.cancel();

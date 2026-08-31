@@ -55,6 +55,7 @@ import 'prediction_recall_onboarding_panel.dart';
 import '../config/prediction_landscape_column_store.dart';
 import 'prediction_landscape_card_metrics.dart';
 import 'prediction_voice_edge_dock.dart';
+import 'ucg_square_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
@@ -618,6 +619,11 @@ class SmartPredictionScreen extends ConsumerWidget {
     final showWidgetShowcaseFab = bound &&
         !isLandscape &&
         PredictionWidgetShowcaseFab.isPlatformSupported;
+    // 广场资格开通后：预测竖屏贴边入口球（横屏/喂养不挂）
+    final showUcgSquareBall = kUcgHomePagerEnabled &&
+        !isLandscape &&
+        predictionPageVisible &&
+        ref.watch(ucgEligibilityStateProvider).isQualified;
     final cardsBottomPad = showWidgetShowcaseFab ? 96.0 : 24.0;
 
     // 竖屏语音暂停时仅横屏 watch，避免竖屏无入口仍驱动会话状态
@@ -1102,6 +1108,17 @@ class SmartPredictionScreen extends ConsumerWidget {
                 ),
               ),
           ],
+          // 竖屏广场入口贴边球（资格开通后）
+          if (showUcgSquareBall)
+            Positioned.fill(
+              child: UcgSquareEdgeDock(
+                bottomReserve: voiceBottom,
+                onPointerOccupied: (occupied) {
+                  ref.read(homePagerScrollBlockedProvider.notifier).state =
+                      occupied;
+                },
+              ),
+            ),
           // 竖屏桌面小组件入口（仅移动端竖屏）
           if (showWidgetShowcaseFab)
             const Positioned(

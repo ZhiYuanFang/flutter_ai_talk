@@ -141,10 +141,7 @@ class UcgNetworkImage extends StatelessWidget {
       height: height,
       fit: fit,
       alignment: alignment.resolve(Directionality.of(context)),
-      // 不需要修改图片尺寸，url本身已经附带了尺寸
-      // memCacheWidth: _memCacheDimension(width, context),
-      // memCacheHeight: _memCacheDimension(height, context),
-      placeholder: showLoadingIndicator ? (_, __) => _loadingIndicator() : null,
+      // octo_image：placeholder 与 progressIndicatorBuilder 不得同时非 null
       progressIndicatorBuilder:
           showLoadingIndicator ? (_, __, ___) => _loadingIndicator() : null,
       errorWidget: errorBuilder == null

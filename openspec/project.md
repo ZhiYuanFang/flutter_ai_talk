@@ -75,6 +75,16 @@
 - **例外**（须注释标明）：事件品牌 `colorHex`、媒体沉浸遮罩（`AppColor.mediaScrim` / `onMediaScrim`）、第三方 SDK 不可控色。
 - **参考**：`app/lib/theme/app_color.dart`、`app/lib/theme/app_visual_tokens.dart`；变更见 `theme-semantic-atoms` / `ucg-panel-glass-atoms`。
 
+### 弹框 TextEditingController / FocusNode（强制）
+
+凡经 `showDialog`、`showGlassDialog`、`showModalBottomSheet` 或等价路由展示、且内含由弹层拥有的文本输入时：
+
+- **MUST**：`TextEditingController`（以及由该弹层创建的 `FocusNode`，若有）由弹层子树的 `State` 创建，并在该 `State.dispose` 中释放；或仅在路由**完全卸载**后再释放。
+- **MUST NOT**：在 `await showDialog` / `showGlassDialog` / `showModalBottomSheet` 返回后、退场动画仍可能 rebuild 输入控件时，立即 `dispose` 外层持有的 controller（典型断言：`TextEditingController was used after being disposed`）。
+- **推荐**：需要回传文本时，在 `Navigator.pop` 前读出并 `pop(result)`，勿依赖 await 后再读已 dispose 的 controller。
+- **参考**：`app/lib/ui/widgets/app_glass_overlay.dart` 的 `_GlassTextConfirmDialogBody`；开通邀请码见 `feature_unlock_hub_screen.dart` 的 `_InviteCodeDialogBody`。
+- **OpenSpec**：capability `dialog-text-controller-lifecycle`（change `fix-dialog-text-controller-lifecycle`）。
+
 ### 副作用 HTTP 治理（强制）
 
 当 HTTP 请求由 **Riverpod `ref.listen`、原生/SDK 回调、`Stream.listen`、App lifecycle** 等**非用户直接点击**路径触发（下称「副作用 HTTP」）时，**必须**满足下列防护，避免 iOS 等同 host 连接槽被重试环占满（典型：`POST /push/register` 失败 → APNs `onTokenRefresh` → 再 register）。
@@ -121,5 +131,6 @@
 - **Android 原生**：是否已 release 构建通过；`proguard-rules.pro` 是否按需更新。
 - **测试文件**：是否未经用户明确要求而新增 `*_test.dart`。
 - **副作用 HTTP**：listener/回调/lifecycle 触发的 HTTP 是否有 single-flight、失败熔断、自触发 ignore、成功缓存；provider 创建是否误发副作用 HTTP。
+- **弹框输入**：带 TextField 的 dialog/sheet 是否在 await 返回后过早 dispose `TextEditingController`（须 State 持有，见「弹框 TextEditingController / FocusNode」）。
 - **主题色**：业务 UI 是否绕过 `colorScheme`/`AppVisualTokens` 硬编码浅色玻璃白或灰阶字；暗壳是否出现突兀白底卡片。
 - **归档**：收版是否默认 `--remove-changes`；`project.md` 基线版本是否已更新。
