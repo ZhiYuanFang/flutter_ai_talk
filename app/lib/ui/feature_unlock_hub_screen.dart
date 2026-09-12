@@ -8,25 +8,15 @@ import 'package:go_router/go_router.dart';
 import '../api/api_exceptions.dart';
 import '../data/cash_vip_models.dart';
 import '../data/feature_unlock_models.dart';
-import '../providers/authorized_api_client_provider.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../theme/app_visual_tokens.dart';
-import '../ucg/data/ucg_feature_flags.dart';
-import '../ucg/ui/widgets/ucg_media_viewer.dart';
+import 'feature_unlock/invite_code_dialog.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/settings_glass_panel.dart';
 
-String _resolveInviteGroupQrUrl(String raw, String apiBaseUrl) {
-  final u = raw.trim();
-  if (u.isEmpty) return '';
-  if (u.startsWith('http://') || u.startsWith('https://')) return u;
-  final base = Uri.tryParse(apiBaseUrl.trim());
-  if (base == null || !base.hasScheme) return u;
-  return base.resolve(u.startsWith('/') ? u : '/$u').toString();
-}
 /// 开通更多功能（商业变现唯一入口页）。
 class FeatureUnlockHubScreen extends ConsumerStatefulWidget {
   const FeatureUnlockHubScreen({super.key});
@@ -60,28 +50,19 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
     final catalog = ref.watch(featureCatalogStateProvider);
     final vip = ref.watch(vipStatusProvider).valueOrNull;
     final isVip = vip?.isVip == true;
-    final vipProductAsync = ref.watch(vipProductProvider);
-    final apiBase = ref.watch(authorizedApiClientProvider).baseUrl;
-    final qrUrl =
-        _resolveInviteGroupQrUrl(catalog.inviteGroupQrUrl, apiBase);
 
     return Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
         backgroundColor: shell,
         foregroundColor: onShell,
-        title: const Text(''),
+        title: const Text('功能开通'),
       ),
       body: RefreshIndicator(
         onRefresh: _refreshAll,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           children: [
-            if (qrUrl.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: _InviteGroupQrBlock(qrUrl: qrUrl, onShell: onShell),
-              ),
             if (catalog.loading && !catalog.ready)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 48),
@@ -126,82 +107,7 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
   }
 }
 
-/// 页级微信群二维码：文案居中在图正上方；加载失败则整块不渲染。
-class _InviteGroupQrBlock extends StatefulWidget {
-  const _InviteGroupQrBlock({
-    required this.qrUrl,
-    required this.onShell,
-  });
-
-  final String qrUrl;
-  final Color onShell;
-
-  @override
-  State<_InviteGroupQrBlock> createState() => _InviteGroupQrBlockState();
-}
-
-class _InviteGroupQrBlockState extends State<_InviteGroupQrBlock> {
-  /// 图片加载失败后隐藏整块（含文案），避免「有标题无图」。
-  var _loadFailed = false;
-
-  @override
-  void didUpdateWidget(covariant _InviteGroupQrBlock oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.qrUrl != widget.qrUrl) {
-      _loadFailed = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loadFailed) return const SizedBox.shrink();
-    return SettingsGlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            '加入微信群获取邀请码',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: widget.onShell.withValues(alpha: 0.9),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // 仅图可点：打开全屏可缩放预览，便于微信扫码。
-          Center(
-            child: GestureDetector(
-              onTap: () => unawaited(
-                showUcgPhotoLightbox(context, urls: [widget.qrUrl]),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  widget.qrUrl,
-                  width: 200,
-                  height: 200,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) {
-                    // 首帧 errorBuilder 在 build 内，延后 setState 避免同步重建冲突。
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted && !_loadFailed) {
-                        setState(() => _loadFailed = true);
-                      }
-                    });
-                    return const SizedBox.shrink();
-                  },
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 底部悬浮月卡：与功能列表滚动分离，含有效期文案。
+/// 底部悬浮月卡：与功能列表滚动分离、含有效期文案。
 class _VipStickyBar extends StatelessWidget {
   const _VipStickyBar({
     required this.isVip,
@@ -336,18 +242,18 @@ class _FeatureUnlockCard extends ConsumerWidget {
                         ),
                       ),
                     ],
-                    if (_isPrediction && item.allowedCount != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        item.isPredictionFullAccess
-                            ? '预测事项：永久条数待同步'
-                            : '每次开通永久 +1 条预测事项',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: onShell.withValues(alpha: 0.55),
-                        ),
-                      ),
-                    ],
+                    // if (_isPrediction && item.allowedCount != null) ...[
+                    //   const SizedBox(height: 6),
+                    //   Text(
+                    //     item.isPredictionFullAccess
+                    //         ? '预测槽位：永久条数待同步'
+                    //         : '每次开通永久 +1 条预测槽位',
+                    //     style: TextStyle(
+                    //       fontSize: 12,
+                    //       color: onShell.withValues(alpha: 0.55),
+                    //     ),
+                    //   ),
+                    // ],
                   ],
                 ),
               ),
@@ -365,7 +271,7 @@ class _FeatureUnlockCard extends ConsumerWidget {
                 )
               else if (unlocked)
                 Text(
-                  '已开通',
+                  '已全部激活',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -406,7 +312,7 @@ class _FeatureUnlockCard extends ConsumerWidget {
                     style: _kUnlockCtaButtonStyle,
                     onPressed: () =>
                         unawaited(_openInviteDialog(context, ref, item)),
-                    child: const Text('输入邀请码开通', style: _kUnlockCtaTextStyle),
+                    child: const Text('输入邀请码激活', style: _kUnlockCtaTextStyle),
                   ),
               ],
             )
@@ -438,7 +344,7 @@ class _FeatureUnlockCard extends ConsumerWidget {
         ? '¥${formatVipFenYuan(product.priceFen)}/个'
         : '¥${formatVipFenYuan(product.priceFen)}';
     final message = isPerUnit
-        ? '永久 +1 条预测事项'
+        ? '永久 +1 条预测槽位'
         : '开通「${item.title}」有效期：$days';
     final ok = await _showFeaturePayConfirmDialog(
       context,
@@ -463,12 +369,22 @@ class _FeatureUnlockCard extends ConsumerWidget {
     WidgetRef ref,
     FeatureCatalogItem item,
   ) async {
+    // 非预测：正文带广告授予天数；缺字段弱化，不用付费 SKU 冒充。
+    final String adMessage;
+    if (item.featureId == kFeatureIdPredictionUnlock) {
+      adMessage =
+          '观看一段广告即可为「${item.title}」永久 +1 条。\n点击确定后视为已观看（演示）。';
+    } else {
+      final days = item.adDurationDays;
+      final durationPart =
+          days == null ? '' : '，有效期：${featureDurationCopy(days)}';
+      adMessage =
+          '观看一段广告即可开通「${item.title}」$durationPart。\n点击确定后视为已观看（演示）。';
+    }
     final ok = await showGlassConfirmDialog(
       context,
       title: '看广告开通',
-      message: item.featureId == kFeatureIdPredictionUnlock
-          ? '观看一段广告即可为「${item.title}」永久 +1 条。\n点击确定后视为已观看（演示）。'
-          : '观看一段广告即可开通「${item.title}」。\n点击确定后视为已观看（演示）。',
+      message: adMessage,
       confirmLabel: '确定看广告',
     );
     if (ok != true || !context.mounted) return;
@@ -499,16 +415,32 @@ class _FeatureUnlockCard extends ConsumerWidget {
     WidgetRef ref,
     FeatureCatalogItem item,
   ) async {
-    // 码由弹层 State 持有；pop(String?) 带回，避免 await 后 dispose 与退场动画竞态
-    final code = await showGlassDialog<String>(
-      context: context,
-      contentBuilder: (ctx) => _InviteCodeDialogBody(
-        subtitle: item.featureId == kFeatureIdPredictionUnlock
-            ? '输入好友邀请码，永久 +1 条预测事项'
-            : '输入邀请码开通此功能',
-      ),
+    // 共享弹窗：获取邀请码 / 提交码（空码静默关闭）
+    // 非预测：展示 inviteDurationDays；缺字段弱化，禁止用付费 SKU 天数。
+    final String inviteBody;
+    if (item.featureId == kFeatureIdPredictionUnlock) {
+      inviteBody = '输入邀请码，激活1个预测槽位·永久';
+    } else {
+      final days = item.inviteDurationDays;
+      inviteBody = days == null
+          ? '输入邀请码激活「${item.title}」'
+          : '输入邀请码激活「${item.title}」，有效期：${featureDurationCopy(days)}';
+    }
+    final result = await showInviteCodeDialog(
+      context,
+      title: '输入邀请码',
+      body: inviteBody,
+      confirmLabel: '兑换',
     );
-    if (code == null || code.isEmpty || !context.mounted) return;
+    if (!context.mounted || result == null) return;
+    if (result is InviteCodeDialogHowTo) {
+      context.push('/features/invite-howto');
+      return;
+    }
+    if (result is! InviteCodeDialogSubmitted) return;
+    final code = result.code;
+    // 空码点兑换：静默关闭
+    if (code.isEmpty) return;
     try {
       await ref.read(featureUnlockRepositoryProvider).redeemInviteCode(
             code: code,
@@ -528,82 +460,6 @@ class _FeatureUnlockCard extends ConsumerWidget {
       if (!context.mounted) return;
       showAppToast('兑换失败，请稍后重试', tone: AppToastTone.error);
     }
-  }
-}
-
-/// 邀请码输入体：controller 生命周期绑定 State，对齐 `_GlassTextConfirmDialogBody`。
-class _InviteCodeDialogBody extends StatefulWidget {
-  const _InviteCodeDialogBody({required this.subtitle});
-
-  final String subtitle;
-
-  @override
-  State<_InviteCodeDialogBody> createState() => _InviteCodeDialogBodyState();
-}
-
-class _InviteCodeDialogBodyState extends State<_InviteCodeDialogBody> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          '输入邀请码',
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          widget.subtitle,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _controller,
-          decoration: const InputDecoration(
-            hintText: '请输入邀请码',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: TextButton(
-                // 取消 / 无码：pop null
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-            ),
-            Expanded(
-              child: FilledButton(
-                // 兑换：pop 修剪后的码（空串由外层忽略）
-                onPressed: () =>
-                    Navigator.pop(context, _controller.text.trim()),
-                child: const Text('兑换'),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
   }
 }
 

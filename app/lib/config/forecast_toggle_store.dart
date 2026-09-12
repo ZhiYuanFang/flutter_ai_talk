@@ -49,6 +49,23 @@ class ForecastToggleStore {
     }
   }
 
+  /// 批量关闭推演（槽位对齐）；无变更则不写盘。
+  static Future<void> disableMany(Iterable<String> eventIds) async {
+    final prefs = await SharedPreferences.getInstance();
+    final set = await loadDisabledIds();
+    var changed = false;
+    for (final raw in eventIds) {
+      final id = raw.trim();
+      if (id.isEmpty) continue;
+      if (set.add(id)) changed = true;
+    }
+    if (!changed) return;
+    await prefs.setString(
+      kForecastDisabledEventIdsKey,
+      jsonEncode(set.toList()..sort()),
+    );
+  }
+
   /// 登出等场景清空。
   static Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();

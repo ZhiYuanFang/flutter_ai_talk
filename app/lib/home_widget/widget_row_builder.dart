@@ -122,6 +122,6 @@ List<HomeWidgetRowPayload> buildWidgetRows({
   final predsForRecent = heroEventId != null
       ? predictions.where((p) => p.eventId != heroEventId).toList()
       : predictions;
-  out.addAll(buildWidgetRecentLast(predictions: predsForRecent, count: 3));
+  out.addAll(buildWidgetRecentLast(predictions: predsForRecent, count: 6));
   return out;
 }

@@ -162,6 +162,19 @@ class PredictionRangeHistoryNotifier
     });
   }
 
+  /// home 删除后立即从内存快照去掉同 id（避免并集短暂命中已删记录）。
+  void removeItemById(String id) {
+    final trimmed = id.trim();
+    if (trimmed.isEmpty) return;
+    if (!state.items.any((e) => e.id == trimmed)) return;
+    state = state.copyWith(
+      items: [
+        for (final e in state.items)
+          if (e.id != trimmed) e,
+      ],
+    );
+  }
+
   void clear() {
     _debounce?.cancel();
     _debounce = null;

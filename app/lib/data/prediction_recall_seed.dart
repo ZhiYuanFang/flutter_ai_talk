@@ -135,7 +135,7 @@ List<HistoryRecord> syntheticHistoryRecordsFromSeed(
   return out;
 }
 
-/// 缺口根：真历史未达门槛、无有效种子、且未关推演。
+/// 缺口根：真历史未达门槛、无有效种子间隔、且未关推演。
 List<EventDefinition> predictionRecallGapRoots({
   required List<EventDefinition> catalog,
   required List<HistoryRecord> realHistory,
@@ -151,7 +151,7 @@ List<EventDefinition> predictionRecallGapRoots({
     final real = byRoot[root.id] ?? const <HistoryRecord>[];
     if (historyMeetsPredictorSampleGate(real)) continue;
     final seed = seeds[root.id];
-    if (seed != null && seed.occurrenceAts.length >= 3) continue;
+    if (seed != null && seed.interval >= kMinIntervalForPrediction) continue;
     out.add(root);
   }
   return out;
@@ -172,7 +172,31 @@ Set<String> rootIdsWhoseRealHistoryCaughtUp({
   return drop;
 }
 
-/// 合并真历史 + 仍缺口根的种子伪记录。
+/// 丢弃该根已无任何真发生时刻的种子（删光后不得继续旁路预测）。
+Set<String> rootIdsWhoseRealHistoryIsEmpty({
+  required List<EventDefinition> catalog,
+  required List<HistoryRecord> realHistory,
+  required Iterable<String> seedRootIds,
+}) {
+  final byRoot = groupHistoryByRootEvent(history: realHistory, catalog: catalog);
+  final drop = <String>{};
+  for (final id in seedRootIds) {
+    List<HistoryRecord> real = byRoot[id] ?? const [];
+    if (real.isEmpty) {
+      for (final e in byRoot.entries) {
+        if (catalogIdsEqual(e.key, id)) {
+          real = e.value;
+          break;
+        }
+      }
+    }
+    if (latestOccurrenceAtForRecords(real) == null) drop.add(id);
+  }
+  return drop;
+}
+
+/// @Deprecated 预测路径已改为间隔旁路，勿再 merge 伪记录进推演。
+@Deprecated('Use seed.interval as recallIntervalsByRoot fallback instead')
 List<HistoryRecord> mergeHistoryWithRecallSeeds({
   required List<HistoryRecord> realHistory,
   required List<EventDefinition> catalog,

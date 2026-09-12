@@ -13,13 +13,10 @@ import '../../bootstrap/history_ws_silent_heal.dart';
 import '../../bootstrap/pangbao_transport_release.dart';
 import '../../data/feed_repository.dart';
 import '../../data/models.dart';
-import '../../home_widget/home_widget_sync.dart';
-import '../../providers/device_no_notifier.dart';
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/home_history_notifier.dart';
 import '../../providers/home_pager.dart';
 import '../../providers/history_event_fly_provider.dart';
-import '../../providers/prediction_care_alert_provider.dart';
 import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
@@ -75,15 +72,12 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     WidgetsBinding.instance.addObserver(this);
     // 主壳会话门闸：允许 history reconnect / UCG desired
     PangbaoHomeTransportGate.onHomeMounted();
-    // 首帧：冷启落在预测页时 onPageChanged 不会触发，须在此 ensure
-    // catalog（预测锁 allowedCount）与 care-alert；并同步飞入门闸页索引。
+    // 首帧：冷启落在预测页时 onPageChanged 不会触发，须在此 ensure catalog。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(homePagerIndexProvider.notifier).state = _pageIndex;
       if (_pageIndex == HomePagerPage.prediction) {
         _onEnterPredictionPage();
-      } else {
-        _ensureCareAlertOnPredictionVisible();
       }
       unawaited(_activateHistoryWsSessionIfNeeded());
     });
@@ -121,7 +115,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
 
     // UCG 聊天 WS resume（不依赖喂养页 mount）
     ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
-    // HTTP：历史 / range / 值得留意 / 未读 —— 与下方 WS heal 解耦
+    // HTTP：历史 / range / 未读 —— 与下方 WS heal 解耦（值得留意改为 AI 分析页手动）
     unawaited(_refreshHomeHttpOnResumeIfNeeded());
 
     final feed = ref.read(feedRepositoryProvider);
@@ -165,9 +159,6 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
           ref.read(homeHistoryProvider.notifier).bootstrap(),
           ref
               .read(predictionRangeHistoryProvider.notifier)
-              .ensureLoaded(force: true),
-          ref
-              .read(predictionCareAlertStateProvider.notifier)
               .ensureLoaded(force: true),
           ref.read(ucgUnreadSyncProvider)(),
         ]);
@@ -252,36 +243,14 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     setState(() => _ucgEverMounted = true);
   }
 
-  /// 进入预测页：先 cash 资格再按需拉值得留意。
-  void _ensureCareAlertOnPredictionVisible() {
-    final allowed = ref.read(predictionCareAlertFetchAllowedProvider);
-    if (!allowed) {
-      final loggedIn = ref.read(sessionProvider).isLoggedIn;
-      final dn =
-          ref.read(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-      AppDebugLog.careAlert(
-        'ensure skipped gate loggedIn=$loggedIn dnLen=${dn.length}',
-      );
-      return;
-    }
-    ref.invalidate(predictionCareAlertEnsureProvider);
-    unawaited(() async {
-      await ref.read(predictionCareAlertStateProvider.notifier).ensureLoaded();
-      // 留意就绪后推桌面 tip（复用列表，不另发 tip HTTP）
-      if (!mounted) return;
-      await scheduleHomeWidgetSync(ref);
-    }());
-  }
-
-  /// 进入预测页：重抽骨架偏移，并按门闸 ensure 留意。
+  /// 进入预测页：重抽骨架偏移；值得留意 daily 仅 AI 分析页手动。
   void _onEnterPredictionPage() {
     _markPredictionMounted();
     final now = DateTime.now();
     ref.read(predictionDemoMountNowProvider.notifier).state = now;
     ref.read(predictionDemoMountNonceProvider.notifier).state =
         now.microsecondsSinceEpoch;
-    _ensureCareAlertOnPredictionVisible();
-    // 预测事件锁：catalog.allowedCount（与 care-alert 门闸独立）
+    // 预测事件锁：catalog.allowedCount
     unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
     // 广场球可见性依赖资格：预测着陆即预热，不必先滑入 UCG
     unawaited(ref.read(ucgEligibilityStateProvider.notifier).ensureLoaded());
@@ -305,11 +274,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     final target = (!kUcgHomePagerEnabled && page == HomePagerPage.ucg)
         ? HomePagerPage.prediction
         : page;
-    // 预测页重抽/ensure 由 onPageChanged 统一处理；已在预测页时仅补 ensure
-    if (target == HomePagerPage.prediction &&
-        _pageIndex == HomePagerPage.prediction) {
-      _ensureCareAlertOnPredictionVisible();
-    }
+    // 预测页重抽由 onPageChanged 统一处理
     if (kUcgHomePagerEnabled && target == HomePagerPage.ucg) {
       _markUcgMounted();
     }
@@ -374,13 +339,6 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       unawaited(_goToPage(next).whenComplete(() {
         if (mounted) ref.read(homePagerRequestProvider.notifier).clear();
       }));
-    });
-
-    // 门闸 false→true：稳定补 ensure
-    ref.listen<bool>(predictionCareAlertFetchAllowedProvider, (prev, next) {
-      if (_pageIndex != HomePagerPage.prediction) return;
-      if (prev == true || next != true) return;
-      _ensureCareAlertOnPredictionVisible();
     });
 
     final voiceHoldBlocksScroll = ref.watch(homePagerScrollBlockedProvider);

@@ -523,8 +523,6 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     final glassText = historyEditGlassTextColor(context);
     final glassLabel = historyEditGlassLabelColor(context);
 
-    final startAnchor = parseHistoryInstant(p['startTime']) ?? r.createdAt;
-    final endAnchor = _endEdit ?? parseHistoryInstant(p['endTime']) ?? startAnchor;
     final now = DateTime.now();
     final pickerMaxDate = homeHistoryDateOnly(now);
     final babyAsync = ref.watch(settingsBabyProvider);
@@ -574,54 +572,45 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                         fontSize: 20,
                         height: 1.25,
                         fontWeight: FontWeight.w600,
-                        color: glassText,
+                        color: eventRecordAccentDeep(accent),
                       ),
                     ),
                     const SizedBox(height: 20),
-                    if (n == 0) ...[
-                      HomeHistoryDateTimeRow(
-                        label: '开始时间',
+                    if (n == 0)
+                      HomeHistoryCenteredTimeLine(
                         minimumDate: pickerMinDate,
                         maximumDate: pickerMaxDate,
-                        anchorDate: startAnchor,
-                        value: _startEdit,
+                        start: _startEdit,
+                        end: _endEdit,
+                        showEndRange: true,
                         enabled: !readOnly,
-                        onDateChanged: _onStartDateChanged,
-                        onTimeChanged: _onStartTimeChanged,
-                      ),
-                      const SizedBox(height: 14),
-                      HomeHistoryDateTimeRow(
-                        label: '结束时间',
+                        accent: accent,
+                        onStartChanged: (v) {
+                          // 日与时合并回调：按改动类型分别对齐结束
+                          final old = _startEdit;
+                          final dayChanged = homeHistoryDateOnly(v) !=
+                              homeHistoryDateOnly(old);
+                          if (dayChanged) {
+                            _onStartDateChanged(v);
+                          } else {
+                            _onStartTimeChanged(v);
+                          }
+                        },
+                        onEndChanged: (v) => setState(() => _endEdit = v),
+                      )
+                    else
+                      HomeHistoryCenteredTimeLine(
                         minimumDate: pickerMinDate,
                         maximumDate: pickerMaxDate,
-                        anchorDate: endAnchor,
-                        value: _endEdit,
+                        start: _endEdit ?? _startEdit,
+                        showEndRange: false,
                         enabled: !readOnly,
-                        onChanged: (v) => setState(() => _endEdit = v),
+                        accent: accent,
+                        onStartChanged: (v) => setState(() {
+                          _endEdit = v;
+                          _startEdit = v;
+                        }),
                       ),
-                      if (!readOnly && _endEdit != null)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () => setState(() => _endEdit = null),
-                            style: TextButton.styleFrom(
-                              foregroundColor: glassLabel,
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                            ),
-                            child: const Text('清除结束时间'),
-                          ),
-                        ),
-                    ] else ...[
-                      HomeHistoryDateTimeRow(
-                        label: '结束时间',
-                        minimumDate: pickerMinDate,
-                        maximumDate: pickerMaxDate,
-                        anchorDate: endAnchor,
-                        value: _endEdit,
-                        enabled: !readOnly,
-                        onChanged: (v) => setState(() => _endEdit = v),
-                      ),
-                    ],
                     if (n > 1) ...[
                       const SizedBox(height: 14),
                       Text(

@@ -74,6 +74,16 @@ class FeatureCatalogState {
     return 0;
   }
 
+  /// 预测默认免费槽位数；旧服缺字段为 null（文案不得说「默认」）。
+  int? get predictionDefaultCount {
+    for (final it in items) {
+      if (it.featureId == kFeatureIdPredictionUnlock) {
+        return it.defaultCount;
+      }
+    }
+    return null;
+  }
+
   /// 预测行是否在数量锁下已解锁（不含 VIP；VIP 由调用方另判）。
   /// [realIndex] 为当前展示列表排序后的下标；重排后槽位跟下标走。
   /// [allowedCount] < 0（哨兵 -1）表示全开。
@@ -143,8 +153,9 @@ class FeatureCatalogNotifier extends StateNotifier<FeatureCatalogState> {
         !state.failed &&
         state.deviceNo == dn &&
         state.items.isNotEmpty) {
+      // 缓存命中：必须 return，不得再写 loading（否则 build 期调用会炸 Riverpod）
       AppDebugLog.featureUnlock('catalog ensure skip same device cache');
-      // 仍后台轻刷一次（非 force 幂等缓存展示后刷新）
+      return;
     }
 
     state = state.copyWith(loading: true, failed: false, deviceNo: dn);

@@ -8,13 +8,17 @@ const kUcgTreasureEnabled = false;
 const kUcgHomePagerEnabled = true;
 
 /// 历史编辑「同步广场」开关与 UCG 发帖/改帖/删帖副作用。
-/// 商业化重开：与 UCG 表面一并恢复。
-const kHistorySquareSyncEnabled = true;
+const kHistorySquareSyncEnabled = false;
 
 /// VIP 购买页与开通 CTA 是否可达。
 /// 商业化重开：月卡与开通中心支付入口可达。
 const kVipPurchaseEnabled = true;
 
 /// 预测页竖屏语音对话（贴边球 / 会话 activate）。
-/// 对话模型未训练完成：默认关闭；翻 `true` 恢复竖屏入口。横屏语音不受本开关影响。
+/// 对话模型未训练完成：默认关闭；翻 `true` 恢复竖屏入口。
+/// 横屏助手由 [kPredictionLandscapeVoiceEnabled] 单独控制。
 const kPredictionPortraitVoiceEnabled = false;
+
+/// 预测页横屏语音助手（KWS 唤醒 / 监听 chip / chat / 字幕）。
+/// 对话模型未训练完成：默认关闭整条表面；翻 `true` 恢复横屏入口。
+const kPredictionLandscapeVoiceEnabled = false;

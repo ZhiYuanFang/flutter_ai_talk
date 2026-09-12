@@ -373,6 +373,8 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       state.items.where((e) => e.id != id).toList(),
       source: 'wsRemove id=$id',
     );
+    // 同步抠掉 range 快照，避免真 lastAt 并集仍命中已删 id
+    _ref.read(predictionRangeHistoryProvider.notifier).removeItemById(id);
   }
 
   void replaceRecord(HistoryRecord record) {

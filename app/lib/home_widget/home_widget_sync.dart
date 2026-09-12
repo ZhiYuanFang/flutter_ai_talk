@@ -14,10 +14,8 @@ import '../data/smart_prediction_rows.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/forecast_toggle_provider.dart';
 import '../providers/home_history_notifier.dart';
-import '../providers/prediction_care_alert_provider.dart';
 import '../providers/prediction_range_history_provider.dart';
 import '../providers/prediction_recall_provider.dart';
-import '../data/prediction_care_alert.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/widget_tip_display_epoch_provider.dart';
@@ -55,19 +53,21 @@ ProviderContainer _widgetSyncContainer(dynamic ref) {
   );
 }
 
-/// 与智能预测页同源的 widget 预测输入（7 日 range ∪ 种子、内存 catalog、推演关集合）。
+/// 与智能预测页同源的 widget 预测输入（home∪range 真历史 + 间隔旁路）。
 ({
   List<HistoryRecord> history,
   List<EventDefinition> catalog,
   Set<String> disabledForecastIds,
   Set<String> activeEventKeys,
+  Map<String, Duration> recallIntervalsByRoot,
 }) resolveWidgetPredictionInputs(dynamic ref) {
   final container = _widgetSyncContainer(ref);
-  final history = container.read(predictionHistoryWithRecallSeedsProvider);
+  final history = container.read(predictionRealHistoryProvider);
   final catalog = container.read(eventCatalogProvider).items;
   final disabled =
       container.read(forecastDisabledIdsProvider).asData?.value ??
       const <String>{};
+  final recallIntervals = container.read(predictionRecallIntervalsProvider);
   final rangeItems = container.read(predictionRangeHistoryProvider).items;
   final homeItems = container.read(homeHistoryProvider).items;
   final activeKeys = <String>{
@@ -81,6 +81,7 @@ ProviderContainer _widgetSyncContainer(dynamic ref) {
     catalog: catalog,
     disabledForecastIds: disabled,
     activeEventKeys: activeKeys,
+    recallIntervalsByRoot: recallIntervals,
   );
 }
 
@@ -120,6 +121,7 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
   DateTime? now,
   Set<String> disabledForecastIds = const {},
   Set<String>? activeEventKeysOverride,
+  Map<String, Duration> recallIntervalsByRoot = const {},
 }) async {
   final t = now ?? DateTime.now();
   HomeWidgetHeaderPayload? header;
@@ -153,6 +155,10 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
           now: t,
           birthDate: birth,
           activeEventKeys: enabledActiveKeys,
+          recallIntervalsByRoot: {
+            for (final e in recallIntervalsByRoot.entries)
+              if (!disabledForecastIds.contains(e.key)) e.key: e.value,
+          },
         )
       : <EventNextPrediction>[];
   // S1：解除已有新记录的 skip；仅 hero 排除 skip，后续留意仍保留
@@ -166,8 +172,12 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
   var recentLast = <HomeWidgetRowPayload>[];
   if (loggedIn && state == 'ready') {
     hero = buildWidgetHero(predictions: heroPredictions, now: t);
-    // 后续留意用全量预测（含已 skip）；native large 再排除当前 hero id
-    recentLast = buildWidgetRecentLast(predictions: predictions, count: 4);
+    // large 两行×3 最多 6；payload 侧先排除 hero，与 preview / native 一致
+    final heroEventId = hero?.eventId;
+    final predsForRecent = heroEventId != null
+        ? predictions.where((p) => p.eventId != heroEventId).toList()
+        : predictions;
+    recentLast = buildWidgetRecentLast(predictions: predsForRecent, count: 6);
     if (hero != null) {
       hero = await enrichWidgetRow(hero, catalog);
     }
@@ -216,6 +226,7 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   final catalog = inputs.catalog;
   final disabledForecastIds = inputs.disabledForecastIds;
   final activeEventKeys = inputs.activeEventKeys;
+  final recallIntervalsByRoot = inputs.recallIntervalsByRoot;
 
   BabyProfile? baby;
   try {
@@ -242,6 +253,10 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
       now: DateTime.now(),
       birthDate: baby?.birthDate ?? DateTime.now(),
       activeEventKeys: enabledActiveKeys,
+      recallIntervalsByRoot: {
+        for (final e in recallIntervalsByRoot.entries)
+          if (!disabledForecastIds.contains(e.key)) e.key: e.value,
+      },
     );
     final skipped = await WidgetHeroSkipStore.reconcileAndActiveIds(preds);
     preds = filterPredictionsExcludingSkipped(preds, skipped);
@@ -257,39 +272,8 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   }
 
   HomeWidgetTipPayload? tip;
-  if (state == 'ready' && !skipTip) {
-    try {
-      final now = DateTime.now();
-      String? derived;
-      var careReady = false;
-      final gate = ref.read(predictionCareAlertFetchAllowedProvider);
-      if (gate) {
-        var st = ref.read(predictionCareAlertStateProvider);
-        if (!st.ready && !st.loading && !st.failed) {
-          await ref
-              .read(predictionCareAlertStateProvider.notifier)
-              .ensureLoaded();
-          st = ref.read(predictionCareAlertStateProvider);
-        }
-        careReady = st.ready && !st.failed && !st.loading;
-        if (careReady) {
-          final items = ref.read(predictionCareAlertProvider);
-          derived = deriveWidgetTipTextFromCareAlert(items);
-        }
-      }
-      if (derived != null && derived.trim().isNotEmpty) {
-        tip = await persistWidgetTipSnapshot(derivedText: derived, now: now);
-      } else if (gate && careReady) {
-        // 留意已 ready 且列表/摘要为空：清除 tip
-        tip = await persistWidgetTipSnapshot(derivedText: null, now: now);
-      } else {
-        // 门闸未过或留意未 ready：保留 prefs 快照推 widget
-        tip = await loadWidgetTipSnapshotFromPrefs(now: now);
-      }
-    } catch (e) {
-      AppDebugLog.homeWidget('tip err=$e');
-    }
-  }
+  // 桌面 tip 已下线：不再派生 / 拉取 care-alert daily；payload 不带 tip。
+  tip = null;
 
   final payload = await buildHomeWidgetPayload(
     loggedIn: true,
@@ -302,6 +286,7 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     tip: tip,
     disabledForecastIds: disabledForecastIds,
     activeEventKeysOverride: activeEventKeys,
+    recallIntervalsByRoot: recallIntervalsByRoot,
   );
   await pushHomeWidgetPayload(payload);
   final tipBody = tip?.text.trim() ?? '';
@@ -359,7 +344,7 @@ Future<void>? _widgetSyncInFlight;
 var _widgetSyncRerun = false;
 
 /// 历史/range/资料变更后推送小组件（single-flight，合并连续触发）。
-/// 预测输入在 sync 内读 `predictionHistoryWithRecallSeedsProvider`，勿传 home 分页快照。
+/// 预测输入在 sync 内读 `predictionRealHistoryProvider` + 间隔旁路，勿传 home 分页快照。
 ///
 /// 须延迟到下一 event-loop turn：notifier 写入栈内 ref.read 同源 provider 会断言失败。
 Future<void> scheduleHomeWidgetSync(dynamic ref) {

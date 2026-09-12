@@ -175,7 +175,7 @@ class _UcgInviteDetailScreenState extends ConsumerState<UcgInviteDetailScreen> {
                         return const UcgEmptyState(
                           icon: Icons.group_outlined,
                           title: '还没有好友使用你的邀请码',
-                          subtitle: '分享邀请码，一起开通更多预测事项',
+                          subtitle: '分享邀请码，一起开通更多预测槽位',
                         );
                       }
                       return Column(

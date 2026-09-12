@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../ucg/data/ucg_feature_flags.dart';
 import '../util/thinking_stage_delta.dart';
 import '../voice/landscape_mic_permission.dart';
 import '../voice/landscape_wake_word.dart';
@@ -819,7 +820,7 @@ final landscapeVoiceControllerProvider =
   LandscapeVoiceController.new,
 );
 
-/// 由预测页在横屏∩可见时驱动 activate/deactivate。
+/// 由预测页在横屏∩可见且横屏语音 flag 开启时驱动 activate/deactivate。
 void syncLandscapeVoiceLifecycle(
   WidgetRef ref, {
   required BuildContext context,
@@ -829,6 +830,7 @@ void syncLandscapeVoiceLifecycle(
   final want = !kIsWeb &&
       landscape &&
       predictionVisible &&
+      kPredictionLandscapeVoiceEnabled &&
       (Platform.isAndroid || Platform.isIOS);
   final ctrl = ref.read(landscapeVoiceControllerProvider.notifier);
   if (want) {

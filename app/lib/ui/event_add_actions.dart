@@ -18,7 +18,7 @@ import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
 import 'event_catalog_picker_sheet.dart';
-import 'home_number_event_sheet.dart';
+import 'event_record_sheet.dart';
 import 'widgets/app_glass_overlay.dart';
 
 /// 模块级单飞：防喂养格 / 预测卡连点重复提交。
@@ -134,11 +134,10 @@ Future<EventAddSubmitResult?> submitEventAdd({
   }
 }
 
-/// 喂养事件格 / 预测网格卡共用：父→子选择后按类型添加。
+/// 喂养事件格 / 预测网格卡共用：父→子选择后按类型添加或补充。
 ///
-/// [onAdded] 供喂养页做飞入、滚底、计时提醒等专属后续；预测页可省略。
-/// [confirmDirectLeafBeforeAdd]：仅预测网格为 true——直点叶子且非 number 时先确认；
-/// picker 选出的叶子、number（已有 sheet）不确认。
+/// [intent]：`supplement` 开统一 Sheet；`add` 非量直接 now，number 开 Sheet。
+/// [confirmDirectLeafBeforeAdd]：仅 `add` + 预测直点叶子 + 非 number 时先确认。
 Future<void> handleEventGridTap({
   required BuildContext context,
   required WidgetRef ref,
@@ -146,7 +145,9 @@ Future<void> handleEventGridTap({
   Map<String, int>? usageCounts,
   FutureOr<void> Function(EventAddSubmitResult result)? onAdded,
   bool confirmDirectLeafBeforeAdd = false,
+  EventRecordIntent intent = EventRecordIntent.add,
 }) async {
+  assert(intent != EventRecordIntent.edit);
   final catalog = ref.read(eventCatalogProvider).items;
   var target = event;
   if (hasChildren(catalog, event.id)) {
@@ -161,8 +162,8 @@ Future<void> handleEventGridTap({
     );
     if (leaf == null || !context.mounted) return;
     target = leaf;
-  } else if (confirmDirectLeafBeforeAdd) {
-    // 直点叶子：time/one 确认；number 交给数量 sheet
+  } else if (intent == EventRecordIntent.add && confirmDirectLeafBeforeAdd) {
+    // 直点叶子：仅普通新增的 time/one 确认；补充走 Sheet；number 已有 sheet
     final type = target.parsedEventType;
     if (type != null && type != EventCatalogEventType.number) {
       if (!context.mounted) return;
@@ -181,6 +182,7 @@ Future<void> handleEventGridTap({
     ref: ref,
     event: target,
     onAdded: onAdded,
+    intent: intent,
   );
 }
 
@@ -189,6 +191,7 @@ Future<void> _onEventButtonTap({
   required WidgetRef ref,
   required EventDefinition event,
   FutureOr<void> Function(EventAddSubmitResult result)? onAdded,
+  required EventRecordIntent intent,
 }) async {
   if (!event.hasValidEventType) return;
   if (_eventAddInFlight) return;
@@ -197,41 +200,75 @@ Future<void> _onEventButtonTap({
 
   final type = event.parsedEventType!;
   EventAddSubmitResult? submitted;
-  switch (type) {
-    case EventCatalogEventType.time:
-      if (_hasActiveTimingForEvent(ref, event)) {
-        ref.showApiToast('${event.name}已在计时中');
-        return;
-      }
-      final now = DateTime.now();
-      submitted = await submitEventAdd(
-        ref: ref,
-        event: event,
-        eventNumber: 0,
-        startTime: now,
-        endTime: DateTime.fromMillisecondsSinceEpoch(0),
-      );
-    case EventCatalogEventType.one:
-      final now = DateTime.now();
-      submitted = await submitEventAdd(
-        ref: ref,
-        event: event,
-        eventNumber: 1,
-        startTime: now,
-        endTime: now,
-      );
-    case EventCatalogEventType.number:
-      if (_eventAddInFlight) return;
-      final result = await showHomeNumberEventSheet(context, event);
-      if (result == null || !context.mounted || _eventAddInFlight) return;
-      submitted = await submitEventAdd(
-        ref: ref,
-        event: event,
-        eventNumber: result.eventNumber,
-        startTime: result.startTime,
-        endTime: result.startTime,
-        remark: result.remark,
-      );
+
+  if (intent == EventRecordIntent.supplement) {
+    // 补充：任意类型开统一 Sheet
+    if (type == EventCatalogEventType.time &&
+        _hasActiveTimingForEvent(ref, event)) {
+      ref.showApiToast('${event.name}已在计时中');
+      return;
+    }
+    if (_eventAddInFlight) return;
+    final result = await showEventRecordCreateSheet(
+      context,
+      intent: EventRecordIntent.supplement,
+      event: event,
+    );
+    if (result == null || !context.mounted || _eventAddInFlight) return;
+    final end = result.endTime ??
+        (type == EventCatalogEventType.time
+            ? DateTime.fromMillisecondsSinceEpoch(0)
+            : result.startTime);
+    submitted = await submitEventAdd(
+      ref: ref,
+      event: event,
+      eventNumber: result.eventNumber,
+      startTime: result.startTime,
+      endTime: end,
+      remark: result.remark,
+    );
+  } else {
+    // 普通新增
+    switch (type) {
+      case EventCatalogEventType.time:
+        if (_hasActiveTimingForEvent(ref, event)) {
+          ref.showApiToast('${event.name}已在计时中');
+          return;
+        }
+        final now = DateTime.now();
+        submitted = await submitEventAdd(
+          ref: ref,
+          event: event,
+          eventNumber: 0,
+          startTime: now,
+          endTime: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+      case EventCatalogEventType.one:
+        final now = DateTime.now();
+        submitted = await submitEventAdd(
+          ref: ref,
+          event: event,
+          eventNumber: 1,
+          startTime: now,
+          endTime: now,
+        );
+      case EventCatalogEventType.number:
+        if (_eventAddInFlight) return;
+        final result = await showEventRecordCreateSheet(
+          context,
+          intent: EventRecordIntent.add,
+          event: event,
+        );
+        if (result == null || !context.mounted || _eventAddInFlight) return;
+        submitted = await submitEventAdd(
+          ref: ref,
+          event: event,
+          eventNumber: result.eventNumber,
+          startTime: result.startTime,
+          endTime: result.startTime,
+          remark: result.remark,
+        );
+    }
   }
   if (submitted != null && onAdded != null) {
     await onAdded(submitted);

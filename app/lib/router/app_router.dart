@@ -21,10 +21,12 @@ import '../ui/settings_screen.dart';
 import '../data/prediction_care_alert.dart';
 import '../ui/pangbao_ai_screen.dart';
 import '../ui/prediction_care_alert_screen.dart';
+import '../ui/ai_analysis_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
 import '../ui/vip_purchase_screen.dart';
 import '../ui/feature_unlock_hub_screen.dart';
+import '../ui/feature_unlock/invite_code_howto_screen.dart';
 import '../ui/home_widget_showcase_screen.dart';
 
 /// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
@@ -56,6 +58,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/change-password',
         '/settings/feedback',
         '/features/unlock',
+        '/features/invite-howto',
         '/vip/purchase',
       };
       final guestAllowed = splash ||
@@ -146,6 +149,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        // AI 分析：喂养记录分析 + 成长轨迹占位
+        path: '/prediction/ai-analysis',
+        builder: (context, state) => const AiAnalysisScreen(),
+      ),
+      GoRoute(
         // VIP 购买：暂停闸门下 redirect；开启时需登录
         path: '/vip/purchase',
         redirect: (context, state) {
@@ -157,6 +165,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/features/unlock',
         builder: (context, state) => const FeatureUnlockHubScreen(),
+      ),
+      GoRoute(
+        // 邀请码获取方式：来源说明 / 进广场 / 条件微信群二维码
+        path: '/features/invite-howto',
+        builder: (context, state) => const InviteCodeHowtoScreen(),
       ),
       GoRoute(
         path: '/widgets/showcase',

@@ -11,6 +11,7 @@ class AppEmptyStateGallery extends StatelessWidget {
     this.footnote,
     this.actionLabel,
     this.onAction,
+    this.action,
     this.fallbackIcon = Icons.child_care,
   });
 
@@ -27,6 +28,8 @@ class AppEmptyStateGallery extends StatelessWidget {
   final String? footnote;
   final String? actionLabel;
   final VoidCallback? onAction;
+  /// 自定义操作区；非空时优先于 [actionLabel]/[onAction] 默认 tonal 按钮。
+  final Widget? action;
   final IconData fallbackIcon;
 
   static bool _shouldUseFallback(LottieComposition? composition) {
@@ -122,14 +125,18 @@ class AppEmptyStateGallery extends StatelessWidget {
                 ],
               ),
             ],
-            if (actionLabel != null && onAction != null) ...[
+            if (action != null ||
+                (actionLabel != null && onAction != null)) ...[
               SizedBox(
                 height: footnote != null ? footnoteToActionGap : subtitleToActionGap,
               ),
-              FilledButton.tonal(
-                onPressed: onAction,
-                child: Text(actionLabel!),
-              ),
+              if (action != null)
+                action!
+              else
+                FilledButton.tonal(
+                  onPressed: onAction,
+                  child: Text(actionLabel!),
+                ),
             ],
           ],
         ),

@@ -77,9 +77,7 @@ class _HomeWidgetShowcaseScreenState
   Widget build(BuildContext context) {
     final onShell = AppColor.textPrimary(context);
     final muted = AppColor.textMuted(context);
-    final title = !_ready
-        ? '桌面小组件'
-        : (_pinned ? '查看桌面小组件' : '添加桌面小组件');
+    final title = '桌面小组件';
 
     return Scaffold(
       backgroundColor: AppColor.pageBg(context),

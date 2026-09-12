@@ -3,6 +3,9 @@
 /// 预测开通数量功能 ID（与服务端 FeatureIDPredictionUnlock 一致）。
 const kFeatureIdPredictionUnlock = 'prediction_unlock';
 
+/// 值得留意智能提醒功能 ID（与服务端 FeatureIDCareAlertSmartRemind 一致）。
+const kFeatureIdCareAlertSmartRemind = 'care_alert_smart_remind';
+
 /// catalog 项内嵌可售 SKU。
 class FeatureCatalogProduct {
   const FeatureCatalogProduct({
@@ -117,7 +120,10 @@ class FeatureCatalogItem {
     this.unlockMethod = '',
     this.expiresAt = 0,
     this.allowedCount,
+    this.defaultCount,
     this.totalActivatableCount,
+    this.inviteDurationDays,
+    this.adDurationDays,
     this.products = const [],
   });
 
@@ -132,9 +138,18 @@ class FeatureCatalogItem {
   final int expiresAt;
   final int? allowedCount;
 
+  /// 预测默认免费槽位数（服务端定义表）；缺省/旧服为 null，文案不得冒充「默认」。
+  final int? defaultCount;
+
   /// 预测可激活天花板：Go catalog 聚合的字典**非叶子**总数（仅 prediction_unlock）。
   /// 「已全部激活」只认本字段；不得用客户端可见预测行数重算。
   final int? totalActivatableCount;
+
+  /// 邀请码授予天数（0=永久）；旧服缺字段为 null，文案须弱化，禁止用付费 SKU 冒充。
+  final int? inviteDurationDays;
+
+  /// 广告授予天数（0=永久）；旧服缺字段为 null。
+  final int? adDurationDays;
 
   /// 预测临时/永久全开哨兵（与服务端 AllowedCountFullAccessSentinel 一致）。
   bool get isPredictionFullAccess => allowedCount != null && allowedCount! < 0;
@@ -195,6 +210,7 @@ class FeatureCatalogItem {
       }
     }
     final ac = json['allowedCount'];
+    final dc = json['defaultCount'];
     final tac = json['totalActivatableCount'];
     return FeatureCatalogItem(
       featureId: (json['featureId'] ?? '').toString(),
@@ -205,7 +221,13 @@ class FeatureCatalogItem {
       unlockMethod: (json['unlockMethod'] ?? '').toString(),
       expiresAt: _asInt(json['expiresAt']),
       allowedCount: ac == null ? null : _asInt(ac),
+      defaultCount: dc == null ? null : _asInt(dc),
       totalActivatableCount: tac == null ? null : _asInt(tac),
+      inviteDurationDays: json.containsKey('inviteDurationDays')
+          ? _asInt(json['inviteDurationDays'])
+          : null,
+      adDurationDays:
+          json.containsKey('adDurationDays') ? _asInt(json['adDurationDays']) : null,
       products: products,
     );
   }

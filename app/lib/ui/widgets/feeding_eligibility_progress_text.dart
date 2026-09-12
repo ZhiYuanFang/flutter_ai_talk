@@ -46,6 +46,20 @@ class FeedingEligibilityProgressText extends StatelessWidget {
       color: theme.colorScheme.primary,
       height: 1.05,
     );
+    // 小字号：已累计数字。
+     final numberSmallStyle = base.copyWith(
+      fontSize: baseSize * 1,
+      fontWeight: FontWeight.w400,
+      color: theme.colorScheme.primary,
+      height: 1.05,
+    );
+    // 小字号正常文案
+    final normalTxtSmallStyle = base.copyWith(
+      fontSize: baseSize * 0.8,
+      fontWeight: FontWeight.w400,
+      color: theme.colorScheme.onSurface,
+      height: 1.05,
+    );
     // 负值钳为 0，避免异常字段破版。
     final x = eligibility.effectiveDays < 0 ? 0 : eligibility.effectiveDays;
     final n = eligibility.requiredDays < 0 ? 0 : eligibility.requiredDays;
@@ -65,15 +79,21 @@ class FeedingEligibilityProgressText extends StatelessWidget {
     switch (kind) {
       case FeedingEligibilityProgressKind.ucgEntry:
         remainingLine = [
-          const TextSpan(text: '还需要连续喂养 '),
-          TextSpan(text: '$y', style: numberStyle),
+          const TextSpan(text: '需连续记录 '),
+          TextSpan(text: '$x', style: numberSmallStyle),
+          const TextSpan(text: ' / '),
+          TextSpan(text: '$n', style: numberStyle),
           const TextSpan(text: ' 天宝宝作息，\n解锁广场与真实带娃家庭分享经验'),
         ];
       case FeedingEligibilityProgressKind.careAlert:
         remainingLine = [
-          const TextSpan(text: '还需连续记录 '),
-          TextSpan(text: '$y', style: numberStyle),
-          const TextSpan(text: ' 天宝宝作息，激活AI贴心提醒'),
+          const TextSpan(text: '需连续记录 '),
+          TextSpan(text: '$n', style: numberStyle),
+          const TextSpan(text: ' 天宝宝作息'),
+          // 已累计1天
+          TextSpan(text: '(已累计 ', style: normalTxtSmallStyle),
+          TextSpan(text: '$x', style: numberSmallStyle),
+          TextSpan(text: ' 天)', style: normalTxtSmallStyle),
         ];
     }
 
@@ -81,8 +101,8 @@ class FeedingEligibilityProgressText extends StatelessWidget {
       TextSpan(
         style: base,
         children: [
-          ...completedLine,
-          const TextSpan(text: '\n'),
+          // ...completedLine,
+          // const TextSpan(text: '\n'),
           ...remainingLine,
         ],
       ),

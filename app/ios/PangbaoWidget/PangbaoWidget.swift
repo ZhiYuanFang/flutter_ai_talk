@@ -258,24 +258,8 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
     @ViewBuilder
     private var mediumBody: some View {
         let items = entry.payload?.recentLast ?? []
-        // 增加喂养小贴士
+        // tip 已下线：不再展示喂养小贴士
         VStack(alignment: .leading, spacing: 6) {
-            if let tip = entry.payload?.tip?.text, !tip.isEmpty {
-                HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(textSecondary)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("喂养小贴士")
-                            .font(.system(size: 10))
-                            .foregroundColor(textSecondary)
-                        Text(tip)
-                            .font(.system(size: 12))
-                            .foregroundColor(textPrimary)
-                            .lineLimit(2)
-                    }
-                }
-            }
             if items.isEmpty {
                  fallbackMessage
              } else {
@@ -296,28 +280,12 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
 
     @ViewBuilder
     private var largeBody: some View {
-        let items = recentExcludingHero
+        let items = Array(recentExcludingHero.prefix(6))
         let hasHero = entry.payload?.hero != nil
         let hasRecent = !items.isEmpty
 
         VStack(alignment: .leading, spacing: 6) {
-            if let tip = entry.payload?.tip?.text, !tip.isEmpty {
-                HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(textSecondary)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("喂养小贴士")
-                            .font(.system(size: 10))
-                            .foregroundColor(textSecondary)
-                        Text(tip)
-                            .font(.system(size: 12))
-                            .foregroundColor(textPrimary)
-                            .lineLimit(8)
-                    }
-                }
-            }
-
+            // tip 已下线：不再展示喂养小贴士
             if hasHero || hasRecent {
                 Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: 10) {
@@ -343,10 +311,28 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
                     }
                     if hasRecent {
                         sectionTitle("后续留意·上次记录", size: 10)
-                        HStack(alignment: .center, spacing: 0) {
-                            ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
-                                recentCell(row, logoSize: 45, nameSize: 14, timeSize: 14)
-                                    .frame(maxWidth: .infinity)
+                        // 两行 × 最多三槽，对齐 Android large
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .center, spacing: 0) {
+                                ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { _, row in
+                                    recentCell(row, logoSize: 45, nameSize: 14, timeSize: 14)
+                                        .frame(maxWidth: .infinity)
+                                }
+                            }
+                            if items.count > 3 {
+                                HStack(alignment: .center, spacing: 0) {
+                                    ForEach(Array(items.dropFirst(3).prefix(3).enumerated()), id: \.offset) { _, row in
+                                        recentCell(row, logoSize: 45, nameSize: 14, timeSize: 14)
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    // 不足三格时用空位撑满，避免挤到左侧
+                                    if items.count == 4 {
+                                        Color.clear.frame(maxWidth: .infinity)
+                                        Color.clear.frame(maxWidth: .infinity)
+                                    } else if items.count == 5 {
+                                        Color.clear.frame(maxWidth: .infinity)
+                                    }
+                                }
                             }
                         }
                     }

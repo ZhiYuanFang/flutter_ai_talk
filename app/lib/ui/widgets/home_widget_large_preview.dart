@@ -8,14 +8,9 @@ import '../../data/baby_age.dart';
 import '../../data/event_branding.dart';
 import '../../data/event_definition.dart';
 import '../../data/event_next_predictor.dart';
-import '../../home_widget/format_widget_relative_time.dart';
-import '../../home_widget/home_widget_constants.dart';
-import '../../home_widget/home_widget_payload.dart';
 import '../../home_widget/home_widget_sync.dart';
-import '../../home_widget/widget_row_builder.dart';
 import '../../home_widget/widget_row_enrich.dart';
 import '../../home_widget/widget_theme_visual.dart';
-import '../../home_widget/widget_tip_cache.dart';
 import '../../providers/event_catalog_notifier.dart';
 import '../../providers/forecast_toggle_provider.dart';
 import '../../providers/session_provider.dart';
@@ -93,12 +88,17 @@ class _HomeWidgetLargePreviewState
           now: now,
           birthDate: baby.birthDate,
           activeEventKeys: enabledActive,
+          recallIntervalsByRoot: {
+            for (final e in inputs.recallIntervalsByRoot.entries)
+              if (!disabled.contains(e.key)) e.key: e.value,
+          },
         );
         final header = formatWidgetHeaderLine(baby, now);
         final sig = Object.hash(
           header,
           visual.shellGradientStart,
           inputs.history.length,
+          inputs.recallIntervalsByRoot.length,
           preds.map((p) => '${p.eventId}:${p.nextAt.millisecondsSinceEpoch}').join('|'),
           disabled.length,
           catalog.length,
@@ -163,12 +163,12 @@ class _HomeWidgetLargePreviewState
     required List<EventDefinition> catalog,
     required DateTime now,
   }) async {
-    final tip = await loadWidgetTipSnapshotFromPrefs(now: now);
+    final tip = null; // 桌面 tip 已下线
     var hero = buildWidgetHero(predictions: preds, now: now);
-    var recent = buildWidgetRecentLast(predictions: preds, count: 3);
-    // native large：recent 排除当前 hero
+    var recent = buildWidgetRecentLast(predictions: preds, count: 6);
+    // native large：recent 排除当前 hero，最多 6
     if (hero != null) {
-      recent = recent.where((r) => r.eventId != hero!.eventId).take(3).toList();
+      recent = recent.where((r) => r.eventId != hero!.eventId).take(6).toList();
       hero = await enrichWidgetRow(hero, catalog);
     }
     if (recent.isNotEmpty) {
@@ -381,22 +381,26 @@ class _LargeChrome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < 3; i++)
-                Expanded(
-                  child: i < recent.length
-                      ? _RecentCell(
-                          visual: visual,
-                          row: recent[i],
-                          catalog: catalog,
-                          now: now,
-                        )
-                      : const SizedBox.shrink(),
-                ),
-            ],
-          ),
+          // 两行 × 最多三槽，对齐 native large
+          for (var rowStart = 0; rowStart < recent.length; rowStart += 3) ...[
+            if (rowStart > 0) const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < 3; i++)
+                  Expanded(
+                    child: (rowStart + i) < recent.length
+                        ? _RecentCell(
+                            visual: visual,
+                            row: recent[rowStart + i],
+                            catalog: catalog,
+                            now: now,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+              ],
+            ),
+          ],
         ],
       ],
     );

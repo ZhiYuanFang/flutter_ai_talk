@@ -14,7 +14,6 @@ import 'home_widget_constants.dart';
 import 'home_widget_sync.dart';
 import 'widget_hero_skip_store.dart';
 import 'widget_theme_visual.dart';
-import 'widget_tip_cache.dart';
 
 /// 交互 URI：pangbao-widget://skip?eventId=
 const kWidgetSkipUriScheme = 'pangbao-widget';
@@ -98,12 +97,7 @@ Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
   );
 
   final visual = await _visualFromLastPayloadOrDefault();
-  HomeWidgetTipPayload? tip;
-  final tipText = prefs.getString(kWidgetTipTextKey)?.trim() ?? '';
-  if (tipText.isNotEmpty) {
-    tip = HomeWidgetTipPayload(text: tipText, fetchedAt: now);
-  }
-
+  // tip 已下线：跳过重建不再从 prefs 回填 tip
   final payload = await buildHomeWidgetPayload(
     loggedIn: true,
     baby: baby,
@@ -111,7 +105,7 @@ Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
     catalog: catalog,
     state: 'ready',
     visual: visual,
-    tip: tip,
+    tip: null,
     now: now,
   );
   // 全被 skip 时补文案
@@ -125,7 +119,7 @@ Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
         widgetKind: payload.widgetKind,
         header: payload.header,
         visual: visual,
-        tip: tip,
+        tip: null,
         updatedAt: now,
       ),
     );

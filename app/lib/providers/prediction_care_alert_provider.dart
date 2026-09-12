@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../config/care_alert_manual_refresh_store.dart';
 import '../data/care_alert_repository.dart';
 import '../data/feature_unlock_models.dart';
 import '../data/feature_unlock_repository.dart';
 import '../data/prediction_care_alert.dart';
 import 'authorized_api_client_provider.dart';
+import 'cash_vip_provider.dart';
 import 'device_no_notifier.dart';
+import 'feature_unlock_provider.dart';
 import 'forecast_toggle_provider.dart';
 import 'session_provider.dart';
 import 'smart_prediction_provider.dart';
@@ -146,7 +149,7 @@ final careAlertEligibilityStateProvider = StateNotifierProvider<
   return n;
 });
 
-/// 日拉取状态：原始服务端列表（未做推演过滤）。
+/// 日拉取状态：原始服务端列表（未做推演过滤）+ 今日手动成功标记。
 class PredictionCareAlertState {
   const PredictionCareAlertState({
     this.items = const [],
@@ -155,6 +158,7 @@ class PredictionCareAlertState {
     this.failed = false,
     this.dayKey = '',
     this.deviceNo = '',
+    this.manualRefreshSucceededToday = false,
   });
 
   final List<CareAlertEventItem> items;
@@ -164,6 +168,9 @@ class PredictionCareAlertState {
   final String dayKey;
   final String deviceNo;
 
+  /// 当前上海日是否已手动业务成功刷新（持久化 hydrate）。
+  final bool manualRefreshSucceededToday;
+
   PredictionCareAlertState copyWith({
     List<CareAlertEventItem>? items,
     bool? loading,
@@ -171,6 +178,7 @@ class PredictionCareAlertState {
     bool? failed,
     String? dayKey,
     String? deviceNo,
+    bool? manualRefreshSucceededToday,
   }) {
     return PredictionCareAlertState(
       items: items ?? this.items,
@@ -179,18 +187,21 @@ class PredictionCareAlertState {
       failed: failed ?? this.failed,
       dayKey: dayKey ?? this.dayKey,
       deviceNo: deviceNo ?? this.deviceNo,
+      manualRefreshSucceededToday:
+          manualRefreshSucceededToday ?? this.manualRefreshSucceededToday,
     );
   }
 }
 
-/// 日缓存拉取：须先 cash 资格合格；single-flight + 同日成功幂等。
+/// 日列表仅允许 AI 分析页手动刷新；single-flight。
 class PredictionCareAlertNotifier
     extends StateNotifier<PredictionCareAlertState> {
   PredictionCareAlertNotifier(this._ref)
       : super(const PredictionCareAlertState());
 
   final Ref _ref;
-  Future<void>? _inFlight;
+  Future<bool>? _inFlight;
+  Future<void>? _hydrateInFlight;
 
   final Map<String, Future<void>> _actionInFlight = {};
 
@@ -200,53 +211,100 @@ class PredictionCareAlertNotifier
     return v;
   }
 
-  /// 显式 ensure：先资格，合格再拉日列表。
-  Future<void> ensureLoaded({bool force = false}) {
-    if (!_ref.read(sessionProvider).isLoggedIn) {
-      AppDebugLog.careAlert('ensure skipped not logged in');
-      state = const PredictionCareAlertState();
-      return Future.value();
+  /// 从 prefs 恢复「今日已手动成功」标记（进分析页时调用）。
+  Future<void> hydrateManualRefreshFlag() {
+    return _hydrateInFlight ??= _hydrateImpl().whenComplete(() {
+      _hydrateInFlight = null;
+    });
+  }
+
+  Future<void> _hydrateImpl() async {
+    final dn = _deviceNoOrNull();
+    if (dn == null) {
+      state = state.copyWith(manualRefreshSucceededToday: false);
+      return;
     }
-    return _inFlight ??= _ensureImpl(force: force).whenComplete(() {
+    final day = careAlertShanghaiDayKey();
+    final ok = await CareAlertManualRefreshStore.hasSucceeded(
+      deviceNo: dn,
+      dayKey: day,
+    );
+    // 跨日：清空过期内存列表，避免展示昨日数据却藏按钮。
+    if (state.dayKey.isNotEmpty && state.dayKey != day) {
+      state = PredictionCareAlertState(
+        manualRefreshSucceededToday: ok,
+        deviceNo: dn,
+        dayKey: day,
+      );
+      return;
+    }
+    state = state.copyWith(
+      manualRefreshSucceededToday: ok,
+      deviceNo: dn,
+      dayKey: day,
+    );
+  }
+
+  /// 兼容旧调用点：不再自动拉 daily（仅打日志）。
+  Future<void> ensureLoaded({bool force = false}) async {
+    AppDebugLog.careAlert(
+      'ensureLoaded noop auto-daily disabled force=$force',
+    );
+  }
+
+  /// AI 分析页手动刷新：业务成功返回 true（含空列表）。
+  Future<bool> refreshDailyManual() {
+    if (!_ref.read(sessionProvider).isLoggedIn) {
+      AppDebugLog.careAlert('manual refresh skipped not logged in');
+      return Future.value(false);
+    }
+    return _inFlight ??= _refreshManualImpl().whenComplete(() {
       _inFlight = null;
     });
   }
 
-  Future<void> _ensureImpl({required bool force}) async {
+  Future<bool> _refreshManualImpl() async {
     var dn = _deviceNoOrNull();
     if (dn == null) {
       await _ref.read(deviceNoNotifierProvider.notifier).refresh();
       dn = _deviceNoOrNull();
     }
     if (dn == null) {
-      AppDebugLog.careAlert('ensure skipped no deviceNo');
-      state = const PredictionCareAlertState();
-      return;
+      AppDebugLog.careAlert('manual refresh skipped no deviceNo');
+      return false;
     }
 
-    // 先确保 cash 喂养资格（替代「昨日有发生」）。
-    await _ref
-        .read(careAlertEligibilityStateProvider.notifier)
-        .ensureLoaded(force: force);
+    await _ref.read(careAlertEligibilityStateProvider.notifier).ensureLoaded();
     final elig = _ref.read(careAlertEligibilityStateProvider);
     if (!elig.isQualified) {
       AppDebugLog.careAlert(
-        'ensure skipped not qualified failed=${elig.failed} '
-        'ready=${elig.ready}',
+        'manual refresh skipped not qualified failed=${elig.failed}',
       );
-      // 清空日列表；UI 用 eligibility 展示进度卡。
-      state = const PredictionCareAlertState();
-      return;
+      return false;
+    }
+
+    await _ref.read(featureCatalogStateProvider.notifier).ensureLoaded();
+    final vip = await ensureVipSettled(_ref);
+    final isVip = vip?.isVip == true;
+    final careItem = _ref
+        .read(featureCatalogStateProvider)
+        .byId(kFeatureIdCareAlertSmartRemind);
+    final unlocked = isFeatureEffectivelyUnlocked(item: careItem, isVip: isVip);
+    if (!unlocked) {
+      AppDebugLog.careAlert('manual refresh skipped not unlocked isVip=$isVip');
+      return false;
     }
 
     final day = careAlertShanghaiDayKey();
-    if (!force &&
-        state.ready &&
-        !state.failed &&
-        state.dayKey == day &&
-        state.deviceNo == dn &&
-        !state.loading) {
-      return;
+    // 今日已成功：不再请求。
+    final already = await CareAlertManualRefreshStore.hasSucceeded(
+      deviceNo: dn,
+      dayKey: day,
+    );
+    if (already) {
+      state = state.copyWith(manualRefreshSucceededToday: true);
+      AppDebugLog.careAlert('manual refresh skipped already ok day=$day');
+      return true;
     }
 
     state = state.copyWith(
@@ -259,17 +317,19 @@ class PredictionCareAlertNotifier
       final list =
           await _ref.read(careAlertRepositoryProvider).fetchDaily(deviceNo: dn);
       if (list == null) {
-        state = PredictionCareAlertState(
+        state = state.copyWith(
           items: const [],
           loading: false,
           ready: false,
           failed: true,
-          dayKey: day,
-          deviceNo: dn,
         );
-        AppDebugLog.careAlert('ensure fail');
-        return;
+        AppDebugLog.careAlert('manual refresh fail');
+        return false;
       }
+      await CareAlertManualRefreshStore.markSucceeded(
+        deviceNo: dn,
+        dayKey: day,
+      );
       state = PredictionCareAlertState(
         items: list,
         loading: false,
@@ -277,17 +337,19 @@ class PredictionCareAlertNotifier
         failed: false,
         dayKey: day,
         deviceNo: dn,
+        manualRefreshSucceededToday: true,
       );
+      AppDebugLog.careAlert('manual refresh ok count=${list.length}');
+      return true;
     } catch (e) {
-      state = PredictionCareAlertState(
+      state = state.copyWith(
         items: const [],
         loading: false,
         ready: false,
         failed: true,
-        dayKey: day,
-        deviceNo: dn,
       );
-      AppDebugLog.careAlert('ensure err=$e');
+      AppDebugLog.careAlert('manual refresh err=$e');
+      return false;
     }
   }
 
@@ -335,6 +397,7 @@ class PredictionCareAlertNotifier
 
   void clear() {
     _inFlight = null;
+    _hydrateInFlight = null;
     _actionInFlight.clear();
     state = const PredictionCareAlertState();
   }
@@ -356,8 +419,9 @@ final predictionCareAlertStateProvider = StateNotifierProvider<
   return n;
 });
 
+/// 兼容旧 FutureProvider：不再拉 daily。
 final predictionCareAlertEnsureProvider = FutureProvider<void>((ref) async {
-  await ref.read(predictionCareAlertStateProvider.notifier).ensureLoaded();
+  AppDebugLog.careAlert('ensureProvider noop auto-daily disabled');
 });
 
 /// 是否允许尝试拉取：已登录 + deviceNo（资格由 cash eligibility 决定）。
@@ -386,29 +450,15 @@ final predictionCareAlertFetchAllowedProvider = Provider<bool>((ref) {
   );
 });
 
+/// 过滤后的留意列表（无跨日自动拉取）。
 final predictionCareAlertProvider = Provider<List<CareAlertEventItem>>((ref) {
   final now =
       ref.watch(predictionClockProvider).asData?.value ?? DateTime.now();
   final day = careAlertShanghaiDayKey(now);
   final st = ref.watch(predictionCareAlertStateProvider);
-  final elig = ref.watch(careAlertEligibilityStateProvider);
-  final loggedIn = ref.watch(sessionProvider).isLoggedIn;
-  final dn =
-      ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-  final canFetch = careAlertSessionReady(loggedIn: loggedIn, deviceNo: dn) &&
-      elig.isQualified;
-  if (canFetch && st.ready && st.dayKey.isNotEmpty && st.dayKey != day) {
-    Future.microtask(() {
-      ref.invalidate(predictionCareAlertEnsureProvider);
-      unawaited(
-        ref
-            .read(predictionCareAlertStateProvider.notifier)
-            .ensureLoaded(force: true),
-      );
-    });
-    return const [];
-  }
   if (!st.ready || st.failed || st.loading) return const [];
+  // 跨日内存数据视为过期，不展示。
+  if (st.dayKey.isNotEmpty && st.dayKey != day) return const [];
   final disabled =
       ref.watch(forecastDisabledIdsProvider).asData?.value ?? const <String>{};
   if (disabled.isEmpty) return st.items;

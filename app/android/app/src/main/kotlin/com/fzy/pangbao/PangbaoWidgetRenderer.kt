@@ -177,23 +177,9 @@ object PangbaoWidgetRenderer {
             else -> {
                 val hero = root?.optJSONObject("hero")
                 val recent = root?.optJSONArray("recentLast") ?: JSONArray()
-                val tip = root?.optJSONObject("tip")
                 var hasContent = false
-
-                if ((kind == WidgetLayoutKind.LARGE || kind == WidgetLayoutKind.MEDIUM) && tip != null) {
-                    val tipText = tip.optString("text", "").trim()
-                    if (tipText.isNotEmpty()) {
-                        views.setViewVisibility(R.id.widget_tip_section, View.VISIBLE)
-                        views.setTextViewText(
-                            R.id.widget_tip_title,
-                            "🔊 ${context.getString(R.string.widget_section_tip)}",
-                        )
-                        views.setTextColor(R.id.widget_tip_title, textSecondary)
-                        views.setTextViewText(R.id.widget_tip_text, tipText)
-                        views.setTextColor(R.id.widget_tip_text, textPrimary)
-                        hasContent = true
-                    }
-                }
+                // tip 已下线：始终隐藏
+                setOptionalVisibility(views, R.id.widget_tip_section, View.GONE)
 
                 if (hero != null && kind != WidgetLayoutKind.MEDIUM) {
                     bindHero(context, views, hero, scale, textPrimary, textSecondary)
@@ -207,41 +193,42 @@ object PangbaoWidgetRenderer {
                     setOptionalVisibility(views, R.id.widget_hero_skip, View.GONE)
                 }
 
-if (kind != WidgetLayoutKind.SMALL) {
-    val filteredRecent = if (kind == WidgetLayoutKind.LARGE && hero != null) {
-        val heroEventId = hero.optString("eventId")
-        (0 until recent.length())
-            .mapNotNull { recent.optJSONObject(it) }
-            .filter { it.optString("eventId") != heroEventId }
-    } else {
-        (0 until recent.length())
-            .mapNotNull { recent.optJSONObject(it) }
-    }
-    val slots = minOf(filteredRecent.size, 3)
-    if (slots > 0) {
-        views.setViewVisibility(R.id.widget_recent_section, View.VISIBLE)
-        if (kind == WidgetLayoutKind.LARGE) {
-            views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
-        }
-        for (i in 0 until 3) {
-            if (i < slots) {
-                bindRecentItem(
-                    context,
-                    views,
-                    i,
-                    filteredRecent[i],
-                    scale,
-                    kind,
-                    textPrimary,
-                    textSecondary,
-                )
-            } else {
-                hideRecentSlot(views, i)
-            }
-        }
-        hasContent = true
-    }
-}
+                if (kind != WidgetLayoutKind.SMALL) {
+                    val filteredRecent = if (kind == WidgetLayoutKind.LARGE && hero != null) {
+                        val heroEventId = hero.optString("eventId")
+                        (0 until recent.length())
+                            .mapNotNull { recent.optJSONObject(it) }
+                            .filter { it.optString("eventId") != heroEventId }
+                    } else {
+                        (0 until recent.length())
+                            .mapNotNull { recent.optJSONObject(it) }
+                    }
+                    val maxSlots = if (kind == WidgetLayoutKind.LARGE) 6 else 3
+                    val slots = minOf(filteredRecent.size, maxSlots)
+                    if (slots > 0) {
+                        views.setViewVisibility(R.id.widget_recent_section, View.VISIBLE)
+                        if (kind == WidgetLayoutKind.LARGE) {
+                            views.setViewVisibility(R.id.widget_events_block, View.VISIBLE)
+                        }
+                        for (i in 0 until maxSlots) {
+                            if (i < slots) {
+                                bindRecentItem(
+                                    context,
+                                    views,
+                                    i,
+                                    filteredRecent[i],
+                                    scale,
+                                    kind,
+                                    textPrimary,
+                                    textSecondary,
+                                )
+                            } else {
+                                hideRecentSlot(views, i)
+                            }
+                        }
+                        hasContent = true
+                    }
+                }
                 if (!hasContent) {
                     views.setViewVisibility(R.id.widget_message, View.VISIBLE)
                     views.setTextViewText(R.id.widget_message, message.ifBlank { "打开胖宝记录" })
@@ -262,7 +249,7 @@ if (kind != WidgetLayoutKind.SMALL) {
         setOptionalVisibility(views, R.id.widget_hero_section, View.GONE)
         setOptionalVisibility(views, R.id.widget_hero_skip, View.GONE)
         setOptionalVisibility(views, R.id.widget_recent_section, View.GONE)
-        for (i in 0..2) {
+        for (i in 0..5) {
             recentContainerId(i)?.let { views.setViewVisibility(it, View.GONE) }
         }
     }
@@ -516,6 +503,9 @@ if (kind != WidgetLayoutKind.SMALL) {
         0 -> R.id.widget_recent_0
         1 -> R.id.widget_recent_1
         2 -> R.id.widget_recent_2
+        3 -> R.id.widget_recent_3
+        4 -> R.id.widget_recent_4
+        5 -> R.id.widget_recent_5
         else -> null
     }
 
@@ -523,6 +513,9 @@ if (kind != WidgetLayoutKind.SMALL) {
         0 -> R.id.widget_recent_0_logo
         1 -> R.id.widget_recent_1_logo
         2 -> R.id.widget_recent_2_logo
+        3 -> R.id.widget_recent_3_logo
+        4 -> R.id.widget_recent_4_logo
+        5 -> R.id.widget_recent_5_logo
         else -> null
     }
 
@@ -530,6 +523,9 @@ if (kind != WidgetLayoutKind.SMALL) {
         0 -> R.id.widget_recent_0_name
         1 -> R.id.widget_recent_1_name
         2 -> R.id.widget_recent_2_name
+        3 -> R.id.widget_recent_3_name
+        4 -> R.id.widget_recent_4_name
+        5 -> R.id.widget_recent_5_name
         else -> null
     }
 
@@ -537,6 +533,9 @@ if (kind != WidgetLayoutKind.SMALL) {
         0 -> R.id.widget_recent_0_time
         1 -> R.id.widget_recent_1_time
         2 -> R.id.widget_recent_2_time
+        3 -> R.id.widget_recent_3_time
+        4 -> R.id.widget_recent_4_time
+        5 -> R.id.widget_recent_5_time
         else -> null
     }
 

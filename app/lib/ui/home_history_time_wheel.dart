@@ -317,6 +317,259 @@ class HomeHistoryDateField extends StatelessWidget {
   }
 }
 
+/// 记录 Sheet：事件色向黑加深（标题 / 时刻主色）。
+Color eventRecordAccentDeep(Color accent, {double towardBlack = 0.32}) =>
+    Color.lerp(accent, const Color(0xFF000000), towardBlack)!;
+
+/// 记录 Sheet：日文案 / 分隔符次要色（同色系更淡）。
+Color eventRecordAccentMuted(Color accent) =>
+    eventRecordAccentDeep(accent, towardBlack: 0.18).withValues(alpha: 0.78);
+
+/// 居中分段时间行：`今天·16:24`，或计时 `起 ~ 止` / `起 ~ 进行中`。
+///
+/// 日文案走 [formatHistoryDaySectionLabel]；日小字、时大字；分别点击打开既有滚轮。
+/// [accent] 非空时日/时随事件色（时刻加深）；空则回退玻璃浅字。
+class HomeHistoryCenteredTimeLine extends StatelessWidget {
+  const HomeHistoryCenteredTimeLine({
+    super.key,
+    required this.minimumDate,
+    required this.maximumDate,
+    required this.start,
+    required this.onStartChanged,
+    this.end,
+    this.onEndChanged,
+    this.showEndRange = false,
+    this.enabled = true,
+    this.accent,
+  });
+
+  final DateTime minimumDate;
+  final DateTime maximumDate;
+  /// 开始 / 单点发生时刻。
+  final DateTime start;
+  final ValueChanged<DateTime> onStartChanged;
+  /// 计时结束；null 且 [showEndRange] 时展示「进行中」。
+  final DateTime? end;
+  final ValueChanged<DateTime>? onEndChanged;
+  /// true：展示 `起 ~ 止|进行中`；false：仅单点。
+  final bool showEndRange;
+  final bool enabled;
+  /// 事件品牌色；驱动日/时刻着色。
+  final Color? accent;
+
+  static String _hm(DateTime t) => HomeHistoryTimeField.formatHm(t);
+
+  Color _dayColor(BuildContext context) {
+    final a = accent;
+    if (a != null) return eventRecordAccentMuted(a);
+    return historyEditGlassLabelColor(context);
+  }
+
+  Color _timeColor(BuildContext context) {
+    final a = accent;
+    if (a != null) return eventRecordAccentDeep(a);
+    return historyEditGlassTextColor(context);
+  }
+
+  Future<void> _pickDay(
+    BuildContext context, {
+    required DateTime current,
+    required ValueChanged<DateTime> onPicked,
+  }) async {
+    if (!enabled) return;
+    final picked = await showHomeHistoryDatePickerSheet(
+      context,
+      minimumDate: minimumDate,
+      maximumDate: maximumDate,
+      initialValue: current,
+    );
+    if (picked == null) return;
+    onPicked(
+      DateTime(picked.year, picked.month, picked.day, current.hour, current.minute),
+    );
+  }
+
+  Future<void> _pickTime(
+    BuildContext context, {
+    required DateTime current,
+    required ValueChanged<DateTime> onPicked,
+  }) async {
+    if (!enabled) return;
+    final picked = await showHomeHistoryTimePickerSheet(
+      context,
+      anchorDate: homeHistoryDateOnly(current),
+      initialValue: current,
+    );
+    if (picked == null) return;
+    onPicked(picked);
+  }
+
+  /// 点「进行中」：默认今日·当下，打开时分滚轮写入结束。
+  Future<void> _pickEndFromInProgress(BuildContext context) async {
+    if (!enabled || onEndChanged == null) return;
+    final now = DateTime.now();
+    final initial = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    final picked = await showHomeHistoryTimePickerSheet(
+      context,
+      anchorDate: homeHistoryDateOnly(initial),
+      initialValue: initial,
+    );
+    if (picked == null) return;
+    onEndChanged!(picked);
+  }
+
+  Widget _dayChip(BuildContext context, DateTime instant, VoidCallback onTap) {
+    final c = _dayColor(context);
+    final now = DateTime.now();
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      behavior: HitTestBehavior.opaque,
+      child: Text(
+        formatHistoryDaySectionLabel(instant, now),
+        style: TextStyle(
+          fontSize: 13,
+          height: 1.2,
+          fontWeight: FontWeight.w500,
+          color: enabled ? c : c.withValues(alpha: 0.45),
+        ),
+      ),
+    );
+  }
+
+  Widget _timeChip(BuildContext context, DateTime instant, VoidCallback onTap) {
+    final c = _timeColor(context);
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      behavior: HitTestBehavior.opaque,
+      child: Text(
+        _hm(instant),
+        style: TextStyle(
+          fontSize: 22,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          color: enabled ? c : c.withValues(alpha: 0.45),
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    );
+  }
+
+  Widget _dot(BuildContext context) {
+    final c = _dayColor(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Text(
+        '·',
+        style: TextStyle(
+          fontSize: 18,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          color: c,
+        ),
+      ),
+    );
+  }
+
+  Widget _instantCluster(
+    BuildContext context, {
+    required DateTime instant,
+    required ValueChanged<DateTime> onChanged,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        _dayChip(
+          context,
+          instant,
+          () => _pickDay(context, current: instant, onPicked: onChanged),
+        ),
+        _dot(context),
+        _timeChip(
+          context,
+          instant,
+          () => _pickTime(context, current: instant, onPicked: onChanged),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sepColor = _dayColor(context);
+    final timeColor = _timeColor(context);
+
+    final startCluster = _instantCluster(
+      context,
+      instant: start,
+      onChanged: onStartChanged,
+    );
+
+    if (!showEndRange) {
+      return IgnorePointer(
+        ignoring: !enabled,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Center(child: startCluster),
+        ),
+      );
+    }
+
+    final endVal = end;
+    final Widget endCluster;
+    if (endVal == null) {
+      endCluster = GestureDetector(
+        onTap: enabled ? () => _pickEndFromInProgress(context) : null,
+        behavior: HitTestBehavior.opaque,
+        child: Text(
+          '进行中',
+          style: TextStyle(
+            fontSize: 22,
+            height: 1.2,
+            fontWeight: FontWeight.w600,
+            color: enabled ? timeColor : timeColor.withValues(alpha: 0.45),
+          ),
+        ),
+      );
+    } else {
+      endCluster = _instantCluster(
+        context,
+        instant: endVal,
+        onChanged: (v) => onEndChanged?.call(v),
+      );
+    }
+
+    return IgnorePointer(
+      ignoring: !enabled,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.45,
+        child: Center(
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.center,
+            children: [
+              startCluster,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  '~',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: sepColor,
+                  ),
+                ),
+              ),
+              endCluster,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 历史编辑：同一标签下并排日期与时间。
 class HomeHistoryDateTimeRow extends StatelessWidget {
   const HomeHistoryDateTimeRow({

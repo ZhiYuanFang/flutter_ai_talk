@@ -19,19 +19,20 @@ final predictionClockProvider = StreamProvider<DateTime>((ref) {
       .map((_) => DateTime.now());
 });
 
-/// 智能预测页行列表：7 日 range ∪ 回忆种子；尊重推演关闭集合。
+/// 智能预测页行列表：home∪range 真历史 + 间隔旁路种子；尊重推演关闭集合。
 final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
   ref.watch(predictionRangeEnsureProvider);
-  final history = ref.watch(predictionHistoryWithRecallSeedsProvider);
+  final history = ref.watch(predictionRealHistoryProvider);
   final rangeItems = ref.watch(predictionRangeHistoryProvider).items;
   final homeItems = ref.watch(homeHistoryProvider).items;
   final catalog = ref.watch(eventCatalogProvider).items;
   final babyAsync = ref.watch(settingsBabyProvider);
   final disabled =
       ref.watch(forecastDisabledIdsProvider).asData?.value ?? const <String>{};
+  final recallIntervals = ref.watch(predictionRecallIntervalsProvider);
   final now = DateTime.now();
   final birth = babyAsync.asData?.value.birthDate ?? DateTime(now.year, 1, 1);
-  // active 仅来自真历史（不含种子伪记录）
+  // active 仅来自真历史
   final activeKeys = <String>{
     ...collectActiveTimingRows(rangeItems, catalog: catalog)
         .map((e) => e.eventId),
@@ -45,6 +46,7 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
     birthDate: birth,
     disabledForecastIds: disabled,
     activeEventKeys: activeKeys,
+    recallIntervalsByRoot: recallIntervals,
   );
 });
 

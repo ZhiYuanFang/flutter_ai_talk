@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'baby_age.dart';
 import 'event_branding.dart';
+import 'event_catalog_tree.dart';
 import 'event_definition.dart';
 import 'history_line_format.dart';
 import 'models.dart';
@@ -117,6 +118,7 @@ List<({Duration interval, double weight})> _collectWeightedIntervals({
   return out;
 }
 
+// 预测核心算法逻辑
 EventNextPrediction? predictNextForEventKey({
   required String eventKey,
   required String eventName,
@@ -125,45 +127,59 @@ EventNextPrediction? predictNextForEventKey({
   required int halfLifeDays,
   String colorHex = '#5BA3E8',
   bool includeActive = false,
+  /// 真样本未达加权中位门槛时的间隔旁路（回忆种子）；不得单独提供 lastAt。
+  Duration? recallIntervalFallback,
 }) {
   final times = <DateTime>[];
   for (final r in records) {
     final t = occurrenceInstant(r, includeActive: includeActive);
     if (t != null) times.add(t);
   }
-  if (times.length < 2) return null;
+  // 无真发生时刻 → 不预测（不得用种子 lastAt 顶替）
+  if (times.isEmpty) return null;
   times.sort();
   final lastAt = times.last;
   final anchorBucket = timeOfDayBucket(lastAt);
 
-  var samples = _collectWeightedIntervals(
-    times: times,
-    anchorBucket: anchorBucket,
-    halfLifeDays: halfLifeDays,
-    now: now,
-    strictBuckets: true,
-  );
-  if (samples.length < kMinSamplesForPrediction) {
-    samples = _collectWeightedIntervals(
+  Duration? median;
+  var confidence = 0.3;
+  if (times.length >= 2) {
+    var samples = _collectWeightedIntervals(
       times: times,
       anchorBucket: anchorBucket,
       halfLifeDays: halfLifeDays,
       now: now,
-      strictBuckets: false,
+      strictBuckets: true,
     );
+    if (samples.length < kMinSamplesForPrediction) {
+      samples = _collectWeightedIntervals(
+        times: times,
+        anchorBucket: anchorBucket,
+        halfLifeDays: halfLifeDays,
+        now: now,
+        strictBuckets: false,
+      );
+    }
+    if (samples.length >= kMinSamplesForPrediction) {
+      median = weightedMedianInterval(samples);
+      if (median != null) {
+        confidence = math.min(1.0, samples.length / 7.0);
+      }
+    }
   }
-  if (samples.length < kMinSamplesForPrediction) return null;
 
-  final median = weightedMedianInterval(samples);
-  if (median == null) return null;
+  final fallback = recallIntervalFallback;
+  final interval = median ??
+      (fallback != null && fallback >= kMinIntervalForPrediction
+          ? fallback
+          : null);
+  if (interval == null) return null;
 
-  final nextAt = lastAt.add(median);
-  final confidence = math.min(1.0, samples.length / 7.0);
   return EventNextPrediction(
     eventId: eventKey,
     eventName: eventName,
     lastAt: lastAt,
-    nextAt: nextAt,
+    nextAt: lastAt.add(interval),
     colorHex: colorHex,
     confidence: confidence,
   );
@@ -184,6 +200,8 @@ List<EventNextPrediction> predictAllUpcoming({
   required DateTime now,
   required DateTime birthDate,
   Set<String> activeEventKeys = const {},
+  /// rootId → 回忆间隔旁路（仅真样本不足时使用）。
+  Map<String, Duration> recallIntervalsByRoot = const {},
 }) {
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
   // Build a quick lookup for catalog by id
@@ -204,6 +222,15 @@ List<EventNextPrediction> predictAllUpcoming({
       if (p == null || p.isEmpty) return cur;
       cur = p;
     }
+  }
+
+  Duration? recallForRoot(String rootKey) {
+    final direct = recallIntervalsByRoot[rootKey];
+    if (direct != null) return direct;
+    for (final e in recallIntervalsByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootKey)) return e.value;
+    }
+    return null;
   }
 
   final byKey = <String, List<HistoryRecord>>{};
@@ -240,6 +267,7 @@ List<EventNextPrediction> predictAllUpcoming({
       halfLifeDays: halfLife,
       colorHex: colorHexFromEvent(def),
       includeActive: true,
+      recallIntervalFallback: recallForRoot(entry.key),
     );
     if (p != null) out.add(p);
   }

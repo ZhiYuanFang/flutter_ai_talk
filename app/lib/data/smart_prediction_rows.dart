@@ -1,4 +1,5 @@
 import 'event_branding.dart';
+import 'event_catalog_tree.dart';
 import 'event_definition.dart';
 import 'event_next_predictor.dart';
 import 'models.dart';
@@ -37,6 +38,72 @@ DateTime? latestOccurrenceAtForRecords(List<HistoryRecord> records) {
     if (latest == null || t.isAfter(latest)) latest = t;
   }
   return latest;
+}
+
+/// 是否为回忆种子伪记录（不得进喂养编辑 Sheet）。
+bool isPredictionRecallSeedRecord(HistoryRecord record) {
+  if (record.id.startsWith('recall_seed_')) return true;
+  return record.rawPayload['_predictionRecallSeed'] == true;
+}
+
+/// 真历史中某 root 最近一条记录（按 [occurrenceInstant]，含进行中）。
+HistoryRecord? latestRealHistoryRecordForRoot({
+  required String rootEventId,
+  required List<HistoryRecord> realHistory,
+  required List<EventDefinition> catalog,
+}) {
+  final root = rootEventId.trim();
+  if (root.isEmpty) return null;
+  final byKey = groupHistoryByRootEvent(history: realHistory, catalog: catalog);
+  List<HistoryRecord> bucket = const [];
+  final direct = byKey[root];
+  if (direct != null) {
+    bucket = direct;
+  } else {
+    for (final e in byKey.entries) {
+      if (catalogIdsEqual(e.key, root)) {
+        bucket = e.value;
+        break;
+      }
+    }
+  }
+  HistoryRecord? best;
+  DateTime? bestAt;
+  for (final r in bucket) {
+    if (isPredictionRecallSeedRecord(r)) continue;
+    final t = occurrenceInstant(r, includeActive: true);
+    if (t == null) continue;
+    if (bestAt == null || t.isAfter(bestAt)) {
+      bestAt = t;
+      best = r;
+    }
+  }
+  return best;
+}
+
+/// 合并多源真历史后取 root 最新记录（后写覆盖同 id）。
+HistoryRecord? latestRealHistoryRecordForRootFromSources({
+  required String rootEventId,
+  required List<EventDefinition> catalog,
+  required List<HistoryRecord> homeItems,
+  required List<HistoryRecord> rangeItems,
+}) {
+  final byId = <String, HistoryRecord>{};
+  final noId = <HistoryRecord>[];
+  for (final r in [...rangeItems, ...homeItems]) {
+    if (isPredictionRecallSeedRecord(r)) continue;
+    final id = r.id.trim();
+    if (id.isEmpty) {
+      noId.add(r);
+    } else {
+      byId[id] = r;
+    }
+  }
+  return latestRealHistoryRecordForRoot(
+    rootEventId: rootEventId,
+    realHistory: [...byId.values, ...noId],
+    catalog: catalog,
+  );
 }
 
 /// 按根 eventId 聚合历史（与 [predictAllUpcoming] 分组一致）。
@@ -143,7 +210,27 @@ List<DateTime> dailyPointsNearAnchorTod({
   return out;
 }
 
-/// 构建预测页行：含推演关闭的事件；排序优先可预测的 nextAt。
+/// 合并 home∪range 真历史（同 id 后写覆盖；排除回忆种子伪记录）。
+List<HistoryRecord> mergeRealHistoryById({
+  required List<HistoryRecord> rangeItems,
+  required List<HistoryRecord> homeItems,
+}) {
+  final byId = <String, HistoryRecord>{};
+  final noId = <HistoryRecord>[];
+  for (final r in [...rangeItems, ...homeItems]) {
+    if (isPredictionRecallSeedRecord(r)) continue;
+    final id = r.id.trim();
+    if (id.isEmpty) {
+      noId.add(r);
+    } else {
+      byId[id] = r;
+    }
+  }
+  return [...byId.values, ...noId];
+}
+
+/// 构建预测页行：目录非子根全集（含无历史 / 关推演）；排序优先可预测的 nextAt。
+/// [history] 必须为真喂养（不得含回忆种子伪记录）；[recallIntervalsByRoot] 仅作间隔旁路。
 List<SmartPredictionRow> buildSmartPredictionRows({
   required List<HistoryRecord> history,
   required List<EventDefinition> catalog,
@@ -151,9 +238,12 @@ List<SmartPredictionRow> buildSmartPredictionRows({
   required DateTime birthDate,
   required Set<String> disabledForecastIds,
   Set<String> activeEventKeys = const {},
+  Map<String, Duration> recallIntervalsByRoot = const {},
 }) {
   final byKey = groupHistoryByRootEvent(history: history, catalog: catalog);
-  if (byKey.isEmpty) return const [];
+  final roots = rootEvents(catalog);
+  // 无根目录时无法出卡（加载中由 UI 处理）；不再因无历史直接空列表。
+  if (roots.isEmpty) return const [];
 
   final enabledHistory = <HistoryRecord>[
     for (final e in byKey.entries)
@@ -168,12 +258,68 @@ List<SmartPredictionRow> buildSmartPredictionRows({
       for (final k in activeEventKeys)
         if (!disabledForecastIds.contains(k)) k,
     },
+    recallIntervalsByRoot: {
+      for (final e in recallIntervalsByRoot.entries)
+        if (!disabledForecastIds.contains(e.key) &&
+            e.value >= kMinIntervalForPrediction)
+          e.key: e.value,
+    },
   );
   final predById = {for (final p in predictions) p.eventId: p};
 
+  List<HistoryRecord> recordsForRoot(String rootId) {
+    final direct = byKey[rootId];
+    if (direct != null) return direct;
+    for (final e in byKey.entries) {
+      if (catalogIdsEqual(e.key, rootId)) return e.value;
+    }
+    return const [];
+  }
+
   final rows = <SmartPredictionRow>[];
+  final coveredKeys = <String>{};
+  for (final root in roots) {
+    final key = root.id.trim();
+    if (key.isEmpty) continue;
+    final records = recordsForRoot(key);
+    for (final e in byKey.entries) {
+      if (catalogIdsEqual(e.key, key)) coveredKeys.add(e.key);
+    }
+    coveredKeys.add(key);
+    final name = root.name.trim().isNotEmpty
+        ? root.name.trim()
+        : (records.isNotEmpty && records.last.eventName.trim().isNotEmpty
+            ? records.last.eventName.trim()
+            : '未命名事件');
+    final enabled = !disabledForecastIds.contains(key);
+    final lastAt = latestOccurrenceAtForRecords(records);
+    final pred = enabled ? predById[key] : null;
+    List<DateTime> points = const [];
+    if (enabled && pred != null && records.isNotEmpty) {
+      points = dailyPointsNearAnchorTod(
+        records: records,
+        now: now,
+        anchorTod: pred.nextAt,
+      );
+    }
+    rows.add(
+      SmartPredictionRow(
+        eventId: key,
+        eventName: name,
+        colorHex: colorHexFromEvent(root),
+        forecastEnabled: enabled,
+        prediction: pred,
+        chartPoints: points,
+        lastAt: lastAt,
+      ),
+    );
+  }
+
+  // 历史里出现、但无法映射到当前目录根的孤立键：仍保留一行以免丢数据。
   for (final entry in byKey.entries) {
     final key = entry.key;
+    if (key.isEmpty || coveredKeys.contains(key)) continue;
+    if (coveredKeys.any((c) => catalogIdsEqual(c, key))) continue;
     final def = lookupEventById(catalog, key);
     final name = def?.name.trim().isNotEmpty == true
         ? def!.name.trim()
