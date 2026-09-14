@@ -1,8 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../../api/ai_quota_codes.dart';
 import '../../config/env.dart';
@@ -432,11 +430,8 @@ class UcgRepository {
     required bool isVideo,
     required String fileName,
   }) async {
-    final data = await _api.post(
-      '/media/presign',
-      UcgPresignRequest.fromFileName(fileName, isVideo: isVideo).toJson(),
-    );
-    return UcgPresignResult.fromJson(data ?? {});
+    // 服务端已停用预签名直传；保留方法仅便于旧调用显式失败。
+    throw StateError('预签名直传已停用，请使用 uploadMediaViaGateway / uploadMediaBytes');
   }
 
   Future<UcgResolveResult> resolveMedia({
@@ -519,7 +514,8 @@ class UcgRepository {
     return (polishedText: polished.trim(), quotaDegraded: quotaDegraded);
   }
 
-  /// Web 经 gateway 同域代理上传，规避 OSS 直传 CORS 预检 403（不写 ownership）。
+  /// 全平台经 gateway 同域代理上传（服务端 PutObject）；不写 ownership。
+  /// 视频响应可能含 contentHash / transformVersion（v1 直传或 v2 转码），register 须配对使用。
   Future<UcgUploadResult> uploadMediaViaGateway({
     required bool isVideo,
     required String fileName,
@@ -543,9 +539,12 @@ class UcgRepository {
     return UcgUploadResult(
       objectKey: objectKey,
       cdnUrl: data?['cdnUrl'] as String?,
+      contentHash: data?['contentHash'] as String?,
+      transformVersion: data?['transformVersion'] as String?,
     );
   }
 
+  /// resolve 去重未命中时一律服务端 multipart 上传（Web / iOS / Android 同路径）。
   Future<UcgUploadResult> uploadMediaBytes({
     required bool isVideo,
     required String fileName,
@@ -574,53 +573,29 @@ class UcgRepository {
       );
     }
 
-    if (kIsWeb) {
-      final uploaded = await uploadMediaViaGateway(
-        isVideo: isVideo,
-        fileName: fileName,
-        bytes: bytes,
-      );
-      return registerMedia(
-        objectKey: uploaded.objectKey,
-        contentHash: contentHash,
-        transformVersion: transformVersion,
-        isVideo: isVideo,
-        dedupHit: false,
-      );
-    }
-
-    final presign = await presignMedia(isVideo: isVideo, fileName: fileName);
-    await uploadToPresignedUrl(
-      uploadUrl: presign.uploadUrl,
+    final uploaded = await uploadMediaViaGateway(
+      isVideo: isVideo,
+      fileName: fileName,
       bytes: bytes,
-      contentType: presign.headers['Content-Type'] ?? contentType,
-      extraHeaders: presign.headers,
     );
+    // 视频：优先使用服务端返回的 hash/version（转码后与客户端原始字节不同）。
+    final regHash = (isVideo &&
+            uploaded.contentHash != null &&
+            uploaded.contentHash!.isNotEmpty)
+        ? uploaded.contentHash!
+        : contentHash;
+    final regVersion = (isVideo &&
+            uploaded.transformVersion != null &&
+            uploaded.transformVersion!.isNotEmpty)
+        ? uploaded.transformVersion!
+        : transformVersion;
     return registerMedia(
-      objectKey: presign.objectKey,
-      contentHash: contentHash,
-      transformVersion: transformVersion,
+      objectKey: uploaded.objectKey,
+      contentHash: regHash,
+      transformVersion: regVersion,
       isVideo: isVideo,
       dedupHit: false,
     );
-  }
-
-  Future<void> uploadToPresignedUrl({
-    required String uploadUrl,
-    required List<int> bytes,
-    required String contentType,
-    Map<String, String> extraHeaders = const {},
-  }) async {
-    final headers = <String, String>{...extraHeaders};
-    headers.putIfAbsent('Content-Type', () => contentType);
-    final res = await http.put(
-      Uri.parse(uploadUrl),
-      headers: headers,
-      body: bytes,
-    );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw StateError('上传失败(${res.statusCode})');
-    }
   }
 
   Future<void> votePost(String postId, {required String side}) async {

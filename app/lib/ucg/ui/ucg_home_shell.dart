@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/client_usage_provider.dart';
+import '../../data/client_usage_events.dart';
 import '../../api/app_debug_log.dart';
 import '../../bootstrap/gateway_bootstrap_gate.dart';
 import '../../bootstrap/history_ws_home_bridge.dart';
@@ -78,6 +80,12 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       ref.read(homePagerIndexProvider.notifier).state = _pageIndex;
       if (_pageIndex == HomePagerPage.prediction) {
         _onEnterPredictionPage();
+        // 冷启落在预测：onPageChanged 不触发，补报展示。
+        unawaited(
+          ref
+              .read(clientUsageReporterProvider)
+              .reportEvent(ClientUsageEvents.predictionShow),
+        );
       }
       unawaited(_activateHistoryWsSessionIfNeeded());
     });
@@ -267,6 +275,19 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     }
     setState(() => _pageIndex = index);
     ref.read(homePagerIndexProvider.notifier).state = index;
+    unawaited(_reportHomePagerShow(index));
+  }
+
+  /// 主壳 PageView 页展示上报。
+  Future<void> _reportHomePagerShow(int index) async {
+    final reporter = ref.read(clientUsageReporterProvider);
+    if (index == HomePagerPage.feeding) {
+      await reporter.reportEvent(ClientUsageEvents.feedingShow);
+    } else if (index == HomePagerPage.prediction) {
+      await reporter.reportEvent(ClientUsageEvents.predictionShow);
+    } else if (kUcgHomePagerEnabled && index == HomePagerPage.ucg) {
+      await reporter.reportEvent(ClientUsageEvents.ucgShellShow);
+    }
   }
 
   Future<void> _goToPage(int page) async {

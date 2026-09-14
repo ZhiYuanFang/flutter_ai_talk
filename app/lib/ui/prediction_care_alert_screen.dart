@@ -1,20 +1,19 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:markdown_widget/markdown_widget.dart';
 
+import '../data/client_usage_events.dart';
 import '../data/prediction_care_alert.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../providers/care_alert_follow_up_provider.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/clinic_ws_provider.dart';
 import '../providers/prediction_care_alert_provider.dart';
 import '../theme/app_visual_tokens.dart';
-import '../ucg/data/ucg_feature_flags.dart';
-import 'widgets/app_toast.dart';
-import 'package:markdown_widget/markdown_widget.dart';
 
 /// 护理留意详情：展示该事件全部原因 + 忽略 / 追问（非医疗诊断）。
 class PredictionCareAlertScreen extends ConsumerWidget {
@@ -28,8 +27,6 @@ class PredictionCareAlertScreen extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final shell = tokens?.shellColor ?? scheme.surface;
     final onShell = tokens?.onShell ?? scheme.onSurface;
-    // VIP 购买暂停（kVipPurchaseEnabled=false）：不开通 CTA
-    final showVipCta = kVipPurchaseEnabled;
 
     Future<void> onIgnore() async {
       // 乐观移除 + pop；同步刷新桌面 tip（忽略后列表可能变空）
@@ -58,7 +55,9 @@ class PredictionCareAlertScreen extends ConsumerWidget {
       await context.push('/companion');
     }
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.careAlertShow,
+      child: Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
         backgroundColor: shell,
@@ -69,25 +68,6 @@ class PredictionCareAlertScreen extends ConsumerWidget {
           onPressed: () => context.pop(),
         ),
       ),
-      // 暂停期 showVipCta 恒 false；翻回 kVipPurchaseEnabled 后需再接 VIP 状态分流
-      bottomNavigationBar: showVipCta
-          ? SafeArea(
-              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    if (kIsWeb) {
-                      showAppToast('请使用手机 App 开通 VIP');
-                      return;
-                    }
-                    unawaited(context.push<bool>('/vip/purchase'));
-                  },
-                  child: const Text('开通 VIP'),
-                ),
-              ),
-            )
-          : null,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
@@ -172,6 +152,7 @@ class PredictionCareAlertScreen extends ConsumerWidget {
           ),
         ],
       ),
+    ),
     );
   }
 

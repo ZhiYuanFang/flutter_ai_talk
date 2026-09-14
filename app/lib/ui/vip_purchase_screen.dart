@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/cash_vip_models.dart';
+import '../data/client_usage_events.dart';
 import '../providers/cash_vip_provider.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../theme/app_visual_tokens.dart';
 import 'widgets/app_toast.dart';
@@ -103,7 +105,9 @@ class _VipPurchaseScreenState extends ConsumerState<VipPurchaseScreen>
     final onShell = tokens?.onShell ?? scheme.onSurface;
     final productAsync = ref.watch(vipProductProvider);
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.vipPurchaseShow,
+      child: Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
         backgroundColor: shell,
@@ -129,6 +133,7 @@ class _VipPurchaseScreenState extends ConsumerState<VipPurchaseScreen>
               .toList(),
         ),
       ),
+    ),
     );
   }
 }

@@ -9,7 +9,9 @@ import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 import '../api/api_exceptions.dart';
 import '../api/gateway_json.dart';
 import '../data/models.dart';
+import '../data/client_usage_events.dart';
 import '../providers/authorized_api_client_provider.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/prediction_range_history_provider.dart';
@@ -234,7 +236,9 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     final bgEnd =
         Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.bindBabyShow,
+      child: Scaffold(
       resizeToAvoidBottomInset: false,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -282,6 +286,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 

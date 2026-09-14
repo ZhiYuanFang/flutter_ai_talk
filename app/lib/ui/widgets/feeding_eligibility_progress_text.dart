@@ -22,6 +22,7 @@ class FeedingEligibilityProgressText extends StatelessWidget {
     this.textAlign = TextAlign.center,
     this.baseStyle,
     this.numberScale = 1.75,
+    this.accent,
   });
 
   final UcgEligibility eligibility;
@@ -32,32 +33,42 @@ class FeedingEligibilityProgressText extends StatelessWidget {
   /// 相对正文的数字字号倍率。
   final double numberScale;
 
+  /// 强调色；空则回退 [ColorScheme.primary]。
+  final Color? accent;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final base = baseStyle ??
-        theme.textTheme.bodyMedium?.copyWith(height: 1.35) ??
-        const TextStyle(fontSize: 14, height: 1.35);
+    final emphasis = accent ?? theme.colorScheme.primary;
+    final base = (baseStyle ??
+            theme.textTheme.bodyMedium?.copyWith(height: 1.35) ??
+            const TextStyle(fontSize: 14, height: 1.35))
+        .copyWith(
+      // Hub 传入 accent 时正文也跟功能色；缺省保持原 onSurface。
+      color: accent != null
+          ? accent!.withValues(alpha: 0.9)
+          : (baseStyle?.color ?? theme.colorScheme.onSurface),
+    );
     final baseSize = base.fontSize ?? 14;
-    // 放大天数数字：更大字号 + 加粗 + 主题色，一眼可读。
+    // 放大天数数字：更大字号 + 加粗 + 强调色，一眼可读。
     final numberStyle = base.copyWith(
       fontSize: baseSize * numberScale,
       fontWeight: FontWeight.w800,
-      color: theme.colorScheme.primary,
+      color: emphasis,
       height: 1.05,
     );
     // 小字号：已累计数字。
-     final numberSmallStyle = base.copyWith(
+    final numberSmallStyle = base.copyWith(
       fontSize: baseSize * 1,
       fontWeight: FontWeight.w400,
-      color: theme.colorScheme.primary,
+      color: emphasis,
       height: 1.05,
     );
-    // 小字号正常文案
+    // 小字号正常文案（次要说明跟强调色降透明）。
     final normalTxtSmallStyle = base.copyWith(
       fontSize: baseSize * 0.8,
       fontWeight: FontWeight.w400,
-      color: theme.colorScheme.onSurface,
+      color: emphasis.withValues(alpha: 0.75),
       height: 1.05,
     );
     // 负值钳为 0，避免异常字段破版。

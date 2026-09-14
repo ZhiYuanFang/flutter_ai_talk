@@ -22,6 +22,8 @@ import '../data/prediction_care_alert.dart';
 import '../ui/pangbao_ai_screen.dart';
 import '../ui/prediction_care_alert_screen.dart';
 import '../ui/ai_analysis_screen.dart';
+import '../ui/feeding_analysis_screen.dart';
+import '../ui/growth_trajectory_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
 import '../ui/vip_purchase_screen.dart';
@@ -149,9 +151,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        // AI 分析：喂养记录分析 + 成长轨迹占位
+        // AI 分析 Hub：资格门 + 入口卡
         path: '/prediction/ai-analysis',
         builder: (context, state) => const AiAnalysisScreen(),
+        routes: [
+          GoRoute(
+            path: 'feeding',
+            builder: (context, state) => const FeedingAnalysisScreen(),
+          ),
+          GoRoute(
+            path: 'growth',
+            builder: (context, state) => const GrowthTrajectoryScreen(),
+          ),
+        ],
       ),
       GoRoute(
         // VIP 购买：暂停闸门下 redirect；开启时需登录

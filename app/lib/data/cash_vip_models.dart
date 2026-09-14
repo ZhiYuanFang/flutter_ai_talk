@@ -65,6 +65,7 @@ class CashVipOrder {
     required this.channel,
     required this.amountFen,
     this.appleProductId = '',
+    this.appAccountToken = '',
     this.alipayOrderStr = '',
     this.payTip = '',
   });
@@ -74,6 +75,8 @@ class CashVipOrder {
   final String channel;
   final int amountFen;
   final String appleProductId;
+  /// Apple StoreKit appAccountToken（UUID）；ASN 反查订单，购买必带。
+  final String appAccountToken;
   final String alipayOrderStr;
   final String payTip;
 
@@ -84,6 +87,7 @@ class CashVipOrder {
       channel: (json['channel'] ?? '').toString(),
       amountFen: _asInt(json['amountFen']),
       appleProductId: (json['appleProductId'] ?? '').toString(),
+      appAccountToken: (json['appAccountToken'] ?? '').toString(),
       alipayOrderStr: (json['alipayOrderStr'] ?? '').toString(),
       payTip: (json['payTip'] ?? '').toString(),
     );

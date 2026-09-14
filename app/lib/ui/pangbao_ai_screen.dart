@@ -19,6 +19,8 @@ import '../config/companion_input_mode_store.dart';
 import '../config/pangbao_ai_consent_store.dart';
 import '../config/pangbao_clinic_session_store.dart';
 import '../config/speech_engine.dart';
+import '../data/client_usage_events.dart';
+import '../providers/client_usage_provider.dart';
 import '../config/speech_engine_store.dart';
 import '../data/feed_repository.dart';
 import '../home_widget/widget_tip_cache.dart';
@@ -1411,7 +1413,7 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     // 柔和拟态软聊页底（随主题 seed）
     final soft = CompanionSoftChatColors.of(context);
 
-    return Scaffold(
+    final content = Scaffold(
       backgroundColor: soft.pageBg,
       appBar: AppBar(
         // 居中圆形品牌标，无「胖宝树洞」文案；无障碍仍保留语义
@@ -1616,6 +1618,11 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
           ),
         ],
       ),
+    );
+    if (widget.embeddedInHomePager) return content;
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.companionShow,
+      child: content,
     );
   }
 

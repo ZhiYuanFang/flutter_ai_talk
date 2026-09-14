@@ -1,10 +1,17 @@
 // 商业功能开通：catalog / eligibility / 建单 / 邀请码 / 广告（对齐 Go cash_feature_http）。
 
+import 'package:flutter/material.dart';
+
+import 'event_definition.dart' show tryParseEventColor;
+
 /// 预测开通数量功能 ID（与服务端 FeatureIDPredictionUnlock 一致）。
 const kFeatureIdPredictionUnlock = 'prediction_unlock';
 
 /// 值得留意智能提醒功能 ID（与服务端 FeatureIDCareAlertSmartRemind 一致）。
 const kFeatureIdCareAlertSmartRemind = 'care_alert_smart_remind';
+
+/// 成长轨迹预测功能 ID（与服务端 FeatureIDGrowthTrajectoryPredict 一致）。
+const kFeatureIdGrowthTrajectoryPredict = 'growth_trajectory_predict';
 
 /// catalog 项内嵌可售 SKU。
 class FeatureCatalogProduct {
@@ -124,6 +131,8 @@ class FeatureCatalogItem {
     this.totalActivatableCount,
     this.inviteDurationDays,
     this.adDurationDays,
+    this.logo = '',
+    this.color = '',
     this.products = const [],
   });
 
@@ -150,6 +159,12 @@ class FeatureCatalogItem {
 
   /// 广告授予天数（0=永久）；旧服缺字段为 null。
   final int? adDurationDays;
+
+  /// 功能 Logo CDN URL；空则 UI 占位。
+  final String logo;
+
+  /// 功能主色 hex（#RGB/#RRGGBB）；空则回退主题 primary。
+  final String color;
 
   /// 预测临时/永久全开哨兵（与服务端 AllowedCountFullAccessSentinel 一致）。
   bool get isPredictionFullAccess => allowedCount != null && allowedCount! < 0;
@@ -228,9 +243,17 @@ class FeatureCatalogItem {
           : null,
       adDurationDays:
           json.containsKey('adDurationDays') ? _asInt(json['adDurationDays']) : null,
+      logo: (json['logo'] ?? '').toString().trim(),
+      color: (json['color'] ?? '').toString().trim(),
       products: products,
     );
   }
+}
+
+/// 解析功能主色；无效/空则回退 [ColorScheme.primary]。
+Color resolveFeatureColor(BuildContext context, FeatureCatalogItem? item) {
+  final parsed = tryParseEventColor(item?.color);
+  return parsed ?? Theme.of(context).colorScheme.primary;
 }
 
 /// GET `/cash/app/api/ucg/eligibility`。
@@ -268,6 +291,7 @@ class FeatureOrder {
     required this.channel,
     required this.amountFen,
     this.appleProductId = '',
+    this.appAccountToken = '',
     this.alipayOrderStr = '',
     this.payTip = '',
   });
@@ -277,6 +301,8 @@ class FeatureOrder {
   final String channel;
   final int amountFen;
   final String appleProductId;
+  /// Apple StoreKit appAccountToken（UUID）；购买必带。
+  final String appAccountToken;
   final String alipayOrderStr;
   final String payTip;
 
@@ -287,6 +313,7 @@ class FeatureOrder {
       channel: (json['channel'] ?? '').toString(),
       amountFen: _asInt(json['amountFen']),
       appleProductId: (json['appleProductId'] ?? '').toString(),
+      appAccountToken: (json['appAccountToken'] ?? '').toString(),
       alipayOrderStr: (json['alipayOrderStr'] ?? '').toString(),
       payTip: (json['payTip'] ?? '').toString(),
     );

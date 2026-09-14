@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/client_usage_events.dart';
 import '../home_widget/has_pinned_home_widget.dart';
+import '../providers/client_usage_provider.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../theme/app_color.dart';
 import 'widgets/app_toast.dart';
@@ -79,7 +81,9 @@ class _HomeWidgetShowcaseScreenState
     final muted = AppColor.textMuted(context);
     final title = '桌面小组件';
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.widgetShowcaseShow,
+      child: Scaffold(
       backgroundColor: AppColor.pageBg(context),
       appBar: AppBar(
         title: Text(title),
@@ -145,6 +149,7 @@ class _HomeWidgetShowcaseScreenState
           ],
         ],
       ),
+    ),
     );
   }
 

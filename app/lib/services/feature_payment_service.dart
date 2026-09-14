@@ -127,6 +127,13 @@ class FeaturePaymentService {
           message: '缺少 Apple 商品 ID',
         );
       }
+      final appAccountToken = order.appAccountToken.trim();
+      if (appAccountToken.isEmpty) {
+        return const VipPaymentOutcome(
+          success: false,
+          message: '缺少 appAccountToken，请升级服务端后重试',
+        );
+      }
       final response = await iap.queryProductDetails({appleId});
       if (response.productDetails.isEmpty) {
         return const VipPaymentOutcome(
@@ -199,8 +206,12 @@ class FeaturePaymentService {
         }
       });
       final pd = response.productDetails.first;
+      // StoreKit 2：applicationUserName → appAccountToken（ASN 反查）。
       final ok = await iap.buyNonConsumable(
-        purchaseParam: PurchaseParam(productDetails: pd),
+        purchaseParam: PurchaseParam(
+          productDetails: pd,
+          applicationUserName: appAccountToken,
+        ),
       );
       if (!ok && !completer.isCompleted) {
         completer.complete(

@@ -5,67 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../api/api_exceptions.dart';
+import '../data/client_usage_events.dart';
 import '../data/feature_unlock_models.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../providers/home_pager.dart';
 import '../providers/prediction_care_alert_provider.dart';
-import '../providers/toast_bus.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
-import 'feature_unlock/invite_code_dialog.dart';
-import 'widgets/app_toast.dart';
+import 'ai_analysis_unlock.dart';
+import 'widgets/feature_logo.dart';
 import 'widgets/feeding_eligibility_progress_text.dart';
 
-/// 合格未开通：邀请码弹框；空码进开通中心；有码兑 care-alert。
-Future<void> _openCareAlertInviteUnlockDialog({
-  required BuildContext context,
-  required WidgetRef ref,
-  required FeatureCatalogItem? careFeature,
-}) async {
-  final inviteDays = careFeature?.inviteDurationDays;
-  final body = inviteDays == null
-      ? '恭喜获得试用资格，输入邀请码即可兑换智能分析使用额度。'
-      : '恭喜获得试用资格，输入邀请码即可兑换 ${featureDurationCopy(inviteDays)} 智能分析使用额度。';
-  final result = await showInviteCodeDialog(
-    context,
-    title: '智能分析',
-    body: body,
-    confirmLabel: '开通',
-  );
-  if (!context.mounted || result == null) return;
-  if (result is InviteCodeDialogHowTo) {
-    context.push('/features/invite-howto');
-    return;
-  }
-  if (result is! InviteCodeDialogSubmitted) return;
-  final code = result.code;
-  if (code.isEmpty) {
-    context.push('/features/unlock');
-    return;
-  }
-  try {
-    await ref.read(featureUnlockRepositoryProvider).redeemInviteCode(
-          code: code,
-          featureId: kFeatureIdCareAlertSmartRemind,
-        );
-    if (!context.mounted) return;
-    showAppToast('开通成功', tone: AppToastTone.success);
-    await ref.read(featureCatalogStateProvider.notifier).refresh();
-  } on ApiBusinessException catch (e) {
-    if (!context.mounted) return;
-    showAppToast(
-      e.message.isNotEmpty ? e.message : '兑换失败',
-      tone: AppToastTone.error,
-    );
-  } catch (_) {
-    if (!context.mounted) return;
-    showAppToast('兑换失败，请稍后重试', tone: AppToastTone.error);
-  }
-}
-
-/// AI 分析页：喂养记录分析（值得留意）+ 成长轨迹浅占位。
+/// AI 分析 Hub：资格门 + 极简入口（业务在子页）。
 class AiAnalysisScreen extends ConsumerStatefulWidget {
   const AiAnalysisScreen({super.key});
 
@@ -77,34 +30,14 @@ class _AiAnalysisScreenState extends ConsumerState<AiAnalysisScreen> {
   @override
   void initState() {
     super.initState();
-    // 进页：资格 + catalog + 今日已刷标记；不自动拉 daily。
+    // Hub 仅资格 + catalog；不拉 daily / ensureLatest。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(
         ref.read(careAlertEligibilityStateProvider.notifier).ensureLoaded(),
       );
       unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
-      unawaited(
-        ref
-            .read(predictionCareAlertStateProvider.notifier)
-            .hydrateManualRefreshFlag(),
-      );
     });
-  }
-
-  Future<void> _onTapAnalyze() async {
-    final ok = await ref
-        .read(predictionCareAlertStateProvider.notifier)
-        .refreshDailyManual();
-    if (!mounted) return;
-    if (ok) {
-      ref.showApiToast(
-        '今日值得留意刷新成功，请明日再来',
-        tone: AppToastTone.success,
-      );
-    } else {
-      ref.showApiToast('分析失败，请稍后重试', tone: AppToastTone.error);
-    }
   }
 
   @override
@@ -113,7 +46,9 @@ class _AiAnalysisScreenState extends ConsumerState<AiAnalysisScreen> {
     final shell = tokens?.shellColor ?? Theme.of(context).colorScheme.surface;
     final onShell = tokens?.onShell ?? Theme.of(context).colorScheme.onSurface;
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.aiAnalysisShow,
+      child: Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
         backgroundColor: shell,
@@ -126,140 +61,186 @@ class _AiAnalysisScreenState extends ConsumerState<AiAnalysisScreen> {
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        children: [
-          _FeedingAnalysisCard(onTapAnalyze: _onTapAnalyze),
-          const SizedBox(height: 14),
-          const _GrowthTrajectoryPlaceholder(),
+        children: const [
+          _HubFeedingCard(),
+          SizedBox(height: 14),
+          _HubGrowthCard(),
         ],
       ),
+    ),
     );
   }
 }
 
-/// 喂养记录分析：门闸 / 列表 / 手动 AI智能分析。
-class _FeedingAnalysisCard extends ConsumerWidget {
-  const _FeedingAnalysisCard({required this.onTapAnalyze});
-
-  final Future<void> Function() onTapAnalyze;
+/// Hub 喂养卡：门闸 / 已开通进子页。
+class _HubFeedingCard extends ConsumerWidget {
+  const _HubFeedingCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final elig = ref.watch(careAlertEligibilityStateProvider);
-    final careState = ref.watch(predictionCareAlertStateProvider);
-    final items = ref.watch(predictionCareAlertProvider);
     final isVip = ref.watch(vipStatusProvider).valueOrNull?.isVip == true;
+    final vipExpire =
+        ref.watch(vipStatusProvider).valueOrNull?.expireAt ?? 0;
     final careFeature = ref
         .watch(featureCatalogStateProvider)
         .byId(kFeatureIdCareAlertSmartRemind);
     final unlocked =
         isFeatureEffectivelyUnlocked(item: careFeature, isVip: isVip);
-    final onGlass = AppColor.textOnPanelGlass(context);
+    final accent = resolveFeatureColor(context, careFeature);
 
     Widget body;
-    Widget? trailingCta;
+    VoidCallback? onCardTap;
+    String? entitlementCopy;
 
     if (!elig.isQualified) {
       if (elig.loading) {
-        body = _mutedText(context, '正在校验喂养记录…');
+        body = _hubMuted(context, '正在校验喂养记录…', accent);
       } else if (elig.failed) {
-        body = InkWell(
-          onTap: () => unawaited(
-            ref
-                .read(careAlertEligibilityStateProvider.notifier)
-                .ensureLoaded(force: true),
-          ),
-          borderRadius: BorderRadius.circular(12),
-          child: _mutedText(context, '资格校验失败，点击重试'),
-        );
+        onCardTap = () => unawaited(
+              ref
+                  .read(careAlertEligibilityStateProvider.notifier)
+                  .ensureLoaded(force: true),
+            );
+        body = _hubMuted(context, '资格校验失败，点击重试', accent);
       } else if (elig.data != null) {
-        body = InkWell(
-          onTap: () {
-            ref
-                .read(homePagerRequestProvider.notifier)
-                .requestPage(HomePagerPage.feeding);
-            context.go('/home');
-          },
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-            child: FeedingEligibilityProgressText(
-              eligibility: elig.data!,
-              kind: FeedingEligibilityProgressKind.careAlert,
-              textAlign: TextAlign.start,
-              numberScale: 1.65,
-            ),
+        onCardTap = () {
+          ref
+              .read(homePagerRequestProvider.notifier)
+              .requestPage(HomePagerPage.feeding);
+          context.go('/home');
+        };
+        body = Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          child: FeedingEligibilityProgressText(
+            eligibility: elig.data!,
+            kind: FeedingEligibilityProgressKind.careAlert,
+            textAlign: TextAlign.start,
+            numberScale: 1.65,
+            accent: accent,
           ),
         );
       } else {
-        body = InkWell(
-          onTap: () {
-            ref
-                .read(homePagerRequestProvider.notifier)
-                .requestPage(HomePagerPage.feeding);
-            context.go('/home');
-          },
-          borderRadius: BorderRadius.circular(12),
-          child: _mutedText(context, '需累计有效喂养日以激活值得留意'),
-        );
+        onCardTap = () {
+          ref
+              .read(homePagerRequestProvider.notifier)
+              .requestPage(HomePagerPage.feeding);
+          context.go('/home');
+        };
+        body = _hubMuted(context, '需累计有效喂养日以激活值得留意', accent);
       }
     } else if (!unlocked) {
-      body = InkWell(
-        onTap: () => unawaited(
-          _openCareAlertInviteUnlockDialog(
-            context: context,
-            ref: ref,
-            careFeature: careFeature,
-          ),
-        ),
-        borderRadius: BorderRadius.circular(12),
-        child: const _UnlockHeartbeatPrompt(),
-      );
-    } else if (careState.loading) {
-      body = _mutedText(context, '正在思考中');
+      onCardTap = () => unawaited(
+            openCareAlertInviteUnlockDialog(
+              context: context,
+              ref: ref,
+              careFeature: careFeature,
+            ),
+          );
+      body = _UnlockHeartbeatPrompt(accent: accent);
     } else {
-      // 已开通：列表 + 未日限时 CTA
-      if (!careState.manualRefreshSucceededToday) {
-        trailingCta = _AiAnalyzeButton(onTap: onTapAnalyze);
-      }
-      if (items.isEmpty) {
-        body = _mutedText(
-          context,
-          careState.manualRefreshSucceededToday
-              ? '今日暂无值得留意事项'
-              : '点击「AI智能分析」生成今日值得留意',
-        );
-      } else {
-        body = Column(
-          children: [
-            for (var i = 0; i < items.length; i++) ...[
-              if (i > 0)
-                Divider(height: 1, color: AppColor.divider(context)),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                title: Text(
-                  items[i].summaryLine,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.3,
-                    color: onGlass,
-                  ),
-                ),
-                trailing: Icon(
-                  Icons.chevron_right,
-                  color: AppColor.textOnPanelGlassMuted(context),
-                ),
-                onTap: () =>
-                    context.push('/prediction/alert', extra: items[i]),
-              ),
-            ],
-          ],
-        );
-      }
+      entitlementCopy = featureHubEntitlementRemainingCopy(
+        item: careFeature,
+        isVip: isVip,
+        vipExpireAt: vipExpire,
+      );
+      onCardTap = () => context.push('/prediction/ai-analysis/feeding');
+      body = _hubMuted(context, '点击进入，生成今日值得留意', accent);
+    }
+    final deep = _deepenAccent(accent);
+    return _HubGlassCard(
+      title: '喂养记录分析',
+      logoUrl: careFeature?.logo ?? '',
+      accent: deep,
+      showChevron: unlocked && elig.isQualified,
+      onTap: onCardTap,
+      blurb: _FeedingAnalysisBlurb(accent: deep),
+      entitlementCopy: entitlementCopy,
+      metaLines: const [],
+      body: body,
+    );
+  }
+}
+
+/// Hub 成长卡：开通门闸 / 已开通进子页。
+class _HubGrowthCard extends ConsumerWidget {
+  const _HubGrowthCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isVip = ref.watch(vipStatusProvider).valueOrNull?.isVip == true;
+    final vipExpire =
+        ref.watch(vipStatusProvider).valueOrNull?.expireAt ?? 0;
+    final feature = ref
+        .watch(featureCatalogStateProvider)
+        .byId(kFeatureIdGrowthTrajectoryPredict);
+    final unlocked =
+        isFeatureEffectivelyUnlocked(item: feature, isVip: isVip);
+    final accent = resolveFeatureColor(context, feature);
+
+    VoidCallback onCardTap;
+    String? entitlementCopy;
+    late final Widget body;
+
+    if (!unlocked) {
+      onCardTap = () => unawaited(
+            openGrowthTrajectoryInviteUnlockDialog(
+              context: context,
+              ref: ref,
+              feature: feature,
+            ),
+          );
+      body = _hubMuted(context, '点击开通，结合宝宝近况定制未来 7 天成长提示', accent);
+    } else {
+      entitlementCopy = featureHubEntitlementRemainingCopy(
+        item: feature,
+        isVip: isVip,
+        vipExpireAt: vipExpire,
+      );
+      onCardTap = () => context.push('/prediction/ai-analysis/growth');
+      body = _hubMuted(context, '点击进入成长轨迹预测', accent);
     }
 
-    return ClipRRect(
+    return _HubGlassCard(
+      title: '成长轨迹预测',
+      logoUrl: feature?.logo ?? '',
+      accent: accent,
+      showChevron: unlocked,
+      onTap: onCardTap,
+      blurb: _GrowthTrajectoryBlurb(accent: accent),
+      entitlementCopy: entitlementCopy,
+      metaLines: const [],
+      body: body,
+    );
+  }
+}
+
+class _HubGlassCard extends StatelessWidget {
+  const _HubGlassCard({
+    required this.title,
+    required this.blurb,
+    required this.body,
+    required this.metaLines,
+    required this.accent,
+    this.entitlementCopy,
+    this.onTap,
+    this.showChevron = false,
+    this.logoUrl = '',
+  });
+
+  final String title;
+  final Widget blurb;
+  final Widget body;
+  final Color accent;
+  final List<String> metaLines;
+  final String? entitlementCopy;
+  final VoidCallback? onTap;
+  final bool showChevron;
+  final String logoUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final card = ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
@@ -268,7 +249,7 @@ class _FeedingAnalysisCard extends ConsumerWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: AppColor.divider(context)),
-            gradient: AppColor.panelGlassGradient(context),
+            gradient: AppColor.panelGlassGradient(context, accent: accent),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -277,24 +258,69 @@ class _FeedingAnalysisCard extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(16, 12, 12, 0),
                 child: Row(
                   children: [
+                    FeatureLogo(
+                      logoUrl: logoUrl,
+                      size: 26,
+                      accent: accent,
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '喂养记录分析',
+                        title,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
-                          color: onGlass,
+                          color: accent,
                         ),
                       ),
                     ),
-                    if (trailingCta != null) trailingCta,
+                    // 剩余时效：标题右侧小字。
+                    if (entitlementCopy != null &&
+                        entitlementCopy!.trim().isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        entitlementCopy!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.2,
+                          fontWeight: FontWeight.w600,
+                          color: accent.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ],
+                    if (showChevron)
+                      Icon(
+                        Icons.chevron_right,
+                        color: accent.withValues(alpha: 0.7),
+                      ),
                   ],
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: _FeedingAnalysisBlurb(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: blurb,
               ),
+              if (metaLines.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final line in metaLines)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            line,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.3,
+                              color: accent.withValues(alpha: 0.65),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 4),
               body,
               const SizedBox(height: 8),
@@ -303,56 +329,147 @@ class _FeedingAnalysisCard extends ConsumerWidget {
         ),
       ),
     );
-  }
 
-  Widget _mutedText(BuildContext context, String text) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 13,
-          height: 1.35,
-          color: AppColor.textOnPanelGlass(context).withValues(alpha: 0.72),
-        ),
+    // 可点玻璃卡（角标在样张组件内，不在整卡外侧）。
+    if (onTap == null) return card;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: card,
       ),
     );
   }
 }
 
-/// 折中说明：近两日喂养 × 月龄 × 性别 → 今日留意；小字 + 圆角底。
-class _FeedingAnalysisBlurb extends StatelessWidget {
-  const _FeedingAnalysisBlurb();
+Widget _hubMuted(BuildContext context, String text, Color accent) {
+   final deep = _deepenAccent(accent);
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 13,
+        height: 1.35,
+        color: deep,
+      ),
+    ),
+  );
+}
 
-  static const _copy =
-      '根据近两日喂养记录，结合宝宝月龄与性别，智能分析今日值得留意之处。';
+/// 样张正文 / 角标加深色，避免浅底上发灰。
+Color _deepenAccent(Color accent) =>
+    Color.lerp(accent, const Color(0xFF000000), 0.18)!;
+
+/// 模拟样张块：角标在浅色底外侧左上 + 加深字色正文。
+class _MockSamplePanel extends StatelessWidget {
+  const _MockSamplePanel({
+    required this.accent,
+    required this.spans,
+  });
+
+  final Color accent;
+  final List<InlineSpan> spans;
 
   @override
   Widget build(BuildContext context) {
-    final onGlass = AppColor.textOnPanelGlass(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColor.fieldFill(context).withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Text(
-          _copy,
-          style: TextStyle(
-            fontSize: 11,
-            height: 1.35,
-            color: onGlass.withValues(alpha: 0.68),
+    final deep = _deepenAccent(accent);
+    final base = TextStyle(
+      fontSize: 11,
+      height: 1.35,
+      color: deep,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 角标：贴样张面板外侧左上（非整卡外）。
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 4),
+          child: Text(
+            '模拟内容 · 你可以得到这样的效果',
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: deep,
+            ),
           ),
         ),
-      ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Text.rich(
+              TextSpan(style: base, children: spans),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// 合格未开通：开通引导文案持续心跳缩放（节奏对齐预测页 logo）。
+/// 喂养模拟样张：浅功能色底 + 关键字加粗。
+class _FeedingAnalysisBlurb extends StatelessWidget {
+  const _FeedingAnalysisBlurb({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final deep = _deepenAccent(accent);
+    final bold = TextStyle(
+      fontSize: 11,
+      height: 1.35,
+      fontWeight: FontWeight.w800,
+      color: deep,
+    );
+    return _MockSamplePanel(
+      accent: accent,
+      spans: [
+        const TextSpan(text: '🍼 近2日夜醒偏多，今日留意'),
+        TextSpan(text: '喂养间隔', style: bold),
+        const TextSpan(text: '与精神状态✨'),
+      ],
+    );
+  }
+}
+
+/// 成长模拟样张：浅功能色底 + 关键字加粗。
+class _GrowthTrajectoryBlurb extends StatelessWidget {
+  const _GrowthTrajectoryBlurb({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final deep = _deepenAccent(accent);
+    final bold = TextStyle(
+      fontSize: 11,
+      height: 1.35,
+      fontWeight: FontWeight.w800,
+      color: deep,
+    );
+    return _MockSamplePanel(
+      accent: accent,
+      spans: [
+        const TextSpan(text: '📈 未来7天或迎'),
+        TextSpan(text: '身高冲刺', style: bold),
+        const TextSpan(text: '，注意补钙与户外☀️'),
+      ],
+    );
+  }
+}
+
+/// 合格未开通：开通引导文案持续心跳缩放。
 class _UnlockHeartbeatPrompt extends StatefulWidget {
-  const _UnlockHeartbeatPrompt();
+  const _UnlockHeartbeatPrompt({required this.accent});
+
+  final Color accent;
 
   @override
   State<_UnlockHeartbeatPrompt> createState() => _UnlockHeartbeatPromptState();
@@ -370,7 +487,6 @@ class _UnlockHeartbeatPromptState extends State<_UnlockHeartbeatPrompt>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
-    // 文案振幅略收，避免整行晃得过狠。
     _scale = Tween<double>(begin: 0.96, end: 1.04).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
     );
@@ -384,7 +500,6 @@ class _UnlockHeartbeatPromptState extends State<_UnlockHeartbeatPrompt>
 
   @override
   Widget build(BuildContext context) {
-    final primary = AppColor.primary(context);
     return ScaleTransition(
       scale: _scale,
       child: Padding(
@@ -395,84 +510,7 @@ class _UnlockHeartbeatPromptState extends State<_UnlockHeartbeatPrompt>
             fontSize: 13,
             height: 1.35,
             fontWeight: FontWeight.w600,
-            color: primary,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AiAnalyzeButton extends StatelessWidget {
-  const _AiAnalyzeButton({required this.onTap});
-
-  final Future<void> Function() onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.primary.withValues(alpha: 0.14),
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => unawaited(onTap()),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          child: Text(
-            'AI智能分析',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: scheme.primary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 成长轨迹：浅占位，无 HTTP。
-class _GrowthTrajectoryPlaceholder extends StatelessWidget {
-  const _GrowthTrajectoryPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final onGlass = AppColor.textOnPanelGlass(context);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColor.divider(context)),
-            gradient: AppColor.panelGlassGradient(context),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '成长轨迹预测',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: onGlass,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '即将上线：通过简短问答了解宝宝近况，预测接下来一周可能的成长变化与注意事项。',
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.35,
-                  color: onGlass.withValues(alpha: 0.72),
-                ),
-              ),
-            ],
+            color: widget.accent,
           ),
         ),
       ),

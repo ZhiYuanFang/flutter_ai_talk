@@ -5,15 +5,19 @@ import 'package:flutter/material.dart';
 import '../../theme/app_visual_tokens.dart';
 
 /// 设置中心同款玻璃拟态面板，供设置页与反馈页复用。
+///
+/// [accent] 非空时底部混入功能/事件主色（对齐喂养 sheet 玻璃 tint）。
 class SettingsGlassPanel extends StatelessWidget {
   const SettingsGlassPanel({
     super.key,
     required this.child,
     this.contentPadding,
+    this.accent,
   });
 
   final Widget child;
   final EdgeInsets? contentPadding;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
@@ -27,8 +31,9 @@ class SettingsGlassPanel extends StatelessWidget {
       Colors.white.withValues(alpha: isDark ? 0.06 : 0.20),
       base,
     );
+    final tint = accent ?? scheme.primary;
     final bottom = Color.alphaBlend(
-      scheme.primary.withValues(alpha: isDark ? 0.16 : 0.10),
+      tint.withValues(alpha: isDark ? 0.16 : 0.10),
       base,
     );
 

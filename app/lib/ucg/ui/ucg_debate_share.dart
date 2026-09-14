@@ -192,16 +192,15 @@ Future<void> shareDebatePostToWeChat(
     png = await captureDebateSharePng(context, post: post, comments: comments);
     if (png != null && png.isNotEmpty) {
       final repo = ref.read(ucgRepositoryProvider);
-      final presign = await repo.presignMedia(isVideo: false, fileName: 'debate_share.png');
-      await repo.uploadToPresignedUrl(
-        uploadUrl: presign.uploadUrl,
+      // 分享图经服务端 multipart 上传（预签名直传已停用）；微信侧仍用本地 png。
+      final uploaded = await repo.uploadMediaViaGateway(
+        isVideo: false,
+        fileName: 'debate_share.png',
         bytes: png,
-        contentType: 'image/png',
-        extraHeaders: presign.headers,
       );
-      imageUrl = presign.cdnUrl?.trim();
+      imageUrl = uploaded.cdnUrl?.trim();
       if (imageUrl == null || imageUrl.isEmpty) {
-        imageUrl = UcgMediaUrl.objectKeyToCdn(presign.objectKey);
+        imageUrl = UcgMediaUrl.objectKeyToCdn(uploaded.objectKey);
       }
       AppDebugLog.ucgShare('upload ok imageUrl=$imageUrl bytes=${png.length}');
     }

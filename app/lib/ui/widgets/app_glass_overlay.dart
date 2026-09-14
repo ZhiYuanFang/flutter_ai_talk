@@ -129,14 +129,18 @@ Future<bool?> showGlassConfirmDialog(
   String cancelLabel = '取消',
   String confirmLabel = '确定',
   bool useRootNavigator = true,
+  Color? eventAccent,
 }) {
   return showGlassDialog<bool>(
     context: context,
     useRootNavigator: useRootNavigator,
+    eventAccent: eventAccent,
     contentBuilder: (ctx) {
       final glassText = historyEditGlassTextColor(ctx);
       final glassLabel = historyEditGlassLabelColor(ctx);
       final scheme = Theme.of(ctx).colorScheme;
+      // 有 eventAccent 时确认钮跟功能色，否则主题 primary。
+      final accent = eventAccent ?? scheme.primary;
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -172,7 +176,7 @@ Future<bool?> showGlassConfirmDialog(
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 style: FilledButton.styleFrom(
-                  backgroundColor: scheme.primary,
+                  backgroundColor: accent,
                   foregroundColor: scheme.onPrimary,
                   padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                   shape: const StadiumBorder(),

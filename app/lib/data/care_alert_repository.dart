@@ -3,13 +3,13 @@ import '../api/api_exceptions.dart';
 import '../api/app_debug_log.dart';
 import 'prediction_care_alert.dart';
 
-/// 护理留意日缓存 API（Go 编排）；失败返回 null / false，不 Toast。
+/// 护理留意日缓存 API（Go 编排）；业务/HTTP 失败抛出，由调用方 Toast。
 class CareAlertRepository {
   CareAlertRepository(this._api);
 
   final ApiClient _api;
 
-  /// GET 日列表；首次生成可能较久，超时 90s。
+  /// GET 日列表；首次生成可能较久，超时 90s。deviceNo 空返回 null。
   Future<List<CareAlertEventItem>?> fetchDaily({
     required String deviceNo,
   }) async {
@@ -28,13 +28,13 @@ class CareAlertRepository {
       return items;
     } on ApiBusinessException catch (e) {
       AppDebugLog.careAlert('daily business err=${e.code} ${e.message}');
-      return null;
+      rethrow;
     } on ApiHttpException catch (e) {
       AppDebugLog.careAlert('daily http err=${e.statusCode}');
-      return null;
+      rethrow;
     } catch (e) {
       AppDebugLog.careAlert('daily err=$e');
-      return null;
+      rethrow;
     }
   }
 

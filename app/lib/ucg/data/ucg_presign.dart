@@ -25,11 +25,19 @@ class UcgPresignRequest {
 }
 
 /// 上传完成后的 objectKey + 可选 API cdnUrl（展示用）。
+/// 视频经服务端 upload 时 MUST 带回 contentHash / transformVersion 供 register 配对。
 class UcgUploadResult {
-  const UcgUploadResult({required this.objectKey, this.cdnUrl});
+  const UcgUploadResult({
+    required this.objectKey,
+    this.cdnUrl,
+    this.contentHash,
+    this.transformVersion,
+  });
 
   final String objectKey;
   final String? cdnUrl;
+  final String? contentHash;
+  final String? transformVersion;
 
   String get displayUrl => UcgMediaUrl.resolveUrl(objectKey: objectKey, cdnUrl: cdnUrl);
 }

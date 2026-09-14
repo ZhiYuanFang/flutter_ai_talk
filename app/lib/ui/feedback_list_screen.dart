@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../data/client_usage_events.dart';
 import '../data/feedback_models.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/feedback_provider.dart';
 import '../providers/toast_bus.dart';
 import '../theme/app_visual_tokens.dart';
@@ -64,7 +66,9 @@ class _FeedbackListScreenState extends ConsumerState<FeedbackListScreen> {
     final bgEnd = Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.feedbackShow,
+      child: Scaffold(
       extendBodyBehindAppBar: true,
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
@@ -177,6 +181,7 @@ class _FeedbackListScreenState extends ConsumerState<FeedbackListScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

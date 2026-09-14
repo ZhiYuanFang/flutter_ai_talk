@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/client_usage_provider.dart';
+import '../../data/client_usage_events.dart';
 import '../../api/ai_quota_errors.dart';
 import '../../api/api_exceptions.dart';
 import '../../api/app_debug_log.dart';
@@ -126,6 +128,14 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        ref
+            .read(clientUsageReporterProvider)
+            .reportEvent(ClientUsageEvents.ucgComposeShow),
+      );
+    });
     final post = widget.editingPost;
     _text = TextEditingController(text: post?.text ?? '');
     _debateLeft = TextEditingController(text: post?.debateLeft ?? '');

@@ -177,6 +177,14 @@ class VipPaymentService {
           message: '缺少 Apple 商品 ID，请检查服务端配置',
         );
       }
+      // ASN 反查订单依赖 UUID；缺 token 不得静默购买。
+      final appAccountToken = order.appAccountToken.trim();
+      if (appAccountToken.isEmpty) {
+        return const VipPaymentOutcome(
+          success: false,
+          message: '缺少 appAccountToken，请升级服务端后重试',
+        );
+      }
 
       final resp = await iap.queryProductDetails({appleId});
       if (resp.error != null) {
@@ -212,8 +220,12 @@ class VipPaymentService {
         },
       );
 
+      // StoreKit 2：applicationUserName 映射为 appAccountToken（须为 UUID）。
       final ok = await iap.buyConsumable(
-        purchaseParam: PurchaseParam(productDetails: productDetails),
+        purchaseParam: PurchaseParam(
+          productDetails: productDetails,
+          applicationUserName: appAccountToken,
+        ),
       );
       if (!ok) {
         return const VipPaymentOutcome(

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/client_usage_events.dart';
 import '../../providers/authorized_api_client_provider.dart';
+import '../../providers/client_usage_provider.dart';
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/home_pager.dart';
 import '../../theme/app_visual_tokens.dart';
@@ -57,7 +59,9 @@ class _InviteCodeHowtoScreenState extends ConsumerState<InviteCodeHowtoScreen> {
     final qrUrl =
         resolveInviteGroupQrUrl(catalog.inviteGroupQrUrl, apiBase);
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.inviteHowtoShow,
+      child: Scaffold(
       backgroundColor: shell,
       appBar: AppBar(
         backgroundColor: shell,
@@ -113,6 +117,7 @@ class _InviteCodeHowtoScreenState extends ConsumerState<InviteCodeHowtoScreen> {
           ],
         ],
       ),
+    ),
     );
   }
 }

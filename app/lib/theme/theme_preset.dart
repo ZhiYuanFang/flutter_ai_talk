@@ -68,7 +68,7 @@ Color sexPrimary(BabySex sex) {
     case BabySex.male:
       return const Color(0xFF0D47A1);
     case BabySex.female:
-      return const Color(0xFFE91E63);
+      return const Color(0xFF2CB771);
     case BabySex.unknown:
       return const Color(0xFF455A64);
   }

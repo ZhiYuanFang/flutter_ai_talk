@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../providers/client_usage_provider.dart';
+import '../data/client_usage_events.dart';
 import '../config/baby_avatar_local_store.dart';
 import '../data/models.dart';
 import '../../home_widget/home_widget_sync.dart';
@@ -133,6 +135,11 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
         source: File(picked.path),
       );
       bumpBabyAvatarRevision(ref);
+      unawaited(
+        ref
+            .read(clientUsageReporterProvider)
+            .reportEvent(ClientUsageEvents.babyAvatarChangeOk),
+      );
       if (!mounted) return;
       showAppToast('头像已更新', tone: AppToastTone.success);
     } catch (e) {

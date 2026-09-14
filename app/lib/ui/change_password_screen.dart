@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/api_exceptions.dart';
+import '../data/client_usage_events.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
@@ -135,7 +137,9 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
     final bgEnd = Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
     final onShell = tokens?.onShell ?? scheme.onSurface;
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.changePasswordShow,
+      child: Scaffold(
       resizeToAvoidBottomInset: false,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -259,6 +263,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

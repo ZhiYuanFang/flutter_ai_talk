@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/session_provider.dart';
+import '../../providers/client_usage_provider.dart';
+import '../../data/client_usage_events.dart';
 import '../../session/token_expiry.dart';
 import '../data/ucg_feature_flags.dart';
 import '../data/ucg_models.dart';
@@ -52,12 +54,30 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       _tabIndex = tabIndex;
       _stackMounted.add(_stackIndexForTab(tabIndex));
     });
+    unawaited(_reportUcgTabShow(tabIndex));
+  }
+
+  /// UCG 底栏 Tab 展示上报（发布走 Compose 页另报）。
+  Future<void> _reportUcgTabShow(int tabIndex) async {
+    final reporter = ref.read(clientUsageReporterProvider);
+    if (tabIndex == 0) {
+      await reporter.reportEvent(ClientUsageEvents.ucgSquareShow);
+    } else if (tabIndex == 3) {
+      await reporter.reportEvent(ClientUsageEvents.ucgMessagesShow);
+    } else if (tabIndex == 4) {
+      await reporter.reportEvent(ClientUsageEvents.ucgProfileShow);
+    }
   }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShellWs());
+    // 进入 UCG 壳默认在广场 Tab：补报广场展示（外层壳另有 page_ucg_shell_show）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_reportUcgTabShow(_tabIndex));
+    });
   }
 
   /// C1：进 UCG 仅 HTTP 校准未读（会话 + 互动），不预挂载消息/我的 Tab。

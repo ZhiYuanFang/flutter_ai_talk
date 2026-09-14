@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../home_history_edit_glass_panel.dart';
 import '../widgets/app_glass_overlay.dart';
+import '../widgets/feature_logo.dart';
 
 /// 共享邀请码弹窗结果：获取方式页 / 确认提交的码（可为空串）。
 sealed class InviteCodeDialogResult {
@@ -25,13 +26,18 @@ Future<InviteCodeDialogResult?> showInviteCodeDialog(
   required String title,
   required String body,
   String confirmLabel = '兑换',
+  Color? eventAccent,
+  String logoUrl = '',
 }) {
   return showGlassDialog<InviteCodeDialogResult>(
     context: context,
+    eventAccent: eventAccent,
     contentBuilder: (ctx) => _InviteCodeDialogBody(
       title: title,
       body: body,
       confirmLabel: confirmLabel,
+      logoUrl: logoUrl,
+      accent: eventAccent,
     ),
   );
 }
@@ -42,11 +48,15 @@ class _InviteCodeDialogBody extends StatefulWidget {
     required this.title,
     required this.body,
     required this.confirmLabel,
+    this.logoUrl = '',
+    this.accent,
   });
 
   final String title;
   final String body;
   final String confirmLabel;
+  final String logoUrl;
+  final Color? accent;
 
   @override
   State<_InviteCodeDialogBody> createState() => _InviteCodeDialogBodyState();
@@ -73,19 +83,34 @@ class _InviteCodeDialogBodyState extends State<_InviteCodeDialogBody> {
     final glassText = historyEditGlassTextColor(context);
     final glassLabel = historyEditGlassLabelColor(context);
     final scheme = Theme.of(context).colorScheme;
+    // 确认钮跟功能色；未传 accent 时回退主题 primary。
+    final accent = widget.accent ?? scheme.primary;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          widget.title,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 20,
-            height: 1.25,
-            fontWeight: FontWeight.w600,
-            color: glassText,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FeatureLogo(
+              logoUrl: widget.logoUrl,
+              size: 28,
+              accent: accent,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                widget.title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  height: 1.25,
+                  fontWeight: FontWeight.w600,
+                  color: glassText,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Text(
@@ -124,7 +149,7 @@ class _InviteCodeDialogBodyState extends State<_InviteCodeDialogBody> {
                 InviteCodeDialogSubmitted(_controller.text.trim()),
               ),
               style: FilledButton.styleFrom(
-                backgroundColor: scheme.primary,
+                backgroundColor: accent,
                 foregroundColor: scheme.onPrimary,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 28, vertical: 12),

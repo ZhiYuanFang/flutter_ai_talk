@@ -7,12 +7,14 @@ import 'package:intl/intl.dart';
 
 import '../config/trends_date_range_store.dart';
 import '../config/trends_selected_event_store.dart';
+import '../data/client_usage_events.dart';
 import '../data/event_catalog_state.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/models.dart';
 import '../providers/event_catalog_notifier.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../theme/app_color.dart';
@@ -483,7 +485,9 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     final topPad = MediaQuery.paddingOf(context).top;
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.trendsShow,
+      child: Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -681,6 +685,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
             ),
         ],
       ),
+    ),
     );
   }
 }

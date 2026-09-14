@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../config/env.dart';
 import '../config/event_media_local_store.dart';
+import '../data/client_usage_events.dart';
 import '../data/models.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../home_widget/home_widget_payload.dart';
@@ -14,6 +15,7 @@ import '../providers/baby_display_provider.dart' show isBabyProfileBoundPending;
 import '../data/cash_vip_models.dart';
 import '../data/feature_unlock_models.dart';
 import '../providers/cash_vip_provider.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../providers/repositories.dart' show versionRepositoryProvider;
@@ -46,6 +48,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
       unawaited(ref.read(vipStatusProvider.notifier).refresh());
+      unawaited(
+        ref
+            .read(clientUsageReporterProvider)
+            .reportEvent(ClientUsageEvents.settingsShow),
+      );
     });
   }
 

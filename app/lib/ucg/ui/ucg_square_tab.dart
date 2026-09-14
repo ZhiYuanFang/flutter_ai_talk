@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../providers/client_usage_provider.dart';
+import '../../data/client_usage_events.dart';
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../theme/app_color.dart';
@@ -388,8 +390,21 @@ class _UcgSquareTabState extends ConsumerState<UcgSquareTab> {
       actions: [
         IconButton(
           tooltip: isWaterfall ? '切换为列表' : '切换为瀑布流',
-          onPressed: () =>
-              unawaited(ref.read(ucgSquareFeedLayoutProvider.notifier).toggle()),
+          onPressed: () {
+            final cur = layout;
+            final next = cur == UcgSquareFeedLayout.list
+                ? UcgSquareFeedLayout.waterfall
+                : UcgSquareFeedLayout.list;
+            unawaited(
+              ref.read(ucgSquareFeedLayoutProvider.notifier).setLayout(next).then(
+                    (_) => ref.read(clientUsageReporterProvider).reportEvent(
+                          next == UcgSquareFeedLayout.list
+                              ? ClientUsageEvents.ucgSquareLayoutToList()
+                              : ClientUsageEvents.ucgSquareLayoutToWaterfall(),
+                        ),
+                  ),
+            );
+          },
           icon: Icon(
             isWaterfall
                 ? Icons.view_agenda_outlined

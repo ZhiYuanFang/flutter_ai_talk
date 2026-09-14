@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 
+import '../data/client_usage_events.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/settings_baby.dart';
 import 'baby_profile_clay_theme.dart';
 import 'baby_profile_editor.dart';
@@ -16,7 +18,9 @@ class BabyProfileEditScreen extends ConsumerWidget {
     final babyAsync = ref.watch(settingsBabyProvider);
     final pageFg = BabyProfileClayTheme.pageForeground(context);
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.babyProfileShow,
+      child: Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text(
@@ -66,6 +70,7 @@ class BabyProfileEditScreen extends ConsumerWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }

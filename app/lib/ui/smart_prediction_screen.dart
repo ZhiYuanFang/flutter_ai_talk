@@ -10,6 +10,8 @@ import 'package:go_router/go_router.dart';
 import 'package:pangbao_app/ui/widgets/app_glass_overlay.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../data/client_usage_events.dart';
+import '../providers/client_usage_provider.dart';
 import '../config/prediction_layout_store.dart';
 import '../data/active_timing_stop.dart';
 import '../data/event_branding.dart';
@@ -105,11 +107,17 @@ Future<bool> _requestForecastToggle({
   // allowedCount < 0：历史全开哨兵，视为不限名额。
   final capped = !isVip && allowedCount >= 0 && enabledCount >= allowedCount;
   if (capped) {
+    // 满额弹窗品牌：与开通中心预测槽位卡同一 catalog logo / 功能色。
+    final predItem = ref
+        .read(featureCatalogStateProvider)
+        .byId(kFeatureIdPredictionUnlock);
     final result = await showInviteCodeDialog(
       context,
       title: '预测槽位已满',
       body: '请先关闭其它预测或输入邀请码激活',
       confirmLabel: '激活',
+      eventAccent: resolveFeatureColor(context, predItem),
+      logoUrl: predItem?.logo ?? '',
     );
     if (!context.mounted || result == null) return false;
     if (result is InviteCodeDialogHowTo) {
@@ -362,7 +370,7 @@ class SmartPredictionScreen extends ConsumerWidget {
     Future<void> onForecastToggle(String eventId, bool enable) async {
       final currentlyEnabled =
           rows.any((r) => r.eventId == eventId && r.forecastEnabled);
-      await _requestForecastToggle(
+      final ok = await _requestForecastToggle(
         context: context,
         ref: ref,
         eventId: eventId,
@@ -370,6 +378,24 @@ class SmartPredictionScreen extends ConsumerWidget {
         enabledCount: enabledCount,
         currentlyEnabled: currentlyEnabled,
         allowedCount: allowedCount,
+      );
+      if (!ok) return;
+      // 列表数据序：rows 下标 + 1；描述含事件显示名。
+      final order = rows.indexWhere((r) => r.eventId == eventId) + 1;
+      if (order <= 0) return;
+      final label = lookupEventById(catalog, eventId)?.name ?? eventId;
+      unawaited(
+        ref.read(clientUsageReporterProvider).reportEvent(
+              enable
+                  ? ClientUsageEvents.predictionToggleOn(
+                      order: order,
+                      eventLabel: label,
+                    )
+                  : ClientUsageEvents.predictionToggleOff(
+                      order: order,
+                      eventLabel: label,
+                    ),
+            ),
       );
     }
     final heartbeatId = soonestHeartbeatEventId(rows, now);
@@ -925,10 +951,26 @@ class SmartPredictionScreen extends ConsumerWidget {
                           ? '切换为纵向列表'
                           : '切换为瀑布流',
                       onPressed: () {
-                        // reopenRecallGateIfNeeded();
-                        ref
-                            .read(predictionCardsLayoutProvider.notifier)
-                            .toggle();
+                        final cur = layout;
+                        final next = cur == PredictionCardsLayout.grid
+                            ? PredictionCardsLayout.list
+                            : PredictionCardsLayout.grid;
+                        unawaited(
+                          ref
+                              .read(predictionCardsLayoutProvider.notifier)
+                              .setLayout(next)
+                              .then((_) {
+                            return ref
+                                .read(clientUsageReporterProvider)
+                                .reportEvent(
+                                  next == PredictionCardsLayout.list
+                                      ? ClientUsageEvents
+                                          .predictionLayoutToList()
+                                      : ClientUsageEvents
+                                          .predictionLayoutToGrid(),
+                                );
+                          }),
+                        );
                       },
                       icon: Icon(
                         layout == PredictionCardsLayout.grid
@@ -956,12 +998,13 @@ class SmartPredictionScreen extends ConsumerWidget {
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                               child: careOrGuide,
                             ),
-                          // Auth 冷态不展示接下来3小时；已绑定冷态/热态照旧。
-                          if (!authGuestChrome && timelineText != null)
+                          // Auth 冷态不展示接下来3小时；已绑定态空窗也常显（保 AI分析入口）。
+                          if (!authGuestChrome)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                               child: _NextThreeHoursTimeline(
-                                body: timelineText,
+                                body: timelineText ??
+                                    kNextThreeHoursEmptyBodyCopy,
                                 onOpenFeeding: () {
                                   ref
                                       .read(homePagerRequestProvider.notifier)
@@ -1640,6 +1683,9 @@ class _PredictionAuthGateCard extends StatelessWidget {
     );
   }
 }
+
+/// 三小时窗无事项时的正文（卡常显，保 AI分析入口）。
+const kNextThreeHoursEmptyBodyCopy = '接下来 3 小时暂无事项，享受属于自己的时光吧。';
 
 /// 「接下来3小时」：全量正文；主区点进喂养；右侧「AI分析」进分析页。
 class _NextThreeHoursTimeline extends StatelessWidget {

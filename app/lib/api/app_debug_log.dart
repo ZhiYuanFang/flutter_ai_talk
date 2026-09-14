@@ -89,4 +89,16 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[LandscapeVoice] ${_ts()} $message');
   }
+
+  /// 成长轨迹预测：latest / turn SSE。
+  static void growthTrajectory(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[GrowthTrajectory] ${_ts()} $message');
+  }
+
+  /// 客户端使用上报（静默；失败仅 Debug）。
+  static void clientUsage(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[ClientUsage] ${_ts()} $message');
+  }
 }

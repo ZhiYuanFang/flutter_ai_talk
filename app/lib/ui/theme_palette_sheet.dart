@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/client_usage_provider.dart';
+import '../data/client_usage_events.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../theme/app_color.dart';
 import '../theme/app_theme_schedule.dart';
@@ -11,6 +13,23 @@ import '../theme/custom_background_persist.dart';
 import '../theme/theme_custom_color_wheel.dart';
 import '../theme/theme_preset.dart';
 import 'widgets/app_glass_overlay.dart';
+
+/// 主题预设运维可读名。
+String _themePresetLabel(ThemePreset? preset, {Color? seed, bool classic = false}) {
+  if (classic || (preset == null && seed == null)) return '经典';
+  if (preset == null && seed != null) return '自定义色';
+  return switch (preset) {
+    ThemePreset.classicLight => '经典浅色',
+    ThemePreset.nightSky => '夜空',
+    ThemePreset.softBlue => '柔蓝',
+    ThemePreset.softPink => '柔粉',
+    ThemePreset.softGreen => '柔绿',
+    ThemePreset.softYellow => '柔黄',
+    ThemePreset.softGrey => '柔灰',
+    ThemePreset.softPurple => '柔紫',
+    null => '自定义色',
+  };
+}
 
 /// 主壳顶栏调色盘：打开公用主题 Sheet。
 class ThemePaletteIconButton extends ConsumerWidget {
@@ -22,7 +41,14 @@ class ThemePaletteIconButton extends ConsumerWidget {
     return IconButton(
       tooltip: '主题',
       icon: Icon(Icons.palette_outlined, color: fg),
-      onPressed: () => unawaited(showThemePaletteSheet(context)),
+      onPressed: () {
+        unawaited(
+          ref
+              .read(clientUsageReporterProvider)
+              .reportEvent(ClientUsageEvents.themePaletteOpen),
+        );
+        unawaited(showThemePaletteSheet(context));
+      },
     );
   }
 }
@@ -53,6 +79,13 @@ class _ThemePaletteSheetBody extends ConsumerWidget {
     ref.read(customBackgroundProvider.notifier).state = seed;
     refreshScheduledTheme(ref);
     unawaited(scheduleHomeWidgetSync(ref));
+    unawaited(
+      ref.read(clientUsageReporterProvider).reportEvent(
+            ClientUsageEvents.themeChangeOk(
+              _themePresetLabel(preset, seed: seed),
+            ),
+          ),
+    );
   }
 
   Future<void> _clearToClassic(WidgetRef ref) async {
@@ -61,6 +94,11 @@ class _ThemePaletteSheetBody extends ConsumerWidget {
     ref.read(customBackgroundProvider.notifier).state = null;
     refreshScheduledTheme(ref);
     unawaited(scheduleHomeWidgetSync(ref));
+    unawaited(
+      ref.read(clientUsageReporterProvider).reportEvent(
+            ClientUsageEvents.themeChangeOk('经典'),
+          ),
+    );
   }
 
   Future<void> _setScheduleEnabled(WidgetRef ref, bool enabled) async {
