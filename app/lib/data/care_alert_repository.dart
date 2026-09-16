@@ -9,16 +9,19 @@ class CareAlertRepository {
 
   final ApiClient _api;
 
-  /// GET 日列表；首次生成可能较久，超时 90s。deviceNo 空返回 null。
+  /// GET latest；[force]=true 时触发生成（消耗日额度）。deviceNo 空返回 null。
   Future<List<CareAlertEventItem>?> fetchDaily({
     required String deviceNo,
+    bool force = false,
   }) async {
     final dn = deviceNo.trim();
     if (dn.isEmpty) return null;
     try {
+      final query = <String, String>{'deviceNo': dn};
+      if (force) query['force'] = '1';
       final data = await _api.getEnvelope(
         '/device/api/care-alert/daily',
-        query: {'deviceNo': dn},
+        query: query,
         timeout: const Duration(seconds: 90),
       );
       final items = parseCareAlertEventItems(data?['items']);

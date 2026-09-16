@@ -221,6 +221,34 @@ class PredictionCareAlertNotifier
     });
   }
 
+  /// 进详情拉 latest 缓存（force=false，不扣日额度）；失败静默保留旧态。
+  Future<void> hydrateLatestOnly() async {
+    if (!_ref.read(sessionProvider).isLoggedIn) return;
+    var dn = _deviceNoOrNull();
+    if (dn == null) {
+      await _ref.read(deviceNoNotifierProvider.notifier).refresh();
+      dn = _deviceNoOrNull();
+    }
+    if (dn == null) return;
+    try {
+      final list = await _ref
+          .read(careAlertRepositoryProvider)
+          .fetchDaily(deviceNo: dn, force: false);
+      if (list == null) return;
+      state = PredictionCareAlertState(
+        items: list,
+        loading: false,
+        ready: true,
+        failed: false,
+        dayKey: careAlertShanghaiDayKey(),
+        deviceNo: dn,
+      );
+      AppDebugLog.careAlert('hydrate latest ok count=${list.length}');
+    } catch (e) {
+      AppDebugLog.careAlert('hydrate latest err=$e');
+    }
+  }
+
   Future<String?> _refreshManualImpl() async {
     var dn = _deviceNoOrNull();
     if (dn == null) {
@@ -248,8 +276,11 @@ class PredictionCareAlertNotifier
         .read(featureCatalogStateProvider)
         .byId(kFeatureIdCareAlertSmartRemind);
     final unlocked = isFeatureEffectivelyUnlocked(item: careItem, isVip: isVip);
-    if (!unlocked) {
-      AppDebugLog.careAlert('manual refresh skipped not unlocked isVip=$isVip');
+    final canUse = canAccessFeatureDetail(item: careItem, isVip: isVip);
+    if (!canUse) {
+      AppDebugLog.careAlert(
+        'manual refresh skipped not accessible isVip=$isVip unlocked=$unlocked trial=${careItem?.trialAvailable}',
+      );
       return '请先开通智能分析';
     }
 
@@ -261,8 +292,9 @@ class PredictionCareAlertNotifier
       deviceNo: dn,
     );
     try {
-      final list =
-          await _ref.read(careAlertRepositoryProvider).fetchDaily(deviceNo: dn);
+      final list = await _ref
+          .read(careAlertRepositoryProvider)
+          .fetchDaily(deviceNo: dn, force: true);
       if (list == null) {
         state = state.copyWith(
           loading: false,

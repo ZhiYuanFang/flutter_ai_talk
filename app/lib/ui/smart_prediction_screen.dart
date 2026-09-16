@@ -83,8 +83,7 @@ Future<void> _exitLandscapeToPortrait() async {
   await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
 }
 
-/// 预测开关闸：关始终放行；开时 VIP 放行，否则已开启数须 < 永久 allowedCount。
-/// 满额展示共享邀请码弹窗：有码兑码并自动开开关；空码激活进开通中心。
+/// 预测开关：槽位商业门闸已删除；开/关仅写本地禁用集合。
 Future<bool> _requestForecastToggle({
   required BuildContext context,
   required WidgetRef ref,
@@ -99,64 +98,6 @@ Future<bool> _requestForecastToggle({
     return true;
   }
   if (currentlyEnabled) return true;
-  // 开关门闸前 settle VIP，避免 loading 瞬时误拦。
-  final isVip =
-      (await ref.read(vipStatusProvider.notifier).ensureSettled())?.isVip ==
-          true;
-  if (!context.mounted) return false;
-  // allowedCount < 0：历史全开哨兵，视为不限名额。
-  final capped = !isVip && allowedCount >= 0 && enabledCount >= allowedCount;
-  if (capped) {
-    // 满额弹窗品牌：与开通中心预测槽位卡同一 catalog logo / 功能色。
-    final predItem = ref
-        .read(featureCatalogStateProvider)
-        .byId(kFeatureIdPredictionUnlock);
-    final result = await showInviteCodeDialog(
-      context,
-      title: '预测槽位已满',
-      body: '请先关闭其它预测或输入邀请码激活',
-      confirmLabel: '激活',
-      eventAccent: resolveFeatureColor(context, predItem),
-      logoUrl: predItem?.logo ?? '',
-    );
-    if (!context.mounted || result == null) return false;
-    if (result is InviteCodeDialogHowTo) {
-      context.push('/features/invite-howto');
-      return false;
-    }
-    if (result is! InviteCodeDialogSubmitted) return false;
-    final code = result.code;
-    if (code.isEmpty) {
-      // 空码激活：按原逻辑进开通中心
-      context.push('/features/unlock');
-      return false;
-    }
-    try {
-      await ref.read(featureUnlockRepositoryProvider).redeemInviteCode(
-            code: code,
-            featureId: kFeatureIdPredictionUnlock,
-          );
-      if (!context.mounted) return false;
-      showAppToast('开通成功', tone: AppToastTone.success);
-      await ref.read(featureCatalogStateProvider.notifier).refresh();
-      if (!context.mounted) return false;
-      await ref
-          .read(forecastDisabledIdsProvider.notifier)
-          .setEnabled(eventId, true);
-      return true;
-    } on ApiBusinessException catch (e) {
-      if (!context.mounted) return false;
-      showAppToast(
-        e.message.isNotEmpty ? e.message : '兑换失败',
-        tone: AppToastTone.error,
-      );
-      return false;
-    } catch (_) {
-      if (!context.mounted) return false;
-      showAppToast('兑换失败，请稍后重试', tone: AppToastTone.error);
-      return false;
-    }
-  }
   await ref.read(forecastDisabledIdsProvider.notifier).setEnabled(eventId, true);
   return true;
 }
@@ -348,25 +289,8 @@ class SmartPredictionScreen extends ConsumerWidget {
         : realRows;
     // 永久可开启条数；开关闸按「已开启计数」占用，非排序下标。
     final featureCatalog = ref.watch(featureCatalogStateProvider);
-    final allowedCount = featureCatalog.predictionAllowedCount;
     final enabledCount = rows.where((r) => r.forecastEnabled).length;
-    // 热态槽位对齐：超额只关不补；骨架跳过；catalog 未 ready 不按 0 误裁。
-    if (!useDemoSkeleton) {
-      final enabledIds = [
-        for (final r in rows)
-          if (r.forecastEnabled) r.eventId,
-      ];
-      final catalogReady = featureCatalog.ready;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(
-          ref.read(forecastDisabledIdsProvider.notifier).alignEnabledToAllowedCount(
-                enabledEventIds: enabledIds,
-                allowedCount: allowedCount,
-                catalogReady: catalogReady,
-              ),
-        );
-      });
-    }
+    // 槽位能力已删除：不再按 allowedCount 热态裁剪已开启项。
     Future<void> onForecastToggle(String eventId, bool enable) async {
       final currentlyEnabled =
           rows.any((r) => r.eventId == eventId && r.forecastEnabled);
@@ -377,7 +301,7 @@ class SmartPredictionScreen extends ConsumerWidget {
         enable: enable,
         enabledCount: enabledCount,
         currentlyEnabled: currentlyEnabled,
-        allowedCount: allowedCount,
+        allowedCount: -1,
       );
       if (!ok) return;
       // 列表数据序：rows 下标 + 1；描述含事件显示名。

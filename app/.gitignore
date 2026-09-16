@@ -36,6 +36,10 @@ build/
 /android/*.keystore
 # HMS AppGallery Connect（含 app_id 等，勿提交）
 /android/app/agconnect-services.json
+# china_push / 厂商推送本地 AAR（体积大，勿提交；见 push.properties.example）
+/android/app/libs/*.aar
+/android/app/libs/*.jar
+!/android/app/libs/.gitkeep
 
 # iOS signing & App Store Connect
 /ios/*.p12

@@ -15,6 +15,7 @@ import '../providers/prediction_care_alert_provider.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'ai_analysis_unlock.dart';
+import 'widgets/app_glass_overlay.dart';
 import 'widgets/feature_logo.dart';
 import 'widgets/feeding_eligibility_progress_text.dart';
 
@@ -104,12 +105,7 @@ class _HubFeedingCard extends ConsumerWidget {
             );
         body = _hubMuted(context, '资格校验失败，点击重试', accent);
       } else if (elig.data != null) {
-        onCardTap = () {
-          ref
-              .read(homePagerRequestProvider.notifier)
-              .requestPage(HomePagerPage.feeding);
-          context.go('/home');
-        };
+        onCardTap = () => unawaited(_confirmGoFeeding(context, ref));
         body = Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
           child: FeedingEligibilityProgressText(
@@ -121,15 +117,24 @@ class _HubFeedingCard extends ConsumerWidget {
           ),
         );
       } else {
-        onCardTap = () {
-          ref
-              .read(homePagerRequestProvider.notifier)
-              .requestPage(HomePagerPage.feeding);
-          context.go('/home');
-        };
+        onCardTap = () => unawaited(_confirmGoFeeding(context, ref));
         body = _hubMuted(context, '需累计有效喂养日以激活值得留意', accent);
       }
-    } else if (!unlocked) {
+    } else if (canAccessFeatureDetail(item: careFeature, isVip: isVip)) {
+      entitlementCopy = featureHubEntitlementRemainingCopy(
+        item: careFeature,
+        isVip: isVip,
+        vipExpireAt: vipExpire,
+      );
+      onCardTap = () => context.push('/prediction/ai-analysis/feeding');
+      body = _hubMuted(
+        context,
+        careFeature?.trialAvailable == true && !unlocked
+            ? '免费体验中，点击进入生成今日值得留意'
+            : '点击进入，生成今日值得留意',
+        accent,
+      );
+    } else {
       onCardTap = () => unawaited(
             openCareAlertInviteUnlockDialog(
               context: context,
@@ -138,21 +143,14 @@ class _HubFeedingCard extends ConsumerWidget {
             ),
           );
       body = _UnlockHeartbeatPrompt(accent: accent);
-    } else {
-      entitlementCopy = featureHubEntitlementRemainingCopy(
-        item: careFeature,
-        isVip: isVip,
-        vipExpireAt: vipExpire,
-      );
-      onCardTap = () => context.push('/prediction/ai-analysis/feeding');
-      body = _hubMuted(context, '点击进入，生成今日值得留意', accent);
     }
     final deep = _deepenAccent(accent);
     return _HubGlassCard(
       title: '喂养记录分析',
       logoUrl: careFeature?.logo ?? '',
       accent: deep,
-      showChevron: unlocked && elig.isQualified,
+      showChevron: canAccessFeatureDetail(item: careFeature, isVip: isVip) &&
+          elig.isQualified,
       onTap: onCardTap,
       blurb: _FeedingAnalysisBlurb(accent: deep),
       entitlementCopy: entitlementCopy,
@@ -160,6 +158,19 @@ class _HubFeedingCard extends ConsumerWidget {
       body: body,
     );
   }
+}
+
+Future<void> _confirmGoFeeding(BuildContext context, WidgetRef ref) async {
+  final ok = await showGlassConfirmDialog(
+    context,
+    title: '去记录喂养',
+    message: '智能分析需先累计有效喂养日。是否前往喂养页记录？',
+    cancelLabel: '取消',
+    confirmLabel: '去喂养',
+  );
+  if (ok != true || !context.mounted) return;
+  ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.feeding);
+  context.go('/home');
 }
 
 /// Hub 成长卡：开通门闸 / 已开通进子页。
@@ -176,13 +187,28 @@ class _HubGrowthCard extends ConsumerWidget {
         .byId(kFeatureIdGrowthTrajectoryPredict);
     final unlocked =
         isFeatureEffectivelyUnlocked(item: feature, isVip: isVip);
+    final canEnter = canAccessFeatureDetail(item: feature, isVip: isVip);
     final accent = resolveFeatureColor(context, feature);
 
     VoidCallback onCardTap;
     String? entitlementCopy;
     late final Widget body;
 
-    if (!unlocked) {
+    if (canEnter) {
+      entitlementCopy = featureHubEntitlementRemainingCopy(
+        item: feature,
+        isVip: isVip,
+        vipExpireAt: vipExpire,
+      );
+      onCardTap = () => context.push('/prediction/ai-analysis/growth');
+      body = _hubMuted(
+        context,
+        feature?.trialAvailable == true && !unlocked
+            ? '免费体验中，点击进入成长轨迹预测'
+            : '点击进入成长轨迹预测',
+        accent,
+      );
+    } else {
       onCardTap = () => unawaited(
             openGrowthTrajectoryInviteUnlockDialog(
               context: context,
@@ -191,21 +217,13 @@ class _HubGrowthCard extends ConsumerWidget {
             ),
           );
       body = _hubMuted(context, '点击开通，结合宝宝近况定制未来 7 天成长提示', accent);
-    } else {
-      entitlementCopy = featureHubEntitlementRemainingCopy(
-        item: feature,
-        isVip: isVip,
-        vipExpireAt: vipExpire,
-      );
-      onCardTap = () => context.push('/prediction/ai-analysis/growth');
-      body = _hubMuted(context, '点击进入成长轨迹预测', accent);
     }
 
     return _HubGlassCard(
       title: '成长轨迹预测',
       logoUrl: feature?.logo ?? '',
       accent: accent,
-      showChevron: unlocked,
+      showChevron: canEnter,
       onTap: onCardTap,
       blurb: _GrowthTrajectoryBlurb(accent: accent),
       entitlementCopy: entitlementCopy,

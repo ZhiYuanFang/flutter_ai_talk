@@ -7,7 +7,7 @@
 ## 技术栈
 
 - Flutter / Dart（Riverpod、go_router）
-- Android：Kotlin、HMS Push、MiPush（可选 AAR）、R8 / ProGuard
+- Android：Kotlin、`china_push`（厂商通道）、R8 / ProGuard
 - iOS：APNs、Xcode 签名与 TestFlight
 - OpenSpec（变更提案、设计、任务与规格管理）
 

@@ -4,22 +4,24 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../api/api_client.dart';
 import '../../api/app_debug_log.dart';
-import '../data/ucg_api_client.dart';
 import 'ucg_push_channel.dart';
 import 'ucg_push_native.dart';
 
 const _kDeviceKeyStorage = 'ucg_push_device_key';
 
-/// Registers vendor push tokens with ucg-service when wxId is bound.
+/// 全局厂商推送 token 注册（push-service：`/app/api/push/*`）。
+///
+/// 门闸仅为已登录；服务端 JWT wxId 表示登录用户，不要求绑微信。
 class UcgPushRegistrationService {
   UcgPushRegistrationService({
-    required UcgApiClient api,
+    required ApiClient api,
     FlutterSecureStorage? secureStorage,
   })  : _api = api,
         _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
-  final UcgApiClient _api;
+  final ApiClient _api;
   final FlutterSecureStorage _secureStorage;
   StreamSubscription<UcgPushTokenEvent>? _tokenSub;
   UcgPushChannel? _activeChannel;
@@ -52,11 +54,9 @@ class UcgPushRegistrationService {
   /// Returns detected channel; null on unsupported Android OEM or web.
   Future<UcgPushChannel?> detectSupportedChannel() => UcgPushNative.detectChannel();
 
-  Future<bool> registerIfEligible({
-    required bool isLoggedIn,
-    required bool wxBound,
-  }) async {
-    if (kIsWeb || !isLoggedIn || !wxBound) return false;
+  /// 已登录即可注册；不检查微信绑定。
+  Future<bool> registerIfEligible({required bool isLoggedIn}) async {
+    if (kIsWeb || !isLoggedIn) return false;
     final channel = await detectSupportedChannel();
     if (channel == null) return false;
     await UcgPushNative.requestNotificationPermission();
@@ -69,7 +69,8 @@ class UcgPushRegistrationService {
       return true;
     }
     _activeChannel = channel;
-    await _api.post('/push/register', {
+    // 全局 push-service（非 /ucg/app/api）
+    await _api.postJsonEnvelope('/app/api/push/register', {
       'channel': channel.apiValue,
       'token': token,
       'deviceKey': key,
@@ -90,7 +91,7 @@ class UcgPushRegistrationService {
       body['channel'] = ch.apiValue;
     }
     try {
-      await _api.post('/push/unregister', body);
+      await _api.postJsonEnvelope('/app/api/push/unregister', body);
     } catch (e) {
       AppDebugLog.ucgPush('unregister err=$e');
     }

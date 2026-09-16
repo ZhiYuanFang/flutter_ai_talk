@@ -6,6 +6,7 @@ allprojects {
         google()
         mavenCentral()
         maven { url = uri("https://developer.huawei.com/repo/") }
+        maven { url = uri("https://developer.hihonor.com/repo") }
     }
     configurations.configureEach {
         resolutionStrategy {

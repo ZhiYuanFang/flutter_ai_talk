@@ -319,22 +319,43 @@ final ucgEligibilityStateProvider =
   return UcgEligibilityNotifier(ref);
 });
 
-/// 目录功能是否有效开通（含 isVip 覆盖；不含 UCG）。
-/// 预测：仅当永久条数达服务端非叶子 total 才算「已全部激活」；VIP 不抬 Hub 库存态。
+/// 目录功能是否有效开通（含 isVip 覆盖；不含 UCG；不含试用 soft access）。
+/// 预测槽位能力已删除：`prediction_unlock` 不再作商业「已全部激活」门闸。
 bool isFeatureEffectivelyUnlocked({
   required FeatureCatalogItem? item,
   required bool isVip,
 }) {
   if (item?.featureId == kFeatureIdPredictionUnlock) {
-    return item?.isPredictionFullyActivated == true;
+    // 槽位商品下线后视为无需开通（避免 Hub 残留卡误导）。
+    return true;
   }
   if (isVip) return true;
   return item?.unlocked == true;
 }
 
-/// 预测累加 CTA：未达非叶子天花板即展示（VIP 不隐藏）；与列表可见行数无关。
+/// 是否可进入详情使用（已开通 / VIP / 仍有免费体验资格）。
+bool canAccessFeatureDetail({
+  required FeatureCatalogItem? item,
+  required bool isVip,
+}) {
+  if (isFeatureEffectivelyUnlocked(item: item, isVip: isVip)) return true;
+  return item?.trialAvailable == true;
+}
+
+/// 开通中心是否展示免费体验（VIP/已开通由 catalog trialAvailable=false；客户端再挡 VIP）。
+bool shouldShowFreeTrialCta({
+  required FeatureCatalogItem? item,
+  required bool isVip,
+}) {
+  if (isVip) return false;
+  if (item == null) return false;
+  if (isFeatureEffectivelyUnlocked(item: item, isVip: false)) return false;
+  return item.trialAvailable;
+}
+
+/// 预测累加 CTA：槽位删除后不再展示开通累加按钮。
 bool shouldShowPredictionAccumulationCtas(FeatureCatalogItem item) {
-  return !item.isPredictionFullyActivated;
+  return false;
 }
 
 /// 展示用开通方式：设备 grant 优先，否则 VIP→月卡。

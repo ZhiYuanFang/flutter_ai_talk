@@ -19,6 +19,8 @@ import '../../providers/feature_unlock_provider.dart';
 import '../../providers/home_history_notifier.dart';
 import '../../providers/home_pager.dart';
 import '../../providers/history_event_fly_provider.dart';
+import '../../providers/predict_imminent_sync_provider.dart';
+import '../../providers/app_push_registration_provider.dart';
 import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
@@ -339,6 +341,10 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   @override
   Widget build(BuildContext context) {
     final navigatorCanPop = Navigator.of(context).canPop();
+    // 激活预测临近 pending 副作用同步（与推送 register 解耦）
+    ref.watch(predictImminentPendingSyncProvider);
+    // 全局推送注册（登录即可；不依赖 UCG WS）
+    ref.watch(appPushBootstrapProvider);
 
     // 游客→登录：主壳补激活历史 WS；登出清订阅（disconnect 由 release 负责）
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),

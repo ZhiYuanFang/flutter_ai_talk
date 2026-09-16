@@ -65,6 +65,7 @@ dependencies:
   audioplayers: ^6.7.1
   sherpa_onnx: ^1.12.15
   archive: ^4.0.7
+  china_push: ^1.0.1
 
 dev_dependencies:
   flutter_test:

@@ -7,8 +7,6 @@
 -keepclassmembers class * extends com.sun.jna.** { public *; }
 
 
--keep class com.fzy.pangbao.UcgHmsMessageService { *; }
--keep class com.fzy.pangbao.UcgMiPushReceiver { *; }
 -keep class com.fzy.pangbao.PangbaoWidgetSmallProvider { *; }
 -keep class com.fzy.pangbao.PangbaoWidgetMediumProvider { *; }
 -keep class com.fzy.pangbao.PangbaoWidgetLargeProvider { *; }
@@ -17,13 +15,28 @@
 # home_widget 交互跳过：BackgroundReceiver / JobIntentService
 -keep class es.antonborri.home_widget.HomeWidgetBackgroundReceiver { *; }
 -keep class es.antonborri.home_widget.HomeWidgetBackgroundService { *; }
+
+# china_push + 厂商 SDK
+-keep class com.huarenkeji.china_push.** { *; }
 -keep class com.huawei.hms.** { *; }
+-keep class com.huawei.agconnect.** { *; }
 -keep class com.xiaomi.mipush.sdk.** { *; }
+-keep class com.xiaomi.push.** { *; }
+-keep class com.heytap.msp.** { *; }
+-keep class com.heytap.mcssdk.** { *; }
+-keep class com.vivo.push.** { *; }
+-keep class com.hihonor.push.** { *; }
 
 # HMS references EMUI-only APIs (e.g. BuildEx) absent on non-Huawei ROMs.
 # AGP 8+ R8 full mode treats these optional refs as errors; safe to suppress.
 -dontwarn com.huawei.android.os.**
 -dontwarn com.huawei.libcore.io.**
+-dontwarn com.huawei.hms.**
+-dontwarn com.huawei.agconnect.**
+-dontwarn com.hihonor.**
+-dontwarn com.heytap.**
+-dontwarn com.vivo.**
+-dontwarn com.xiaomi.**
 
 # HiAnalytics optional HMS deps (referenced by hms framework; not bundled with push SDK).
 -dontwarn com.huawei.hianalytics.process.HiAnalyticsConfig$Builder

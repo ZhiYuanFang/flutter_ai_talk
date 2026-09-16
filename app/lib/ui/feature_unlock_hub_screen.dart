@@ -12,8 +12,10 @@ import '../data/feature_unlock_models.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/feature_unlock_provider.dart';
+import '../providers/prediction_care_alert_provider.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
+import 'ai_analysis_unlock.dart';
 import 'feature_unlock/invite_code_dialog.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
@@ -85,16 +87,36 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
                 ),
               )
             else
-              ...catalog.items.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _FeatureUnlockCard(
-                    item: item,
-                    isVip: isVip,
-                    onChanged: _refreshAll,
-                  ),
-                ),
-              ),
+              // 过滤预测槽位商品；若过滤后为空则提示。
+              ...() {
+                final visible = catalog.items
+                    .where((e) => e.featureId != kFeatureIdPredictionUnlock)
+                    .toList();
+                if (visible.isEmpty) {
+                  return [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 32),
+                      child: Text(
+                        catalog.failed ? '加载失败，下拉重试' : '暂无可开通功能',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: onShell.withValues(alpha: 0.65)),
+                      ),
+                    ),
+                  ];
+                }
+                return visible
+                    .map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _FeatureUnlockCard(
+                          item: item,
+                          isVip: isVip,
+                          onChanged: _refreshAll,
+                        ),
+                      ),
+                    )
+                    .toList();
+              }(),
             // 为底部悬浮月卡留出滚动空间
             const SizedBox(height: 140),
           ],
@@ -209,8 +231,6 @@ class _FeatureUnlockCard extends ConsumerWidget {
   final bool isVip;
   final Future<void> Function() onChanged;
 
-  bool get _isPrediction => item.featureId == kFeatureIdPredictionUnlock;
-
   /// 已开通智能分析 / 成长轨迹 → 详情子页；其它无整卡跳转。
   String? get _openedDetailRoute {
     switch (item.featureId) {
@@ -228,13 +248,18 @@ class _FeatureUnlockCard extends ConsumerWidget {
     final unlocked = isFeatureEffectivelyUnlocked(item: item, isVip: isVip);
     final method = displayUnlockMethod(item: item, isVip: isVip);
     final product = item.defaultProduct;
-    // 一套 CTA：预测未达非叶子天花板则显示（含 VIP）；其它功能仅未有效开通时显示。
-    final showUnlockCtas = _isPrediction
-        ? shouldShowPredictionAccumulationCtas(item)
-        : !unlocked;
+    // 槽位已删除：仅未有效开通时展示 CTA（含支付/邀请/免费体验）。
+    final showUnlockCtas = !unlocked;
+    final showTrial = shouldShowFreeTrialCta(item: item, isVip: isVip);
+    // care 免费体验仍须喂养达标。
+    final careEligOk = item.featureId != kFeatureIdCareAlertSmartRemind ||
+        ref.watch(careAlertEligibilityStateProvider).isQualified;
+    final trialEnabled = showTrial && careEligOk;
     final accent = resolveFeatureColor(context, item);
-    // 仅有效开通且有详情路由时挂整卡 onTap（未开通行靠 CTA，避免抢手势）。
-    final detailRoute = unlocked ? _openedDetailRoute : null;
+    // 已开通或仍有试用资格时可整卡进详情。
+    final canEnter = canAccessFeatureDetail(item: item, isVip: isVip) &&
+        (item.featureId != kFeatureIdCareAlertSmartRemind || careEligOk);
+    final detailRoute = canEnter ? _openedDetailRoute : null;
 
     final card = SettingsGlassPanel(
       accent: accent,
@@ -250,7 +275,6 @@ class _FeatureUnlockCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 标题跟行功能色（与 AI Hub 字色政策对齐）。
                     Text(
                       item.title.isEmpty ? item.featureId : item.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -260,7 +284,6 @@ class _FeatureUnlockCard extends ConsumerWidget {
                     ),
                     if (item.description.trim().isNotEmpty) ...[
                       const SizedBox(height: 6),
-                      // 介绍降透 accent，避免抢 CTA。
                       Text(
                         item.description,
                         style: TextStyle(
@@ -273,22 +296,9 @@ class _FeatureUnlockCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (_isPrediction && item.allowedCount != null)
-                // 徽章：已激活 N / 已全部激活（N vs 服务端非叶子 total；非可见行数）
+              if (unlocked)
                 Text(
-                  item.predictionActivationBadgeCopy,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    // 状态跟功能色；未满略降透明以区分层次。
-                    color: item.isPredictionFullyActivated
-                        ? accent
-                        : accent.withValues(alpha: 0.65),
-                  ),
-                )
-              else if (unlocked)
-                Text(
-                  '已全部激活',
+                  '已开通',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -310,19 +320,10 @@ class _FeatureUnlockCard extends ConsumerWidget {
                     onPressed: () => unawaited(
                       _openPaymentDialog(context, ref, item, product),
                     ),
-                    child: _isPrediction
-                        ? _PayPerUnitLabel(product: product, accent: accent)
-                        : Text(
-                            '支付开通 ¥${formatVipFenYuan(product.priceFen)}',
-                            style: _kUnlockCtaTextStyle,
-                          ),
-                  ),
-                if (item.supportsAd)
-                  OutlinedButton(
-                    style: _unlockCtaButtonStyle(accent),
-                    onPressed: () =>
-                        unawaited(_openAdDialog(context, ref, item)),
-                    child: const Text('看广告', style: _kUnlockCtaTextStyle),
+                    child: Text(
+                      '支付开通 ¥${formatVipFenYuan(product.priceFen)}',
+                      style: _kUnlockCtaTextStyle,
+                    ),
                   ),
                 if (item.supportsInviteCode)
                   OutlinedButton(
@@ -331,16 +332,31 @@ class _FeatureUnlockCard extends ConsumerWidget {
                         unawaited(_openInviteDialog(context, ref, item)),
                     child: const Text('输入邀请码激活', style: _kUnlockCtaTextStyle),
                   ),
+                if (trialEnabled)
+                  OutlinedButton(
+                    style: _unlockCtaButtonStyle(accent),
+                    onPressed: () => unawaited(
+                      _openFreeTrial(context, ref, item),
+                    ),
+                    child: const Text('免费体验', style: _kUnlockCtaTextStyle),
+                  ),
               ],
             )
           else
             Text(
-              // '开通方式：${featureUnlockMethodLabel(method)}'
-              '${item.unlocked && item.expiresAt > 0 ? ' · ${featureRemainingDaysCopy(item.expiresAt)}' : (method == 'vip' ? (isVip && !_isPrediction ? ' · ${featureRemainingDaysCopy(ref.watch(vipStatusProvider).valueOrNull?.expireAt ?? 0)}' : '') : (item.unlocked ? ' · 永久' : ''))}',
+              item.unlocked && item.expiresAt > 0
+                  ? featureRemainingDaysCopy(item.expiresAt)
+                  : (method == 'vip'
+                      ? (isVip
+                          ? featureRemainingDaysCopy(
+                              ref.watch(vipStatusProvider).valueOrNull?.expireAt ??
+                                  0,
+                            )
+                          : '')
+                      : (item.unlocked ? '永久' : '')),
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 13,
-                // 已开通时效状态跟功能色。
                 color: accent.withValues(alpha: 0.85),
               ),
             ),
@@ -348,7 +364,6 @@ class _FeatureUnlockCard extends ConsumerWidget {
       ),
     );
     if (detailRoute == null) return card;
-    // 整卡可点进详情；无箭头等额外暗示，仅 ripple 反馈。
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
@@ -359,21 +374,27 @@ class _FeatureUnlockCard extends ConsumerWidget {
     );
   }
 
+  Future<void> _openFreeTrial(
+    BuildContext context,
+    WidgetRef ref,
+    FeatureCatalogItem item,
+  ) async {
+    final ok = await confirmFreeTrialDialog(context: context, feature: item);
+    if (!ok || !context.mounted) return;
+    final route = _openedDetailRoute;
+    if (route == null) return;
+    context.push(route);
+  }
+
   Future<void> _openPaymentDialog(
     BuildContext context,
     WidgetRef ref,
     FeatureCatalogItem item,
     FeatureCatalogProduct product,
   ) async {
-    final isPerUnit = item.featureId == kFeatureIdPredictionUnlock;
     final days = featureDurationCopy(product.durationDays);
-    // 价串挂确认键右侧小字括号；正文不重复「价格：」。
-    final priceLine = isPerUnit
-        ? '¥${formatVipFenYuan(product.priceFen)}/个'
-        : '¥${formatVipFenYuan(product.priceFen)}';
-    final message = isPerUnit
-        ? '永久 +1 条预测槽位'
-        : '开通「${item.title}」有效期：$days';
+    final priceLine = '¥${formatVipFenYuan(product.priceFen)}';
+    final message = '开通「${item.title}」有效期：$days';
     final ok = await _showFeaturePayConfirmDialog(
       context,
       message: message,
@@ -394,69 +415,16 @@ class _FeatureUnlockCard extends ConsumerWidget {
     if (outcome.success) await onChanged();
   }
 
-  Future<void> _openAdDialog(
-    BuildContext context,
-    WidgetRef ref,
-    FeatureCatalogItem item,
-  ) async {
-    // 非预测：正文带广告授予天数；缺字段弱化，不用付费 SKU 冒充。
-    final String adMessage;
-    if (item.featureId == kFeatureIdPredictionUnlock) {
-      adMessage =
-          '观看一段广告即可为「${item.title}」永久 +1 条。\n点击确定后视为已观看（演示）。';
-    } else {
-      final days = item.adDurationDays;
-      final durationPart =
-          days == null ? '' : '，有效期：${featureDurationCopy(days)}';
-      adMessage =
-          '观看一段广告即可开通「${item.title}」$durationPart。\n点击确定后视为已观看（演示）。';
-    }
-    final ok = await showGlassConfirmDialog(
-      context,
-      title: '看广告开通',
-      message: adMessage,
-      confirmLabel: '确定看广告',
-      eventAccent: resolveFeatureColor(context, item),
-    );
-    if (ok != true || !context.mounted) return;
-    try {
-      await ref.read(featureUnlockRepositoryProvider).completeAd(
-            featureId: item.featureId,
-            idempotencyKey:
-                '${item.featureId}_${DateTime.now().millisecondsSinceEpoch}',
-          );
-      if (!context.mounted) return;
-      showAppToast('已开通', tone: AppToastTone.success);
-      await onChanged();
-    } on ApiBusinessException catch (e) {
-      if (!context.mounted) return;
-      // 业务失败：展示服务端 message
-      showAppToast(
-        e.message.isNotEmpty ? e.message : '开通失败',
-        tone: AppToastTone.error,
-      );
-    } catch (_) {
-      if (!context.mounted) return;
-      showAppToast('开通失败，请稍后重试', tone: AppToastTone.error);
-    }
-  }
-
   Future<void> _openInviteDialog(
     BuildContext context,
     WidgetRef ref,
     FeatureCatalogItem item,
   ) async {
     // 共享弹窗：获取邀请码 / 提交码（空码静默关闭）
-    // 非预测：展示 inviteDurationDays；缺字段弱化，禁止用付费 SKU 天数。
-    final String inviteBody;
-    if (item.featureId == kFeatureIdPredictionUnlock) {
-      inviteBody = '输入邀请码，激活1个预测槽位·永久';
-    } else {
-      final days = item.inviteDurationDays;
-      inviteBody = days == null
-          ? '输入邀请码激活「${item.title}」'
-          : '输入邀请码激活「${item.title}」，有效期：${featureDurationCopy(days)}';
-    }
+    final days = item.inviteDurationDays;
+    final inviteBody = days == null
+        ? '输入邀请码激活「${item.title}」'
+        : '输入邀请码激活「${item.title}」，有效期：${featureDurationCopy(days)}';
     final result = await showInviteCodeDialog(
       context,
       title: '输入邀请码',
@@ -600,43 +568,4 @@ Future<bool?> _showFeaturePayConfirmDialog(
       );
     },
   );
-}
-
-/// 预测按次购买价签：现价 + 删除线原价 + /个。
-class _PayPerUnitLabel extends StatelessWidget {
-  const _PayPerUnitLabel({
-    required this.product,
-    required this.accent,
-  });
-
-  final FeatureCatalogProduct product;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '¥${formatVipFenYuan(product.priceFen)}',
-          style: _kUnlockCtaTextStyle.copyWith(color: accent),
-        ),
-        if (product.showOriginalPrice) ...[
-          const SizedBox(width: 4),
-          Text(
-            '¥${formatVipFenYuan(product.originalPriceFen)}',
-            style: _kUnlockCtaTextStyle.copyWith(
-              decoration: TextDecoration.lineThrough,
-              // 删除线原价：功能色降透明，保持次要。
-              color: accent.withValues(alpha: 0.55),
-            ),
-          ),
-        ],
-        Text(
-          '/个',
-          style: _kUnlockCtaTextStyle.copyWith(color: accent),
-        ),
-      ],
-    );
-  }
 }

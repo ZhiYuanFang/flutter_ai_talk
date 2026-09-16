@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -89,13 +90,33 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <service
-            android:name=".UcgHmsMessageService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.huawei.push.action.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
+        <!--
+          china_push：库用 \${…} 会留下 '\'；纯数字 value 又会被 Bundle 存成 Integer，
+          getString 抛 ClassCast→null。宿主 tools:node=replace + @string 保证类型与内容正确。
+        -->
+        <meta-data
+            android:name="HMS_APP_ID"
+            android:value="@string/china_push_hms_app_id"
+            tools:node="replace" />
+        <meta-data
+            android:name="MI_APP_ID"
+            android:value="@string/china_push_mi_app_id"
+            tools:node="replace" />
+        <meta-data
+            android:name="MI_APP_KEY"
+            android:value="@string/china_push_mi_app_key"
+            tools:node="replace" />
+        <meta-data
+            android:name="com.hihonor.push.app_id"
+            android:value="@string/china_push_honor_app_id"
+            tools:node="replace" />
+        <!-- HMS Core 读此键（非 china_push 的 HMS_APP_ID）；无 AGConnect 插件时必须手写，否则 getToken 907135000 / app_id:| -->
+        <meta-data
+            android:name="com.huawei.hms.client.appid"
+            android:value="@string/huawei_hms_client_appid" />
+        <meta-data
+            android:name="com.huawei.hms.client.cpid"
+            android:value="@string/huawei_hms_client_cpid" />
         <receiver
             android:name=".PangbaoWidgetSmallProvider"
             android:exported="true"

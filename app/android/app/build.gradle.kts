@@ -24,24 +24,21 @@ fun pushProp(key: String, default: String = ""): String =
     pushProperties.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() } ?: default
 
 val agconnectServicesFile = file("agconnect-services.json")
-// Optional: copy agconnect-services.json from AppGallery Connect for HMS app_id auto-discovery.
-// AGConnect Gradle plugin is not required; app_id is read below or via push.properties.
-
+// 可选：从 AppGallery Connect 的 agconnect-services.json 解析华为 app_id。
 val hmsAppIdFromAgconnect = agconnectServicesFile.takeIf { it.exists() }?.readText()
     ?.let { text -> Regex(""""app_id"\s*:\s*"([^"]+)"""").find(text)?.groupValues?.get(1) }
     ?.trim()
     ?: ""
 
+// china_push manifestPlaceholders：空字符串表示该厂商未开通（插件可能回落到小米）。
 val hmsAppId = hmsAppIdFromAgconnect.ifEmpty { pushProp("ucg.hms.app_id") }
-val mipushAppId = pushProp("ucg.mipush.app_id")
-val mipushAppKey = pushProp("ucg.mipush.app_key")
-val mipushRegion = pushProp("ucg.mipush.region", "China")
-
-// MiPush SDK is distributed as a local AAR from https://admin.xmpush.xiaomi.com/
-val mipushAarFiles = file("libs").listFiles()
-    ?.filter { it.isFile && it.name.startsWith("MiPush_SDK_Client") && it.name.endsWith(".aar") }
-    ?: emptyList()
-val mipushEnabled = mipushAarFiles.isNotEmpty()
+val miAppId = pushProp("ucg.mipush.app_id")
+val miAppKey = pushProp("ucg.mipush.app_key")
+val oppoAppKey = pushProp("ucg.oppo.app_key")
+val oppoAppSecret = pushProp("ucg.oppo.app_secret")
+val vivoAppId = pushProp("ucg.vivo.app_id")
+val vivoAppKey = pushProp("ucg.vivo.app_key")
+val honorAppId = pushProp("ucg.honor.app_id")
 
 android {
     namespace = "com.fzy.pangbao"
@@ -71,29 +68,29 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        buildConfigField("String", "UCG_HMS_APP_ID", "\"$hmsAppId\"")
-        buildConfigField("String", "UCG_MIPUSH_APP_ID", "\"$mipushAppId\"")
-        buildConfigField("String", "UCG_MIPUSH_APP_KEY", "\"$mipushAppKey\"")
-        buildConfigField("String", "UCG_MIPUSH_REGION", "\"$mipushRegion\"")
-        buildConfigField("boolean", "UCG_MIPUSH_ENABLED", mipushEnabled.toString())
+        // china_push 插件 AndroidManifest 占位符（见包 README）
+        manifestPlaceholders["MI_APP_ID"] = miAppId
+        manifestPlaceholders["MI_APP_KEY"] = miAppKey
+        manifestPlaceholders["OPPO_APP_KEY"] = oppoAppKey
+        manifestPlaceholders["OPPO_APP_SECRET"] = oppoAppSecret
+        manifestPlaceholders["VIVO_APP_ID"] = vivoAppId
+        manifestPlaceholders["VIVO_APP_KEY"] = vivoAppKey
+        manifestPlaceholders["HONOR_APP_ID"] = honorAppId
+        manifestPlaceholders["HMS_APP_ID"] = hmsAppId
 
-        manifestPlaceholders["UCG_MIPUSH_APP_ID"] = mipushAppId
-        manifestPlaceholders["UCG_MIPUSH_APP_KEY"] = mipushAppKey
-    }
-
-    buildFeatures {
-        buildConfig = true
-    }
-
-    sourceSets {
-        getByName("main") {
-            java.srcDir(
-                if (mipushEnabled) "src/mipush/kotlin" else "src/nomipush/kotlin",
-            )
-            if (mipushEnabled) {
-                manifest.srcFile("src/mipush/AndroidManifest.xml")
-            }
-        }
+        // 纯数字 meta-data 会被 PackageManager 存成 Integer，china_push 的 getString 会 ClassCast→null。
+        // 经 @string 注入，保证 Bundle 里是 String。
+        resValue("string", "china_push_hms_app_id", hmsAppId)
+        resValue("string", "china_push_mi_app_id", miAppId)
+        resValue("string", "china_push_mi_app_key", miAppKey)
+        resValue("string", "china_push_honor_app_id", honorAppId)
+        // HMS SDK 自身读 com.huawei.hms.client.appid（格式 appid=数字），与 china_push 的 HMS_APP_ID 不同键。
+        resValue("string", "huawei_hms_client_appid", if (hmsAppId.isEmpty()) "" else "appid=$hmsAppId")
+        val hmsCpId = agconnectServicesFile.takeIf { it.exists() }?.readText()
+            ?.let { text -> Regex(""""cp_id"\s*:\s*"([^"]+)"""").find(text)?.groupValues?.get(1) }
+            ?.trim()
+            ?: ""
+        resValue("string", "huawei_hms_client_cpid", if (hmsCpId.isEmpty()) "" else "cpid=$hmsCpId")
     }
 
     buildTypes {
@@ -124,13 +121,44 @@ flutter {
     source = "../.."
 }
 
+// china_push XML 使用 \${PLACEHOLDER}；AGP 只替换 ${PLACEHOLDER}，会留下前导 '\'。
+// 不依赖 AGConnect 插件 / assets 内 JSON：china_push 经 meta-data HMS_APP_ID 注入 getToken。
+// process*Manifest 产出路径因 AGP 版本而异，故在相关任务结束后扫 intermediates 兜底剥离。
+fun stripChinaPushManifestBackslash(manifestFile: java.io.File) {
+    if (!manifestFile.isFile) return
+    val original = manifestFile.readText(Charsets.UTF_8)
+    val fixed = original.replace(Regex("""(android:value=")\\"""), "$1")
+    if (fixed != original) {
+        manifestFile.writeText(fixed, Charsets.UTF_8)
+        logger.lifecycle("china_push: stripped meta-data backslash in ${manifestFile.path}")
+    }
+}
+
+fun stripAllAppManifestsUnderBuild() {
+    val intermediates = layout.buildDirectory.dir("intermediates").get().asFile
+    if (!intermediates.isDirectory) return
+    intermediates.walkTopDown()
+        .filter { it.isFile && it.name == "AndroidManifest.xml" }
+        .forEach { stripChinaPushManifestBackslash(it) }
+}
+
+listOf(
+    "processDebugMainManifest",
+    "processReleaseMainManifest",
+    "processDebugManifest",
+    "processReleaseManifest",
+    "processDebugManifestForPackage",
+    "processReleaseManifestForPackage",
+).forEach { taskName ->
+    tasks.matching { it.name == taskName }.configureEach {
+        doLast { stripAllAppManifestsUnderBuild() }
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.core:core-splashscreen:1.0.1")
-    implementation("com.huawei.hms:push:6.12.0.300")
-    if (mipushEnabled) {
-        mipushAarFiles.forEach { aar ->
-            implementation(files(aar))
-        }
-    }
+    // 小米 / OPPO / vivo AAR：china_push 为 compileOnly，须由宿主提供运行时依赖
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+    implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 }

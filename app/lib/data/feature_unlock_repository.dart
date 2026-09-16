@@ -139,20 +139,16 @@ class FeatureUnlockRepository {
     );
   }
 
-  /// 广告完成开通（MVP 信客户端）。
+  /// 广告完成开通（已下线；保留方法防旧调用编译，服务端应拒绝）。
+  @Deprecated('广告开通已删除')
   Future<void> completeAd({
     required String featureId,
     String idempotencyKey = '',
   }) async {
-    final body = <String, dynamic>{
-      'featureId': featureId.trim(),
-    };
-    final key = idempotencyKey.trim();
-    if (key.isNotEmpty) {
-      body['idempotencyKey'] = key;
-    }
-    await _api.postJsonEnvelope('/cash/app/api/feature/ad/complete', body);
-    AppDebugLog.featureUnlock('ad complete ok featureId=${featureId.trim()}');
+    AppDebugLog.featureUnlock(
+      'ad complete rejected featureId=${featureId.trim()} (ad unlock removed)',
+    );
+    throw ApiBusinessException(-1, '广告开通已下线');
   }
 
   /// GET `/cash/app/api/invite/mine`：当前用户邀请码与成功兑换数。

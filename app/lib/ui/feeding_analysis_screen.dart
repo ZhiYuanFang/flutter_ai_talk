@@ -39,7 +39,24 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
         ref.read(careAlertEligibilityStateProvider.notifier).ensureLoaded(),
       );
       unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
+      // 可访问时拉 latest 缓存（不 force，不扣次）。
+      unawaited(_loadLatestIfAccessible());
     });
+  }
+
+  Future<void> _loadLatestIfAccessible() async {
+    final isVip = ref.read(vipStatusProvider).valueOrNull?.isVip == true;
+    final careFeature = ref
+        .read(featureCatalogStateProvider)
+        .byId(kFeatureIdCareAlertSmartRemind);
+    if (!canAccessFeatureDetail(item: careFeature, isVip: isVip)) return;
+    final elig = ref.read(careAlertEligibilityStateProvider);
+    if (!elig.isQualified && !elig.loading) {
+      await ref.read(careAlertEligibilityStateProvider.notifier).ensureLoaded();
+    }
+    if (!ref.read(careAlertEligibilityStateProvider).isQualified) return;
+    // 复用 provider：无 force 的 hydrate 走 repository force:false
+    await ref.read(predictionCareAlertStateProvider.notifier).hydrateLatestOnly();
   }
 
   Future<void> _onTapAnalyze() async {
@@ -50,6 +67,8 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
     if (err != null) {
       ref.showApiToast(err, tone: AppToastTone.error);
     }
+    // 试用首次成功后服务端 claim，刷新目录同步 trial/unlocked。
+    unawaited(ref.read(featureCatalogStateProvider.notifier).refresh());
   }
 
   @override
@@ -64,8 +83,7 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
     final careFeature = ref
         .watch(featureCatalogStateProvider)
         .byId(kFeatureIdCareAlertSmartRemind);
-    final unlocked =
-        isFeatureEffectivelyUnlocked(item: careFeature, isVip: isVip);
+    final canUse = canAccessFeatureDetail(item: careFeature, isVip: isVip);
     final accent = resolveFeatureColor(context, careFeature);
     // 浅底 / 提示用加深 accent，对齐 Hub 可读策略。
     final deep = _deepenAccent(accent);
@@ -75,7 +93,7 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
     final bgEnd = Color.lerp(bgStart, accent, 0.28) ?? scheme.surface;
 
     Widget body;
-    Widget? trailingCta;
+    Widget? bottomCta;
 
     if (!elig.isQualified) {
       if (elig.loading) {
@@ -119,7 +137,7 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
           child: _muted(context, '需累计有效喂养日以激活值得留意', deep),
         );
       }
-    } else if (!unlocked) {
+    } else if (!canUse) {
       body = InkWell(
         onTap: () => unawaited(
           openCareAlertInviteUnlockDialog(
@@ -141,14 +159,19 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
       );
     } else if (careState.loading) {
       body = _muted(context, '正在思考中', deep);
+      // 分析中仍展示 CTA 区说明，便于用户感知入口。
+      bottomCta = _FeedingBodyCta(
+        accent: accent,
+        onTap: null,
+      );
     } else {
-      // 合格已开通且非请求中：CTA 进 AppBar；「每日一次」挂 CTA 下。
-      trailingCta = _FeedingAppBarCta(
+      // 合格且可使用：CTA 在正文下方居中；日限文案对齐用户日 5 次。
+      bottomCta = _FeedingBodyCta(
         accent: accent,
         onTap: _onTapAnalyze,
       );
       if (items.isEmpty) {
-        body = _muted(context, '点击「AI智能分析」生成今日值得留意', deep);
+        body = _muted(context, '点击下方「AI智能分析」生成今日值得留意', deep);
       } else {
         body = Column(
           children: [
@@ -180,8 +203,6 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
       }
     }
 
-    final hasCta = trailingCta != null;
-
     return ClientUsageShowOnce(
       event: ClientUsageEvents.feedingAnalysisShow,
       child: Scaffold(
@@ -192,7 +213,6 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         foregroundColor: onShell,
-        toolbarHeight: hasCta ? 64 : kToolbarHeight,
         title: Row(
           children: [
             FeatureLogo(
@@ -217,13 +237,6 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
         ),
-        actions: [
-          if (trailingCta != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: Center(child: trailingCta),
-            ),
-        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -240,6 +253,10 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
               _FeedingBlurb(accent: accent),
               const SizedBox(height: 12),
               body,
+              if (bottomCta != null) ...[
+                const SizedBox(height: 28),
+                Center(child: bottomCta),
+              ],
             ],
           ),
         ),
@@ -291,51 +308,52 @@ class _FeedingBlurb extends StatelessWidget {
   }
 }
 
-/// AppBar 右上：AI智能分析 + 「每日一次」小字（对齐成长用量挂点）。
-class _FeedingAppBarCta extends StatelessWidget {
-  const _FeedingAppBarCta({
-    required this.onTap,
+/// 正文下方居中：AI智能分析 + 日限说明（用户每日最多 5 次）。
+class _FeedingBodyCta extends StatelessWidget {
+  const _FeedingBodyCta({
     required this.accent,
+    required this.onTap,
   });
 
-  final Future<void> Function() onTap;
+  final Future<void> Function()? onTap;
   final Color accent;
 
-  static const _oncePerDay = '每日仅支持分析一次';
+  static const _usageHint = '每个账号每日最多分析 5 次，每次重新生成';
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onTap != null;
     final button = Material(
-      color: accent.withValues(alpha: 0.14),
-      borderRadius: BorderRadius.circular(8),
+      color: accent.withValues(alpha: enabled ? 0.14 : 0.08),
+      borderRadius: BorderRadius.circular(10),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => unawaited(onTap()),
+        borderRadius: BorderRadius.circular(10),
+        onTap: enabled ? () => unawaited(onTap!()) : null,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Text(
             'AI智能分析',
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: accent,
+              color: accent.withValues(alpha: enabled ? 1 : 0.45),
             ),
           ),
         ),
       ),
     );
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         button,
-        const SizedBox(height: 2),
+        const SizedBox(height: 6),
         Text(
-          _oncePerDay,
+          _usageHint,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 10,
-            height: 1.15,
+            fontSize: 11,
+            height: 1.25,
             color: accent.withValues(alpha: 0.55),
           ),
         ),

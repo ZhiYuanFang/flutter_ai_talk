@@ -1,7 +1,14 @@
 # Copy to push.properties beside this file; push.properties must not be committed.
+# Used by china_push Android manifestPlaceholders (see app/android/app/build.gradle.kts).
+#
 # HMS app id is optional when app/agconnect-services.json is present (Gradle reads app_id from it).
 ucg.hms.app_id=
+# Xiaomi Push (required for Mi / as china_push fallback OEM)
 ucg.mipush.app_id=
 ucg.mipush.app_key=
-# MiPush region: China | Global | Europe | Russia | India
-ucg.mipush.region=China
+# Optional OEMs — leave empty until Go senders exist (china_push may fall back to Xiaomi)
+ucg.oppo.app_key=
+ucg.oppo.app_secret=
+ucg.vivo.app_id=
+ucg.vivo.app_key=
+ucg.honor.app_id=

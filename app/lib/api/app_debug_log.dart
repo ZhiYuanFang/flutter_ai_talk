@@ -101,4 +101,10 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[ClientUsage] ${_ts()} $message');
   }
+
+  /// 预测临近 pending 同步（离线提醒）。
+  static void predictImminent(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[PredictImminent] ${_ts()} $message');
+  }
 }

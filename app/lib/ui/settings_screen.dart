@@ -12,8 +12,6 @@ import '../data/models.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../home_widget/home_widget_payload.dart';
 import '../providers/baby_display_provider.dart' show isBabyProfileBoundPending;
-import '../data/cash_vip_models.dart';
-import '../data/feature_unlock_models.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
@@ -178,6 +176,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         )
                       : Text('加载失败：$e'),
                 ),
+              if (loggedIn) ...[
+                const SizedBox(height: 12),
+                _buildGlassTile(
+                  context,
+                  leading: Icons.workspace_premium_outlined,
+                  title: '功能开通',
+                  subtitle: '智能分析、成长轨迹等',
+                  onTap: () => context.push('/features/unlock'),
+                ),
+              ],
               const SizedBox(height: 12),
               // 语音识别模块已隐藏；陪伴页仍可读持久化/默认引擎
               // 顺序：反馈(仅登录) → 小组件 → 账号/清缓存 → 隐私 → 检查更新(最底)
@@ -329,9 +337,6 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final birthStr = HomeWidgetRowPayload.isoDateUtc(baby.birthDate);
     final onShell = AppColor.textPrimary(context);
-    final vip = ref.watch(vipStatusProvider).valueOrNull;
-    final catalog = ref.watch(featureCatalogStateProvider);
-    final summary = _unlockSummaryText(vip: vip, catalog: catalog);
 
     return SettingsGlassPanel(
       contentPadding: EdgeInsets.zero,
@@ -349,35 +354,7 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 8),
-            // 头像下开通摘要：独立点击进开通中心
-            InkWell(
-              onTap: () => context.push('/features/unlock'),
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        summary,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.3,
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // 资料区：进宝宝编辑
+            // 资料区：进宝宝编辑（开通入口已移至宝宝卡下方独立「功能开通」卡）
             InkWell(
               onTap: () => context.push('/settings/baby'),
               child: Column(
@@ -430,31 +407,5 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  static String _unlockSummaryText({
-    required CashVipStatus? vip,
-    required FeatureCatalogState catalog,
-  }) {
-    final isVip = vip?.isVip == true;
-    if (isVip) {
-      return '月卡 · ${featureRemainingDaysCopy(vip?.expireAt ?? 0)}';
-    }
-    final unlocked = catalog.items.where((e) => e.unlocked).toList();
-    if (unlocked.isEmpty) {
-      return '暂无已开通能力 · 去开通';
-    }
-    var soonest = 0;
-    var hasTimed = false;
-    for (final e in unlocked) {
-      if (e.expiresAt > 0) {
-        hasTimed = true;
-        if (soonest == 0 || e.expiresAt < soonest) soonest = e.expiresAt;
-      }
-    }
-    if (!hasTimed) {
-      return '已开通 ${unlocked.length} 项 · 永久';
-    }
-    return '已开通 ${unlocked.length} 项 · ${featureRemainingDaysCopy(soonest)}';
   }
 }

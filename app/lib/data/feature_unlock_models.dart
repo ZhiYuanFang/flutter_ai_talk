@@ -131,6 +131,8 @@ class FeatureCatalogItem {
     this.totalActivatableCount,
     this.inviteDurationDays,
     this.adDurationDays,
+    this.trialAvailable = false,
+    this.inviteAvailable = false,
     this.logo = '',
     this.color = '',
     this.products = const [],
@@ -140,25 +142,30 @@ class FeatureCatalogItem {
   final String title;
   final String description;
 
-  /// 逗号串，如 `payment,invite_code,ad`。
+  /// 逗号串，如 `payment,invite_code`（广告通道已废弃）。
   final String unlockMethods;
   final bool unlocked;
   final String unlockMethod;
   final int expiresAt;
   final int? allowedCount;
 
-  /// 预测默认免费槽位数（服务端定义表）；缺省/旧服为 null，文案不得冒充「默认」。
+  /// 预测默认免费槽位数（历史字段；槽位能力已删除，勿再作门闸）。
   final int? defaultCount;
 
-  /// 预测可激活天花板：Go catalog 聚合的字典**非叶子**总数（仅 prediction_unlock）。
-  /// 「已全部激活」只认本字段；不得用客户端可见预测行数重算。
+  /// 预测可激活天花板（历史字段；槽位能力已删除）。
   final int? totalActivatableCount;
 
   /// 邀请码授予天数（0=永久）；旧服缺字段为 null，文案须弱化，禁止用付费 SKU 冒充。
   final int? inviteDurationDays;
 
-  /// 广告授予天数（0=永久）；旧服缺字段为 null。
+  /// 广告授予天数（已废弃，解析兼容旧服）。
   final int? adDurationDays;
+
+  /// 该账号对该功能仍有一次免费体验资格（未 claim；已开通时服务端应为 false）。
+  final bool trialAvailable;
+
+  /// 该账号仍可用邀请码开通本功能（人×功能未邀成功过）。
+  final bool inviteAvailable;
 
   /// 功能 Logo CDN URL；空则 UI 占位。
   final String logo;
@@ -166,25 +173,25 @@ class FeatureCatalogItem {
   /// 功能主色 hex（#RGB/#RRGGBB）；空则回退主题 primary。
   final String color;
 
-  /// 预测临时/永久全开哨兵（与服务端 AllowedCountFullAccessSentinel 一致）。
+  /// 预测临时/永久全开哨兵（历史；槽位删除后不再依赖）。
   bool get isPredictionFullAccess => allowedCount != null && allowedCount! < 0;
   final List<FeatureCatalogProduct> products;
 
-  /// 永久已激活条数（≥0；哨兵 -1 不计入库存展示）= 解锁槽位数 N。
+  /// 永久已激活条数（历史槽位库存展示）。
   int get permanentActivatedCount {
     final ac = allowedCount;
     if (ac == null || ac < 0) return 0;
     return ac;
   }
 
-  /// 是否已全部永久激活：仅对照服务端非叶子 total（须 total>0 且 activated≥total）。
+  /// 是否已全部永久激活（历史槽位语义；商业门闸勿再用）。
   bool get isPredictionFullyActivated {
     final total = totalActivatableCount ?? 0;
     if (total <= 0) return false;
     return permanentActivatedCount >= total;
   }
 
-  /// 开通中心预测卡右上角文案（库存态；与列表可见行数解耦）。
+  /// 开通中心预测卡右上角文案（历史；过滤槽位卡后不应再展示）。
   String get predictionActivationBadgeCopy {
     if (isPredictionFullyActivated) return '已全部激活';
     return '已激活 $permanentActivatedCount 个';
@@ -202,13 +209,27 @@ class FeatureCatalogItem {
   bool get supportsPayment =>
       unlockMethodSet.contains('payment') && products.isNotEmpty;
 
-  bool get supportsAd => unlockMethodSet.contains('ad');
+  /// 广告开通已删除；恒 false（兼容旧 catalog 仍带 ad 字段）。
+  bool get supportsAd => false;
 
-  bool get supportsInviteCode => unlockMethodSet.contains('invite_code');
+  /// 须同时具备 invite 通道且服务端仍允许本账号邀请开通。
+  bool get supportsInviteCode =>
+      unlockMethodSet.contains('invite_code') && inviteAvailable;
 
   /// 默认选第一项 SKU（与服务端 OrderAsc(product_code) 一致）。
   FeatureCatalogProduct? get defaultProduct =>
       products.isEmpty ? null : products.first;
+
+  /// 支付按钮展示用金额（分→元，保留两位）。
+  String get payPriceLabel {
+    final fen = defaultProduct?.priceFen ?? 0;
+    if (fen <= 0) return '支付开通';
+    final yuan = fen / 100.0;
+    final s = yuan == yuan.roundToDouble()
+        ? yuan.toStringAsFixed(0)
+        : yuan.toStringAsFixed(2);
+    return '¥$s 支付开通';
+  }
 
   factory FeatureCatalogItem.fromJson(Map<String, dynamic> json) {
     final rawProducts = json['products'];
@@ -243,6 +264,8 @@ class FeatureCatalogItem {
           : null,
       adDurationDays:
           json.containsKey('adDurationDays') ? _asInt(json['adDurationDays']) : null,
+      trialAvailable: json['trialAvailable'] == true,
+      inviteAvailable: json['inviteAvailable'] == true,
       logo: (json['logo'] ?? '').toString().trim(),
       color: (json['color'] ?? '').toString().trim(),
       products: products,

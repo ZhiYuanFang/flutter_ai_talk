@@ -1,5 +1,7 @@
 package com.fzy.pangbao
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -17,13 +19,33 @@ class MainActivity : FlutterActivity() {
     private val installerChannel = "com.fzy.pangbao/installer"
     private val nativeSplashChannel = "com.fzy.pangbao/native_splash"
     private val localVideoChannel = "com.fzy.pangbao/local_video"
-    private val ucgPushChannel = "com.fzy.pangbao/ucg_push"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { KeepNativeSplash.visible }
+        // 与 Go push_hms.go 的 channelId=push_default 对齐，供 HMS 可见通知落托盘
+        ensurePushNotificationChannel()
         super.onCreate(savedInstanceState)
-        UcgPushInitializer.start(applicationContext)
+    }
+
+    /** Android 8+ 系统通知渠道；id 必须与服务端 HMS android.notification.channelId 一致。 */
+    private fun ensurePushNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            PUSH_NOTIFICATION_CHANNEL_ID,
+            getString(R.string.push_notification_channel_name),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = getString(R.string.push_notification_channel_desc)
+            enableVibration(true)
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    companion object {
+        /** 与 go_ai_talk internal/services/push/push_hms.go 硬编码一致，勿改。 */
+        const val PUSH_NOTIFICATION_CHANNEL_ID = "push_default"
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -124,11 +146,6 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
-        }
-        val pushChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ucgPushChannel)
-        UcgPushBridge.tokenSink = pushChannel
-        pushChannel.setMethodCallHandler { call, result ->
-            UcgPushBridge.handle(call, result, this)
         }
     }
 

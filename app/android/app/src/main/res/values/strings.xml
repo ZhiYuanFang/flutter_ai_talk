@@ -9,4 +9,7 @@
     <string name="widget_section_tip">喂养小贴士</string>
     <string name="widget_hero_skip">跳过</string>
     <string name="widget_last_at_none">暂无</string>
+    <!-- 与 Go HMS channelId=push_default 对齐的系统通知渠道文案 -->
+    <string name="push_notification_channel_name">胖宝通知</string>
+    <string name="push_notification_channel_desc">喂养提醒与重要消息</string>
 </resources>

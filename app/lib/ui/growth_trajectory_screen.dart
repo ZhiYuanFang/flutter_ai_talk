@@ -47,7 +47,8 @@ class _GrowthTrajectoryScreenState
       final feature = ref
           .read(featureCatalogStateProvider)
           .byId(kFeatureIdGrowthTrajectoryPredict);
-      if (isFeatureEffectivelyUnlocked(item: feature, isVip: isVip)) {
+      if (isFeatureEffectivelyUnlocked(item: feature, isVip: isVip) ||
+          canAccessFeatureDetail(item: feature, isVip: isVip)) {
         unawaited(
           ref.read(growthTrajectoryStateProvider.notifier).ensureLatest(),
         );
@@ -77,6 +78,8 @@ class _GrowthTrajectoryScreenState
         .read(growthTrajectoryStateProvider.notifier)
         .startPredict(restart: restart);
     await _toastIfErr(err);
+    // 试用首次成功后服务端 claim，刷新目录。
+    unawaited(ref.read(featureCatalogStateProvider.notifier).refresh());
   }
 
   Future<void> _onChoice(String value) async {
@@ -115,8 +118,7 @@ class _GrowthTrajectoryScreenState
     final feature = ref
         .watch(featureCatalogStateProvider)
         .byId(kFeatureIdGrowthTrajectoryPredict);
-    final unlocked =
-        isFeatureEffectivelyUnlocked(item: feature, isVip: isVip);
+    final canUse = canAccessFeatureDetail(item: feature, isVip: isVip);
     final accent = resolveFeatureColor(context, feature);
 
     // 页底混入功能主色（对齐喂养 sheet 玻璃 tint）
@@ -165,7 +167,7 @@ class _GrowthTrajectoryScreenState
         gt.phase != GrowthTrajectoryPhase.asking &&
         gt.phase != GrowthTrajectoryPhase.loadingLatest;
     if (canShowCta) {
-      if (!unlocked) {
+      if (!canUse) {
         trailingCta = _GrowthAppBarCta(
           label: '轨迹预测',
           accent: accent,
@@ -198,7 +200,7 @@ class _GrowthTrajectoryScreenState
     final hint = accent.withValues(alpha: 0.55);
 
     Widget body;
-    if (!unlocked) {
+    if (!canUse) {
       body = _gtMuted(
         context,
         '点击「轨迹预测」，结合宝宝近况定制未来 7 天成长提示',
@@ -337,7 +339,7 @@ class _GrowthTrajectoryScreenState
     }
 
     final usageForBar =
-        (unlocked && canShowCta) ? gt.usageCopy.trim() : '';
+        (canUse && canShowCta) ? gt.usageCopy.trim() : '';
     final hasUsage = usageForBar.isNotEmpty;
 
     return ClientUsageShowOnce(
