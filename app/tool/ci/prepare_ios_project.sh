@@ -184,6 +184,7 @@ PY
 
 python3 <<'PY'
 from pathlib import Path
+import os
 import plistlib
 
 entitlements_path = Path('ios/Runner/Runner.entitlements')
@@ -194,12 +195,12 @@ else:
     if entitlements_path.exists():
         with entitlements_path.open('rb') as file:
             data = plistlib.load(file)
+    dirty = False
+
     apple_signin = data.get('com.apple.developer.applesignin')
     if not isinstance(apple_signin, list) or 'Default' not in apple_signin:
         data['com.apple.developer.applesignin'] = ['Default']
-        entitlements_path.parent.mkdir(parents=True, exist_ok=True)
-        with entitlements_path.open('wb') as file:
-            plistlib.dump(data, file)
+        dirty = True
         print('Patched Runner.entitlements: Sign in with Apple enabled')
     else:
         print('Runner.entitlements already has Sign in with Apple')
@@ -211,11 +212,26 @@ else:
     if widget_group not in app_groups:
         app_groups.append(widget_group)
         data['com.apple.security.application-groups'] = app_groups
-        with entitlements_path.open('wb') as file:
-            plistlib.dump(data, file)
+        dirty = True
         print(f'Patched Runner.entitlements: App Group {widget_group}')
     else:
         print(f'Runner.entitlements already has App Group {widget_group}')
+
+    # APNs：无 Mac 本地开发时靠 CI 打 IPA；与 TARGET_CHANNEL 对齐。
+    # development → development；adhoc / testflight / appstore / 未设 → production。
+    channel = (os.getenv('TARGET_CHANNEL') or '').strip().lower()
+    aps_env = 'development' if channel == 'development' else 'production'
+    if data.get('aps-environment') != aps_env:
+        data['aps-environment'] = aps_env
+        dirty = True
+        print(f'Patched Runner.entitlements: aps-environment={aps_env} (TARGET_CHANNEL={channel or "unset"})')
+    else:
+        print(f'Runner.entitlements already has aps-environment={aps_env}')
+
+    if dirty:
+        entitlements_path.parent.mkdir(parents=True, exist_ok=True)
+        with entitlements_path.open('wb') as file:
+            plistlib.dump(data, file)
 PY
 
 python3 <<'PY'

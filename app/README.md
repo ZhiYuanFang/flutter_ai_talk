@@ -259,6 +259,7 @@ flutter build ipa --release
 
 - 执行 `bash tool/ci/prepare_ios_project.sh` 后确认 `ios/Runner/Info.plist` 含更新后的 `NSMicrophoneUsageDescription`（含育儿语音示例；可通过 `IOS_MICROPHONE_USAGE_DESCRIPTION` 覆盖）。
 - 确认 `ios/Runner/Runner.entitlements` 含 `com.apple.developer.applesignin` = `Default`；Apple Developer App ID 须启用 Sign in with Apple Capability，与描述文件一致。
+- 确认 `Runner.entitlements` 含 `aps-environment`（CI `prepare_ios_project.sh` 也会按通道写入）；App ID 须启用 **Push Notifications**，描述文件与 Secrets 已含该能力。
 - CI/IPA 构建前核对 `prepare_ios_project.sh` 已运行；打包后可用 `codesign -d --entitlements -` 抽查 entitlements。
 
 - **无 Mac 方案**：仓库已提供 GitHub Actions 远程打包配置，可在 GitHub 的 macOS Runner 上生成 `.ipa`；说明见 `../docs/github-ios-ipa.md`。
