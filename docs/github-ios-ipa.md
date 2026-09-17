@@ -88,6 +88,7 @@
 - 这个 `Bundle ID` 之后要同时填到 GitHub Secret `IOS_BUNDLE_ID`
 - **不能包含下划线 `_`**
 - 一旦上线，通常不要随意更改
+- **推送（APNs）**：同一 App ID 须勾选 **Push Notifications**；改完后重新导出描述文件并更新 `IOS_MOBILEPROVISION_*` Secrets。仓库 `Runner.entitlements` 含 `aps-environment`；`prepare_ios_project.sh` 会按 `TARGET_CHANNEL` 写入（`development`→`development`，adhoc/testflight/appstore→`production`）。缺 entitlement 时 IPA 可编过，但真机往往拿不到 token、服务端看不到 `channel=apns` 注册。
 
 如果你要用微信 iOS Universal Link，后续还要在 Apple 后台和你自己的域名侧完成 Associated Domains 配置。
 

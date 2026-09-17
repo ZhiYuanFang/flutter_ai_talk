@@ -262,7 +262,7 @@ class _PurchaseBody extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '不含 UCG 广场入场门槛（仍须有效喂养记录达标）',
+              '不含广场入场门槛（仍须有效喂养记录达标）',
               style: TextStyle(
                 fontSize: 12,
                 color: onShell.withValues(alpha: 0.5),

@@ -165,9 +165,9 @@ class _VipStickyBar extends StatelessWidget {
     }
     final days = vipProductAsync.valueOrNull?.durationDays ?? 30;
     if (days > 0) {
-      return '开通后有效期 $days 天，可覆盖功能目录与预测事件锁（不含 UCG 入场门槛）';
+      return '开通后有效期 $days 天';
     }
-    return '开通月卡可覆盖功能目录与预测事件锁（不含 UCG 入场门槛）';
+    return '开通月卡';
   }
 
   /// 已 VIP 主标题：VIP · 剩余 N 天 / 不足 1 天 / 永久 / 已过期。

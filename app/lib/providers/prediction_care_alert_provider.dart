@@ -8,6 +8,7 @@ import '../data/care_alert_repository.dart';
 import '../data/feature_unlock_models.dart';
 import '../data/feature_unlock_repository.dart';
 import '../data/prediction_care_alert.dart';
+import '../util/thinking_stage_delta.dart';
 import 'authorized_api_client_provider.dart';
 import 'cash_vip_provider.dart';
 import 'device_no_notifier.dart';
@@ -149,7 +150,7 @@ final careAlertEligibilityStateProvider = StateNotifierProvider<
   return n;
 });
 
-/// 日拉取状态：原始服务端列表（未做推演过滤）。
+/// 日拉取状态：原始服务端列表（未做推演过滤）+ 日用量 + 思考流缓冲。
 class PredictionCareAlertState {
   const PredictionCareAlertState({
     this.items = const [],
@@ -158,6 +159,9 @@ class PredictionCareAlertState {
     this.failed = false,
     this.dayKey = '',
     this.deviceNo = '',
+    this.usedToday = 0,
+    this.dailyLimit = 5,
+    this.thinking = '',
   });
 
   final List<CareAlertEventItem> items;
@@ -166,6 +170,12 @@ class PredictionCareAlertState {
   final bool failed;
   final String dayKey;
   final String deviceNo;
+  final int usedToday;
+  final int dailyLimit;
+  final String thinking;
+
+  /// 与成长轨迹同款用量文案。
+  String get usageCopy => '今日已用 $usedToday/$dailyLimit 次';
 
   PredictionCareAlertState copyWith({
     List<CareAlertEventItem>? items,
@@ -174,6 +184,9 @@ class PredictionCareAlertState {
     bool? failed,
     String? dayKey,
     String? deviceNo,
+    int? usedToday,
+    int? dailyLimit,
+    String? thinking,
   }) {
     return PredictionCareAlertState(
       items: items ?? this.items,
@@ -182,6 +195,9 @@ class PredictionCareAlertState {
       failed: failed ?? this.failed,
       dayKey: dayKey ?? this.dayKey,
       deviceNo: deviceNo ?? this.deviceNo,
+      usedToday: usedToday ?? this.usedToday,
+      dailyLimit: dailyLimit ?? this.dailyLimit,
+      thinking: thinking ?? this.thinking,
     );
   }
 }
@@ -231,19 +247,21 @@ class PredictionCareAlertNotifier
     }
     if (dn == null) return;
     try {
-      final list = await _ref
+      final snap = await _ref
           .read(careAlertRepositoryProvider)
           .fetchDaily(deviceNo: dn, force: false);
-      if (list == null) return;
+      if (snap == null) return;
       state = PredictionCareAlertState(
-        items: list,
+        items: snap.items,
         loading: false,
         ready: true,
         failed: false,
         dayKey: careAlertShanghaiDayKey(),
         deviceNo: dn,
+        usedToday: snap.usedToday,
+        dailyLimit: snap.dailyLimit,
       );
-      AppDebugLog.careAlert('hydrate latest ok count=${list.length}');
+      AppDebugLog.careAlert('hydrate latest ok count=${snap.items.length}');
     } catch (e) {
       AppDebugLog.careAlert('hydrate latest err=$e');
     }
@@ -290,35 +308,62 @@ class PredictionCareAlertNotifier
       failed: false,
       dayKey: day,
       deviceNo: dn,
+      thinking: '',
     );
     try {
-      final list = await _ref
+      var gotResult = false;
+      await for (final ev in _ref
           .read(careAlertRepositoryProvider)
-          .fetchDaily(deviceNo: dn, force: true);
-      if (list == null) {
+          .analyzeStream(deviceNo: dn)) {
+        switch (ev) {
+          case CareAlertThinkingDelta(:final content):
+            state = state.copyWith(
+              thinking: applyThinkingStageDelta(state.thinking, content),
+            );
+          case CareAlertResultEvent(:final snapshot):
+            gotResult = true;
+            state = PredictionCareAlertState(
+              items: snapshot.items,
+              loading: false,
+              ready: true,
+              failed: false,
+              dayKey: snapshot.day.isNotEmpty ? snapshot.day : day,
+              deviceNo: dn,
+              usedToday: snapshot.usedToday,
+              dailyLimit: snapshot.dailyLimit,
+              thinking: '',
+            );
+            AppDebugLog.careAlert(
+              'manual stream ok count=${snapshot.items.length}',
+            );
+          case CareAlertStreamErrorEvent(:final message):
+            state = state.copyWith(
+              loading: false,
+              ready: false,
+              failed: true,
+              thinking: '',
+            );
+            AppDebugLog.careAlert('manual stream err=$message');
+            return message.isNotEmpty ? message : '分析失败，请稍后重试';
+        }
+      }
+      if (!gotResult) {
         state = state.copyWith(
           loading: false,
           ready: false,
           failed: true,
+          thinking: '',
         );
-        AppDebugLog.careAlert('manual refresh fail empty deviceNo');
+        AppDebugLog.careAlert('manual stream ended without result');
         return '分析失败，请稍后重试';
       }
-      state = PredictionCareAlertState(
-        items: list,
-        loading: false,
-        ready: true,
-        failed: false,
-        dayKey: day,
-        deviceNo: dn,
-      );
-      AppDebugLog.careAlert('manual refresh ok count=${list.length}');
       return null;
     } on ApiBusinessException catch (e) {
       state = state.copyWith(
         loading: false,
         ready: false,
         failed: true,
+        thinking: '',
       );
       AppDebugLog.careAlert('manual refresh business err=${e.code} ${e.message}');
       return e.message.isNotEmpty ? e.message : '分析失败，请稍后重试';
@@ -327,6 +372,7 @@ class PredictionCareAlertNotifier
         loading: false,
         ready: false,
         failed: true,
+        thinking: '',
       );
       AppDebugLog.careAlert('manual refresh http err=${e.statusCode}');
       return '分析失败，请稍后重试';
@@ -335,6 +381,7 @@ class PredictionCareAlertNotifier
         loading: false,
         ready: false,
         failed: true,
+        thinking: '',
       );
       AppDebugLog.careAlert('manual refresh err=$e');
       return '分析失败，请稍后重试';

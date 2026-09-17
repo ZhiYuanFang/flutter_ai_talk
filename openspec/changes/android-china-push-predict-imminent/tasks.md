@@ -33,6 +33,7 @@
 - [x] 5.8 纯数字 AppId 经 `resValue` + `@string` 注入，避免 Bundle Integer / `getString` ClassCast
 - [x] 5.9 补充 HMS Core 所需 `com.huawei.hms.client.appid`/`cpid` meta-data（修复日志 `app_id:|` / 907135000）
 - [x] 5.10 App 创建 Android 通知渠道 `push_default`，与 Go `push_hms.go` 的 `channelId` 对齐
+- [x] 5.11 iOS：`Runner.entitlements` + `prepare_ios_project.sh` 补齐 `aps-environment`（CI IPA / APNs register）
 
 ## 6. 联调验收（手工）
 
@@ -41,3 +42,4 @@
 - [ ] 6.3 未配置密钥或其它厂商机型：失败可接受、App 不崩
 - [ ] 6.4 确认无任何 `/ucg/app/api/push/*` 请求
 - [ ] 6.5 华为机：合并 Manifest 中 `HMS_APP_ID` 无反斜杠；无 `907135000`；`[UcgPush] china_push init ok`
+- [ ] 6.6 iOS（TestFlight/adhoc 新包）：登录后网关可见 `channel=apns` 的 `POST /app/api/push/register`

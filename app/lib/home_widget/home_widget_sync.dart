@@ -29,6 +29,7 @@ import 'widget_row_enrich.dart';
 import 'widget_theme_visual.dart';
 import 'widget_hero_skip_store.dart';
 import 'widget_interactivity.dart';
+import 'widget_prediction_snapshot.dart';
 import 'widget_tip_cache.dart';
 
 export 'format_widget_relative_time.dart';
@@ -184,6 +185,10 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
     if (recentLast.isNotEmpty) {
       recentLast = await enrichWidgetRows(recentLast, catalog);
     }
+    // 后台 skip 用：存未滤 skip 的全序预测（至少覆盖 large 预算）
+    await WidgetPredictionSnapshotStore.savePredictions(predictions);
+  } else if (!loggedIn || state == 'empty') {
+    await WidgetPredictionSnapshotStore.clear();
   }
 
   return HomeWidgetPayload(
@@ -210,6 +215,7 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   final visual = buildHomeWidgetVisualFromRef(ref);
   final loggedIn = ref.read(sessionProvider).isLoggedIn;
   if (!loggedIn) {
+    await WidgetPredictionSnapshotStore.clear();
     await pushHomeWidgetPayload(
       HomeWidgetPayload(
         state: 'empty',
@@ -394,6 +400,7 @@ Future<void> onLogoutClearHomeWidget() async {
   await clearWidgetHistoryDepthReady();
   await clearWidgetTipCache();
   await WidgetHeroSkipStore.clearAll();
+  await WidgetPredictionSnapshotStore.clear();
   await pushHomeWidgetPayload(
     HomeWidgetPayload(
       state: 'empty',

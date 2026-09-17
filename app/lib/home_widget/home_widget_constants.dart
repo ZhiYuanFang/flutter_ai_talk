@@ -3,6 +3,9 @@ abstract final class HomeWidgetConstants {
   static const appGroupId = 'group.com.fzy.pangbao.widget';
   static const payloadKey = 'widgetPayload';
 
+  /// 前台 sync 写出的预测结果快照（后台 skip 重建用；SharedPreferences）。
+  static const predictionSnapshotKey = 'widgetPredictionSnapshot';
+
   static const androidSmallName = 'PangbaoWidgetSmallProvider';
   static const androidMediumName = 'PangbaoWidgetMediumProvider';
   static const androidLargeName = 'PangbaoWidgetLargeProvider';

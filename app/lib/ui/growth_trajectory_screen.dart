@@ -17,7 +17,7 @@ import 'widgets/app_toast.dart';
 import 'widgets/clinic_answer_body.dart';
 import 'widgets/feature_logo.dart';
 
-/// 成长轨迹工作台：无卡片；AppBar CTA；主题色渐变底。
+/// 成长轨迹工作台：无卡片；正文下 CTA；功能色渐变底。
 class GrowthTrajectoryScreen extends ConsumerStatefulWidget {
   const GrowthTrajectoryScreen({super.key});
 
@@ -162,13 +162,14 @@ class _GrowthTrajectoryScreenState
       }
     });
 
-    Widget? trailingCta;
+    // 主 CTA 在正文下（对齐喂养工作台）；流式/提问中隐藏
+    Widget? bottomCta;
     final canShowCta = gt.phase != GrowthTrajectoryPhase.streaming &&
         gt.phase != GrowthTrajectoryPhase.asking &&
         gt.phase != GrowthTrajectoryPhase.loadingLatest;
     if (canShowCta) {
       if (!canUse) {
-        trailingCta = _GrowthAppBarCta(
+        bottomCta = _GrowthBodyCta(
           label: '轨迹预测',
           accent: accent,
           onTap: () => openGrowthTrajectoryInviteUnlockDialog(
@@ -178,14 +179,14 @@ class _GrowthTrajectoryScreenState
           ),
         );
       } else if (gt.hasResult) {
-        trailingCta = _GrowthAppBarCta(
+        bottomCta = _GrowthBodyCta(
           label: '重新预测',
           accent: accent,
           usageCopy: gt.usageCopy,
           onTap: () => _onPredict(restart: true),
         );
       } else {
-        trailingCta = _GrowthAppBarCta(
+        bottomCta = _GrowthBodyCta(
           label: '轨迹预测',
           accent: accent,
           usageCopy: gt.usageCopy,
@@ -338,10 +339,6 @@ class _GrowthTrajectoryScreenState
       );
     }
 
-    final usageForBar =
-        (canUse && canShowCta) ? gt.usageCopy.trim() : '';
-    final hasUsage = usageForBar.isNotEmpty;
-
     return ClientUsageShowOnce(
       event: ClientUsageEvents.growthShow,
       child: Scaffold(
@@ -352,7 +349,6 @@ class _GrowthTrajectoryScreenState
         elevation: 0,
         scrolledUnderElevation: 0,
         foregroundColor: onShell,
-        toolbarHeight: hasUsage ? 64 : kToolbarHeight,
         title: Row(
           children: [
             FeatureLogo(
@@ -377,13 +373,6 @@ class _GrowthTrajectoryScreenState
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
         ),
-        actions: [
-          if (trailingCta != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: Center(child: trailingCta),
-            ),
-        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -400,6 +389,10 @@ class _GrowthTrajectoryScreenState
               _GrowthBlurb(accent: accent),
               const SizedBox(height: 12),
               body,
+              if (bottomCta != null) ...[
+                const SizedBox(height: 28),
+                Center(child: bottomCta),
+              ],
             ],
           ),
         ),
@@ -451,9 +444,9 @@ class _GrowthBlurb extends StatelessWidget {
   }
 }
 
-/// AppBar 右上：预测按钮 + 可选用量小字。
-class _GrowthAppBarCta extends StatelessWidget {
-  const _GrowthAppBarCta({
+/// 正文下方居中：预测按钮 + 可选用量小字。
+class _GrowthBodyCta extends StatelessWidget {
+  const _GrowthBodyCta({
     required this.label,
     required this.onTap,
     required this.accent,
@@ -469,16 +462,16 @@ class _GrowthAppBarCta extends StatelessWidget {
   Widget build(BuildContext context) {
     final button = Material(
       color: accent.withValues(alpha: 0.14),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         onTap: () => unawaited(onTap()),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
               color: accent,
             ),
@@ -489,17 +482,17 @@ class _GrowthAppBarCta extends StatelessWidget {
     final usage = usageCopy?.trim();
     if (usage == null || usage.isEmpty) return button;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         button,
-        const SizedBox(height: 2),
+        const SizedBox(height: 6),
         Text(
           usage,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 10,
-            height: 1.15,
+            fontSize: 11,
+            height: 1.25,
             color: accent.withValues(alpha: 0.55),
           ),
         ),

@@ -28,6 +28,7 @@ import '../../providers/session_provider.dart';
 import '../../providers/toast_bus.dart';
 import '../../ui/history_event_fly_overlay.dart';
 import '../../ui/home_screen.dart';
+import '../../ui/home_shell_dialog_bootstrap.dart';
 import '../../ui/prediction_card_fly_landing.dart';
 import '../../ui/smart_prediction_screen.dart';
 import '../../ui/widgets/feature_lock_overlay.dart';
@@ -68,6 +69,9 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   /// resume HTTP bundle single-flight
   Future<void>? _resumeHttpBundleInFlight;
 
+  /// 启动级弹窗（notify→version）同挂载 single-flight；不挂 resume / 登录中途
+  Future<void>? _dialogBootstrapInFlight;
+
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
   @override
@@ -90,7 +94,17 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
         );
       }
       unawaited(_activateHistoryWsSessionIfNeeded());
+      // 启动级弹窗：与喂养页解耦，预测着陆即可弹
+      unawaited(_ensureHomeShellDialogBootstrap());
     });
+  }
+
+  /// 同挂载周期只跑一次 notify→version 串行编排。
+  Future<void> _ensureHomeShellDialogBootstrap() {
+    return _dialogBootstrapInFlight ??= runHomeShellDialogBootstrap(
+      context: context,
+      versionRepo: ref.read(versionRepositoryProvider),
+    );
   }
 
   @override
@@ -410,8 +424,9 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
           final eligibility = ref.watch(ucgEligibilityStateProvider);
           final shell = UcgShell(onBackToFeeding: _goToHomeHub);
           // fail-closed：仅 qualified=true 放行；isVip 不得解除
+          // KeepAlive 包整棵子树：滑走预测再回 UCG 不 dispose 广场 State
           if (eligibility.isQualified) {
-            return shell;
+            return _KeepAliveUcgPage(child: shell);
           }
           final data = eligibility.data;
           final String? subtitle = data != null
@@ -425,21 +440,45 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
                   eligibility: data,
                   kind: FeedingEligibilityProgressKind.ucgEntry,
                 );
-          return FeatureLockOverlay(
-            fullScreen: true,
-            centerLabel: '仅真实带娃家庭可进入',
-            subtitle: subtitle,
-            subtitleWidget: subtitleWidget,
-            onTap: null,
-            footer: FilledButton(
-              onPressed: () => unawaited(_goToHomeHub()),
-              child: const Text('返回预测页'),
+          return _KeepAliveUcgPage(
+            child: FeatureLockOverlay(
+              fullScreen: true,
+              centerLabel: '仅真实带娃家庭可进入',
+              subtitle: subtitle,
+              subtitleWidget: subtitleWidget,
+              onTap: null,
+              footer: FilledButton(
+                onPressed: () => unawaited(_goToHomeHub()),
+                child: const Text('返回预测页'),
+              ),
+              child: shell,
             ),
-            child: shell,
           );
         },
       ),
     );
+  }
+}
+
+/// UCG 页 KeepAlive：首次懒挂载后滑走不销毁，避免广场推荐反复首刷。
+class _KeepAliveUcgPage extends StatefulWidget {
+  const _KeepAliveUcgPage({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAliveUcgPage> createState() => _KeepAliveUcgPageState();
+}
+
+class _KeepAliveUcgPageState extends State<_KeepAliveUcgPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 

@@ -129,6 +129,7 @@ com.fzy.pangbao
 
 - 不能有下划线 `_`
 - 后续不要随便修改
+- 须勾选 **Push Notifications**（及既有 Sign in with Apple / App Groups）；改 Capability 后 **重新导出** 描述文件并更新对应 `IOS_MOBILEPROVISION_*` Secrets。CI 会写入 `aps-environment`（见 `prepare_ios_project.sh` / `Runner.entitlements`）
 
 ### 2. `IOS_TEAM_ID`
 

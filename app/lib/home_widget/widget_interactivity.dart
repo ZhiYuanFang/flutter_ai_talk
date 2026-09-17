@@ -1,18 +1,17 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:home_widget/home_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/app_debug_log.dart';
 import '../data/event_catalog_store.dart';
+import '../data/event_definition.dart';
 import '../data/event_next_predictor.dart';
-import '../data/home_history_store.dart';
 import '../data/models.dart';
 import '../theme/custom_background_persist.dart';
-import 'home_widget_constants.dart';
 import 'home_widget_sync.dart';
 import 'widget_hero_skip_store.dart';
+import 'widget_prediction_snapshot.dart';
+import 'widget_row_enrich.dart';
 import 'widget_theme_visual.dart';
 
 /// 交互 URI：pangbao-widget://skip?eventId=
@@ -57,7 +56,7 @@ Future<void> homeWidgetInteractiveCallback(Uri? uri) async {
   }
 }
 
-/// 写入 skip 并用磁盘历史重建小组件（不依赖前台 Riverpod / 不拉 tip 网络）。
+/// 写入 skip 并用预测结果快照重建小组件（不依赖 Riverpod / 不用喂养分页重算）。
 Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
   final prefs = await SharedPreferences.getInstance();
   final dn = prefs.getString('pangbao_device_no_v1')?.trim() ?? '';
@@ -66,24 +65,44 @@ Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
     return;
   }
 
-  final historySnap = await HomeHistoryStore.loadSnapshot(dn);
-  final history = historySnap.items;
-  final catalog = await EventCatalogStore.loadFromDisk();
   final now = DateTime.now();
-  BabyProfile? baby = await _loadBabyFromPrefs(dn);
-  final birth = baby?.birthDate ?? DateTime(now.year, 1, 1);
-  final activeKeys = collectActiveTimingRows(history, catalog: catalog)
-      .map((e) => e.eventId)
-      .where((e) => e.isNotEmpty)
-      .toSet();
-  final predictions = predictAllUpcoming(
-    history: history,
-    catalog: catalog,
-    now: now,
-    birthDate: birth,
-    activeEventKeys: activeKeys,
-  );
+  final snapshotPreds = await WidgetPredictionSnapshotStore.loadPredictions();
+  final prevPayload = await _loadLastPayload();
+  final visual = prevPayload?.visual ?? await _visualFromLastPayloadOrDefault();
+  final header = prevPayload?.header;
+  final catalog = await EventCatalogStore.loadFromDisk();
 
+  if (snapshotPreds.isNotEmpty) {
+    await _skipRebuildFromSnapshot(
+      eventId: eventId,
+      predictions: snapshotPreds,
+      now: now,
+      visual: visual,
+      header: header,
+      catalog: catalog,
+    );
+    return;
+  }
+
+  // 快照缺失：用上一份 ready payload 晋升，保 large 槽位
+  AppDebugLog.homeWidget('skip degrade: no prediction snapshot');
+  await _skipRebuildFromPrevPayload(
+    eventId: eventId,
+    prev: prevPayload,
+    now: now,
+    visual: visual,
+    catalog: catalog,
+  );
+}
+
+Future<void> _skipRebuildFromSnapshot({
+  required String eventId,
+  required List<EventNextPrediction> predictions,
+  required DateTime now,
+  required HomeWidgetVisualPayload visual,
+  required HomeWidgetHeaderPayload? header,
+  required List<EventDefinition> catalog,
+}) async {
   var baseline = now;
   for (final p in predictions) {
     if (p.eventId == eventId) {
@@ -96,28 +115,30 @@ Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
     baselineLastAt: baseline,
   );
 
-  final visual = await _visualFromLastPayloadOrDefault();
-  // tip 已下线：跳过重建不再从 prefs 回填 tip
-  final payload = await buildHomeWidgetPayload(
-    loggedIn: true,
-    baby: baby,
-    history: history,
-    catalog: catalog,
-    state: 'ready',
-    visual: visual,
-    tip: null,
-    now: now,
-  );
-  // 全被 skip 时补文案
-  if (payload.hero == null &&
-      payload.recentLast.isEmpty &&
-      history.isNotEmpty) {
+  final skipped = await WidgetHeroSkipStore.reconcileAndActiveIds(predictions);
+  final heroPredictions =
+      filterPredictionsExcludingSkipped(predictions, skipped);
+  var hero = buildWidgetHero(predictions: heroPredictions, now: now);
+  final heroEventId = hero?.eventId;
+  final predsForRecent = heroEventId != null
+      ? predictions.where((p) => p.eventId != heroEventId).toList()
+      : predictions;
+  var recentLast = buildWidgetRecentLast(predictions: predsForRecent, count: 6);
+
+  if (hero != null) {
+    hero = await enrichWidgetRow(hero, catalog);
+  }
+  if (recentLast.isNotEmpty) {
+    recentLast = await enrichWidgetRows(recentLast, catalog);
+  }
+
+  if (hero == null && recentLast.isEmpty) {
     await pushHomeWidgetPayload(
       HomeWidgetPayload(
         state: 'ready',
         message: HomeWidgetConstants.noPredictionMessage,
-        widgetKind: payload.widgetKind,
-        header: payload.header,
+        widgetKind: 'large',
+        header: header,
         visual: visual,
         tip: null,
         updatedAt: now,
@@ -125,17 +146,122 @@ Future<void> applyWidgetHeroSkipAndRefresh(String eventId) async {
     );
     return;
   }
-  await pushHomeWidgetPayload(payload);
+
+  await pushHomeWidgetPayload(
+    HomeWidgetPayload(
+      state: 'ready',
+      widgetKind: 'large',
+      header: header,
+      visual: visual,
+      hero: hero,
+      recentLast: recentLast,
+      tip: null,
+      updatedAt: now,
+    ),
+  );
 }
 
-Future<BabyProfile?> _loadBabyFromPrefs(String deviceNo) async {
-  final prefs = await SharedPreferences.getInstance();
-  final raw = prefs.getString('pangbao_baby_profile_$deviceNo');
-  if (raw == null || raw.isEmpty) return null;
+Future<void> _skipRebuildFromPrevPayload({
+  required String eventId,
+  required HomeWidgetPayload? prev,
+  required DateTime now,
+  required HomeWidgetVisualPayload visual,
+  required List<EventDefinition> catalog,
+}) async {
+  if (prev == null || prev.state != 'ready') {
+    AppDebugLog.homeWidget('skip degrade abort: no ready payload');
+    await WidgetHeroSkipStore.skipEvent(
+      eventId: eventId,
+      baselineLastAt: now,
+    );
+    return;
+  }
+
+  // 基线：优先 previous recent 同 id 的 lastAt，否则 now
+  var baseline = now;
+  for (final r in prev.recentLast) {
+    if (r.eventId == eventId && r.lastAt != null) {
+      final parsed = DateTime.tryParse(r.lastAt!);
+      if (parsed != null) baseline = parsed;
+      break;
+    }
+  }
+  await WidgetHeroSkipStore.skipEvent(
+    eventId: eventId,
+    baselineLastAt: baseline,
+  );
+
+  final skipped = await WidgetHeroSkipStore.loadMap();
+  final activeSkipIds = skipped.keys.toSet();
+
+  // 从 recentLast 晋升下一条未 skip 的为 hero；其余 recent 保持（槽位不塌）
+  HomeWidgetRowPayload? newHero;
+  final remaining = <HomeWidgetRowPayload>[];
+  for (final r in prev.recentLast) {
+    if (newHero == null &&
+        r.eventId != eventId &&
+        !activeSkipIds.contains(r.eventId)) {
+      newHero = HomeWidgetRowPayload(
+        kind: 'predict',
+        eventId: r.eventId,
+        name: r.name,
+        nextAt: r.nextAt ?? r.lastAt,
+        status: 'upcoming',
+        color: r.color,
+        logoFile: r.logoFile,
+      );
+      continue;
+    }
+    remaining.add(r);
+  }
+
+  var hero = newHero;
+  var recentLast = remaining.take(6).toList();
+  if (hero != null) {
+    hero = await enrichWidgetRow(hero, catalog);
+  }
+  if (recentLast.isNotEmpty) {
+    recentLast = await enrichWidgetRows(recentLast, catalog);
+  }
+
+  if (hero == null && recentLast.isEmpty) {
+    await pushHomeWidgetPayload(
+      HomeWidgetPayload(
+        state: 'ready',
+        message: HomeWidgetConstants.noPredictionMessage,
+        widgetKind: 'large',
+        header: prev.header,
+        visual: visual,
+        tip: null,
+        updatedAt: now,
+      ),
+    );
+    return;
+  }
+
+  await pushHomeWidgetPayload(
+    HomeWidgetPayload(
+      state: 'ready',
+      widgetKind: 'large',
+      header: prev.header,
+      visual: visual,
+      hero: hero,
+      recentLast: recentLast,
+      tip: null,
+      updatedAt: now,
+    ),
+  );
+}
+
+Future<HomeWidgetPayload?> _loadLastPayload() async {
   try {
-    return BabyProfile.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    final raw = await HomeWidget.getWidgetData<String>(
+      HomeWidgetConstants.payloadKey,
+    );
+    if (raw == null || raw.isEmpty) return null;
+    return HomeWidgetPayload.parse(raw);
   } catch (e) {
-    AppDebugLog.homeWidget('skip baby prefs err=$e');
+    AppDebugLog.homeWidget('skip load payload err=$e');
     return null;
   }
 }
@@ -149,7 +275,9 @@ Future<HomeWidgetVisualPayload> _visualFromLastPayloadOrDefault() async {
       final prev = HomeWidgetPayload.parse(raw);
       if (prev != null) return prev.visual;
     }
-  } catch (_) {}
+  } catch (e) {
+    AppDebugLog.homeWidget('skip visual load err=$e');
+  }
   return buildHomeWidgetVisual(
     sex: BabySex.unknown,
     prefs: const ThemePreferences(),

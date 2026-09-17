@@ -158,16 +158,22 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
         ),
       );
     } else if (careState.loading) {
-      body = _muted(context, '正在思考中', deep);
-      // 分析中仍展示 CTA 区说明，便于用户感知入口。
+      // 思考流：有增量则展示，否则占位
+      final think = careState.thinking.trim();
+      body = _FeedingThinkingPane(
+        text: think.isEmpty ? '正在思考中…' : think,
+        color: deep,
+      );
       bottomCta = _FeedingBodyCta(
         accent: accent,
+        usageCopy: careState.usageCopy,
         onTap: null,
       );
     } else {
-      // 合格且可使用：CTA 在正文下方居中；日限文案对齐用户日 5 次。
+      // 合格且可使用：CTA 在正文下方居中；用量为今日已用 x/y。
       bottomCta = _FeedingBodyCta(
         accent: accent,
+        usageCopy: careState.usageCopy,
         onTap: _onTapAnalyze,
       );
       if (items.isEmpty) {
@@ -273,6 +279,28 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
   }
 }
 
+/// 喂养分析思考区：高度随内容自适应（上限内滚动）。
+class _FeedingThinkingPane extends StatelessWidget {
+  const _FeedingThinkingPane({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxH = MediaQuery.sizeOf(context).height * 0.4;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxH),
+      child: SingleChildScrollView(
+        child: Text(
+          text,
+          style: TextStyle(fontSize: 13, height: 1.4, color: color),
+        ),
+      ),
+    );
+  }
+}
+
 /// 浅底正文加深，避免高透明发灰（对齐 Hub）。
 Color _deepenAccent(Color accent) =>
     Color.lerp(accent, const Color(0xFF000000), 0.18)!;
@@ -308,17 +336,17 @@ class _FeedingBlurb extends StatelessWidget {
   }
 }
 
-/// 正文下方居中：AI智能分析 + 日限说明（用户每日最多 5 次）。
+/// 正文下方居中：AI智能分析 +「今日已用 x/y 次」。
 class _FeedingBodyCta extends StatelessWidget {
   const _FeedingBodyCta({
     required this.accent,
     required this.onTap,
+    this.usageCopy,
   });
 
   final Future<void> Function()? onTap;
   final Color accent;
-
-  static const _usageHint = '每个账号每日最多分析 5 次，每次重新生成';
+  final String? usageCopy;
 
   @override
   Widget build(BuildContext context) {
@@ -342,21 +370,24 @@ class _FeedingBodyCta extends StatelessWidget {
         ),
       ),
     );
+    final usage = usageCopy?.trim() ?? '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
         button,
-        const SizedBox(height: 6),
-        Text(
-          _usageHint,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 11,
-            height: 1.25,
-            color: accent.withValues(alpha: 0.55),
+        if (usage.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            usage,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.25,
+              color: accent.withValues(alpha: 0.55),
+            ),
           ),
-        ),
+        ],
       ],
     );
   }

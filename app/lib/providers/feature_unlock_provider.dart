@@ -261,6 +261,10 @@ class UcgEligibilityNotifier extends StateNotifier<UcgEligibilityState> {
       state = const UcgEligibilityState();
       return Future.value();
     }
+    // 已 ready 且非强制：短路，避免每次滑入 UCG 重复资格 HTTP
+    if (!force && state.ready && state.data != null) {
+      return Future.value();
+    }
     if (!force &&
         _circuitUntil != null &&
         DateTime.now().isBefore(_circuitUntil!)) {

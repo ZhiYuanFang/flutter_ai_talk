@@ -59,8 +59,6 @@ import '../providers/home_pager.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/baby_display_provider.dart';
-import '../data/repositories.dart' show readPackageVersion;
-import '../data/notify_banner_repository.dart';
 import '../providers/toast_bus.dart';
 import 'widgets/app_empty_state_gallery.dart';
 import 'widgets/app_glass_overlay.dart';
@@ -69,8 +67,6 @@ import 'widgets/managed_keyboard_text_field.dart';
 import '../ucg/ui/widgets/ucg_visual_widgets.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
-import 'notify_banner_prompt.dart';
-import 'version_prompt.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key, this.onDockDraggingChanged});
@@ -411,15 +407,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final container = ProviderScope.containerOf(context, listen: false);
     await _runLoggedInGatewayBootstrap(container);
     if (!mounted) return;
-    await _runPostLoginBootstrap(container);
-    if (!mounted) return;
+    // notify/version 已上挪 UcgHomeShell 启动编排；此处仅网关/传输补全
     _scheduleDeferredCatalogLogoDownloads(container);
     if (!mounted) return;
     await _startHomePangbaoTransportsAfterGate(container);
-    if (!mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_runHomeDialogBootstrap());
-    });
   }
 
   Future<void> _startHomePangbaoTransportsAfterGate(
@@ -448,20 +439,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .runDeferredLogoDownloads());
   }
 
+  /// 喂养页已挂载期间登录：补网关/传输；不得再弹 notify/version。
   Future<void> _onLoggedInWhileHomeMounted() async {
     if (!mounted) return;
     final container = ProviderScope.containerOf(context, listen: false);
     await _runLoggedInGatewayBootstrap(container);
     if (!mounted) return;
-    await _runPostLoginBootstrap(container);
-    if (!mounted) return;
     _scheduleDeferredCatalogLogoDownloads(container);
     if (!mounted) return;
     await _startHomePangbaoTransportsAfterGate(container);
-    if (!mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_runHomeDialogBootstrap());
-    });
   }
 
   void _onFlyOverlayComplete(int session) {
@@ -544,30 +530,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _showRecordingDiagnostics = await RecordingDiagnosticsStore.load();
     await _bindVoiceAsrReadyListener();
     if (mounted) setState(() {});
-  }
-
-  /// 维护公告优先于版本弹窗；未登录用户也会拉取 notify banner。
-  Future<void> _runHomeDialogBootstrap() async {
-    try {
-      await maybeShowNotifyBannerPrompt(
-        context: context,
-        repo: const NotifyBannerRepository(),
-      );
-    } catch (_) {}
-  }
-
-  /// 版本检查：Splash 已做本地门禁后进主页，此处后台补全（loadBaby 由 GatewayBootstrapGate 负责）。
-  Future<void> _runPostLoginBootstrap(ProviderContainer container) async {
-    if (!container.read(sessionProvider).isLoggedIn) return;
-    try {
-      final currentVersion = await readPackageVersion();
-      if (!mounted) return;
-      await maybeShowVersionPrompt(
-        context: context,
-        repo: container.read(versionRepositoryProvider),
-        currentVersion: currentVersion,
-      );
-    } catch (_) {}
   }
 
   bool _isRecordActivelyTiming(String recordId) {
@@ -1084,9 +1046,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (prev?.session == next.session) return;
       _beginFeedingFly(next);
     });
+    // 游客→登录：补网关/传输；不弹 notify/version（启动编排仅壳挂载）
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),
         (prev, loggedIn) {
-      if (prev != true || !loggedIn) return;
+      if (prev == true || !loggedIn) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_onLoggedInWhileHomeMounted());
