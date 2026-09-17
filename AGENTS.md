@@ -4,7 +4,7 @@
 
 编写或修改代码、OpenSpec 产物前，**必须**阅读：
 
-1. **[openspec/project.md](openspec/project.md)** — 工程约束全文（WebSocket、日志、Android R8、测试、弹框 TextEditingController、OpenSpec 基线、归档等）。
+1. **[openspec/project.md](openspec/project.md)** — 工程约束全文（WebSocket、日志、Android R8、测试、弹框 TextEditingController、AI 思考展示组件、OpenSpec 基线、归档等）。
 2. **[openspec/specs/v2.1.0.md](openspec/specs/v2.1.0.md)** — 当前合并行为基线（Requirement / Scenario 验收）。
 
 OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 project.md 为准，本文仅摘要高频 MUST。
@@ -47,6 +47,11 @@ OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 proje
 
 - 带输入的 dialog / glass / bottom sheet：**必须**由弹层 `State` 持有并 dispose controller；**禁止** `await showDialog` 返回后立刻 dispose。
 - 细则见 **`openspec/project.md`**「弹框 TextEditingController / FocusNode」；范例 `_GlassTextConfirmDialogBody`、`_InviteCodeDialogBody`。
+
+## AI 思考展示组件（强制）
+
+- 可滚动的 AI 流式/展开思考正文 **必须** 用 `AiThinkingPane`；默认跟底，上翻暂停，**仅**回底钮恢复；禁止 feature 内平行跟滚实现。
+- 细则见 **`openspec/project.md`**「AI 思考展示组件」；组件路径 `app/lib/ui/widgets/ai_thinking_pane.dart`。
 
 ## OpenSpec 工作流
 

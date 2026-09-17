@@ -112,6 +112,17 @@
 - **参考**：`openspec/changes/side-effect-http-governance/`、`app/lib/ucg/providers/ucg_providers.dart`（unread single-flight 范例）。
 - **禁止**：在 `ref.listen` / token 回调中 `unawaited` 重复 POST 且无 in-flight 去重与失败熔断。
 
+### AI 思考展示组件（强制）
+
+凡以**可纵向滚动区域**展示 agent **流式**或**展开后完整**思考正文的 UI：
+
+- **MUST** 使用共享组件 `AiThinkingPane`（`app/lib/ui/widgets/ai_thinking_pane.dart`，或该路径下唯一公开等价物）。
+- **MUST**：`text` 增长时默认跟滚到底；用户上翻超过离底阈值后暂停跟滚，并在底部悬停回底控件；**仅**点击该控件恢复跟滚（用户自行滑回近底 **不得** 自动恢复）。
+- **MUST**：回底控件主色优先为调用方功能/强调色；未传则用 `ColorScheme.primary`；图标/文案须可读对比。
+- **MUST NOT** 在 feature 内再实现平行的思考跟滚 / 回底按钮逻辑。
+- **不适用**：非滚动表面（如单行语音字幕、纯占位「正在思考…」）；胖宝诊疗**折叠尾部窗口**仍按 `pangbao-clinic-thinking-fold` 用固定高度尾部对齐，折叠态不得用 `jumpTo` 跟流。
+- **参考**：capability `ai-thinking-pane`；接入面含喂养记录分析、成长轨迹、诊疗流式/展开态。
+
 ### OpenSpec 归档约定（强制）
 
 - 执行 **`/opsx-archive`** 或 **`openspec-archive-change` skill** 时，合并成功后 **必须**带 **`--remove-changes`** 调用 `scripts/sync_specs_to_version.py`。
@@ -132,5 +143,6 @@
 - **测试文件**：是否未经用户明确要求而新增 `*_test.dart`。
 - **副作用 HTTP**：listener/回调/lifecycle 触发的 HTTP 是否有 single-flight、失败熔断、自触发 ignore、成功缓存；provider 创建是否误发副作用 HTTP。
 - **弹框输入**：带 TextField 的 dialog/sheet 是否在 await 返回后过早 dispose `TextEditingController`（须 State 持有，见「弹框 TextEditingController / FocusNode」）。
+- **AI 思考展示**：可滚动思考正文是否绕过 `AiThinkingPane` 自建跟滚；近底是否误自动恢复 follow（须仅按钮恢复）。
 - **主题色**：业务 UI 是否绕过 `colorScheme`/`AppVisualTokens` 硬编码浅色玻璃白或灰阶字；暗壳是否出现突兀白底卡片。
 - **归档**：收版是否默认 `--remove-changes`；`project.md` 基线版本是否已更新。

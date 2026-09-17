@@ -37,6 +37,7 @@ import '../util/thinking_stage_delta.dart';
 import '../ui/widgets/app_empty_state_gallery.dart';
 import '../ui/widgets/app_glass_overlay.dart';
 import '../ui/widgets/app_toast.dart';
+import '../ui/widgets/ai_thinking_pane.dart';
 import '../ui/widgets/clinic_answer_body.dart';
 import '../ui/widgets/companion_soft_panel.dart';
 import 'home_history_scroll_to_bottom_button.dart';
@@ -1892,10 +1893,17 @@ class _ThinkingBlock extends StatelessWidget {
 
             Widget body;
             if (streaming) {
+              // 流式：空等待仅占位；有文案则共享 pane 跟底
               body = displayText.isEmpty
                   ? const SizedBox(height: 4)
-                  : Text(displayText, style: style);
+                  : AiThinkingPane(
+                      text: displayText,
+                      style: style,
+                      accentColor: scheme.primary,
+                      maxHeightFactor: 0.35,
+                    );
             } else if (folded) {
+              // 折叠尾部窗口：固定高度 Align 底部，不用 jumpTo 跟流
               body = SizedBox(
                 height: _foldHeight,
                 width: double.infinity,
@@ -1934,9 +1942,12 @@ class _ThinkingBlock extends StatelessWidget {
                 );
               }
             } else {
-              body = SingleChildScrollView(
-                physics: const ClampingScrollPhysics(),
-                child: Text(displayText, style: style),
+              // 展开全文：共享 pane（跟滚/暂停/回底）
+              body = AiThinkingPane(
+                text: displayText,
+                style: style,
+                accentColor: scheme.primary,
+                maxHeightFactor: 0.35,
               );
             }
 

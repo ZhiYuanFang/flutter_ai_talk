@@ -15,6 +15,7 @@ import '../providers/toast_bus.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'ai_analysis_unlock.dart';
+import 'widgets/ai_thinking_pane.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/feature_logo.dart';
 import 'widgets/feeding_eligibility_progress_text.dart';
@@ -160,9 +161,10 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
     } else if (careState.loading) {
       // 思考流：有增量则展示，否则占位
       final think = careState.thinking.trim();
-      body = _FeedingThinkingPane(
+      body = AiThinkingPane(
         text: think.isEmpty ? '正在思考中…' : think,
-        color: deep,
+        accentColor: deep,
+        style: TextStyle(fontSize: 13, height: 1.4, color: deep),
       );
       bottomCta = _FeedingBodyCta(
         accent: accent,
@@ -275,28 +277,6 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
     return Text(
       text,
       style: TextStyle(fontSize: 13, height: 1.35, color: color),
-    );
-  }
-}
-
-/// 喂养分析思考区：高度随内容自适应（上限内滚动）。
-class _FeedingThinkingPane extends StatelessWidget {
-  const _FeedingThinkingPane({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final maxH = MediaQuery.sizeOf(context).height * 0.4;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxH),
-      child: SingleChildScrollView(
-        child: Text(
-          text,
-          style: TextStyle(fontSize: 13, height: 1.4, color: color),
-        ),
-      ),
     );
   }
 }

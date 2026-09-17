@@ -13,6 +13,7 @@ import '../providers/growth_trajectory_provider.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'ai_analysis_unlock.dart';
+import 'widgets/ai_thinking_pane.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/clinic_answer_body.dart';
 import 'widgets/feature_logo.dart';
@@ -210,9 +211,14 @@ class _GrowthTrajectoryScreenState
     } else if (gt.phase == GrowthTrajectoryPhase.loadingLatest) {
       body = _gtMuted(context, '正在加载历史轨迹…', muted);
     } else if (gt.showThinking || gt.phase == GrowthTrajectoryPhase.streaming) {
-      body = _ThinkingPane(
+      body = AiThinkingPane(
         text: gt.thinking.isEmpty ? '正在思考…' : gt.thinking,
-        color: deep.withValues(alpha: 0.9),
+        accentColor: deep,
+        style: TextStyle(
+          fontSize: 13,
+          height: 1.4,
+          color: deep.withValues(alpha: 0.9),
+        ),
       );
     } else if (gt.phase == GrowthTrajectoryPhase.asking && gt.question != null) {
       final q = gt.question!;
@@ -497,27 +503,6 @@ class _GrowthBodyCta extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ThinkingPane extends StatelessWidget {
-  const _ThinkingPane({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final maxH = MediaQuery.sizeOf(context).height * 0.4;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxH),
-      child: SingleChildScrollView(
-        child: Text(
-          text,
-          style: TextStyle(fontSize: 13, height: 1.4, color: color),
-        ),
-      ),
     );
   }
 }
