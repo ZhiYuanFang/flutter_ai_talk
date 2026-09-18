@@ -13,6 +13,7 @@ import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
 import '../data/models.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/predict_imminent_sync_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../theme/app_color.dart';
@@ -431,6 +432,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     unawaited(EventRemarkMemoryStore.save(historyRecordEventId(r), remark));
     unawaited(EventSquareSyncPreferenceStore.save(r.id, _effectiveSyncToSquare));
     widget.history.replaceRecord(updated);
+    // 本机编辑喂养记录后同步预测临近 pending
+    unawaited(requestPredictImminentPendingSync(ref));
     showAppToast('已保存', tone: AppToastTone.success);
     Navigator.pop(context, true);
   }
@@ -499,6 +502,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     setState(() => _deleting = false);
     if (!ok) return;
     widget.history.removeRecord(r.id);
+    // 本机删除喂养记录后同步预测临近 pending
+    unawaited(requestPredictImminentPendingSync(ref));
     showAppToast('已删除', tone: AppToastTone.success);
     Navigator.pop(context, true);
   }

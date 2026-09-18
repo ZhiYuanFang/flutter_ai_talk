@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
-import '../data/event_next_predictor.dart';
 import '../data/predict_imminent_repository.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
@@ -23,45 +20,21 @@ String? _lastPredictImminentFingerprint;
 const _kPredictImminentFailThreshold = 3;
 const _kPredictImminentCooldown = Duration(seconds: 60);
 
-/// 主壳须 [ref.watch] 本 provider 以激活 listen；与推送 register 解耦。
-final predictImminentPendingSyncProvider = Provider<void>((ref) {
-  ref.listen<List<EventNextPrediction>>(smartPredictionsProvider, (_, next) {
-    unawaited(_syncPredictImminentPending(ref, next));
-  });
-  ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
-    final dn = next.asData?.value?.trim();
-    if (dn == null || dn.isEmpty) return;
-    unawaited(
-      _syncPredictImminentPending(ref, ref.read(smartPredictionsProvider)),
-    );
-  });
-  ref.listen(sessionProvider, (prev, next) {
-    if (!next.isLoggedIn) {
-      _lastPredictImminentFingerprint = null;
-      _predictImminentFailCount = 0;
-      _predictImminentCooldownUntil = null;
-      return;
-    }
-    unawaited(
-      _syncPredictImminentPending(ref, ref.read(smartPredictionsProvider)),
-    );
-  });
+/// 本机喂养记录 / 间隔变更后显式请求 pending 同步（先重算再 PUT）。
+///
+/// [ref] 为 `Ref` 或 `WidgetRef`。须延迟到下一 event-loop turn：
+/// notifier 写入栈内 `ref.read` 同源依赖图会断言失败（同 [scheduleHomeWidgetSync]）。
+Future<void> requestPredictImminentPendingSync(dynamic ref) {
+  if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
+  return Future<void>(() => _requestPredictImminentPendingSyncNow(ref));
+}
 
-  // 首次订阅时同步一次当前预测
-  unawaited(
-    _syncPredictImminentPending(ref, ref.read(smartPredictionsProvider)),
-  );
-});
-
-Future<void> _syncPredictImminentPending(
-  Ref ref,
-  List<EventNextPrediction> predictions,
-) async {
+Future<void> _requestPredictImminentPendingSyncNow(dynamic ref) async {
   if (_predictImminentSyncInFlight != null) {
     await _predictImminentSyncInFlight;
     return;
   }
-  final run = _syncPredictImminentPendingOnce(ref, predictions);
+  final run = _syncPredictImminentPendingOnce(ref);
   _predictImminentSyncInFlight = run;
   try {
     await run;
@@ -72,10 +45,7 @@ Future<void> _syncPredictImminentPending(
   }
 }
 
-Future<void> _syncPredictImminentPendingOnce(
-  Ref ref,
-  List<EventNextPrediction> predictions,
-) async {
+Future<void> _syncPredictImminentPendingOnce(dynamic ref) async {
   if (!ref.read(sessionProvider).isLoggedIn) return;
   final cooldown = _predictImminentCooldownUntil;
   if (cooldown != null && DateTime.now().isBefore(cooldown)) {
@@ -84,7 +54,10 @@ Future<void> _syncPredictImminentPendingOnce(
   final dn = ref.read(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
   if (dn.isEmpty) return;
 
-  // 指纹：避免预测 clock 无关重建刷 HTTP；空列表也上报以清空。
+  // 先读预测以强制按最新 home/间隔同步重算，再上报
+  final predictions = ref.read(smartPredictionsProvider);
+
+  // 指纹：避免同 nextAt 重复刷 HTTP；空列表也上报以清空
   final fp = predictions.isEmpty
       ? 'empty'
       : predictions
@@ -107,7 +80,8 @@ Future<void> _syncPredictImminentPendingOnce(
       'pending sync err=$e failCount=$_predictImminentFailCount',
     );
     if (_predictImminentFailCount >= _kPredictImminentFailThreshold) {
-      _predictImminentCooldownUntil = DateTime.now().add(_kPredictImminentCooldown);
+      _predictImminentCooldownUntil =
+          DateTime.now().add(_kPredictImminentCooldown);
       AppDebugLog.predictImminent(
         'pending sync cooldown ${_kPredictImminentCooldown.inSeconds}s',
       );

@@ -12,6 +12,7 @@ import '../home_widget/home_widget_sync.dart';
 import 'event_catalog_notifier.dart';
 import 'forecast_toggle_provider.dart';
 import 'home_history_notifier.dart';
+import 'predict_imminent_sync_provider.dart';
 import 'prediction_range_history_provider.dart';
 
 /// 本会话是否已点收尾 CTA（关闭引导层；再出现缺口时重置）。
@@ -53,12 +54,15 @@ class PredictionRecallSeedsNotifier
     state = AsyncData(await PredictionRecallSeedStore.loadAll());
     // 下一 turn 推桌面，与预测页间隔旁路对齐（单飞/延迟见 scheduleHomeWidgetSync）
     unawaited(scheduleHomeWidgetSync(ref));
+    // 本机改喂养间隔后同步预测临近 pending（延迟读见 request 实现）
+    unawaited(requestPredictImminentPendingSync(ref));
   }
 
   Future<void> clearSeeds(Iterable<String> rootIds) async {
     await PredictionRecallSeedStore.removeMany(rootIds);
     state = AsyncData(await PredictionRecallSeedStore.loadAll());
     unawaited(scheduleHomeWidgetSync(ref));
+    // 自动清种子不推 pending：多由拉数/历史达标触发，避免误刷
   }
 }
 

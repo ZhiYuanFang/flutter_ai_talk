@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'event_branding.dart';
@@ -6,6 +8,7 @@ import 'history_line_format.dart';
 import 'history_mapper.dart';
 import 'models.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/predict_imminent_sync_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/toast_bus.dart';
 
@@ -82,6 +85,8 @@ Future<bool> stopActiveTimingRecord({
 
   if (isPendingHistoryId(record.id)) {
     history.replaceRecordImmediate(historyRecordWithEndTime(record, end));
+    // 本机停计时后同步预测临近 pending
+    unawaited(requestPredictImminentPendingSync(ref));
     return true;
   }
 
@@ -94,6 +99,7 @@ Future<bool> stopActiveTimingRecord({
   );
   if (ok) {
     history.replaceRecordImmediate(historyRecordWithEndTime(record, end));
+    unawaited(requestPredictImminentPendingSync(ref));
   } else {
     ref.showApiToast('同步失败，稍后请重试');
   }
