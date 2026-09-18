@@ -239,14 +239,14 @@ from pathlib import Path
 import os
 import re
 
-target = os.getenv('IOS_DEPLOYMENT_TARGET', '14.0').strip() or '14.0'
+target = os.getenv('IOS_DEPLOYMENT_TARGET', '15.0').strip() or '15.0'
 podfile = Path('ios/Podfile')
 if not podfile.exists():
     # 仓库可能只提交了部分 ios/（含 xcodeproj 但无 Podfile）；CI 亦不会在 xcodeproj 存在时再 flutter create。
     podfile.parent.mkdir(parents=True, exist_ok=True)
     podfile.write_text(
         """# Uncomment this line to define a global platform for your project
-# platform :ios, '14.0'
+# platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

@@ -9,7 +9,7 @@ SCHEME_PATH = File.join(PROJECT_PATH, 'xcshareddata', 'xcschemes', 'Runner.xcsch
 WIDGET_NAME = 'PangbaoWidget'
 WIDGET_DIR = File.join(IOS_DIR, WIDGET_NAME)
 # Extension 须 17（对齐 home_widget example；否则 WidgetBackgroundIntent +
-# ForegroundContinuableIntent 在 DT<17 下编不过）。主 App / Runner 仍保持工程内 14.0。
+# ForegroundContinuableIntent 在 DT<17 下编不过）。主 App / Runner 仍保持工程内 15.0。
 WIDGET_DEPLOYMENT_TARGET = ENV.fetch('IOS_WIDGET_DEPLOYMENT_TARGET', '17.0')
 MAIN_BUNDLE_ID = ENV.fetch('IOS_BUNDLE_ID', 'com.fzy.pangbao')
 WIDGET_BUNDLE_ID = ENV.fetch('IOS_WIDGET_BUNDLE_ID', "#{MAIN_BUNDLE_ID}.widget")

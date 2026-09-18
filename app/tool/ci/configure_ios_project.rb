@@ -13,7 +13,7 @@ widget_profile_uuid = ENV['WIDGET_PROFILE_UUID']
 export_method = ENV.fetch('EXPORT_METHOD')
 
 signing_identity = export_method == 'development' ? 'Apple Development' : 'Apple Distribution'
-deployment_target = ENV.fetch('IOS_DEPLOYMENT_TARGET', '14.0')
+deployment_target = ENV.fetch('IOS_DEPLOYMENT_TARGET', '15.0')
 project_path = File.join(Dir.pwd, 'ios', 'Runner.xcodeproj')
 project = Xcodeproj::Project.open(project_path)
 runner_target = project.targets.find { |target| target.name == 'Runner' }
