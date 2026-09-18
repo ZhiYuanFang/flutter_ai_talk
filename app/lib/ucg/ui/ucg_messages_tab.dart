@@ -63,12 +63,20 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
     });
     _wsMsgSub = repo.incomingMessages.listen((_) {
       if (!mounted) return;
-      unawaited(_loadConversationsFirst());
+      unawaited(() async {
+        await _loadConversationsFirst();
+        _applyBadgeFromVisibleList();
+      }());
     });
     _wsNotifSub = repo.notificationEvents.listen((_) {
       if (!mounted) return;
       bumpUcgNotificationsRefresh(ref);
-      unawaited(ref.refresh(ucgCommentNotificationsProvider.future));
+      unawaited(() async {
+        final page = await ref.refresh(ucgCommentNotificationsProvider.future);
+        if (!mounted) return;
+        _lastInteractionUnread = page.unreadCount;
+        _applyBadgeFromVisibleList();
+      }());
     });
   }
 
@@ -138,6 +146,8 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
         _convHasMore = page.hasMore;
         _convInitialLoading = false;
       });
+      // 首屏会话就绪：用可见未读对齐角标
+      _applyBadgeFromVisibleList();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -163,23 +173,52 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
         _convHasMore = page.hasMore;
         _convLoadingMore = false;
       });
+      _applyBadgeFromVisibleList();
     } catch (_) {
       if (!mounted) return;
       setState(() => _convLoadingMore = false);
     }
   }
 
+  /// 列表所见未读 → 全局角标；列表全无未读时角标必灭。
+  void _applyBadgeFromVisibleList() {
+    final interaction =
+        ref.read(ucgCommentNotificationsProvider).valueOrNull?.unreadCount ??
+            _lastInteractionUnread;
+    applyUcgUnreadFromVisibleList(
+      ref,
+      conversations: _conversations,
+      interactionUnread: interaction,
+    );
+  }
+
   Future<void> _refreshAll() async {
-    await Future.wait([
-      _loadConversationsFirst(),
-      ref.refresh(ucgCommentNotificationsProvider.future),
-    ]);
-    await ref.read(ucgUnreadSyncProvider)();
+    try {
+      await Future.wait([
+        _loadConversationsFirst(),
+        ref.refresh(ucgCommentNotificationsProvider.future),
+      ]);
+    } catch (_) {
+      // 部分成功仍以当前可见列表对齐角标
+    }
+    if (!mounted) return;
+    final notifUnread =
+        ref.read(ucgCommentNotificationsProvider).valueOrNull?.unreadCount;
+    if (notifUnread != null) {
+      _lastInteractionUnread = notifUnread;
+    }
+    // 列表权威最后写：覆盖 HTTP sync / WS 乐观虚高
+    try {
+      await ref.read(ucgUnreadSyncProvider)();
+    } catch (_) {}
+    if (!mounted) return;
+    _applyBadgeFromVisibleList();
   }
 
   Future<void> _deleteConv(UcgConversation c) async {
     await ref.read(ucgRepositoryProvider).deleteConversation(c.id);
     setState(() => _conversations = _conversations.where((x) => x.id != c.id).toList());
+    _applyBadgeFromVisibleList();
     unawaited(ref.read(ucgUnreadSyncProvider)());
   }
 
@@ -272,6 +311,7 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
       final count = next.valueOrNull?.unreadCount;
       if (count != null) {
         _lastInteractionUnread = count;
+        _applyBadgeFromVisibleList();
       }
     });
     final notificationsAsync = ref.watch(ucgCommentNotificationsProvider);
@@ -332,8 +372,9 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
                   );
                   bumpUcgConversationsRefresh(ref);
                   await _loadConversationsFirst();
-                  // 离开聊天后以 HTTP 覆盖全局未读
-                  await ref.read(ucgUnreadSyncProvider)();
+                  // 离开聊天：列表可见未读覆盖角标（列表无未读则必灭）
+                  _applyBadgeFromVisibleList();
+                  unawaited(ref.read(ucgUnreadSyncProvider)());
                 },
                 onPin: (pinned) => _pinConv(_conversations[i], pinned),
                 onDelete: () => _deleteConv(_conversations[i]),

@@ -109,6 +109,23 @@ Future<void> syncUcgUnreadAndBadge(dynamic ref) async {
   await syncUcgLauncherBadgeFromUnread(ref);
 }
 
+/// 用消息列表可见未读覆盖全局角标：会话行 unread 之和 + 互动行 unreadCount。
+/// 列表权威——可见未读为 0 时角标必须灭（覆盖 WS 乐观虚高）。
+void applyUcgUnreadFromVisibleList(
+  dynamic ref, {
+  required List<UcgConversation> conversations,
+  required int interactionUnread,
+}) {
+  final chatUnread =
+      conversations.fold<int>(0, (s, c) => s + c.unreadCount);
+  final notif = interactionUnread < 0 ? 0 : interactionUnread;
+  final next = chatUnread + notif;
+  ref.read(ucgUnreadCountProvider.notifier).state = next;
+  AppDebugLog.ucgUnread(
+    'fromVisibleList chat=$chatUnread interaction=$notif count=$next',
+  );
+}
+
 /// HTTP 校准未读（会话 + 互动 OR）；WS ready baseline / resume / 登录 / 已读 reconcile 使用。
 ///
 /// 并发调用合并为同一 in-flight；若期间又有请求则结束后补跑一轮，避免已读覆盖丢失。
@@ -148,7 +165,12 @@ Future<void> _syncUcgUnreadFromServerOnce(dynamic ref) async {
     final notifPage = await repo.fetchCommentNotifications(page: 1);
     final convPage = await repo.fetchConversations(page: 1);
     final chatUnread = convPage.items.fold<int>(0, (s, c) => s + c.unreadCount);
-    ref.read(ucgUnreadCountProvider.notifier).state = chatUnread + notifPage.unreadCount;
+    ref.read(ucgUnreadCountProvider.notifier).state =
+        chatUnread + notifPage.unreadCount;
+    AppDebugLog.ucgUnread(
+      'http sync chat=$chatUnread interaction=${notifPage.unreadCount} '
+      'count=${chatUnread + notifPage.unreadCount}',
+    );
   } catch (e) {
     AppDebugLog.ucgUnread('sync err=$e');
   }
@@ -205,7 +227,6 @@ Future<void> syncUcgLauncherBadgeFromUnread(dynamic ref) async {
 /// Resume / 前台恢复时 HTTP 校准未读并同步启动器角标。
 final ucgUnreadSyncProvider = Provider<Future<void> Function()>((ref) {
   return () async {
-    if (!_ucgHomeSessionActive) return;
     await syncUcgUnreadFromServer(ref);
     await syncUcgLauncherBadgeFromUnread(ref);
   };
