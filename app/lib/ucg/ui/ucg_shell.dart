@@ -106,6 +106,8 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     if (index == 3) {
       bumpUcgConversationsRefresh(ref);
       bumpUcgNotificationsRefresh(ref);
+      // 进消息 Tab：HTTP 覆盖全局未读（与列表刷新对齐）
+      unawaited(ref.read(ucgUnreadSyncProvider)());
     } else if (index == 4) {
       ref.invalidate(ucgMyProfileProvider);
     }

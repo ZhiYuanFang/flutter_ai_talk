@@ -17,6 +17,7 @@ import 'providers/session_provider.dart';
 import 'providers/sign_in_channel_provider.dart';
 import 'api/ai_quota_errors.dart';
 import 'providers/ai_quota_dialog_bus.dart';
+import 'providers/app_notification_preference_provider.dart';
 import 'providers/toast_bus.dart';
 import 'scaffold_messenger_key.dart';
 import 'ui/widgets/app_toast.dart';
@@ -64,6 +65,8 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
       if (ref.read(sessionProvider).isLoggedIn) {
         unawaited(syncHomeWidgetFromRef(ref));
       }
+      // 从系统设置返回时刷新通知授权并按需 register。
+      unawaited(onAppResumeNotificationSync(ref));
     }
   }
 

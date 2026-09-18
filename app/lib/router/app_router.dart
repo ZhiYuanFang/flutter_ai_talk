@@ -17,6 +17,7 @@ import '../ui/baby_bind_screen.dart';
 import '../ui/baby_profile_edit_screen.dart';
 import '../ui/change_password_screen.dart';
 import '../ui/feedback_list_screen.dart';
+import '../ui/notification_settings_screen.dart';
 import '../ui/settings_screen.dart';
 import '../data/prediction_care_alert.dart';
 import '../ui/pangbao_ai_screen.dart';
@@ -59,6 +60,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/bind-baby',
         '/settings/change-password',
         '/settings/feedback',
+        '/settings/notifications',
         '/features/unlock',
         '/features/invite-howto',
         '/vip/purchase',
@@ -206,6 +208,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/feedback',
         builder: (context, state) => const FeedbackListScreen(),
+      ),
+      GoRoute(
+        path: '/settings/notifications',
+        builder: (context, state) => const NotificationSettingsScreen(),
       ),
       GoRoute(
         path: '/policy',

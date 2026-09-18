@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../network/ws_connection_phase.dart';
 import '../../providers/session_provider.dart';
 import '../../theme/app_visual_tokens.dart';
+import '../../ui/home_history_ws_status_banner.dart';
 import '../theme/ucg_theme.dart';
 import '../data/ucg_models.dart';
 import '../../session/token_expiry.dart';
@@ -15,6 +17,11 @@ import 'ucg_interaction_inbox_screen.dart';
 import 'ucg_login_gate.dart';
 import 'widgets/ucg_network_image.dart';
 import 'widgets/ucg_visual_widgets.dart';
+
+/// 消息 Tab chat WS 连接中文案。
+const _kUcgChatWsConnectingMessage = '正在连接…';
+/// 消息 Tab chat WS 连接失败文案。
+const _kUcgChatWsGaveUpMessage = '连接失败，请检查网络后点击重连';
 
 class UcgMessagesTab extends ConsumerStatefulWidget {
   const UcgMessagesTab({super.key, this.onBackToFeeding});
@@ -36,6 +43,8 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   String? _convError;
   StreamSubscription<UcgChatMessage>? _wsMsgSub;
   StreamSubscription<void>? _wsNotifSub;
+  StreamSubscription<WsConnectionPhase>? _wsPhaseSub;
+  var _chatWsPhase = WsConnectionPhase.disconnected;
 
   @override
   void initState() {
@@ -47,6 +56,11 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
 
   void _bindWsListeners() {
     final repo = ref.read(ucgRepositoryProvider);
+    _chatWsPhase = repo.chatWsPhase;
+    _wsPhaseSub = repo.chatWsPhaseStream.listen((phase) {
+      if (!mounted) return;
+      setState(() => _chatWsPhase = phase);
+    });
     _wsMsgSub = repo.incomingMessages.listen((_) {
       if (!mounted) return;
       unawaited(_loadConversationsFirst());
@@ -62,6 +76,7 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
   void dispose() {
     _wsMsgSub?.cancel();
     _wsNotifSub?.cancel();
+    _wsPhaseSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -180,6 +195,56 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
     await _loadConversationsFirst();
   }
 
+  /// 点击失败横条：resetStrike + 既有 reconnect（不改传输退避策略）。
+  void _onReconnectChatWs() {
+    unawaited(
+      ref.read(ucgRepositoryProvider).reconnectChatWebSocket(resetStrike: true),
+    );
+  }
+
+  /// 仅在主壳会话已激活且已登录绑定时展示；ready 不展示。
+  Widget _buildChatWsStatusBanner() {
+    if (!ucgHomeSessionActive) return const SizedBox.shrink();
+    if (!ref.read(sessionProvider).isLoggedIn) return const SizedBox.shrink();
+    if (!isUcgWxAccountBound(ref.read(ucgCurrentUserIdProvider))) {
+      return const SizedBox.shrink();
+    }
+    final repo = ref.read(ucgRepositoryProvider);
+    final phase = _chatWsPhase;
+    if (phase == WsConnectionPhase.ready) {
+      return const SizedBox.shrink();
+    }
+    if (phase == WsConnectionPhase.gaveUp) {
+      return HomeHistoryWsStatusBanner(
+        visible: true,
+        message: _kUcgChatWsGaveUpMessage,
+        onReconnect: _onReconnectChatWs,
+      );
+    }
+    final connecting = phase == WsConnectionPhase.autoReconnecting ||
+        (phase == WsConnectionPhase.disconnected &&
+            repo.isChatWsConnectionDesired);
+    if (!connecting) return const SizedBox.shrink();
+    return HomeHistoryWsStatusBanner(
+      visible: true,
+      message: _kUcgChatWsConnectingMessage,
+      onReconnect: () {},
+      reconnecting: true,
+      tapEnabled: false,
+      variant: HomeHistoryWsBannerVariant.info,
+    );
+  }
+
+  Widget _wrapWithWsBanner(Widget child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildChatWsStatusBanner(),
+        Expanded(child: child),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!ref.watch(sessionProvider.select((s) => s.isLoggedIn))) {
@@ -213,75 +278,82 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
     final interactionUnread =
         notificationsAsync.valueOrNull?.unreadCount ?? _lastInteractionUnread;
 
+    final Widget listBody;
+    if (_convInitialLoading && _conversations.isEmpty) {
+      listBody = const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    } else if (_convError != null && _conversations.isEmpty) {
+      listBody = UcgEmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: _convError!,
+        subtitle: '请稍后重试',
+        action: TextButton(onPressed: () => unawaited(_refreshAll()), child: const Text('重试')),
+      );
+    } else {
+      listBody = RefreshIndicator(
+        onRefresh: _refreshAll,
+        child: ListView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          children: [
+            _InteractionSystemRow(
+              unreadCount: interactionUnread,
+              fg: fg,
+              primary: primary,
+              onTap: () {
+                Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => const UcgInteractionInboxScreen()),
+                );
+              },
+            ),
+            if (_conversations.isEmpty && !_convInitialLoading) ...[
+              const SizedBox(height: 24),
+              UcgEmptyState(
+                icon: Icons.chat_bubble_outline_rounded,
+                title: '暂无私信',
+                subtitle: interactionUnread > 0 ? '互动消息在上方入口查看' : '与宝妈宝爸私信聊天',
+              ),
+            ],
+            for (var i = 0; i < _conversations.length; i++) ...[
+              if (i == 0) const SizedBox(height: 10),
+              if (i > 0) const SizedBox(height: 10),
+              _ConversationTile(
+                key: ValueKey(_conversations[i].id),
+                conversation: _conversations[i],
+                fg: fg,
+                primary: primary,
+                fmt: fmt,
+                peerDisplayName: _peerDisplayName(_conversations[i]),
+                onTap: () async {
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => UcgChatScreen(conversation: _conversations[i]),
+                    ),
+                  );
+                  bumpUcgConversationsRefresh(ref);
+                  await _loadConversationsFirst();
+                  // 离开聊天后以 HTTP 覆盖全局未读
+                  await ref.read(ucgUnreadSyncProvider)();
+                },
+                onPin: (pinned) => _pinConv(_conversations[i], pinned),
+                onDelete: () => _deleteConv(_conversations[i]),
+              ),
+            ],
+            if (_convLoadingMore)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+          ],
+        ),
+      );
+    }
+
     return UcgTabPage(
       title: '消息',
       subtitle: '与宝妈宝爸私信聊天',
       leading: ucgBackLeading(context, widget.onBackToFeeding),
-      body: _convInitialLoading && _conversations.isEmpty
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : _convError != null && _conversations.isEmpty
-              ? UcgEmptyState(
-                  icon: Icons.cloud_off_rounded,
-                  title: _convError!,
-                  subtitle: '请稍后重试',
-                  action: TextButton(onPressed: () => unawaited(_refreshAll()), child: const Text('重试')),
-                )
-              : RefreshIndicator(
-                  onRefresh: _refreshAll,
-                  child: ListView(
-                    controller: _scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    children: [
-                      _InteractionSystemRow(
-                        unreadCount: interactionUnread,
-                        fg: fg,
-                        primary: primary,
-                        onTap: () {
-                          Navigator.of(context).push<void>(
-                            MaterialPageRoute(builder: (_) => const UcgInteractionInboxScreen()),
-                          );
-                        },
-                      ),
-                      if (_conversations.isEmpty && !_convInitialLoading) ...[
-                        const SizedBox(height: 24),
-                        UcgEmptyState(
-                          icon: Icons.chat_bubble_outline_rounded,
-                          title: '暂无私信',
-                          subtitle: interactionUnread > 0 ? '互动消息在上方入口查看' : '与宝妈宝爸私信聊天',
-                        ),
-                      ],
-                      for (var i = 0; i < _conversations.length; i++) ...[
-                        if (i == 0) const SizedBox(height: 10),
-                        if (i > 0) const SizedBox(height: 10),
-                        _ConversationTile(
-                          key: ValueKey(_conversations[i].id),
-                          conversation: _conversations[i],
-                          fg: fg,
-                          primary: primary,
-                          fmt: fmt,
-                          peerDisplayName: _peerDisplayName(_conversations[i]),
-                          onTap: () async {
-                            await Navigator.of(context).push<void>(
-                              MaterialPageRoute(
-                                builder: (_) => UcgChatScreen(conversation: _conversations[i]),
-                              ),
-                            );
-                            bumpUcgConversationsRefresh(ref);
-                            await _loadConversationsFirst();
-                          },
-                          onPin: (pinned) => _pinConv(_conversations[i], pinned),
-                          onDelete: () => _deleteConv(_conversations[i]),
-                        ),
-                      ],
-                      if (_convLoadingMore)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 16),
-                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                        ),
-                    ],
-                  ),
-                ),
+      body: _wrapWithWsBanner(listBody),
     );
   }
 }

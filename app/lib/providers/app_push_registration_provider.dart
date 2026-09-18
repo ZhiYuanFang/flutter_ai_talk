@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../config/app_notification_preference_store.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/session_provider.dart';
 import '../ucg/push/ucg_push_registration_service.dart';
@@ -92,6 +93,12 @@ Future<void> _syncAppPushRegistrationOnce(dynamic ref) async {
   if (!session.isLoggedIn) {
     resetAppPushRegisterState();
     await push.unregister();
+    return;
+  }
+  // 应用层偏好关闭：跳过 register（不覆盖用户「可关」）。
+  final preferenceOn = await AppNotificationPreferenceStore.load();
+  if (!preferenceOn) {
+    AppDebugLog.ucgPush('register skip preference off');
     return;
   }
   try {

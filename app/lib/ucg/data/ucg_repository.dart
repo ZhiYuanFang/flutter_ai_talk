@@ -86,8 +86,12 @@ class UcgRepository {
   Stream<void> get notificationEvents => _notificationController.stream;
   Stream<String> get messageAckClientIds => _messageAckController.stream;
   Stream<String> get auditFailedClientIds => _auditFailedController.stream;
+  /// chat WS 阶段流（消息 Tab 连接态横条订阅）。
+  Stream<WsConnectionPhase> get chatWsPhaseStream => _wsClient.phaseStream;
   bool get isWsConnected => _wsConnected;
   WsConnectionPhase get chatWsPhase => _wsClient.phase;
+  /// 当前是否仍希望保持连接（desired；供横条区分「连接中」与静默断开）。
+  bool get isChatWsConnectionDesired => _wsClient.connectionDesired;
 
   Future<({bool ready, WsConnectionPhase phase, int elapsedMs, String detail})>
       waitForChatWebSocketReady({

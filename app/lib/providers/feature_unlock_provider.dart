@@ -362,7 +362,7 @@ bool shouldShowPredictionAccumulationCtas(FeatureCatalogItem item) {
   return false;
 }
 
-/// 展示用开通方式：设备 grant 优先，否则 VIP→月卡。
+/// 展示用开通方式：设备 grant 优先，否则 VIP。
 String displayUnlockMethod({
   required FeatureCatalogItem? item,
   required bool isVip,

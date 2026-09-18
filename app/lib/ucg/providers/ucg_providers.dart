@@ -21,6 +21,9 @@ import '../data/ucg_repository.dart';
 
 Future<void>? _syncUcgUnreadInFlight;
 
+/// in-flight 期间又有校准请求时置脏，结束后补跑一轮。
+var _syncUcgUnreadDirty = false;
+
 /// UCG Home 会话是否已激活（WS + unread）；provider 创建时不自动激活。
 var _ucgHomeSessionActive = false;
 
@@ -107,12 +110,22 @@ Future<void> syncUcgUnreadAndBadge(dynamic ref) async {
 }
 
 /// HTTP 校准未读（会话 + 互动 OR）；WS ready baseline / resume / 登录 / 已读 reconcile 使用。
+///
+/// 并发调用合并为同一 in-flight；若期间又有请求则结束后补跑一轮，避免已读覆盖丢失。
 Future<void> syncUcgUnreadFromServer(dynamic ref) async {
-  if (_syncUcgUnreadInFlight != null) {
-    await _syncUcgUnreadInFlight;
+  // 每次调用都置脏；leader 的 while 会清脏并可能补跑。
+  _syncUcgUnreadDirty = true;
+  final existing = _syncUcgUnreadInFlight;
+  if (existing != null) {
+    await existing;
     return;
   }
-  final run = _syncUcgUnreadFromServerOnce(ref);
+  final run = () async {
+    while (_syncUcgUnreadDirty) {
+      _syncUcgUnreadDirty = false;
+      await _syncUcgUnreadFromServerOnce(ref);
+    }
+  }();
   _syncUcgUnreadInFlight = run;
   try {
     await run;

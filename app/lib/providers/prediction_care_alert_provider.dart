@@ -15,7 +15,6 @@ import 'device_no_notifier.dart';
 import 'feature_unlock_provider.dart';
 import 'forecast_toggle_provider.dart';
 import 'session_provider.dart';
-import 'smart_prediction_provider.dart';
 
 /// Care-alert 日列表 API 仓储。
 final careAlertRepositoryProvider = Provider<CareAlertRepository>((ref) {
@@ -484,18 +483,15 @@ final predictionCareAlertFetchAllowedProvider = Provider<bool>((ref) {
   );
 });
 
-/// 过滤后的留意列表（无跨日自动拉取）。
+/// 过滤后的留意列表：信服务端快照 items；不做本地日键过期过滤。
 final predictionCareAlertProvider = Provider<List<CareAlertEventItem>>((ref) {
-  final now =
-      ref.watch(predictionClockProvider).asData?.value ?? DateTime.now();
-  final day = careAlertShanghaiDayKey(now);
   final st = ref.watch(predictionCareAlertStateProvider);
+  // 仅 ready 且非加载/失败时展示；day/dayKey 不参与可见性。
   if (!st.ready || st.failed || st.loading) return const [];
-  // 跨日内存数据视为过期，不展示。
-  if (st.dayKey.isNotEmpty && st.dayKey != day) return const [];
   final disabled =
       ref.watch(forecastDisabledIdsProvider).asData?.value ?? const <String>{};
   if (disabled.isEmpty) return st.items;
+  // 推演关闭的事件从列表中剔除。
   return [
     for (final e in st.items)
       if (!disabled.contains(e.eventId)) e,

@@ -20,7 +20,6 @@ import '../config/speech_engine_store.dart';
 import '../providers/voice_asr_ws_provider.dart';
 import '../bootstrap/cold_start_background_sync.dart';
 import '../bootstrap/gateway_bootstrap_gate.dart';
-import '../bootstrap/pangbao_transport_release.dart';
 import '../providers/app_push_registration_provider.dart';
 import '../data/event_catalog_state.dart';
 import '../data/event_catalog_usage_sort.dart';
@@ -415,10 +414,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _startHomePangbaoTransportsAfterGate(
       ProviderContainer container) async {
-    // 历史 WS 由主壳 UcgHomeShell 激活；此处喂养相关 UCG / ASR + 全局 push
+    // 历史 WS / UCG chat 由主壳 UcgHomeShell 激活；此处喂养相关 ASR + 全局 push
     await syncAppPushRegistration(container);
-    if (!mounted) return;
-    await mountUcgHomeTransportsIfEligible(container);
     if (!mounted) return;
     _scheduleVoiceAsrConnectIfNeeded();
   }

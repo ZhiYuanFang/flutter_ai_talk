@@ -94,6 +94,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
         );
       }
       unawaited(_activateHistoryWsSessionIfNeeded());
+      // UCG chat：与历史 WS 同级由主壳激活（不依赖喂养页）
+      unawaited(_activateUcgHomeSessionIfNeeded());
       // 启动级弹窗：与喂养页解耦，预测着陆即可弹
       unawaited(_ensureHomeShellDialogBootstrap());
     });
@@ -223,6 +225,22 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     } finally {
       _historyWsActivateInFlight = false;
     }
+  }
+
+  /// 主壳激活 UCG 会话（HTTP 未读 + chat WS desired）；与历史 WS 并行、不阻塞首帧。
+  Future<void> _activateUcgHomeSessionIfNeeded() async {
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    await GatewayBootstrapGate.ensureLoggedInComplete(container);
+    if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+    // iOS：略晚于历史 WS，减轻同 host 挤槽
+    if (!kIsWeb && Platform.isIOS) {
+      await Future<void>.delayed(
+        _iosHistoryWsConnectDelay + const Duration(milliseconds: 400),
+      );
+      if (!mounted || !ref.read(sessionProvider).isLoggedIn) return;
+    }
+    await activateUcgHomeSession(ref);
   }
 
   /// 激活后观察 ready；超时/gaveUp 且预算未尽则静默自愈。
@@ -360,7 +378,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     // 全局推送注册（登录即可；不依赖 UCG WS）
     ref.watch(appPushBootstrapProvider);
 
-    // 游客→登录：主壳补激活历史 WS；登出清订阅（disconnect 由 release 负责）
+    // 游客→登录：主壳补激活历史 WS + UCG 会话；登出清订阅（disconnect 由 release 负责）
     ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn),
         (prev, loggedIn) {
       if (prev == true && !loggedIn) {
@@ -371,6 +389,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_activateHistoryWsSessionIfNeeded());
+        unawaited(_activateUcgHomeSessionIfNeeded());
       });
     });
 

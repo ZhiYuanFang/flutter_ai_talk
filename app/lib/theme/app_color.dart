@@ -77,6 +77,11 @@ abstract final class AppColor {
   /// 压在 primary 实心底上的字/图标（确认钮文字）。
   static Color onPrimary(BuildContext context) => _scheme(context).onPrimary;
 
+  /// 未读红点：消息 Tab / 广场悬浮球等；固定红，不跟主题 primary。
+  static Color unreadDot(BuildContext context) => _kUnreadDot;
+
+  static const Color _kUnreadDot = Color(0xFFE53935);
+
   /// 分割线 / 轻描边：列表分隔、内容卡边框（替代硬编码白边）。
   static Color divider(BuildContext context) =>
       _tokens(context).surfaceBorderColor;

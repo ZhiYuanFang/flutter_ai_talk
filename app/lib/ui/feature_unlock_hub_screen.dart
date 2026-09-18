@@ -117,7 +117,7 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
                     )
                     .toList();
               }(),
-            // 为底部悬浮月卡留出滚动空间
+            // 为底部悬浮 VIP 条留出滚动空间
             const SizedBox(height: 140),
           ],
         ),
@@ -136,7 +136,7 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
   }
 }
 
-/// 底部悬浮月卡：与功能列表滚动分离、含有效期文案。
+/// 底部悬浮 VIP 条：与功能列表滚动分离、含有效期文案。
 class _VipStickyBar extends StatelessWidget {
   const _VipStickyBar({
     required this.isVip,
@@ -160,14 +160,14 @@ class _VipStickyBar extends StatelessWidget {
       final dateStr =
           '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
       final days = end.difference(DateTime.now()).inDays;
-      if (days < 0) return '月卡已过期';
+      if (days < 0) return 'VIP 已过期';
       return '有效期至 $dateStr';
     }
     final days = vipProductAsync.valueOrNull?.durationDays ?? 30;
     if (days > 0) {
       return '开通后有效期 $days 天';
     }
-    return '开通月卡';
+    return '开通 VIP';
   }
 
   /// 已 VIP 主标题：VIP · 剩余 N 天 / 不足 1 天 / 永久 / 已过期。
@@ -189,7 +189,7 @@ class _VipStickyBar extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  isVip ? _vipTitle : '开通月卡解锁所有功能',
+                  isVip ? _vipTitle : '开通 VIP 解锁所有功能',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: onShell,
@@ -208,7 +208,7 @@ class _VipStickyBar extends StatelessWidget {
                   const SizedBox(height: 12),
                   FilledButton(
                     onPressed: onOpenPurchase,
-                    child: const Text('去开通月卡'),
+                    child: const Text('去开通 VIP'),
                   ),
                 ],
               ],

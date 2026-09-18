@@ -185,6 +185,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   subtitle: '智能分析、成长轨迹等',
                   onTap: () => context.push('/features/unlock'),
                 ),
+                const SizedBox(height: 12),
+                _buildGlassTile(
+                  context,
+                  leading: Icons.notifications_outlined,
+                  title: '消息通知',
+                  subtitle: '临近提醒与推送开关',
+                  onTap: () => context.push('/settings/notifications'),
+                ),
               ],
               const SizedBox(height: 12),
               // 语音识别模块已隐藏；陪伴页仍可读持久化/默认引擎

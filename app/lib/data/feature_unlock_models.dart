@@ -353,7 +353,7 @@ String featureUnlockMethodLabel(String method) {
     case 'invite_code':
       return '邀请码';
     case 'vip':
-      return '月卡';
+      return 'VIP';
     default:
       return method.trim().isEmpty ? '已开通' : method.trim();
   }

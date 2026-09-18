@@ -228,7 +228,7 @@ class _PurchaseBody extends StatelessWidget {
           if (catalogTitles.isNotEmpty) ...[
             const SizedBox(height: 28),
             Text(
-              '月卡包含的更多功能',
+              'VIP 包含的更多功能',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,

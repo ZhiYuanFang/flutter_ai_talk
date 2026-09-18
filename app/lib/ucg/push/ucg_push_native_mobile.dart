@@ -9,6 +9,21 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../api/app_debug_log.dart';
 import 'ucg_push_channel.dart';
 
+/// 系统通知授权态。
+enum OsNotificationAuth {
+  /// 已授权（含 limited）。
+  granted,
+
+  /// 未授权但仍可弹系统框。
+  denied,
+
+  /// 需去系统设置开启。
+  permanentlyDenied,
+
+  /// Web 等不支持。
+  unsupported,
+}
+
 /// iOS：原生 APNs MethodChannel；Android：仅经 `china_push` 取 token。
 class UcgPushNative {
   static const _iosChannel = MethodChannel('com.fzy.pangbao/ucg_push');
@@ -130,6 +145,48 @@ class UcgPushNative {
       );
     }
     return ch;
+  }
+
+  /// 系统通知授权态（只读）。
+  static Future<OsNotificationAuth> notificationAuthStatus() async {
+    if (kIsWeb) return OsNotificationAuth.unsupported;
+    if (Platform.isIOS) {
+      _bindIosTokenHandler();
+      try {
+        final raw =
+            await _iosChannel.invokeMethod<String>('notificationStatus');
+        switch ((raw ?? '').trim()) {
+          case 'granted':
+            return OsNotificationAuth.granted;
+          case 'notDetermined':
+            return OsNotificationAuth.denied;
+          case 'denied':
+            // iOS 已拒绝须去系统设置。
+            return OsNotificationAuth.permanentlyDenied;
+          default:
+            return OsNotificationAuth.denied;
+        }
+      } catch (e) {
+        AppDebugLog.ucgPush('ios notificationStatus err=$e');
+        return OsNotificationAuth.denied;
+      }
+    }
+    if (Platform.isAndroid) {
+      try {
+        final status = await Permission.notification.status;
+        if (status.isGranted || status.isLimited) {
+          return OsNotificationAuth.granted;
+        }
+        if (status.isPermanentlyDenied) {
+          return OsNotificationAuth.permanentlyDenied;
+        }
+        return OsNotificationAuth.denied;
+      } catch (e) {
+        AppDebugLog.ucgPush('android notification status err=$e');
+        return OsNotificationAuth.denied;
+      }
+    }
+    return OsNotificationAuth.unsupported;
   }
 
   static Future<bool> requestNotificationPermission() async {

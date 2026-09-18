@@ -58,6 +58,8 @@ class ResilientWebSocketClient {
   Stream<WsConnectionPhase> get phaseStream => _phaseController.stream;
   bool get isReady => _ready;
   WsConnectionPhase get phase => _phase;
+  /// 业务层是否仍希望保持连接（供 UI 映射「连接中」）。
+  bool get connectionDesired => _connectionDesired;
 
   void _log(String message) {
     final line = '${_config.channelLabel} $message';

@@ -41,6 +41,22 @@ import home_widget
             result(granted)
           }
         }
+      case "notificationStatus":
+        // 只读授权态：granted / denied / notDetermined
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+          DispatchQueue.main.async {
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+              result("granted")
+            case .denied:
+              result("denied")
+            case .notDetermined:
+              result("notDetermined")
+            @unknown default:
+              result("denied")
+            }
+          }
+        }
       case "getToken":
         let channel = (call.arguments as? [String: Any])?["channel"] as? String
         if channel == "apns", let token = self.cachedApnsToken, !token.isEmpty {

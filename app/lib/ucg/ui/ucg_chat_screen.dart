@@ -79,7 +79,6 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
   var _followBusy = false;
   String? _resolvedPeerNickname;
   String? _resolvedPeerAvatarThumbnailUrl;
-  var _unreadBadgeCleared = false;
 
   @override
   void initState() {
@@ -252,10 +251,8 @@ class _UcgChatScreenState extends ConsumerState<UcgChatScreen> {
             widget.conversation.id,
             lastMsgId: lastMsgId,
           );
-      if (!_unreadBadgeCleared) {
-        _unreadBadgeCleared = true;
-        unawaited(ref.read(ucgUnreadSyncProvider)());
-      }
+      // 每次已读成功都 HTTP 覆盖全局未读，避免同页二次消息后角标虚高
+      unawaited(ref.read(ucgUnreadSyncProvider)());
     } catch (_) {}
   }
 

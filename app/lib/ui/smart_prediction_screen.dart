@@ -40,6 +40,8 @@ import '../providers/prediction_range_history_provider.dart';
 import '../providers/prediction_recall_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/baby_display_provider.dart';
+import '../providers/app_notification_preference_provider.dart';
+import '../providers/app_push_registration_provider.dart';
 import '../providers/landscape_voice_provider.dart';
 import '../providers/smart_prediction_provider.dart';
 import '../theme/app_color.dart';
@@ -47,6 +49,7 @@ import '../theme/app_theme_schedule.dart';
 import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
+import '../ucg/push/ucg_push_native.dart';
 import 'event_add_actions.dart';
 import 'event_record_sheet.dart';
 import 'feature_unlock/invite_code_dialog.dart';
@@ -438,6 +441,20 @@ class SmartPredictionScreen extends ConsumerWidget {
 
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
+    // 竖屏通知引导：未授权且偏好开且本会话未关。
+    final notifPrefOn =
+        ref.watch(appNotificationPreferenceProvider).asData?.value ?? true;
+    final notifAuth =
+        ref.watch(osNotificationAuthProvider).asData?.value;
+    final notifBannerDismissed =
+        ref.watch(notificationOptInBannerDismissedProvider);
+    final showNotifOptInBanner = !isLandscape &&
+        shouldShowNotificationOptInBanner(
+          loggedIn: loggedIn,
+          preferenceEnabled: notifPrefOn,
+          osAuth: notifAuth,
+          sessionDismissed: notifBannerDismissed,
+        );
     // 横屏投屏护眼：派生暗壳 Theme（保留 seed tint）；已暗透传；不写 baseline。
     final landscapeTheme = isLandscape
         ? landscapeTvSafeThemeOf(
@@ -921,6 +938,33 @@ class SmartPredictionScreen extends ConsumerWidget {
                             Padding(
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                               child: careOrGuide,
+                            ),
+                          // 通知未授权引导（仅竖屏；横屏不渲染）。
+                          if (showNotifOptInBanner)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: _NotificationOptInBanner(
+                                onShell: onShell,
+                                accent: Theme.of(context).colorScheme.primary,
+                                needsSettings: notifAuth ==
+                                    OsNotificationAuth.permanentlyDenied,
+                                onEnable: () async {
+                                  final ok = await ref
+                                      .read(osNotificationAuthProvider.notifier)
+                                      .requestOrOpenSettings();
+                                  if (ok) {
+                                    await syncAppPushRegistration(ref);
+                                  }
+                                },
+                                onDismiss: () {
+                                  ref
+                                      .read(
+                                        notificationOptInBannerDismissedProvider
+                                            .notifier,
+                                      )
+                                      .state = true;
+                                },
+                              ),
                             ),
                           // Auth 冷态不展示接下来3小时；已绑定态空窗也常显（保 AI分析入口）。
                           if (!authGuestChrome)
@@ -1524,6 +1568,85 @@ class _PredictionSoftGateOverlay extends StatelessWidget {
 }
 
 /// 冷态骨架：事件列表上方居中提示（与滑动引导大卡并存）。
+/// 预测页竖屏：系统通知未开时的引导横条（会话可关）。
+class _NotificationOptInBanner extends StatelessWidget {
+  const _NotificationOptInBanner({
+    required this.onShell,
+    required this.accent,
+    required this.needsSettings,
+    required this.onEnable,
+    required this.onDismiss,
+  });
+
+  final Color onShell;
+  final Color accent;
+  final bool needsSettings;
+  final Future<void> Function() onEnable;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: accent.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.notifications_active_outlined, size: 20, color: accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '开启消息通知后，事件快到时会提醒你，不用一直盯着手机，也不容易忘记录。',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.35,
+                      color: onShell.withValues(alpha: 0.88),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => unawaited(onEnable()),
+                      style: TextButton.styleFrom(
+                        foregroundColor: accent,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        needsSettings ? '去系统设置开启' : '去开启',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: '本次先不提醒',
+              onPressed: onDismiss,
+              icon: Icon(
+                Icons.close,
+                size: 18,
+                color: onShell.withValues(alpha: 0.45),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PredictionVirtualEventsBanner extends StatelessWidget {
   const _PredictionVirtualEventsBanner({required this.onShell});
 

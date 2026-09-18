@@ -109,7 +109,8 @@ class _UcgSquareEdgeDockState extends ConsumerState<UcgSquareEdgeDock> {
           width: 8,
           height: 8,
           decoration: BoxDecoration(
-            color: AppColor.primary(context),
+            // 未读点固定红，不跟主题 primary
+            color: AppColor.unreadDot(context),
             shape: BoxShape.circle,
             border: Border.all(
               color: AppColor.panelGlassTop(context).withValues(alpha: 0.9),

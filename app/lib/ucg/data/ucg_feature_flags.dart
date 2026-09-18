@@ -11,7 +11,7 @@ const kUcgHomePagerEnabled = true;
 const kHistorySquareSyncEnabled = false;
 
 /// VIP 购买页与开通 CTA 是否可达。
-/// 商业化重开：月卡与开通中心支付入口可达。
+/// 商业化重开：VIP 与开通中心支付入口可达。
 const kVipPurchaseEnabled = true;
 
 /// 预测页竖屏语音对话（贴边球 / 会话 activate）。

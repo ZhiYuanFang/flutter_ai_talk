@@ -623,7 +623,11 @@ class _DockItem extends StatelessWidget {
                       child: Container(
                         width: 8,
                         height: 8,
-                        decoration: BoxDecoration(color: primary, shape: BoxShape.circle),
+                        decoration: BoxDecoration(
+                          // 未读点固定红，不跟主题 primary
+                          color: AppColor.unreadDot(context),
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
                 ],
