@@ -94,25 +94,32 @@ class GrowthTrajectoryRepository {
             const Duration(seconds: 120),
           );
 
-      if (response.statusCode != 200) {
+      // 日限等预检在开 SSE 头之前失败：HTTP 200 + application/json 业务壳。
+      final contentType = (response.headers['content-type'] ?? '').toLowerCase();
+      final jsonBody = contentType.contains('application/json');
+      if (response.statusCode != 200 || jsonBody) {
         final bodyStr = await response.stream.bytesToString();
-        try {
-          final decoded = jsonDecode(bodyStr);
-          if (decoded is Map) {
-            final codeVal = decoded['code'];
-            final code =
-                codeVal is int ? codeVal : (codeVal is num ? codeVal.toInt() : -1);
-            final message = (decoded['message'] ?? '').toString();
-            throw ApiBusinessException(code, message);
-          }
-        } catch (e) {
-          if (e is ApiBusinessException) rethrow;
+        final envelope = _tryGrowthEnvelope(bodyStr);
+        if (envelope != null &&
+            (response.statusCode != 200 ||
+                (envelope.code != null && envelope.code != 0))) {
+          final message = envelope.message.trim();
+          AppDebugLog.growthTrajectory(
+            'turn envelope code=${envelope.code} msgLen=${message.length}',
+          );
+          throw ApiBusinessException(envelope.code ?? -1, message);
         }
-        throw ApiHttpException(response.statusCode, bodyStr);
+        if (response.statusCode != 200) {
+          throw ApiHttpException(response.statusCode, bodyStr);
+        }
+        throw ApiBusinessException(-1, '');
       }
 
       var currentEvent = '';
       var buffer = '';
+      // 尚未看到 SSE 帧时攒原文，防止 Content-Type 被改写后整包 JSON 被丢掉。
+      var sawSseFrame = false;
+      final preamble = StringBuffer();
 
       await for (final chunk in response.stream.transform(utf8.decoder)) {
         buffer += chunk;
@@ -125,6 +132,13 @@ class GrowthTrajectoryRepository {
             currentEvent = '';
             continue;
           }
+          if (!sawSseFrame &&
+              !line.startsWith('event:') &&
+              !line.startsWith('data:')) {
+            preamble.writeln(line);
+            continue;
+          }
+          sawSseFrame = true;
           if (line.startsWith('event:')) {
             currentEvent = line.substring(6).trim();
             continue;
@@ -189,6 +203,17 @@ class GrowthTrajectoryRepository {
           }
         }
       }
+      // 没有 SSE 帧：可能是不带换行的业务壳（Content-Type 未标成 JSON）。
+      if (!sawSseFrame) {
+        final envelope = _tryGrowthEnvelope('$preamble$buffer');
+        if (envelope != null && envelope.code != null && envelope.code != 0) {
+          final message = envelope.message.trim();
+          AppDebugLog.growthTrajectory(
+            'turn preamble envelope code=${envelope.code} msgLen=${message.length}',
+          );
+          throw ApiBusinessException(envelope.code ?? -1, message);
+        }
+      }
     } on ApiBusinessException {
       rethrow;
     } on TimeoutException {
@@ -207,5 +232,39 @@ class GrowthTrajectoryRepository {
     } finally {
       client.close();
     }
+  }
+}
+
+/// `{code, message}` 业务壳；不是 JSON 对象时返回 null。
+class _GrowthEnvelope {
+  const _GrowthEnvelope({required this.code, required this.message});
+
+  final int? code;
+  final String message;
+}
+
+_GrowthEnvelope? _tryGrowthEnvelope(String body) {
+  final trimmed = body.trim();
+  // 不是对象开头就不是 envelope，避免把 SSE 残行当 JSON 去解析。
+  if (trimmed.isEmpty || !trimmed.startsWith('{')) return null;
+  try {
+    final decoded = jsonDecode(trimmed);
+    if (decoded is! Map) return null;
+    final codeVal = decoded['code'];
+    int? code;
+    if (codeVal is int) {
+      code = codeVal;
+    } else if (codeVal is num) {
+      code = codeVal.toInt();
+    } else if (codeVal != null) {
+      code = int.tryParse('$codeVal');
+    }
+    return _GrowthEnvelope(
+      code: code,
+      message: (decoded['message'] ?? '').toString(),
+    );
+  } catch (e) {
+    AppDebugLog.growthTrajectory('envelope parse err=$e');
+    return null;
   }
 }

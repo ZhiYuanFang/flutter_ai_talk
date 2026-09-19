@@ -125,26 +125,39 @@ class CareAlertRepository {
             const Duration(seconds: 120),
           );
 
-      if (response.statusCode != 200) {
+      // 日限等预检在开 SSE 头之前失败：HTTP 200 + application/json 业务壳。
+      final contentType = (response.headers['content-type'] ?? '').toLowerCase();
+      final jsonBody = contentType.contains('application/json');
+      if (response.statusCode != 200 || jsonBody) {
         final bodyStr = await response.stream.bytesToString();
-        try {
-          final decoded = jsonDecode(bodyStr);
-          if (decoded is Map) {
-            final message = (decoded['message'] ?? '').toString();
-            yield CareAlertStreamErrorEvent(
-              message: message.isNotEmpty ? message : '分析失败，请稍后重试',
-            );
-            return;
-          }
-        } catch (_) {}
+        final envelope = _tryBusinessEnvelope(bodyStr);
+        // 非 200 的壳一律当失败；200 仅 code 非 0（日限 40304）才当失败。
+        if (envelope != null &&
+            (response.statusCode != 200 ||
+                (envelope.code != null && envelope.code != 0))) {
+          final message = envelope.message.trim();
+          AppDebugLog.careAlert(
+            'stream envelope code=${envelope.code} msgLen=${message.length}',
+          );
+          yield CareAlertStreamErrorEvent(
+            code: envelope.code == null ? '' : '${envelope.code}',
+            message: message.isNotEmpty ? message : '分析失败，请稍后重试',
+          );
+          return;
+        }
         yield CareAlertStreamErrorEvent(
-          message: '分析失败（HTTP ${response.statusCode}）',
+          message: response.statusCode == 200
+              ? '分析失败，请稍后重试'
+              : '分析失败（HTTP ${response.statusCode}）',
         );
         return;
       }
 
       var currentEvent = '';
       var buffer = '';
+      // 尚未看到 SSE 帧时攒原文，防止 Content-Type 被改写后整包 JSON 被丢掉。
+      var sawSseFrame = false;
+      final preamble = StringBuffer();
 
       await for (final chunk in response.stream.transform(utf8.decoder)) {
         buffer += chunk;
@@ -157,6 +170,13 @@ class CareAlertRepository {
             currentEvent = '';
             continue;
           }
+          if (!sawSseFrame &&
+              !line.startsWith('event:') &&
+              !line.startsWith('data:')) {
+            preamble.writeln(line);
+            continue;
+          }
+          sawSseFrame = true;
           if (line.startsWith('event:')) {
             currentEvent = line.substring(6).trim();
             continue;
@@ -217,6 +237,21 @@ class CareAlertRepository {
           }
         }
       }
+      // 没有 SSE 帧：可能是不带换行的业务壳（Content-Type 未标成 JSON）。
+      if (!sawSseFrame) {
+        final raw = '${preamble.toString()}$buffer';
+        final envelope = _tryBusinessEnvelope(raw);
+        if (envelope != null && envelope.code != null && envelope.code != 0) {
+          final message = envelope.message.trim();
+          AppDebugLog.careAlert(
+            'stream preamble envelope code=${envelope.code} msgLen=${message.length}',
+          );
+          yield CareAlertStreamErrorEvent(
+            code: '${envelope.code}',
+            message: message.isNotEmpty ? message : '分析失败，请稍后重试',
+          );
+        }
+      }
     } catch (e) {
       AppDebugLog.careAlert('analyzeStream err=$e');
       yield const CareAlertStreamErrorEvent(message: '分析失败，请稍后重试');
@@ -257,5 +292,39 @@ class CareAlertRepository {
       'postFeedback noop intent=${intent.trim()} (Care flywheel retired)',
     );
     return true;
+  }
+}
+
+/// `{code, message}` 业务壳；不是 JSON 对象时返回 null。
+class _BusinessEnvelope {
+  const _BusinessEnvelope({required this.code, required this.message});
+
+  final int? code;
+  final String message;
+}
+
+_BusinessEnvelope? _tryBusinessEnvelope(String body) {
+  final trimmed = body.trim();
+  // 不是对象开头就不是 envelope，避免把 SSE 残行当 JSON 去解析。
+  if (trimmed.isEmpty || !trimmed.startsWith('{')) return null;
+  try {
+    final decoded = jsonDecode(trimmed);
+    if (decoded is! Map) return null;
+    final codeVal = decoded['code'];
+    int? code;
+    if (codeVal is int) {
+      code = codeVal;
+    } else if (codeVal is num) {
+      code = codeVal.toInt();
+    } else if (codeVal != null) {
+      code = int.tryParse('$codeVal');
+    }
+    return _BusinessEnvelope(
+      code: code,
+      message: (decoded['message'] ?? '').toString(),
+    );
+  } catch (e) {
+    AppDebugLog.careAlert('envelope parse err=$e');
+    return null;
   }
 }
