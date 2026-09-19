@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../api/app_debug_log.dart';
+import '../../push/push_click_inbox.dart';
 import 'ucg_push_channel.dart';
 
 /// 系统通知授权态。
@@ -27,6 +28,7 @@ enum OsNotificationAuth {
 /// iOS：原生 APNs MethodChannel；Android：仅经 `china_push` 取 token。
 class UcgPushNative {
   static const _iosChannel = MethodChannel('com.fzy.pangbao/ucg_push');
+  static const _clickChannel = MethodChannel('com.fzy.pangbao/push_click');
 
   static final _tokenRefreshController =
       StreamController<UcgPushTokenEvent>.broadcast();
@@ -45,6 +47,39 @@ class UcgPushNative {
     return _tokenRefreshController.stream;
   }
 
+  /// 首帧前绑定点击。Android 冷启动从 MainActivity 拉取暂存的 bizType。
+  static Future<void> bindNotificationTaps() async {
+    if (kIsWeb) return;
+    if (Platform.isIOS) {
+      _bindIosTokenHandler();
+      try {
+        final initial =
+            await _iosChannel.invokeMethod<dynamic>('getInitialNotificationTap');
+        PushClickInbox.instance.recordRaw(initial);
+      } catch (e) {
+        AppDebugLog.ucgPush('ios getInitialNotificationTap err=$e');
+      }
+      return;
+    }
+    if (!Platform.isAndroid) return;
+    ChinaPush.setOnClickNotification(PushClickInbox.instance.recordRaw);
+    _clickChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onPushClick') {
+        PushClickInbox.instance.recordRaw(<String, dynamic>{
+          'bizType': call.arguments?.toString(),
+        });
+      }
+    });
+    try {
+      final initial = await _clickChannel.invokeMethod<String>('getInitialPushClick');
+      if (initial != null && initial.trim().isNotEmpty) {
+        PushClickInbox.instance.recordRaw(<String, dynamic>{'bizType': initial});
+      }
+    } catch (e) {
+      AppDebugLog.ucgPush('android getInitialPushClick err=$e');
+    }
+  }
+
   static void _bindIosTokenHandler() {
     if (_iosHandlerBound) return;
     _iosHandlerBound = true;
@@ -60,6 +95,11 @@ class UcgPushNative {
             );
           }
         }
+        return;
+      }
+      // 前台/后台点击；冷启动另由 getInitialNotificationTap 拉取。
+      if (call.method == 'onNotificationTap') {
+        PushClickInbox.instance.recordRaw(call.arguments);
       }
     });
   }

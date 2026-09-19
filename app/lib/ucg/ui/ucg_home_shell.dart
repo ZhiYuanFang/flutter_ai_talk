@@ -18,6 +18,7 @@ import '../../data/models.dart';
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/home_history_notifier.dart';
 import '../../providers/home_pager.dart';
+import '../../push/push_click_inbox.dart';
 import '../../providers/history_event_fly_provider.dart';
 import '../../providers/app_push_registration_provider.dart';
 import '../../providers/prediction_range_history_provider.dart';
@@ -57,6 +58,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   var _ucgEverMounted = false;
   var _blockPageScroll = false;
   DateTime? _lastExitBackPress;
+  /// 已消费的通知点击序号。
+  var _pushClickSeenSeq = 0;
 
   /// 主壳历史 WS 单一订阅（喂养页不得再挂）
   StreamSubscription<SseHistoryPayload>? _historyWsSub;
@@ -97,10 +100,31 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       unawaited(_activateUcgHomeSessionIfNeeded());
       // 启动级弹窗：与喂养页解耦，预测着陆即可弹
       unawaited(_ensureHomeShellDialogBootstrap());
+      _consumePushClick();
     });
   }
 
-  /// 同挂载周期只跑一次 notify→version 串行编排。
+  /// 会话在进主页前已 restore。只处理新序号。
+  void _consumePushClick() {
+    if (!ref.read(pushClickRoutingReadyProvider)) return;
+    final inbox = PushClickInbox.instance;
+    if (inbox.seq == 0 || inbox.seq == _pushClickSeenSeq) return;
+    _pushClickSeenSeq = inbox.seq;
+    final biz = inbox.bizType;
+    final loggedIn = ref.read(sessionProvider).isLoggedIn;
+    if (biz == kPushBizPredictImminent) {
+      ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.prediction);
+      return;
+    }
+    if (biz == kPushBizUcgAlert && loggedIn) {
+      ref.read(ucgMessagesTabRequestProvider.notifier).request();
+      ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.ucg);
+      return;
+    }
+    if (biz == kPushBizUcgAlert && !loggedIn) {
+      ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.prediction);
+    }
+  }
   Future<void> _ensureHomeShellDialogBootstrap() {
     return _dialogBootstrapInFlight ??= runHomeShellDialogBootstrap(
       context: context,
@@ -388,6 +412,13 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
         unawaited(_activateHistoryWsSessionIfNeeded());
         unawaited(_activateUcgHomeSessionIfNeeded());
       });
+    });
+
+    ref.listen(pushClickInboxProvider, (previous, next) {
+      _consumePushClick();
+    });
+    ref.listen<bool>(pushClickRoutingReadyProvider, (previous, next) {
+      if (next) _consumePushClick();
     });
 
     // 贴士 / 深链等请求切页

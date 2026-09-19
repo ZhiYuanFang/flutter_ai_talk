@@ -13,19 +13,33 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val installerChannel = "com.fzy.pangbao/installer"
     private val nativeSplashChannel = "com.fzy.pangbao/native_splash"
     private val localVideoChannel = "com.fzy.pangbao/local_video"
+    private val pushClickChannelName = "com.fzy.pangbao/push_click"
+    private var pushClickChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { KeepNativeSplash.visible }
+        // 冷启动点击可能早于 Dart 监听；先记下 bizType。
+        capturePushBizType(intent)
         // 与 Go push_hms.go 的 channelId=push_default 对齐，供 HMS 可见通知落托盘
         ensurePushNotificationChannel()
         super.onCreate(savedInstanceState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val biz = capturePushBizType(intent)
+        if (!biz.isNullOrEmpty()) {
+            pushClickChannel?.invokeMethod("onPushClick", biz)
+        }
     }
 
     /** Android 8+ 系统通知渠道；id 必须与服务端 HMS android.notification.channelId 一致。 */
@@ -46,10 +60,52 @@ class MainActivity : FlutterActivity() {
     companion object {
         /** 与 go_ai_talk internal/services/push/push_hms.go 硬编码一致，勿改。 */
         const val PUSH_NOTIFICATION_CHANNEL_ID = "push_default"
+
+        /** Dart 监听就绪前暂存的点击 bizType。 */
+        var pendingPushBizType: String? = null
+
+        fun readBizType(intent: Intent?): String? {
+            if (intent == null) return null
+            val direct = intent.getStringExtra("bizType")?.trim().orEmpty()
+            if (direct.isNotEmpty()) return direct
+            val extras = intent.extras ?: return null
+            for (key in extras.keySet()) {
+                val raw = extras.get(key)?.toString()?.trim().orEmpty()
+                if (!raw.startsWith("{")) continue
+                try {
+                    val biz = JSONObject(raw).optString("bizType").trim()
+                    if (biz.isNotEmpty()) return biz
+                } catch (_: Exception) {
+                    // 非 JSON 的 extras 忽略
+                }
+            }
+            return null
+        }
+    }
+
+    private fun capturePushBizType(intent: Intent?): String? {
+        val biz = readBizType(intent) ?: return null
+        pendingPushBizType = biz
+        return biz
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        pushClickChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            pushClickChannelName,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInitialPushClick" -> {
+                        val biz = pendingPushBizType
+                        pendingPushBizType = null
+                        result.success(biz)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, "$localVideoChannel/events")
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {

@@ -48,6 +48,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           (uri.host == 'home' || uri.path == '/home' || uri.path == '/')) {
         return '/home';
       }
+      // 华为通知 click intent，不作为业务路由。
+      if (uri.scheme == 'pangbaopush') {
+        return '/home';
+      }
       final loc = state.matchedLocation;
       if (loc == '/vip/purchase' && !kVipPurchaseEnabled) {
         return '/home';

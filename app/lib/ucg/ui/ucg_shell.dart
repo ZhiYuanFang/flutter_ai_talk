@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/session_provider.dart';
+import '../../push/push_click_inbox.dart';
 import '../../providers/client_usage_provider.dart';
 import '../../data/client_usage_events.dart';
 import '../../session/token_expiry.dart';
@@ -29,6 +30,8 @@ class UcgShell extends ConsumerStatefulWidget {
 
 class _UcgShellState extends ConsumerState<UcgShell> {
   var _tabIndex = 0;
+  /// 消息 Tab 下标（宝藏关时底栏仍用 3）。
+  static const _messagesTabIndex = 3;
   /// IndexedStack 槽位：仅首次进入对应 Tab 时挂载子页，避免消息/我的预拉接口。
   final _stackMounted = <int>{0};
 
@@ -77,6 +80,7 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_reportUcgTabShow(_tabIndex));
+      _consumeMessagesTabRequest();
     });
   }
 
@@ -102,15 +106,31 @@ class _UcgShellState extends ConsumerState<UcgShell> {
       unawaited(promptLoginForPersonalAction(context, ref));
       return;
     }
+    if (index == _messagesTabIndex) {
+      _activateMessagesTab();
+      return;
+    }
     _selectTab(index);
-    if (index == 3) {
-      bumpUcgConversationsRefresh(ref);
-      bumpUcgNotificationsRefresh(ref);
-      // 进消息 Tab：HTTP 覆盖全局未读（与列表刷新对齐）
-      unawaited(ref.read(ucgUnreadSyncProvider)());
-    } else if (index == 4) {
+    if (index == 4) {
       ref.invalidate(ucgMyProfileProvider);
     }
+  }
+
+  /// 与用户点消息 Tab 相同：选中并刷新会话、互动、未读。不等这些接口结束。
+  void _activateMessagesTab() {
+    _selectTab(_messagesTabIndex);
+    bumpUcgConversationsRefresh(ref);
+    bumpUcgNotificationsRefresh(ref);
+    unawaited(ref.read(ucgUnreadSyncProvider)());
+  }
+
+  /// 推送请求。未登录不弹登录（主页已挡住）。锁层不挡这次调用。
+  void _consumeMessagesTabRequest() {
+    final pending = ref.read(ucgMessagesTabRequestProvider);
+    if (pending == null) return;
+    ref.read(ucgMessagesTabRequestProvider.notifier).clear();
+    if (!ref.read(sessionProvider).isLoggedIn) return;
+    _activateMessagesTab();
   }
 
   Future<void> _openCompose({UcgPost? editing, bool textOnly = false}) async {
@@ -192,6 +212,10 @@ class _UcgShellState extends ConsumerState<UcgShell> {
     });
 
     final unread = ref.watch(ucgUnreadCountProvider) > 0;
+    ref.listen<int?>(ucgMessagesTabRequestProvider, (previous, next) {
+      if (next == null) return;
+      _consumeMessagesTabRequest();
+    });
 
     return UcgScaffold(
       body: IndexedStack(

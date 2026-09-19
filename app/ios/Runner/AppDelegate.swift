@@ -7,6 +7,8 @@ import home_widget
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var ucgPushChannel: FlutterMethodChannel?
   private var cachedApnsToken: String?
+  /// 冷启动点击：channel 或 Dart 监听尚未就绪时暂存 userInfo。
+  private var pendingTapUserInfo: [String: Any]?
 
   override func application(
     _ application: UIApplication,
@@ -19,6 +21,9 @@ import home_widget
       }
     }
     UNUserNotificationCenter.current().delegate = self
+    if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
+      pendingTapUserInfo = flutterTapArgs(remote)
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -65,10 +70,55 @@ import home_widget
           UIApplication.shared.registerForRemoteNotifications()
           result(nil)
         }
+      case "getInitialNotificationTap":
+        let pending = self.pendingTapUserInfo
+        self.pendingTapUserInfo = nil
+        result(pending)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  /// 前台也展示横幅；点击仍走 didReceive，不在到达时跳转。
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .list, .sound, .badge])
+    } else {
+      completionHandler([.alert, .sound, .badge])
+    }
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    deliverNotificationTap(response.notification.request.content.userInfo)
+    completionHandler()
+  }
+
+  private func deliverNotificationTap(_ userInfo: [AnyHashable: Any]) {
+    let args = flutterTapArgs(userInfo)
+    pendingTapUserInfo = args
+    ucgPushChannel?.invokeMethod("onNotificationTap", arguments: args)
+  }
+
+  /// 只保留字符串字段，保证 MethodChannel 可编码；bizType 在根上。
+  private func flutterTapArgs(_ userInfo: [AnyHashable: Any]) -> [String: Any] {
+    var out: [String: Any] = [:]
+    for (key, value) in userInfo {
+      let name = "\(key)"
+      if name == "aps" { continue }
+      if let text = value as? String {
+        out[name] = text
+      }
+    }
+    return out
   }
 
   override func application(

@@ -16,6 +16,7 @@ import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'ai_analysis_unlock.dart';
 import 'widgets/ai_thinking_pane.dart';
+import 'widgets/analysis_wait_callout.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/feature_logo.dart';
 import 'widgets/feeding_eligibility_progress_text.dart';
@@ -159,17 +160,25 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
         ),
       );
     } else if (careState.loading) {
-      // 思考流：有增量则展示，否则占位
+      // 思考流：有增量则展示，否则占位。等待说明在思考区外，避免被流式正文清掉。
       final think = careState.thinking.trim();
-      body = AiThinkingPane(
-        text: think.isEmpty ? '正在思考中…' : think,
-        accentColor: deep,
-        style: TextStyle(fontSize: 13, height: 1.4, color: deep),
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnalysisWaitCallout(accent: accent),
+          const SizedBox(height: 12),
+          AiThinkingPane(
+            text: think.isEmpty ? '正在思考中…' : think,
+            accentColor: deep,
+            style: TextStyle(fontSize: 13, height: 1.4, color: deep),
+          ),
+        ],
       );
+      // 进行中仍可点：再点由 provider 立刻 Toast，不发第二次生成。
       bottomCta = _FeedingBodyCta(
         accent: accent,
         usageCopy: careState.usageCopy,
-        onTap: null,
+        onTap: _onTapAnalyze,
       );
     } else {
       // 合格且可使用：CTA 在正文下方居中；用量为今日已用 x/y。

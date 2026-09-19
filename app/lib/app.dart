@@ -23,6 +23,7 @@ import 'scaffold_messenger_key.dart';
 import 'ui/widgets/app_toast.dart';
 import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
+import 'push/push_click_inbox.dart';
 import 'theme/app_theme_schedule.dart';
 import 'theme/app_theme_scope.dart';
 import 'theme/custom_background_persist.dart';
@@ -70,6 +71,16 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     }
   }
 
+  /// 点击发生在子页面时先回主页；分流由主壳消费。启动遮罩期间不抢路由。
+  void _openHomeForPushClick() {
+    if (_showStartupOverlay) return;
+    if (PushClickInbox.instance.seq == 0) return;
+    final router = ref.read(goRouterProvider);
+    final loc = router.state.matchedLocation;
+    if (loc == '/splash' || loc == '/home') return;
+    router.go('/home');
+  }
+
   void _beginStartupIfNeeded() {
     if (_startupStarted) return;
     _startupStarted = true;
@@ -100,8 +111,10 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     }
 
     if (!mounted) return;
+    ref.read(pushClickRoutingReadyProvider.notifier).state = true;
     ref.read(goRouterProvider).go(result.route);
     setState(() => _showStartupOverlay = false);
+    _openHomeForPushClick();
     // 已登录 bootstrap 由 HomeScreen GatewayBootstrapGate 单飞负责，避免与 gate 双跑占满 iOS 连接槽。
     if (!ref.read(sessionProvider).isLoggedIn) {
       unawaited(
@@ -147,6 +160,9 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
         }
       },
     );
+    ref.listen(pushClickInboxProvider, (previous, next) {
+      _openHomeForPushClick();
+    });
     ref.listen<ThemePreferences>(effectiveThemeProvider, (previous, next) {
       unawaited(scheduleHomeWidgetSyncIfThemeChanged(ref, previous, next));
     });

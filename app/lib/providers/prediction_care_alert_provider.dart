@@ -231,6 +231,11 @@ class PredictionCareAlertNotifier
       AppDebugLog.careAlert('manual refresh skipped not logged in');
       return Future.value('请先登录');
     }
+    // 上一次 SSE 还在：立刻提示，不并入旧 Future，也不再打生成接口。
+    if (_inFlight != null) {
+      AppDebugLog.careAlert('manual refresh skipped in flight');
+      return Future.value('上一次分析还在进行，请稍后再试');
+    }
     return _inFlight ??= _refreshManualImpl().whenComplete(() {
       _inFlight = null;
     });
@@ -238,6 +243,11 @@ class PredictionCareAlertNotifier
 
   /// 进详情拉 latest 缓存（force=false，不扣日额度）；失败静默保留旧态。
   Future<void> hydrateLatestOnly() async {
+    // 生成未结束时 latest 会把 loading 清掉，再进页会盖成历史列表。
+    if (_inFlight != null) {
+      AppDebugLog.careAlert('hydrate latest skipped in flight');
+      return;
+    }
     if (!_ref.read(sessionProvider).isLoggedIn) return;
     var dn = _deviceNoOrNull();
     if (dn == null) {
@@ -250,6 +260,11 @@ class PredictionCareAlertNotifier
           .read(careAlertRepositoryProvider)
           .fetchDaily(deviceNo: dn, force: false);
       if (snap == null) return;
+      // 等待 latest 期间用户已点分析：丢掉这次覆盖，保留思考态。
+      if (_inFlight != null) {
+        AppDebugLog.careAlert('hydrate latest dropped in flight');
+        return;
+      }
       state = PredictionCareAlertState(
         items: snap.items,
         loading: false,

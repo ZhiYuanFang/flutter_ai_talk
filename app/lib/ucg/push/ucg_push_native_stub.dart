@@ -21,4 +21,7 @@ class UcgPushNative {
       OsNotificationAuth.unsupported;
 
   static Stream<UcgPushTokenEvent> get tokenRefreshStream => const Stream.empty();
+
+  /// Web 没有系统通知点击。
+  static Future<void> bindNotificationTaps() async {}
 }

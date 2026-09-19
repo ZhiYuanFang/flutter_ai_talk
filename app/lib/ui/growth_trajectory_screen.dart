@@ -14,6 +14,7 @@ import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'ai_analysis_unlock.dart';
 import 'widgets/ai_thinking_pane.dart';
+import 'widgets/analysis_wait_callout.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/clinic_answer_body.dart';
 import 'widgets/feature_logo.dart';
@@ -163,12 +164,19 @@ class _GrowthTrajectoryScreenState
       }
     });
 
-    // 主 CTA 在正文下（对齐喂养工作台）；流式/提问中隐藏
+    // 主 CTA 在正文下。思考流与加载历史不放按钮；提问中只放「重新预测」。
     Widget? bottomCta;
-    final canShowCta = gt.phase != GrowthTrajectoryPhase.streaming &&
-        gt.phase != GrowthTrajectoryPhase.asking &&
-        gt.phase != GrowthTrajectoryPhase.loadingLatest;
-    if (canShowCta) {
+    final hideCta = gt.phase == GrowthTrajectoryPhase.streaming ||
+        gt.phase == GrowthTrajectoryPhase.loadingLatest;
+    if (gt.phase == GrowthTrajectoryPhase.asking && canUse) {
+      // 选项在 body 里；此按钮在 ListView 正文下方，不进选项组。
+      bottomCta = _GrowthBodyCta(
+        label: '重新预测',
+        accent: accent,
+        usageCopy: gt.usageCopy,
+        onTap: () => _onPredict(restart: true),
+      );
+    } else if (!hideCta) {
       if (!canUse) {
         bottomCta = _GrowthBodyCta(
           label: '轨迹预测',
@@ -211,14 +219,22 @@ class _GrowthTrajectoryScreenState
     } else if (gt.phase == GrowthTrajectoryPhase.loadingLatest) {
       body = _gtMuted(context, '正在加载历史轨迹…', muted);
     } else if (gt.showThinking || gt.phase == GrowthTrajectoryPhase.streaming) {
-      body = AiThinkingPane(
-        text: gt.thinking.isEmpty ? '正在思考…' : gt.thinking,
-        accentColor: deep,
-        style: TextStyle(
-          fontSize: 13,
-          height: 1.4,
-          color: deep.withValues(alpha: 0.9),
-        ),
+      // 仅流式思考展示等待说明；提问阶段不走此分支。
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnalysisWaitCallout(accent: accent),
+          const SizedBox(height: 12),
+          AiThinkingPane(
+            text: gt.thinking.isEmpty ? '正在思考…' : gt.thinking,
+            accentColor: deep,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: deep.withValues(alpha: 0.9),
+            ),
+          ),
+        ],
       );
     } else if (gt.phase == GrowthTrajectoryPhase.asking && gt.question != null) {
       final q = gt.question!;
