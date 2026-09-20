@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../api/api_exceptions.dart';
+import '../api/app_debug_log.dart';
 import '../data/cash_vip_models.dart';
 import '../data/client_usage_events.dart';
 import '../data/feature_unlock_models.dart';
@@ -43,8 +44,16 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
   }
 
   Future<void> _refreshAll() async {
+    // 目录 + VIP 状态 + 在售商品一并刷新，Admin 上架后下拉即可恢复底栏。
     await ref.read(featureCatalogStateProvider.notifier).refresh();
     await ref.read(vipStatusProvider.notifier).refresh();
+    // 重建 product Future；失败只打日志，下拉仍结束（底栏按 hasValue 隐藏）。
+    ref.invalidate(vipProductProvider);
+    try {
+      await ref.read(vipProductProvider.future);
+    } catch (e) {
+      AppDebugLog.cashVip('hub refresh product err=$e');
+    }
   }
 
   @override
@@ -57,6 +66,8 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
     final vip = ref.watch(vipStatusProvider).valueOrNull;
     final isVip = vip?.isVip == true;
     final vipProductAsync = ref.watch(vipProductProvider);
+    // 仅在售商品拉取成功时展示 VIP sticky；下架 / 加载中 / 失败均不挂载。
+    final showVipSticky = vipProductAsync.hasValue;
 
     return ClientUsageShowOnce(
       event: ClientUsageEvents.unlockHubShow,
@@ -117,20 +128,22 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
                     )
                     .toList();
               }(),
-            // 为底部悬浮 VIP 条留出滚动空间
-            const SizedBox(height: 140),
+            // 仅挂载 VIP sticky 时预留滚动空间，避免下架后底部空一大块。
+            if (showVipSticky) const SizedBox(height: 140),
           ],
         ),
       ),
-      bottomNavigationBar: _VipStickyBar(
-        isVip: isVip,
-        expireAt: vip?.expireAt ?? 0,
-        vipProductAsync: vipProductAsync,
-        onShell: onShell,
-        onOpenPurchase: !kVipPurchaseEnabled
-            ? null
-            : () => context.push('/vip/purchase'),
-      ),
+      bottomNavigationBar: !showVipSticky
+          ? null
+          : _VipStickyBar(
+              isVip: isVip,
+              expireAt: vip?.expireAt ?? 0,
+              vipProductAsync: vipProductAsync,
+              onShell: onShell,
+              onOpenPurchase: !kVipPurchaseEnabled
+                  ? null
+                  : () => context.push('/vip/purchase'),
+            ),
     ),
     );
   }
