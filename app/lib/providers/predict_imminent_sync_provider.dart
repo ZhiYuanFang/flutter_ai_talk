@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../data/event_next_predictor.dart';
 import '../data/predict_imminent_repository.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
@@ -51,26 +52,36 @@ Future<void> _syncPredictImminentPendingOnce(dynamic ref) async {
   if (cooldown != null && DateTime.now().isBefore(cooldown)) {
     return;
   }
-  final dn = ref.read(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
-  if (dn.isEmpty) return;
-
-  // 先读预测以强制按最新 home/间隔同步重算，再上报
-  final predictions = ref.read(smartPredictionsProvider);
-
-  // 指纹：避免同 nextAt 重复刷 HTTP；空列表也上报以清空
-  final fp = predictions.isEmpty
-      ? 'empty'
-      : predictions
-          .map((p) =>
-              '${p.eventId}:${p.nextAt.toUtc().millisecondsSinceEpoch ~/ 1000}')
-          .join('|');
-  if (fp == _lastPredictImminentFingerprint) return;
 
   try {
-    await ref.read(predictImminentRepositoryProvider).syncPending(
-          deviceNo: dn,
-          predictions: predictions,
-        );
+    // dynamic ref 上须先 as AsyncValue，再 asData（见 project.md）
+    final dn = (ref.read(deviceNoNotifierProvider) as AsyncValue<String?>)
+            .asData
+            ?.value
+            ?.trim() ??
+        '';
+    if (dn.isEmpty) return;
+
+    // 先读预测以强制按最新 home/间隔同步重算，再上报
+    final predictions =
+        ref.read(smartPredictionsProvider) as List<EventNextPrediction>;
+
+    // 指纹：避免同 nextAt 重复刷 HTTP；空列表也上报以清空
+    final fp = predictions.isEmpty
+        ? 'empty'
+        : predictions
+            .map((p) =>
+                '${p.eventId}:${p.nextAt.toUtc().millisecondsSinceEpoch ~/ 1000}')
+            .join('|');
+    if (fp == _lastPredictImminentFingerprint) return;
+
+    // dynamic 上读 Provider 亦先收成仓库类型再调 syncPending
+    await (ref.read(predictImminentRepositoryProvider)
+            as PredictImminentRepository)
+        .syncPending(
+      deviceNo: dn,
+      predictions: predictions,
+    );
     _lastPredictImminentFingerprint = fp;
     _predictImminentFailCount = 0;
     _predictImminentCooldownUntil = null;

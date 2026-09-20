@@ -112,6 +112,19 @@
 - **参考**：`openspec/changes/side-effect-http-governance/`、`app/lib/ucg/providers/ucg_providers.dart`（unread single-flight 范例）。
 - **禁止**：在 `ref.listen` / token 回调中 `unawaited` 重复 POST 且无 in-flight 去重与失败熔断。
 
+### dynamic Ref / WidgetRef 读 AsyncValue（强制）
+
+接受 **`dynamic ref`**（为兼容 `Ref` 与 `WidgetRef`）的顶层函数中，`ref.read(...)` 的静态类型为 `dynamic`，**不得**对结果直接链式调用依赖静态类型解析的 API。
+
+- **MUST NOT**：对 `ref.read(someAsyncProvider)` 的结果直接写 `.asData` / 其它仅挂在 `AsyncValue` 静态类型上的成员（运行时对象常为 `AsyncData`，dynamic 派发会 `NoSuchMethodError: ... has no instance getter 'asData'`，且若抛在 `try` 外会变成 Unhandled Exception、副作用 HTTP 静默丢失）。
+- **MUST** 先收成静态类型，任选其一：
+  1. **显式转型**：`final v = ref.read(...) as AsyncValue<T>;` 再用 `v.asData` / `v.value` / `v.valueOrNull`。
+  2. **先取 `ProviderContainer`**：再 `container.read(...)`（恢复静态类型；范例 `home_widget_sync.dart` 的 `_widgetSyncContainer`）。
+- **Typed `Ref` / `WidgetRef`**（非 `dynamic`）上可直接 `.asData`，编译器已绑定 `AsyncValue`。
+- **同理**：`dynamic` 上读非 `AsyncValue` 的强类型结果时，若后续调用也依赖静态类型，**应** `as ConcreteType`（如 `as bool`、`as ClinicWsClient`）。
+- **参考**：`clinic_ws_provider.dart`（`companionClinicWsEligible`）、`app_notification_preference_provider.dart`（`onAppResumeNotificationSync` 注释）、`predict_imminent_sync_provider.dart`、`home_widget_sync.dart`。
+- **禁止**：在 `dynamic ref` 辅助函数里复制「Typed Ref 上可直接 `.asData`」的写法而不转型。
+
 ### AI 思考展示组件（强制）
 
 凡以**可纵向滚动区域**展示 agent **流式**或**展开后完整**思考正文的 UI：
@@ -142,6 +155,7 @@
 - **Android 原生**：是否已 release 构建通过；`proguard-rules.pro` 是否按需更新。
 - **测试文件**：是否未经用户明确要求而新增 `*_test.dart`。
 - **副作用 HTTP**：listener/回调/lifecycle 触发的 HTTP 是否有 single-flight、失败熔断、自触发 ignore、成功缓存；provider 创建是否误发副作用 HTTP。
+- **dynamic ref**：接受 `dynamic ref` 的函数是否对 `ref.read(AsyncValue…)` 直接 `.asData`（须先 `as AsyncValue<T>` 或经 `ProviderContainer`）。
 - **弹框输入**：带 TextField 的 dialog/sheet 是否在 await 返回后过早 dispose `TextEditingController`（须 State 持有，见「弹框 TextEditingController / FocusNode」）。
 - **AI 思考展示**：可滚动思考正文是否绕过 `AiThinkingPane` 自建跟滚；近底是否误自动恢复 follow（须仅按钮恢复）。
 - **主题色**：业务 UI 是否绕过 `colorScheme`/`AppVisualTokens` 硬编码浅色玻璃白或灰阶字；暗壳是否出现突兀白底卡片。

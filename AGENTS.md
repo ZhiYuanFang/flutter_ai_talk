@@ -4,7 +4,7 @@
 
 编写或修改代码、OpenSpec 产物前，**必须**阅读：
 
-1. **[openspec/project.md](openspec/project.md)** — 工程约束全文（WebSocket、日志、Android R8、测试、弹框 TextEditingController、AI 思考展示组件、OpenSpec 基线、归档等）。
+1. **[openspec/project.md](openspec/project.md)** — 工程约束全文（WebSocket、日志、Android R8、测试、弹框 TextEditingController、dynamic Ref 读 AsyncValue、AI 思考展示组件、OpenSpec 基线、归档等）。
 2. **[openspec/specs/v2.1.2.md](openspec/specs/v2.1.2.md)** — 当前合并行为基线（Requirement / Scenario 验收）。
 
 OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 project.md 为准，本文仅摘要高频 MUST。
@@ -42,6 +42,12 @@ OpenSpec CLI 制品生成时亦须对照 `openspec/project.md`；细则以 proje
 
 - Riverpod `listen`、原生/SDK 回调、lifecycle 触发的 HTTP **必须** single-flight、失败熔断、自触发 ignore、成功幂等跳过；provider 创建 **不得** 自动 push/未读/WS。
 - 细则见 **`openspec/project.md`**「副作用 HTTP 治理」；范例见 `syncUcgUnreadFromServer`、`_syncUcgUnreadInFlight`。
+
+## dynamic Ref 读 AsyncValue（强制）
+
+- 接受 `dynamic ref`（兼容 `Ref` / `WidgetRef`）的函数里，**禁止**对 `ref.read(AsyncValue…)` 直接链式 `.asData`（会 `NoSuchMethodError`）。
+- **必须**先 `as AsyncValue<T>`，或先取 `ProviderContainer` 再 `read`。
+- 细则见 **`openspec/project.md`**「dynamic Ref / WidgetRef 读 AsyncValue」；范例 `clinic_ws_provider`、`predict_imminent_sync_provider`。
 
 ## 弹框 TextEditingController（强制）
 
