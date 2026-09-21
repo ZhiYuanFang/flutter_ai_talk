@@ -3,12 +3,92 @@ import UIKit
 import UserNotifications
 import home_widget
 
+/// APNs 点击暂存：AppDelegate / SceneDelegate 共用，对齐 Android pending bizType。
+enum UcgPushTapInbox {
+  /// 待 Dart 拉取的 bizType（非空）。
+  static var pendingBizType: String?
+  /// 已确认点击但载荷无 bizType，供 Dart Toast。
+  static var pendingConfirmedMissingBiz = false
+  static weak var channel: FlutterMethodChannel?
+  /// Dart 已 setMethodCallHandler 并声明可收点击。
+  static var dartListening = false
+
+  /// 从 userInfo 根上抽出 bizType（字符串或可转字符串的标量）。
+  static func extractBizType(_ userInfo: [AnyHashable: Any]) -> String? {
+    for (key, value) in userInfo {
+      let name = "\(key)"
+      if name != "bizType" { continue }
+      if let text = value as? String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+      }
+      if let num = value as? NSNumber {
+        return num.stringValue
+      }
+    }
+    return nil
+  }
+
+  /// 记录一次系统通知点击。
+  static func noteUserInfo(_ userInfo: [AnyHashable: Any], source: String) {
+    let keys = userInfo.keys.map { "\($0)" }.sorted().joined(separator: ",")
+    NSLog("[ucg_push] tap in source=%@ keys=%@", source, keys)
+    let biz = extractBizType(userInfo)
+    NSLog("[ucg_push] tap out source=%@ bizType=%@", source, biz ?? "nil")
+    if let biz = biz, !biz.isEmpty {
+      if dartListening, let channel = channel {
+        // Dart 已监听：热投递且不留 pending，避免挂起后误用。
+        channel.invokeMethod("onNotificationTap", arguments: biz)
+        pendingBizType = nil
+        pendingConfirmedMissingBiz = false
+      } else {
+        pendingBizType = biz
+        pendingConfirmedMissingBiz = false
+        channel?.invokeMethod("onNotificationTap", arguments: biz)
+      }
+    } else if dartListening, let channel = channel {
+      channel.invokeMethod("onNotificationTap", arguments: ["__confirmedPushTap": true])
+      pendingBizType = nil
+      pendingConfirmedMissingBiz = false
+    } else {
+      pendingBizType = nil
+      pendingConfirmedMissingBiz = true
+      channel?.invokeMethod("onNotificationTap", arguments: ["__confirmedPushTap": true])
+    }
+  }
+
+  /// Dart 声明可收后：补发仍暂存的点击（不清除，留给紧随的 getInitial）。
+  static func onDartListening() {
+    dartListening = true
+    guard let channel = channel else { return }
+    if let biz = pendingBizType, !biz.isEmpty {
+      NSLog("[ucg_push] dartListening flush bizType=%@", biz)
+      channel.invokeMethod("onNotificationTap", arguments: biz)
+    } else if pendingConfirmedMissingBiz {
+      NSLog("[ucg_push] dartListening flush confirmedMissingBiz")
+      channel.invokeMethod("onNotificationTap", arguments: ["__confirmedPushTap": true])
+    }
+  }
+
+  /// Dart getInitial：取出并清空 pending。
+  static func takeInitialForDart() -> Any? {
+    if let biz = pendingBizType, !biz.isEmpty {
+      pendingBizType = nil
+      pendingConfirmedMissingBiz = false
+      return biz
+    }
+    if pendingConfirmedMissingBiz {
+      pendingConfirmedMissingBiz = false
+      return ["__confirmedPushTap": true]
+    }
+    return nil
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var ucgPushChannel: FlutterMethodChannel?
   private var cachedApnsToken: String?
-  /// 冷启动点击：channel 或 Dart 监听尚未就绪时暂存 userInfo。
-  private var pendingTapUserInfo: [String: Any]?
 
   override func application(
     _ application: UIApplication,
@@ -22,7 +102,7 @@ import home_widget
     }
     UNUserNotificationCenter.current().delegate = self
     if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
-      pendingTapUserInfo = flutterTapArgs(remote)
+      UcgPushTapInbox.noteUserInfo(remote, source: "launchOptions")
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -31,12 +111,17 @@ import home_widget
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let messenger = engineBridge.applicationRegistrar.messenger()
     ucgPushChannel = FlutterMethodChannel(name: "com.fzy.pangbao/ucg_push", binaryMessenger: messenger)
+    UcgPushTapInbox.channel = ucgPushChannel
     ucgPushChannel?.setMethodCallHandler { [weak self] call, result in
       guard let self = self else {
         result(FlutterError(code: "unavailable", message: "AppDelegate released", details: nil))
         return
       }
       switch call.method {
+      case "readyForNotificationTaps":
+        // Dart handler 已绑定，之后热点击可直接 invoke 且不留 stale pending。
+        UcgPushTapInbox.onDartListening()
+        result(nil)
       case "requestPermission":
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
           DispatchQueue.main.async {
@@ -71,9 +156,7 @@ import home_widget
           result(nil)
         }
       case "getInitialNotificationTap":
-        let pending = self.pendingTapUserInfo
-        self.pendingTapUserInfo = nil
-        result(pending)
+        result(UcgPushTapInbox.takeInitialForDart())
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -98,27 +181,12 @@ import home_widget
     didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
-    deliverNotificationTap(response.notification.request.content.userInfo)
+    NSLog("[ucg_push] didReceive action=%@", response.actionIdentifier)
+    UcgPushTapInbox.noteUserInfo(
+      response.notification.request.content.userInfo,
+      source: "didReceive"
+    )
     completionHandler()
-  }
-
-  private func deliverNotificationTap(_ userInfo: [AnyHashable: Any]) {
-    let args = flutterTapArgs(userInfo)
-    pendingTapUserInfo = args
-    ucgPushChannel?.invokeMethod("onNotificationTap", arguments: args)
-  }
-
-  /// 只保留字符串字段，保证 MethodChannel 可编码；bizType 在根上。
-  private func flutterTapArgs(_ userInfo: [AnyHashable: Any]) -> [String: Any] {
-    var out: [String: Any] = [:]
-    for (key, value) in userInfo {
-      let name = "\(key)"
-      if name == "aps" { continue }
-      if let text = value as? String {
-        out[name] = text
-      }
-    }
-    return out
   }
 
   override func application(

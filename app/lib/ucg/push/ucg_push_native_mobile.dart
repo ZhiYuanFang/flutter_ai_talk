@@ -53,12 +53,29 @@ class UcgPushNative {
     if (Platform.isIOS) {
       _bindIosTokenHandler();
       try {
+        // 先声明可收，再拉 pending，避免 channel 已有但 handler 未绑时丢点击。
+        await _iosChannel.invokeMethod<void>('readyForNotificationTaps');
+      } catch (e) {
+        PushClickDiagnostics.reportFailure('推送点击: ready 失败 $e');
+      }
+      try {
         final initial =
             await _iosChannel.invokeMethod<dynamic>('getInitialNotificationTap');
-        PushClickInbox.instance.recordRaw(initial);
+        // null = 普通启动无点击，不 Toast。
+        PushClickInbox.instance.ingestInitial(initial);
       } catch (e) {
-        AppDebugLog.ucgPush('ios getInitialNotificationTap err=$e');
+        PushClickDiagnostics.reportFailure('推送点击: getInitial 失败 $e');
       }
+      // Scene 冷启可能略晚于首次 getInitial：再补拉一次。
+      Future<void>.delayed(const Duration(milliseconds: 800), () async {
+        try {
+          final again = await _iosChannel
+              .invokeMethod<dynamic>('getInitialNotificationTap');
+          PushClickInbox.instance.ingestInitial(again);
+        } catch (e) {
+          PushClickDiagnostics.reportFailure('推送点击: 补拉失败 $e');
+        }
+      });
       return;
     }
     if (!Platform.isAndroid) return;
@@ -99,7 +116,11 @@ class UcgPushNative {
       }
       // 前台/后台点击；冷启动另由 getInitialNotificationTap 拉取。
       if (call.method == 'onNotificationTap') {
-        PushClickInbox.instance.recordRaw(call.arguments);
+        try {
+          PushClickInbox.instance.ingestConfirmedTap(call.arguments);
+        } catch (e) {
+          PushClickDiagnostics.reportFailure('推送点击: channel 异常 $e');
+        }
       }
     });
   }

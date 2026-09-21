@@ -49,7 +49,11 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     _themeScheduleTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       refreshScheduledTheme(ref);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _beginStartupIfNeeded());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // runApp 前排队的推送点击失败 Toast（Release 也弹）。
+      PushClickDiagnostics.flushPendingToasts();
+      _beginStartupIfNeeded();
+    });
   }
 
   @override
