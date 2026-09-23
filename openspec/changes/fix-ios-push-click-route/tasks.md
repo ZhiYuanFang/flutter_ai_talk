@@ -11,8 +11,14 @@
 - [x] 2.2 在点击投递路径增加失败 Toast（`showAppToast` / `apiToastProvider`，error tone）：channel/getInitial 异常、已确认点击但无 `bizType`；**Release 也弹**；普通无点击启动不弹；成功不弹
 - [x] 2.3 失败与成功入箱均打 `AppDebugLog.ucgPush`（禁止裸 print）；必要时对 Toast 文案做短时去重避免刷屏
 
-## 3. 验收
+## 3. 冷启消息 Tab + 热启点击（跟进）
 
-- [ ] 3.1 真机：在 UCG 页点预测通知 → 应回预测页；点 UCG 通知 → 应进消息列表（已登录且资格通过时）
-- [ ] 3.2 真机：人为制造/模拟解析失败或 channel 错误时，Release 包可见错误 Toast
-- [ ] 3.3 冷启：杀进程后点可见通知，主壳就绪后仍能按 bizType 分流；Xcode 控制台可见原生打点
+- [x] 3.1 `UcgShell` 使用稳定 `GlobalKey`，资格锁 Overlay 切换时不重置 Tab
+- [x] 3.2 消息 Tab 请求在资格未过时不 clear；合格后再 clear；资格上升沿再消费
+- [x] 3.3 独立 `UcgNotificationCenterProxy` + 前台/Scene 夺回 delegate；pending 热投递 + ack；resume 补拉
+
+## 4. 验收
+
+- [ ] 4.1 真机冷启：UCG 通知 → 进消息列表（非停广场）
+- [ ] 4.2 真机热启：任意页点 UCG/预测通知 → 按 bizType 切页
+- [ ] 4.3 Release：投递/解析失败可见 Toast；Xcode 可见 `[ucg_push] proxy didReceive`

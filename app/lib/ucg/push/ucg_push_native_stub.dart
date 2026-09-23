@@ -24,4 +24,7 @@ class UcgPushNative {
 
   /// Web 没有系统通知点击。
   static Future<void> bindNotificationTaps() async {}
+
+  /// Web：无 pending 可抽。
+  static Future<void> drainPendingNotificationTapOnResume() async {}
 }

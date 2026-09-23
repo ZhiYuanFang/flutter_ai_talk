@@ -125,12 +125,20 @@ class _UcgShellState extends ConsumerState<UcgShell> {
   }
 
   /// 推送请求。未登录不弹登录（主页已挡住）。锁层不挡这次调用。
+  /// 资格未过时先切到消息 Tab，但 **不 clear**，避免锁→合格时壳重建后请求丢失。
   void _consumeMessagesTabRequest() {
     final pending = ref.read(ucgMessagesTabRequestProvider);
     if (pending == null) return;
-    ref.read(ucgMessagesTabRequestProvider.notifier).clear();
-    if (!ref.read(sessionProvider).isLoggedIn) return;
+    if (!ref.read(sessionProvider).isLoggedIn) {
+      ref.read(ucgMessagesTabRequestProvider.notifier).clear();
+      return;
+    }
     _activateMessagesTab();
+    if (!ref.read(ucgEligibilityStateProvider).isQualified) {
+      // 保留 pending，待合格后再 clear（或壳重建后首帧再消费）
+      return;
+    }
+    ref.read(ucgMessagesTabRequestProvider.notifier).clear();
   }
 
   Future<void> _openCompose({UcgPost? editing, bool textOnly = false}) async {
@@ -204,10 +212,11 @@ class _UcgShellState extends ConsumerState<UcgShell> {
         _ensureShellWs();
       }
     });
-    // 资格从锁态变为合格后再校准未读
+    // 资格从锁态变为合格后再校准未读；并再消费推送消息 Tab（防锁层切换丢请求）
     ref.listen(ucgEligibilityStateProvider, (prev, next) {
       if (next.isQualified && !(prev?.isQualified ?? false)) {
         _ensureShellWs();
+        _consumeMessagesTabRequest();
       }
     });
 

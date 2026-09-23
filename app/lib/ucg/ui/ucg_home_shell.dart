@@ -74,6 +74,9 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   /// 启动级弹窗（notify→version）同挂载 single-flight；不挂 resume / 登录中途
   Future<void>? _dialogBootstrapInFlight;
 
+  /// 稳定 Key：资格锁 Overlay 插入/移除时保活 UcgShell State（避免消息 Tab 被重置回广场）。
+  final GlobalKey _ucgShellKey = GlobalKey(debugLabel: 'ucgShell');
+
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
   @override
@@ -469,7 +472,11 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
           }
           // 回调名保留；行为回预测主页
           final eligibility = ref.watch(ucgEligibilityStateProvider);
-          final shell = UcgShell(onBackToFeeding: _goToHomeHub);
+          // GlobalKey：锁层树形变化时不重建壳，保留推送切到的消息 Tab
+          final shell = UcgShell(
+            key: _ucgShellKey,
+            onBackToFeeding: _goToHomeHub,
+          );
           // fail-closed：仅 qualified=true 放行；isVip 不得解除
           // KeepAlive 包整棵子树：滑走预测再回 UCG 不 dispose 广场 State
           if (eligibility.isQualified) {

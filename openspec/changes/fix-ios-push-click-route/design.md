@@ -59,4 +59,9 @@
 
 ## Open Questions
 
-- Toast 是否需要「同一错误 N 秒内去重」以免连点刷屏（实现时可默认 2s 去重，非阻塞）。
+- Toast 是否需要「同一错误 N 秒内去重」以免连点刷屏（实现时可默认 2s 去重，非阻塞）。→ **已实现 2s 去重。**
+
+## Follow-up（2026-09-23 真机反馈）
+
+- 冷启能进 UCG 停广场：资格 `FeatureLockOverlay` 树变化重建 `UcgShell` → 已用 GlobalKey + 未合格不 clear 消息请求修复。
+- 热启无反应：`didReceive` 易被挤掉 → 已用独立 `UcgNotificationCenterProxy`、becomeActive 夺回、pending+ack、resume 补拉。

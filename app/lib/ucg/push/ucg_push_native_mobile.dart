@@ -58,23 +58,10 @@ class UcgPushNative {
       } catch (e) {
         PushClickDiagnostics.reportFailure('推送点击: ready 失败 $e');
       }
-      try {
-        final initial =
-            await _iosChannel.invokeMethod<dynamic>('getInitialNotificationTap');
-        // null = 普通启动无点击，不 Toast。
-        PushClickInbox.instance.ingestInitial(initial);
-      } catch (e) {
-        PushClickDiagnostics.reportFailure('推送点击: getInitial 失败 $e');
-      }
+      await _pullIosPendingTap(label: 'getInitial');
       // Scene 冷启可能略晚于首次 getInitial：再补拉一次。
       Future<void>.delayed(const Duration(milliseconds: 800), () async {
-        try {
-          final again = await _iosChannel
-              .invokeMethod<dynamic>('getInitialNotificationTap');
-          PushClickInbox.instance.ingestInitial(again);
-        } catch (e) {
-          PushClickDiagnostics.reportFailure('推送点击: 补拉失败 $e');
-        }
+        await _pullIosPendingTap(label: '补拉');
       });
       return;
     }
@@ -94,6 +81,30 @@ class UcgPushNative {
       }
     } catch (e) {
       AppDebugLog.ucgPush('android getInitialPushClick err=$e');
+    }
+  }
+
+  /// App resume：热点击若仅写入 pending 或 invoke 丢了，再抽一次。
+  static Future<void> drainPendingNotificationTapOnResume() async {
+    if (kIsWeb || !Platform.isIOS) return;
+    await _pullIosPendingTap(label: 'resume');
+  }
+
+  static Future<void> _pullIosPendingTap({required String label}) async {
+    try {
+      final raw =
+          await _iosChannel.invokeMethod<dynamic>('getInitialNotificationTap');
+      PushClickInbox.instance.ingestInitial(raw);
+    } catch (e) {
+      PushClickDiagnostics.reportFailure('推送点击: $label 失败 $e');
+    }
+  }
+
+  static Future<void> _ackIosNotificationTap() async {
+    try {
+      await _iosChannel.invokeMethod<void>('ackNotificationTap');
+    } catch (_) {
+      // ack 失败不挡分流；pending 可能被下次 getInitial 清掉。
     }
   }
 
@@ -118,6 +129,7 @@ class UcgPushNative {
       if (call.method == 'onNotificationTap') {
         try {
           PushClickInbox.instance.ingestConfirmedTap(call.arguments);
+          unawaited(_ackIosNotificationTap());
         } catch (e) {
           PushClickDiagnostics.reportFailure('推送点击: channel 异常 $e');
         }

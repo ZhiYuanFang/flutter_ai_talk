@@ -29,48 +29,49 @@ enum UcgPushTapInbox {
     return nil
   }
 
-  /// 记录一次系统通知点击。
+  /// 记录一次系统通知点击。始终写入 pending，便于 resume 补拉；有 channel 则同时热投递。
   static func noteUserInfo(_ userInfo: [AnyHashable: Any], source: String) {
     let keys = userInfo.keys.map { "\($0)" }.sorted().joined(separator: ",")
     NSLog("[ucg_push] tap in source=%@ keys=%@", source, keys)
     let biz = extractBizType(userInfo)
-    NSLog("[ucg_push] tap out source=%@ bizType=%@", source, biz ?? "nil")
+    NSLog("[ucg_push] tap out source=%@ bizType=%@ dartListening=%@",
+          source, biz ?? "nil", dartListening ? "1" : "0")
     if let biz = biz, !biz.isEmpty {
-      if dartListening, let channel = channel {
-        // Dart 已监听：热投递且不留 pending，避免挂起后误用。
-        channel.invokeMethod("onNotificationTap", arguments: biz)
-        pendingBizType = nil
-        pendingConfirmedMissingBiz = false
-      } else {
-        pendingBizType = biz
-        pendingConfirmedMissingBiz = false
-        channel?.invokeMethod("onNotificationTap", arguments: biz)
-      }
-    } else if dartListening, let channel = channel {
-      channel.invokeMethod("onNotificationTap", arguments: ["__confirmedPushTap": true])
-      pendingBizType = nil
+      pendingBizType = biz
       pendingConfirmedMissingBiz = false
+      deliverToDart(arguments: biz)
     } else {
       pendingBizType = nil
       pendingConfirmedMissingBiz = true
-      channel?.invokeMethod("onNotificationTap", arguments: ["__confirmedPushTap": true])
+      deliverToDart(arguments: ["__confirmedPushTap": true])
     }
   }
 
-  /// Dart 声明可收后：补发仍暂存的点击（不清除，留给紧随的 getInitial）。
+  private static func deliverToDart(arguments: Any) {
+    guard let channel = channel else {
+      NSLog("[ucg_push] deliver skip reason=no_channel")
+      return
+    }
+    DispatchQueue.main.async {
+      channel.invokeMethod("onNotificationTap", arguments: arguments)
+    }
+  }
+
+  /// Dart 声明可收后：补发仍暂存的点击（不清除，留给 getInitial / ack）。
   static func onDartListening() {
     dartListening = true
-    guard let channel = channel else { return }
+    NSLog("[ucg_push] dartListening=1")
+    guard channel != nil else { return }
     if let biz = pendingBizType, !biz.isEmpty {
       NSLog("[ucg_push] dartListening flush bizType=%@", biz)
-      channel.invokeMethod("onNotificationTap", arguments: biz)
+      deliverToDart(arguments: biz)
     } else if pendingConfirmedMissingBiz {
       NSLog("[ucg_push] dartListening flush confirmedMissingBiz")
-      channel.invokeMethod("onNotificationTap", arguments: ["__confirmedPushTap": true])
+      deliverToDart(arguments: ["__confirmedPushTap": true])
     }
   }
 
-  /// Dart getInitial：取出并清空 pending。
+  /// Dart getInitial / resume 补拉：取出并清空 pending。
   static func takeInitialForDart() -> Any? {
     if let biz = pendingBizType, !biz.isEmpty {
       pendingBizType = nil
@@ -82,6 +83,47 @@ enum UcgPushTapInbox {
       return ["__confirmedPushTap": true]
     }
     return nil
+  }
+
+  /// Dart 已成功入箱后确认，避免 stale pending。
+  static func ackDelivered() {
+    pendingBizType = nil
+    pendingConfirmedMissingBiz = false
+  }
+}
+
+/// 独立通知代理：避免 Flutter/插件覆盖 AppDelegate 后热点击丢失。
+final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelegate {
+  static let shared = UcgNotificationCenterProxy()
+
+  static func install(reason: String) {
+    UNUserNotificationCenter.current().delegate = shared
+    NSLog("[ucg_push] notification delegate installed reason=%@", reason)
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .list, .sound, .badge])
+    } else {
+      completionHandler([.alert, .sound, .badge])
+    }
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    NSLog("[ucg_push] proxy didReceive action=%@", response.actionIdentifier)
+    UcgPushTapInbox.noteUserInfo(
+      response.notification.request.content.userInfo,
+      source: "didReceive"
+    )
+    completionHandler()
   }
 }
 
@@ -100,15 +142,22 @@ enum UcgPushTapInbox {
         GeneratedPluginRegistrant.register(with: registry)
       }
     }
-    UNUserNotificationCenter.current().delegate = self
+    UcgNotificationCenterProxy.install(reason: "didFinishLaunching")
     if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       UcgPushTapInbox.noteUserInfo(remote, source: "launchOptions")
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    // 插件可能在启动后改写 delegate；每次前台夺回。
+    UcgNotificationCenterProxy.install(reason: "didBecomeActive")
+    super.applicationDidBecomeActive(application)
+  }
+
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    UcgNotificationCenterProxy.install(reason: "engineReady")
     let messenger = engineBridge.applicationRegistrar.messenger()
     ucgPushChannel = FlutterMethodChannel(name: "com.fzy.pangbao/ucg_push", binaryMessenger: messenger)
     UcgPushTapInbox.channel = ucgPushChannel
@@ -119,8 +168,10 @@ enum UcgPushTapInbox {
       }
       switch call.method {
       case "readyForNotificationTaps":
-        // Dart handler 已绑定，之后热点击可直接 invoke 且不留 stale pending。
         UcgPushTapInbox.onDartListening()
+        result(nil)
+      case "ackNotificationTap":
+        UcgPushTapInbox.ackDelivered()
         result(nil)
       case "requestPermission":
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
@@ -132,7 +183,6 @@ enum UcgPushTapInbox {
           }
         }
       case "notificationStatus":
-        // 只读授权态：granted / denied / notDetermined
         UNUserNotificationCenter.current().getNotificationSettings { settings in
           DispatchQueue.main.async {
             switch settings.authorizationStatus {
@@ -161,32 +211,6 @@ enum UcgPushTapInbox {
         result(FlutterMethodNotImplemented)
       }
     }
-  }
-
-  /// 前台也展示横幅；点击仍走 didReceive，不在到达时跳转。
-  override func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    if #available(iOS 14.0, *) {
-      completionHandler([.banner, .list, .sound, .badge])
-    } else {
-      completionHandler([.alert, .sound, .badge])
-    }
-  }
-
-  override func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse,
-    withCompletionHandler completionHandler: @escaping () -> Void
-  ) {
-    NSLog("[ucg_push] didReceive action=%@", response.actionIdentifier)
-    UcgPushTapInbox.noteUserInfo(
-      response.notification.request.content.userInfo,
-      source: "didReceive"
-    )
-    completionHandler()
   }
 
   override func application(

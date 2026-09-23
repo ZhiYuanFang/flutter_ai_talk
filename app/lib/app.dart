@@ -24,6 +24,7 @@ import 'ui/widgets/app_toast.dart';
 import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
 import 'push/push_click_inbox.dart';
+import 'ucg/push/ucg_push_native.dart';
 import 'theme/app_theme_schedule.dart';
 import 'theme/app_theme_scope.dart';
 import 'theme/custom_background_persist.dart';
@@ -72,6 +73,8 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
       }
       // 从系统设置返回时刷新通知授权并按需 register。
       unawaited(onAppResumeNotificationSync(ref));
+      // iOS：热点击可能只写入原生 pending，resume 再抽一次。
+      unawaited(UcgPushNative.drainPendingNotificationTapOnResume());
     }
   }
 
