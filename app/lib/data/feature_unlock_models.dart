@@ -1,5 +1,7 @@
 // 商业功能开通：catalog / eligibility / 建单 / 邀请码 / 广告（对齐 Go cash_feature_http）。
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'event_definition.dart' show tryParseEventColor;
@@ -213,8 +215,14 @@ class FeatureCatalogItem {
   bool get supportsAd => false;
 
   /// 须同时具备 invite 通道且服务端仍允许本账号邀请开通。
-  bool get supportsInviteCode =>
-      unlockMethodSet.contains('invite_code') && inviteAvailable;
+  /// 原生 iOS App 恒 false（规避审核：邀请开通仅 Android/Web）。
+  bool get supportsInviteCode {
+    // 原生 iOS：无视 catalog，不提供邀请码开通入口。
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return false;
+    }
+    return unlockMethodSet.contains('invite_code') && inviteAvailable;
+  }
 
   /// 默认选第一项 SKU（与服务端 OrderAsc(product_code) 一致）。
   FeatureCatalogProduct? get defaultProduct =>

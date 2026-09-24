@@ -158,7 +158,7 @@ class _PurchaseBody extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final price = formatVipFenYuan(product.priceFen);
     final payLabel = switch (defaultTargetPlatform) {
-      TargetPlatform.iOS => '通过 Apple 支付开通',
+      TargetPlatform.iOS => '支付开通',
       TargetPlatform.android => '支付宝开通',
       _ => '开通 VIP',
     };

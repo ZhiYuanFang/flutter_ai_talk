@@ -52,7 +52,6 @@ import '../ucg/data/ucg_feature_flags.dart';
 import '../ucg/push/ucg_push_native.dart';
 import 'event_add_actions.dart';
 import 'event_record_sheet.dart';
-import 'feature_unlock/invite_code_dialog.dart';
 import 'home_history_edit_sheet.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_modal_glass_panel.dart';
