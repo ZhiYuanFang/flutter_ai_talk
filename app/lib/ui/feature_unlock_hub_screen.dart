@@ -22,6 +22,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/feature_logo.dart';
+import 'widgets/feeding_eligibility_progress_text.dart';
 import 'widgets/settings_glass_panel.dart';
 
 /// 开通更多功能（商业变现唯一入口页）。
@@ -40,6 +41,10 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
       unawaited(ref.read(vipStatusProvider.notifier).refresh());
+      // 智能分析喂养资格：开通中心自行拉取，不依赖其它页预热。
+      unawaited(
+        ref.read(careAlertEligibilityStateProvider.notifier).ensureLoaded(),
+      );
     });
   }
 
@@ -47,6 +52,10 @@ class _FeatureUnlockHubScreenState extends ConsumerState<FeatureUnlockHubScreen>
     // 目录 + VIP 状态 + 在售商品一并刷新，Admin 上架后下拉即可恢复底栏。
     await ref.read(featureCatalogStateProvider.notifier).refresh();
     await ref.read(vipStatusProvider.notifier).refresh();
+    // care 喂养资格随下拉强制刷新。
+    await ref
+        .read(careAlertEligibilityStateProvider.notifier)
+        .ensureLoaded(force: true);
     // 重建 product Future；失败只打日志，下拉仍结束（底栏按 hasValue 隐藏）。
     ref.invalidate(vipProductProvider);
     try {
@@ -261,17 +270,20 @@ class _FeatureUnlockCard extends ConsumerWidget {
     final unlocked = isFeatureEffectivelyUnlocked(item: item, isVip: isVip);
     final method = displayUnlockMethod(item: item, isVip: isVip);
     final product = item.defaultProduct;
-    // 槽位已删除：仅未有效开通时展示 CTA（含支付/邀请/免费体验）。
-    final showUnlockCtas = !unlocked;
+    final isCare = item.featureId == kFeatureIdCareAlertSmartRemind;
+    // care 须持续喂养达标；成长轨迹等不受此闸。
+    final careElig = isCare ? ref.watch(careAlertEligibilityStateProvider) : null;
+    final careEligOk = !isCare || (careElig?.isQualified == true);
+    // 未达标：整行开通 CTA 隐藏（含支付/邀请/试用）。
+    final showUnlockCtas = !unlocked && careEligOk;
     final showTrial = shouldShowFreeTrialCta(item: item, isVip: isVip);
-    // care 免费体验仍须喂养达标。
-    final careEligOk = item.featureId != kFeatureIdCareAlertSmartRemind ||
-        ref.watch(careAlertEligibilityStateProvider).isQualified;
     final trialEnabled = showTrial && careEligOk;
+    // 未达标提示（含已开通后资格回落）。
+    final showUnqualifiedHint = isCare && !careEligOk;
     final accent = resolveFeatureColor(context, item);
-    // 已开通或仍有试用资格时可整卡进详情。
-    final canEnter = canAccessFeatureDetail(item: item, isVip: isVip) &&
-        (item.featureId != kFeatureIdCareAlertSmartRemind || careEligOk);
+    // 商业可访问且（非 care 或喂养达标）才可整卡进详情。
+    final canEnter =
+        canAccessFeatureDetail(item: item, isVip: isVip) && careEligOk;
     final detailRoute = canEnter ? _openedDetailRoute : null;
 
     final card = SettingsGlassPanel(
@@ -309,7 +321,8 @@ class _FeatureUnlockCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (unlocked)
+              // 已开通角标：care 须同时喂养达标，避免回落后仍显示「已开通」。
+              if (unlocked && careEligOk)
                 Text(
                   '已开通',
                   style: TextStyle(
@@ -321,7 +334,12 @@ class _FeatureUnlockCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (showUnlockCtas)
+          if (showUnqualifiedHint)
+            _careUnqualifiedFooter(
+              elig: careElig!,
+              accent: accent,
+            )
+          else if (showUnlockCtas)
             Wrap(
               alignment: WrapAlignment.end,
               spacing: 8,
@@ -376,15 +394,86 @@ class _FeatureUnlockCard extends ConsumerWidget {
         ],
       ),
     );
-    if (detailRoute == null) return card;
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: () => context.push(detailRoute),
-        child: card,
-      ),
+    if (detailRoute != null) {
+      return Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () => context.push(detailRoute),
+          child: card,
+        ),
+      );
+    }
+    // care 未达标：整卡可点，Toast 提示（不进详情）。
+    if (showUnqualifiedHint) {
+      return Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () => _toastCareUnqualified(careElig!),
+          child: card,
+        ),
+      );
+    }
+    return card;
+  }
+
+  /// care 未达标底部：有 data 用进度文案，否则校验中 / 失败 / 短提示。
+  Widget _careUnqualifiedFooter({
+    required CareAlertEligibilityState elig,
+    required Color accent,
+  }) {
+    if (elig.loading) {
+      return Text(
+        '正在校验喂养记录…',
+        textAlign: TextAlign.right,
+        style: TextStyle(fontSize: 13, color: accent.withValues(alpha: 0.85)),
+      );
+    }
+    if (elig.failed) {
+      return Text(
+        '资格校验失败，下拉刷新重试',
+        textAlign: TextAlign.right,
+        style: TextStyle(fontSize: 13, color: accent.withValues(alpha: 0.85)),
+      );
+    }
+    if (elig.data != null) {
+      return FeedingEligibilityProgressText(
+        eligibility: elig.data!,
+        kind: FeedingEligibilityProgressKind.careAlert,
+        textAlign: TextAlign.right,
+        numberScale: 1.35,
+        accent: accent,
+        baseStyle: TextStyle(
+          fontSize: 13,
+          height: 1.35,
+          color: accent.withValues(alpha: 0.85),
+        ),
+      );
+    }
+    return Text(
+      '未达到有效喂养门槛',
+      textAlign: TextAlign.right,
+      style: TextStyle(fontSize: 13, color: accent.withValues(alpha: 0.85)),
     );
+  }
+
+  /// 未达标整卡点击反馈。
+  void _toastCareUnqualified(CareAlertEligibilityState elig) {
+    if (elig.loading) {
+      showAppToast('正在校验喂养记录…');
+      return;
+    }
+    if (elig.failed) {
+      showAppToast('资格校验失败，请下拉刷新重试');
+      return;
+    }
+    final remaining = elig.data?.remainingDays;
+    if (remaining != null && remaining > 0) {
+      showAppToast('需累计有效喂养日后方可使用智能分析（还需 $remaining 天）');
+      return;
+    }
+    showAppToast('需累计有效喂养日后方可使用智能分析');
   }
 
   Future<void> _openFreeTrial(
@@ -392,6 +481,12 @@ class _FeatureUnlockCard extends ConsumerWidget {
     WidgetRef ref,
     FeatureCatalogItem item,
   ) async {
+    // care 须喂养达标才可 soft access 进详情。
+    if (item.featureId == kFeatureIdCareAlertSmartRemind &&
+        !ref.read(careAlertEligibilityStateProvider).isQualified) {
+      showAppToast('需累计有效喂养日后方可使用智能分析');
+      return;
+    }
     final ok = await confirmFreeTrialDialog(context: context, feature: item);
     if (!ok || !context.mounted) return;
     final route = _openedDetailRoute;

@@ -359,6 +359,8 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
                 babyId: baby.id,
                 sex: baby.sex,
                 radius: 32,
+                // 与下方资料区一致：点头像进宝宝编辑页
+                onTap: () => context.push('/settings/baby'),
               ),
             ),
             const SizedBox(height: 8),
