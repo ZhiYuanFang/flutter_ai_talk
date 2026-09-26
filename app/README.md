@@ -40,6 +40,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[UcgUnread]` | UCG 未读 HTTP 校准失败（`sync err=`） |
 | `[UcgPush]` | UCG push register / china_push init（勿打完整 token） |
 | `[PredictImminent]` | 预测临近 pending 同步 |
+| `[AppointmentNext]` | 预约下次约定 GET/PUT |
 | `[UcgShare]` | 辩论帖微信分享截图上传/分享失败（`upload fail` / `share fail`） |
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |

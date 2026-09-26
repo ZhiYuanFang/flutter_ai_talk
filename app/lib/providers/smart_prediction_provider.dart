@@ -5,6 +5,7 @@ import '../data/smart_prediction_rows.dart';
 import '../home_widget/widget_hero_skip_store.dart';
 import '../home_widget/widget_row_builder.dart';
 import '../home_widget/widget_tip_cache.dart';
+import 'appointment_next_provider.dart';
 import 'event_catalog_notifier.dart';
 import 'forecast_toggle_provider.dart';
 import 'home_history_notifier.dart';
@@ -30,6 +31,7 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
   final disabled =
       ref.watch(forecastDisabledIdsProvider).asData?.value ?? const <String>{};
   final recallIntervals = ref.watch(predictionRecallIntervalsProvider);
+  final appointmentNext = ref.watch(appointmentNextCacheProvider);
   final now = DateTime.now();
   final birth = babyAsync.asData?.value.birthDate ?? DateTime(now.year, 1, 1);
   // active 仅来自真历史
@@ -47,6 +49,7 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
     disabledForecastIds: disabled,
     activeEventKeys: activeKeys,
     recallIntervalsByRoot: recallIntervals,
+    appointmentNextAtSecByRoot: appointmentNext,
   );
 });
 

@@ -33,6 +33,7 @@ class EventDefinition {
     this.unit,
     this.extraNames,
     this.parentId,
+    this.isAppointment = false,
   });
 
   final String id;
@@ -47,6 +48,8 @@ class EventDefinition {
   final String? extraNames;
   /// 父类 ID；`null` 表示一级目录。
   final String? parentId;
+  /// options `isAppointment`；缺省非预约（与 eventType 正交）。
+  final bool isAppointment;
 
   Color? get parsedColor => tryParseEventColor(colorRaw);
 
@@ -63,6 +66,7 @@ class EventDefinition {
     String? unit,
     String? extraNames,
     String? parentId,
+    bool? isAppointment,
     bool clearLocalLogoPath = false,
     bool clearParentId = false,
   }) {
@@ -76,6 +80,7 @@ class EventDefinition {
       unit: unit ?? this.unit,
       extraNames: extraNames ?? this.extraNames,
       parentId: clearParentId ? null : (parentId ?? this.parentId),
+      isAppointment: isAppointment ?? this.isAppointment,
     );
   }
 
@@ -89,6 +94,7 @@ class EventDefinition {
         if (unit != null) 'unit': unit,
         if (extraNames != null) 'extraNames': extraNames,
         if (parentId != null) 'parentId': parentId,
+        'isAppointment': isAppointment ? 1 : 0,
       };
 
   static EventDefinition fromJson(Map<String, dynamic> j) {
@@ -102,7 +108,20 @@ class EventDefinition {
       unit: _trimOrNull(readGatewayStr(j, 'unit', 'unit')),
       extraNames: _trimOrNull(readGatewayStr(j, 'extraNames', 'extra_names')),
       parentId: _normalizeParentId(_readOptionsField(j, 'parentId', 'parent_id')),
+      isAppointment: parseIsAppointmentFlag(
+        _readOptionsField(j, 'isAppointment', 'is_appointment'),
+      ),
     );
+  }
+
+  /// 解析 options / 缓存中的 `isAppointment`（0/1、bool、文案）；缺省 false。
+  static bool parseIsAppointmentFlag(Object? raw) {
+    if (raw == null) return false;
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    final s = raw.toString().trim().toLowerCase();
+    if (s.isEmpty) return false;
+    return s == '1' || s == 'true' || s == 'yes' || s == 'on';
   }
 
   static Object? _readOptionsField(Map<String, dynamic> j, String camel, String snake) {
@@ -133,6 +152,9 @@ class EventDefinition {
       unit: unit,
       extraNames: extras,
       parentId: _normalizeParentId(_readOptionsField(j, 'parentId', 'parent_id')),
+      isAppointment: parseIsAppointmentFlag(
+        _readOptionsField(j, 'isAppointment', 'is_appointment'),
+      ),
     );
   }
 

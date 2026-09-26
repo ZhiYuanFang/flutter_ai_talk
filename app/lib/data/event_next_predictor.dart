@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'appointment_event.dart';
 import 'baby_age.dart';
 import 'event_branding.dart';
 import 'event_catalog_tree.dart';
@@ -202,6 +203,8 @@ List<EventNextPrediction> predictAllUpcoming({
   Set<String> activeEventKeys = const {},
   /// rootId → 回忆间隔旁路（仅真样本不足时使用）。
   Map<String, Duration> recallIntervalsByRoot = const {},
+  /// 根 eventId → 已缓存的预约 nextAt 秒（含 0）；预约根忽略间隔与种子。
+  Map<String, int> appointmentNextAtSecByRoot = const {},
 }) {
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
   // Build a quick lookup for catalog by id
@@ -233,6 +236,15 @@ List<EventNextPrediction> predictAllUpcoming({
     return null;
   }
 
+  int? appointmentSecForRoot(String rootKey) {
+    final direct = appointmentNextAtSecByRoot[rootKey];
+    if (direct != null) return direct;
+    for (final e in appointmentNextAtSecByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootKey)) return e.value;
+    }
+    return null;
+  }
+
   final byKey = <String, List<HistoryRecord>>{};
   for (final r in history) {
     final id = historyRecordEventId(r);
@@ -254,11 +266,35 @@ List<EventNextPrediction> predictAllUpcoming({
   }
 
   final out = <EventNextPrediction>[];
+  final coveredAppointment = <String>{};
+
   for (final entry in byKey.entries) {
     final def = lookupEventById(catalog, entry.key);
     final name = def?.name.trim().isNotEmpty == true
         ? def!.name.trim()
-        : (entry.value.last.eventName.trim().isEmpty ? '未知事件' : entry.value.last.eventName.trim());
+        : (entry.value.last.eventName.trim().isEmpty
+            ? '未知事件'
+            : entry.value.last.eventName.trim());
+    // 预约根：不走间隔/种子；有正 nextAt 则用约定时间
+    if (catalogRootIsAppointment(entry.key, catalog)) {
+      coveredAppointment.add(entry.key);
+      final sec = appointmentSecForRoot(entry.key);
+      if (sec == null || sec < 1) continue;
+      final nextAt = appointmentNextAtFromSec(sec)!;
+      final lastAt =
+          latestOccurrenceFromRecords(entry.value) ?? nextAt;
+      out.add(
+        EventNextPrediction(
+          eventId: entry.key,
+          eventName: name,
+          lastAt: lastAt,
+          nextAt: nextAt,
+          colorHex: colorHexFromEvent(def),
+          confidence: 1.0,
+        ),
+      );
+      continue;
+    }
     final p = predictNextForEventKey(
       eventKey: entry.key,
       eventName: name,
@@ -271,6 +307,39 @@ List<EventNextPrediction> predictAllUpcoming({
     );
     if (p != null) out.add(p);
   }
+
+  // 无历史但已有约定的预约根：仍产出预测节点
+  for (final root in rootEvents(catalog)) {
+    final key = root.id.trim();
+    if (key.isEmpty) continue;
+    if (!catalogRootIsAppointment(key, catalog)) continue;
+    if (coveredAppointment.any((c) => catalogIdsEqual(c, key))) continue;
+    final sec = appointmentSecForRoot(key);
+    if (sec == null || sec < 1) continue;
+    final nextAt = appointmentNextAtFromSec(sec)!;
+    out.add(
+      EventNextPrediction(
+        eventId: key,
+        eventName: root.name.trim().isNotEmpty ? root.name.trim() : '未命名事件',
+        lastAt: nextAt,
+        nextAt: nextAt,
+        colorHex: colorHexFromEvent(root),
+        confidence: 1.0,
+      ),
+    );
+  }
+
   out.sort((a, b) => a.nextAt.compareTo(b.nextAt));
   return out;
+}
+
+/// 记录列表最近发生时刻（含进行中）。
+DateTime? latestOccurrenceFromRecords(List<HistoryRecord> records) {
+  DateTime? latest;
+  for (final r in records) {
+    final t = occurrenceInstant(r, includeActive: true);
+    if (t == null) continue;
+    if (latest == null || t.isAfter(latest)) latest = t;
+  }
+  return latest;
 }

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/event_remark_memory_store.dart';
 import '../config/event_square_sync_preference_store.dart';
+import '../data/appointment_event.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_edit_media_item.dart';
@@ -12,6 +13,7 @@ import '../data/history_event_square_sync.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
 import '../data/models.dart';
+import '../providers/appointment_next_provider.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/predict_imminent_sync_provider.dart';
 import '../providers/repositories.dart';
@@ -22,6 +24,7 @@ import '../ucg/data/ucg_feature_flags.dart';
 import '../ucg/data/ucg_location.dart';
 import '../ucg/data/ucg_video_upload.dart';
 import '../ucg/providers/ucg_providers.dart';
+import 'appointment_next_sheet.dart';
 import 'event_logo.dart';
 import 'history_event_media_picker.dart';
 import 'home_event_number_picker.dart';
@@ -86,6 +89,11 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   var _syncToSquare = false;
   var _loadingMedia = false;
   final _media = <HistoryEditMediaItem>[];
+  /// 预约根 nextAt 秒；null=非预约或尚未拉取。
+  int? _appointmentNextAtSec;
+  var _appointmentLoading = false;
+  var _appointmentBusy = false;
+  String? _appointmentRootId;
 
   @override
   void initState() {
@@ -136,6 +144,86 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
       _applyRecordToForm(r);
     });
     unawaited(_loadMediaAndSyncPref(r));
+    unawaited(_loadAppointmentNext(r));
+  }
+
+  Future<void> _loadAppointmentNext(HistoryRecord r) async {
+    final root = appointmentRootEventId(
+      historyRecordEventId(r),
+      widget.eventCatalog,
+    );
+    if (root.isEmpty ||
+        !catalogRootIsAppointment(root, widget.eventCatalog)) {
+      return;
+    }
+    setState(() {
+      _appointmentLoading = true;
+      _appointmentRootId = root;
+    });
+    try {
+      final sec = await ensureAppointmentNextAt(ref, root);
+      if (!mounted) return;
+      setState(() {
+        _appointmentNextAtSec = sec;
+        _appointmentLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _appointmentLoading = false);
+    }
+  }
+
+  Future<void> _openAppointmentEditor() async {
+    final root = _appointmentRootId;
+    final r = _record;
+    if (root == null || r == null || _appointmentBusy || _pending) return;
+    final def = lookupEventById(widget.eventCatalog, root) ??
+        lookupEventForRecord(widget.eventCatalog, r);
+    if (def == null) return;
+    setState(() => _appointmentBusy = true);
+    try {
+      final ok = await showAppointmentNextSheetAndSave(
+        context,
+        ref: ref,
+        rootEventId: root,
+        displayEvent: def,
+        initialNextAt: appointmentNextAtFromSec(_appointmentNextAtSec ?? 0),
+      );
+      if (!mounted) return;
+      if (ok) {
+        final sec = ref.read(appointmentNextCacheProvider)[root] ?? 0;
+        setState(() => _appointmentNextAtSec = sec);
+      }
+    } finally {
+      if (mounted) setState(() => _appointmentBusy = false);
+    }
+  }
+
+  Future<void> _clearAppointmentNext() async {
+    final root = _appointmentRootId;
+    if (root == null || _appointmentBusy || _pending) return;
+    final confirm = await showGlassConfirmDialog(
+          context,
+          title: '清除预约？',
+          message: '清除后将不再推送该事件的下次提醒。',
+          cancelLabel: '取消',
+          confirmLabel: '清除',
+        ) ??
+        false;
+    if (!confirm || !mounted) return;
+    setState(() => _appointmentBusy = true);
+    try {
+      final ok = await clearAppointmentNextAt(ref: ref, rootEventId: root);
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _appointmentNextAtSec = 0);
+        showAppToast('已清除预约');
+      } else {
+        showAppToast('清除失败', tone: AppToastTone.error);
+      }
+    } finally {
+      if (mounted) setState(() => _appointmentBusy = false);
+    }
   }
 
   Future<void> _loadMediaAndSyncPref(HistoryRecord r) async {
@@ -209,6 +297,18 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   String _displayEventName(HistoryRecord r) {
     final e = r.eventName.trim();
     return e.isEmpty ? '未知事件' : e;
+  }
+
+  /// 编辑页展示下次预约文案（含过期标记）。
+  String _appointmentNextLabel(DateTime now) {
+    final sec = _appointmentNextAtSec ?? 0;
+    if (sec < 1) return '未设置（点击补充）';
+    final t = appointmentNextAtFromSec(sec)!;
+    String p2(int x) => x.toString().padLeft(2, '0');
+    final stamp =
+        '${t.year}-${p2(t.month)}-${p2(t.day)} ${p2(t.hour)}:${p2(t.minute)}';
+    if (!t.isAfter(now)) return '$stamp · 已过期';
+    return stamp;
   }
 
   HistoryRecord _recordAfterLocalUpdate(
@@ -616,6 +716,72 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                           _startEdit = v;
                         }),
                       ),
+                    if (_appointmentRootId != null) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        '下次预约',
+                        style: TextStyle(fontSize: 13, color: glassLabel),
+                      ),
+                      const SizedBox(height: 6),
+                      if (_appointmentLoading)
+                        Text(
+                          '加载中…',
+                          style: TextStyle(fontSize: 14, color: glassLabel),
+                        )
+                      else ...[
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: readOnly || _appointmentBusy
+                                ? null
+                                : () => unawaited(_openAppointmentEditor()),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _appointmentNextLabel(DateTime.now()),
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: glassText,
+                                        decoration: TextDecoration.underline,
+                                        decorationColor:
+                                            glassText.withValues(alpha: 0.4),
+                                      ),
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    color: glassLabel,
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if ((_appointmentNextAtSec ?? 0) > 0 && !readOnly) ...[
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: _appointmentBusy
+                                  ? null
+                                  : () => unawaited(_clearAppointmentNext()),
+                              child: Text(
+                                '清除预约',
+                                style: TextStyle(
+                                  color: scheme.error.withValues(alpha: 0.9),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ],
                     if (n > 1) ...[
                       const SizedBox(height: 14),
                       Text(

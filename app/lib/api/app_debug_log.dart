@@ -107,4 +107,10 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[PredictImminent] ${_ts()} $message');
   }
+
+  /// 预约下次约定 GET/PUT。
+  static void appointmentNext(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[AppointmentNext] ${_ts()} $message');
+  }
 }

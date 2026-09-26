@@ -345,8 +345,6 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       await reporter.reportEvent(ClientUsageEvents.feedingShow);
     } else if (index == HomePagerPage.prediction) {
       await reporter.reportEvent(ClientUsageEvents.predictionShow);
-    } else if (kUcgHomePagerEnabled && index == HomePagerPage.ucg) {
-      await reporter.reportEvent(ClientUsageEvents.ucgShellShow);
     }
   }
 

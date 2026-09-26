@@ -11,6 +11,7 @@ import '../data/event_definition.dart';
 import '../data/event_next_predictor.dart';
 import '../data/models.dart';
 import '../data/smart_prediction_rows.dart';
+import '../providers/appointment_next_provider.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/forecast_toggle_provider.dart';
 import '../providers/home_history_notifier.dart';
@@ -123,6 +124,7 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
   Set<String> disabledForecastIds = const {},
   Set<String>? activeEventKeysOverride,
   Map<String, Duration> recallIntervalsByRoot = const {},
+  Map<String, int> appointmentNextAtSecByRoot = const {},
 }) async {
   final t = now ?? DateTime.now();
   HomeWidgetHeaderPayload? header;
@@ -158,6 +160,10 @@ Future<HomeWidgetPayload> buildHomeWidgetPayload({
           activeEventKeys: enabledActiveKeys,
           recallIntervalsByRoot: {
             for (final e in recallIntervalsByRoot.entries)
+              if (!disabledForecastIds.contains(e.key)) e.key: e.value,
+          },
+          appointmentNextAtSecByRoot: {
+            for (final e in appointmentNextAtSecByRoot.entries)
               if (!disabledForecastIds.contains(e.key)) e.key: e.value,
           },
         )
@@ -233,6 +239,8 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   final disabledForecastIds = inputs.disabledForecastIds;
   final activeEventKeys = inputs.activeEventKeys;
   final recallIntervalsByRoot = inputs.recallIntervalsByRoot;
+  final appointmentNextAtSecByRoot =
+      (ref.read(appointmentNextCacheProvider) as Map<String, int>);
 
   BabyProfile? baby;
   try {
@@ -261,6 +269,10 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
       activeEventKeys: enabledActiveKeys,
       recallIntervalsByRoot: {
         for (final e in recallIntervalsByRoot.entries)
+          if (!disabledForecastIds.contains(e.key)) e.key: e.value,
+      },
+      appointmentNextAtSecByRoot: {
+        for (final e in appointmentNextAtSecByRoot.entries)
           if (!disabledForecastIds.contains(e.key)) e.key: e.value,
       },
     );
@@ -293,6 +305,7 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     disabledForecastIds: disabledForecastIds,
     activeEventKeysOverride: activeEventKeys,
     recallIntervalsByRoot: recallIntervalsByRoot,
+    appointmentNextAtSecByRoot: appointmentNextAtSecByRoot,
   );
   await pushHomeWidgetPayload(payload);
   final tipBody = tip?.text.trim() ?? '';

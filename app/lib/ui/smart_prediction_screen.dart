@@ -14,6 +14,7 @@ import '../data/client_usage_events.dart';
 import '../providers/client_usage_provider.dart';
 import '../config/prediction_layout_store.dart';
 import '../data/active_timing_stop.dart';
+import '../data/appointment_event.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
@@ -25,6 +26,7 @@ import '../data/feature_unlock_models.dart';
 import '../data/smart_prediction_rows.dart';
 import '../home_widget/format_widget_relative_time.dart';
 import '../api/api_exceptions.dart';
+import '../providers/appointment_next_provider.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_catalog_notifier.dart';
@@ -50,6 +52,7 @@ import '../theme/app_theme_scope.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
 import '../ucg/push/ucg_push_native.dart';
+import 'appointment_next_sheet.dart';
 import 'event_add_actions.dart';
 import 'event_record_sheet.dart';
 import 'home_history_edit_sheet.dart';
@@ -261,6 +264,8 @@ class SmartPredictionScreen extends ConsumerWidget {
     final ensureAsync = ref.watch(predictionRangeEnsureProvider);
     final rangeState = ref.watch(predictionRangeHistoryProvider);
     final catalog = ref.watch(eventCatalogProvider).items;
+    // 挂载预测页时预取预约 nextAt（catalog 变化会重跑）
+    ref.watch(appointmentNextPrefetchProvider);
     final layout = ref.watch(predictionCardsLayoutProvider).asData?.value ??
         PredictionCardsLayout.grid;
     final now =
@@ -2442,6 +2447,33 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   var _stopping = false;
   var _recallBusy = false;
+  var _appointmentBusy = false;
+
+  /// 预约卡：补充/编辑下次触发时间（专用 sheet，无清空）。
+  Future<void> _onSupplementAppointment({
+    required EventDefinition? definition,
+  }) async {
+    if (_appointmentBusy) return;
+    final catalog = ref.read(eventCatalogProvider).items;
+    final rootId = widget.row.eventId.trim();
+    if (rootId.isEmpty) return;
+    final def = definition ?? lookupEventById(catalog, rootId);
+    if (def == null) return;
+    setState(() => _appointmentBusy = true);
+    try {
+      final sec = await ensureAppointmentNextAt(ref, rootId);
+      if (!mounted) return;
+      await showAppointmentNextSheetAndSave(
+        context,
+        ref: ref,
+        rootEventId: rootId,
+        displayEvent: def,
+        initialNextAt: appointmentNextAtFromSec(sec),
+      );
+    } finally {
+      if (mounted) setState(() => _appointmentBusy = false);
+    }
+  }
 
   /// 热态单事件样本不足：仅间隔 Sheet 写回忆种子（不写喂养历史）；确认后同层思考。
   Future<void> _onPickIntervalRecall({
@@ -2517,10 +2549,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final pred = row.prediction;
     // 计时中仅网格：名旁小 logo + elapsed + 停止
     final showActiveTiming = compact && widget.activeTiming != null;
-    // 计时中：叶子图/名/色；目录不可解析则回退根
-    final catalog = showActiveTiming
-        ? ref.watch(eventCatalogProvider).items
-        : const <EventDefinition>[];
+    // 计时中：叶子图/名/色；目录不可解析则回退根；预约 CTA 也需目录
+    final catalog = ref.watch(eventCatalogProvider).items;
     final leafDef = showActiveTiming
         ? lookupEventForRecord(catalog, widget.activeTiming!)
         : null;
@@ -2585,17 +2615,26 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         countdown != null;
     // 补齐 CTA 由入参派生（热态 onToggle!=null）；关推演 / 计时中 / 已有 pred 皆无
     final hotCard = widget.onToggle != null;
+    final isAppointment =
+        catalogRootIsAppointment(widget.row.eventId, catalog);
     final showAddLastOccurrence = enabled &&
         !showActiveTiming &&
         pred == null &&
         row.lastAt == null &&
         hotCard &&
         widget.onCardTap != null;
+    // 预约：无预测时「补充下次」；非预约：有 lastAt 时「补充大概多久一次」
+    final showAppointmentNext = enabled &&
+        !showActiveTiming &&
+        pred == null &&
+        hotCard &&
+        isAppointment;
     final showIntervalRecall = enabled &&
         !showActiveTiming &&
         pred == null &&
         row.lastAt != null &&
-        hotCard;
+        hotCard &&
+        !isAppointment;
 
     // 标题旁 logo：列表、计时中、或手机后列紧凑
     final showTitleLogo = !showHeroLogo;
@@ -2738,6 +2777,17 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                   busy: false,
                   label: '补充上一次',
                   onPressed: widget.onCardTap!,
+                ),
+              ],
+              if (showAppointmentNext) ...[
+                SizedBox(height: sectionGapMd),
+                _HeartbeatAccentButton(
+                  accent: accent,
+                  busy: _appointmentBusy,
+                  label: '补充下次',
+                  onPressed: () => unawaited(_onSupplementAppointment(
+                    definition: titleDef ?? definition,
+                  )),
                 ),
               ],
               if (showIntervalRecall) ...[

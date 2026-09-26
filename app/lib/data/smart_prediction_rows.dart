@@ -239,6 +239,7 @@ List<SmartPredictionRow> buildSmartPredictionRows({
   required Set<String> disabledForecastIds,
   Set<String> activeEventKeys = const {},
   Map<String, Duration> recallIntervalsByRoot = const {},
+  Map<String, int> appointmentNextAtSecByRoot = const {},
 }) {
   final byKey = groupHistoryByRootEvent(history: history, catalog: catalog);
   final roots = rootEvents(catalog);
@@ -263,6 +264,10 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         if (!disabledForecastIds.contains(e.key) &&
             e.value >= kMinIntervalForPrediction)
           e.key: e.value,
+    },
+    appointmentNextAtSecByRoot: {
+      for (final e in appointmentNextAtSecByRoot.entries)
+        if (!disabledForecastIds.contains(e.key)) e.key: e.value,
     },
   );
   final predById = {for (final p in predictions) p.eventId: p};

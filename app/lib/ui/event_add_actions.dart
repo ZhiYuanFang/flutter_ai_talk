@@ -20,6 +20,7 @@ import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
 import 'event_catalog_picker_sheet.dart';
 import 'event_record_sheet.dart';
+import 'appointment_next_sheet.dart';
 import 'widgets/app_glass_overlay.dart';
 
 /// 模块级单飞：防喂养格 / 预测卡连点重复提交。
@@ -275,5 +276,15 @@ Future<void> _onEventButtonTap({
   }
   if (submitted != null && onAdded != null) {
     await onAdded(submitted);
+  }
+  // 预约事件：正常新增/补充后，仅空或过期弹专用下一次 sheet
+  if (submitted != null && context.mounted) {
+    final catalog = ref.read(eventCatalogProvider).items;
+    await maybePromptAppointmentNextAfterWrite(
+      context: context,
+      ref: ref,
+      event: event,
+      catalog: catalog,
+    );
   }
 }
