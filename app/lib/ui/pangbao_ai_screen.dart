@@ -14,6 +14,7 @@ import '../api/clinic_ws_error.dart';
 import '../api/app_debug_log.dart';
 import '../asr/home_speech_factory.dart';
 import '../asr/home_speech_recognizer.dart';
+import '../voice/voice_asr_ws_client.dart';
 import '../config/companion_greeting_store.dart';
 import '../config/companion_input_mode_store.dart';
 import '../config/pangbao_ai_consent_store.dart';
@@ -1278,7 +1279,8 @@ class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
       return;
     }
     final fromEngine = await _recognizer!.endSession();
-    final text = (fromEngine.isNotEmpty ? fromEngine : _partial).trim();
+    final text =
+        VoiceAsrWsClient.preferRicherTranscript(fromEngine, _partial);
     if (!mounted) return;
     setState(() {
       _listening = false;

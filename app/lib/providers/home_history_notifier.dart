@@ -9,7 +9,10 @@ import '../data/home_history_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/models.dart';
 import '../home_widget/home_widget_sync.dart';
+import '../data/smart_prediction_rows.dart';
 import 'device_no_notifier.dart';
+import 'event_catalog_notifier.dart';
+import 'event_last_at_provider.dart';
 import 'prediction_range_history_provider.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
@@ -285,6 +288,13 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       // 喂养历史变更 → 失效预测 range（防抖重拉），再推小组件
       _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
       unawaited(scheduleHomeWidgetSync(_ref));
+      // 真历史入内存 → max 刷新事件最近发生 tip
+      final catalog = _ref.read(eventCatalogProvider).items;
+      final real = mergeRealHistoryById(
+        rangeItems: _ref.read(predictionRangeHistoryProvider).items,
+        homeItems: state.items,
+      );
+      scheduleEventLastAtObserveFromHistory(_ref, real, catalog);
     }
     if (persist) unawaited(persistToDisk());
   }
@@ -369,12 +379,43 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
 
   void removeRecord(String id) {
     if (_enqueueIfFrozen(() => removeRecord(id))) return;
+    // 删除前快照，供事件最近发生 tip 失效
+    HistoryRecord? removed;
+    for (final e in state.items) {
+      if (e.id == id) {
+        removed = e;
+        break;
+      }
+    }
+    if (removed == null) {
+      for (final e in _ref.read(predictionRangeHistoryProvider).items) {
+        if (e.id == id) {
+          removed = e;
+          break;
+        }
+      }
+    }
     setItems(
       state.items.where((e) => e.id != id).toList(),
       source: 'wsRemove id=$id',
     );
     // 同步抠掉 range 快照，避免真 lastAt 并集仍命中已删 id
     _ref.read(predictionRangeHistoryProvider.notifier).removeItemById(id);
+    if (removed != null && !isPredictionRecallSeedRecord(removed)) {
+      final catalog = _ref.read(eventCatalogProvider).items;
+      final visible = mergeRealHistoryById(
+        rangeItems: _ref.read(predictionRangeHistoryProvider).items,
+        homeItems: state.items,
+      );
+      unawaited(
+        invalidateEventLastAtForRemovedRecord(
+          _ref,
+          removed: removed,
+          catalog: catalog,
+          visibleAfter: visible,
+        ),
+      );
+    }
   }
 
   void replaceRecord(HistoryRecord record) {

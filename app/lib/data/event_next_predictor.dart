@@ -130,14 +130,28 @@ EventNextPrediction? predictNextForEventKey({
   bool includeActive = false,
   /// 真样本未达加权中位门槛时的间隔旁路（回忆种子）；不得单独提供 lastAt。
   Duration? recallIntervalFallback,
+  /// 窗口无发生时的真 lastAt 回退（事件最近发生缓存）；不得用种子 lastAt。
+  DateTime? cachedLastAt,
 }) {
   final times = <DateTime>[];
   for (final r in records) {
     final t = occurrenceInstant(r, includeActive: includeActive);
     if (t != null) times.add(t);
   }
-  // 无真发生时刻 → 不预测（不得用种子 lastAt 顶替）
-  if (times.isEmpty) return null;
+  final fallback = recallIntervalFallback;
+  // 窗口无真发生：仅缓存 tip + 有效种子间隔可旁路（不得用种子 lastAt）
+  if (times.isEmpty) {
+    if (cachedLastAt == null) return null;
+    if (fallback == null || fallback < kMinIntervalForPrediction) return null;
+    return EventNextPrediction(
+      eventId: eventKey,
+      eventName: eventName,
+      lastAt: cachedLastAt,
+      nextAt: cachedLastAt.add(fallback),
+      colorHex: colorHex,
+      confidence: 0.3,
+    );
+  }
   times.sort();
   final lastAt = times.last;
   final anchorBucket = timeOfDayBucket(lastAt);
@@ -169,7 +183,6 @@ EventNextPrediction? predictNextForEventKey({
     }
   }
 
-  final fallback = recallIntervalFallback;
   final interval = median ??
       (fallback != null && fallback >= kMinIntervalForPrediction
           ? fallback
@@ -205,6 +218,8 @@ List<EventNextPrediction> predictAllUpcoming({
   Map<String, Duration> recallIntervalsByRoot = const {},
   /// 根 eventId → 已缓存的预约 nextAt 秒（含 0）；预约根忽略间隔与种子。
   Map<String, int> appointmentNextAtSecByRoot = const {},
+  /// 根 eventId → 本机曾见真发生 tip（窗口未命中时作 lastAt 回退）。
+  Map<String, DateTime> lastAtCacheByRoot = const {},
 }) {
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
   // Build a quick lookup for catalog by id
@@ -240,6 +255,15 @@ List<EventNextPrediction> predictAllUpcoming({
     final direct = appointmentNextAtSecByRoot[rootKey];
     if (direct != null) return direct;
     for (final e in appointmentNextAtSecByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootKey)) return e.value;
+    }
+    return null;
+  }
+
+  DateTime? cachedLastAtForRoot(String rootKey) {
+    final direct = lastAtCacheByRoot[rootKey];
+    if (direct != null) return direct;
+    for (final e in lastAtCacheByRoot.entries) {
       if (catalogIdsEqual(e.key, rootKey)) return e.value;
     }
     return null;
@@ -304,9 +328,14 @@ List<EventNextPrediction> predictAllUpcoming({
       colorHex: colorHexFromEvent(def),
       includeActive: true,
       recallIntervalFallback: recallForRoot(entry.key),
+      cachedLastAt: cachedLastAtForRoot(entry.key),
     );
     if (p != null) out.add(p);
   }
+
+  final coveredPredict = <String>{
+    for (final p in out) p.eventId,
+  };
 
   // 无历史但已有约定的预约根：仍产出预测节点
   for (final root in rootEvents(catalog)) {
@@ -327,6 +356,30 @@ List<EventNextPrediction> predictAllUpcoming({
         confidence: 1.0,
       ),
     );
+    coveredPredict.add(key);
+  }
+
+  // 窗口无该根记录，但缓存 tip + 种子间隔可旁路
+  for (final root in rootEvents(catalog)) {
+    final key = root.id.trim();
+    if (key.isEmpty) continue;
+    if (catalogRootIsAppointment(key, catalog)) continue;
+    if (coveredPredict.any((c) => catalogIdsEqual(c, key))) continue;
+    if (byKey.keys.any((k) => catalogIdsEqual(k, key))) continue;
+    final cached = cachedLastAtForRoot(key);
+    if (cached == null) continue;
+    final p = predictNextForEventKey(
+      eventKey: key,
+      eventName: root.name.trim().isNotEmpty ? root.name.trim() : '未命名事件',
+      records: const [],
+      now: now,
+      halfLifeDays: halfLife,
+      colorHex: colorHexFromEvent(root),
+      includeActive: true,
+      recallIntervalFallback: recallForRoot(key),
+      cachedLastAt: cached,
+    );
+    if (p != null) out.add(p);
   }
 
   out.sort((a, b) => a.nextAt.compareTo(b.nextAt));

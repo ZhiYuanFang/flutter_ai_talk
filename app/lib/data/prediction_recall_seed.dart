@@ -173,10 +173,12 @@ Set<String> rootIdsWhoseRealHistoryCaughtUp({
 }
 
 /// 丢弃该根已无任何真发生时刻的种子（删光后不得继续旁路预测）。
+/// [lastAtCacheByRoot] 非空 tip 视为仍有真 lastAt（窗外曾见过），不得清种子。
 Set<String> rootIdsWhoseRealHistoryIsEmpty({
   required List<EventDefinition> catalog,
   required List<HistoryRecord> realHistory,
   required Iterable<String> seedRootIds,
+  Map<String, DateTime> lastAtCacheByRoot = const {},
 }) {
   final byRoot = groupHistoryByRootEvent(history: realHistory, catalog: catalog);
   final drop = <String>{};
@@ -190,7 +192,17 @@ Set<String> rootIdsWhoseRealHistoryIsEmpty({
         }
       }
     }
-    if (latestOccurrenceAtForRecords(real) == null) drop.add(id);
+    if (latestOccurrenceAtForRecords(real) != null) continue;
+    DateTime? cached = lastAtCacheByRoot[id];
+    if (cached == null) {
+      for (final e in lastAtCacheByRoot.entries) {
+        if (catalogIdsEqual(e.key, id)) {
+          cached = e.value;
+          break;
+        }
+      }
+    }
+    if (cached == null) drop.add(id);
   }
   return drop;
 }

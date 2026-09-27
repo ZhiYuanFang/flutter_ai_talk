@@ -1,10 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/baby_avatar_local_store.dart';
+import '../config/event_last_at_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/remote_settings_repository.dart';
 import '../providers/baby_avatar_provider.dart';
 import '../providers/device_no_notifier.dart';
+import '../providers/event_last_at_provider.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/prediction_range_history_provider.dart';
 import '../providers/repositories.dart';
@@ -23,6 +25,12 @@ Future<void> wipeAccountLocalState(ProviderContainer container) async {
       container.read(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
   final baby = container.read(settingsBabyProvider).asData?.value;
   final babyId = baby?.id.trim() ?? '';
+
+  // 清 tip 缓存须在 clearLocal deviceNo 之前（按宝宝隔离）
+  if (dn.isNotEmpty) {
+    await EventLastAtStore.clearDevice(dn);
+  }
+  container.invalidate(eventLastAtCacheProvider);
 
   await container.read(sessionProvider).signOut();
   await container.read(signInChannelProvider.notifier).clear();

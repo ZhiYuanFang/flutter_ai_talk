@@ -8,6 +8,8 @@ import '../data/models.dart';
 import '../data/prediction_range_history.dart';
 import '../home_widget/home_widget_sync.dart';
 import 'device_no_notifier.dart';
+import 'event_catalog_notifier.dart';
+import 'event_last_at_provider.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
 
@@ -140,6 +142,9 @@ class PredictionRangeHistoryNotifier
       await setWidgetHistoryDepthReady(true);
       if (_ref.read(sessionProvider).isLoggedIn) {
         unawaited(scheduleHomeWidgetSync(_ref));
+        // range 入内存 → max 刷新 tip（home 路径另有并集 observe）
+        final catalog = _ref.read(eventCatalogProvider).items;
+        scheduleEventLastAtObserveFromHistory(_ref, list, catalog);
       }
     } catch (e) {
       _consecutiveFailures += 1;

@@ -240,11 +240,22 @@ List<SmartPredictionRow> buildSmartPredictionRows({
   Set<String> activeEventKeys = const {},
   Map<String, Duration> recallIntervalsByRoot = const {},
   Map<String, int> appointmentNextAtSecByRoot = const {},
+  /// 根 → 本机曾见真发生 tip；窗口未命中时回退 lastAt。
+  Map<String, DateTime> lastAtCacheByRoot = const {},
 }) {
   final byKey = groupHistoryByRootEvent(history: history, catalog: catalog);
   final roots = rootEvents(catalog);
   // 无根目录时无法出卡（加载中由 UI 处理）；不再因无历史直接空列表。
   if (roots.isEmpty) return const [];
+
+  DateTime? cachedTipFor(String rootId) {
+    final direct = lastAtCacheByRoot[rootId];
+    if (direct != null) return direct;
+    for (final e in lastAtCacheByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootId)) return e.value;
+    }
+    return null;
+  }
 
   final enabledHistory = <HistoryRecord>[
     for (final e in byKey.entries)
@@ -267,6 +278,10 @@ List<SmartPredictionRow> buildSmartPredictionRows({
     },
     appointmentNextAtSecByRoot: {
       for (final e in appointmentNextAtSecByRoot.entries)
+        if (!disabledForecastIds.contains(e.key)) e.key: e.value,
+    },
+    lastAtCacheByRoot: {
+      for (final e in lastAtCacheByRoot.entries)
         if (!disabledForecastIds.contains(e.key)) e.key: e.value,
     },
   );
@@ -297,7 +312,9 @@ List<SmartPredictionRow> buildSmartPredictionRows({
             ? records.last.eventName.trim()
             : '未命名事件');
     final enabled = !disabledForecastIds.contains(key);
-    final lastAt = latestOccurrenceAtForRecords(records);
+    // 窗口最新 ?? 本机 tip 缓存
+    final lastAt =
+        latestOccurrenceAtForRecords(records) ?? cachedTipFor(key);
     final pred = enabled ? predById[key] : null;
     List<DateTime> points = const [];
     if (enabled && pred != null && records.isNotEmpty) {
@@ -349,7 +366,8 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         forecastEnabled: enabled,
         prediction: pred,
         chartPoints: points,
-        lastAt: latestOccurrenceAtForRecords(entry.value),
+        lastAt: latestOccurrenceAtForRecords(entry.value) ??
+            cachedTipFor(key),
       ),
     );
   }

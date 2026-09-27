@@ -10,6 +10,7 @@ import '../data/prediction_recall_seed.dart';
 import '../data/smart_prediction_rows.dart';
 import '../home_widget/home_widget_sync.dart';
 import 'event_catalog_notifier.dart';
+import 'event_last_at_provider.dart';
 import 'forecast_toggle_provider.dart';
 import 'home_history_notifier.dart';
 import 'predict_imminent_sync_provider.dart';
@@ -85,6 +86,9 @@ final predictionRecallSeedsActiveProvider =
     Provider<Map<String, PredictionRecallSeed>>((ref) {
   final catalog = ref.watch(eventCatalogProvider).items;
   final real = ref.watch(predictionRealHistoryProvider);
+  final lastAtCache =
+      ref.watch(eventLastAtCacheProvider).asData?.value ??
+          const <String, DateTime>{};
   var seeds =
       ref.watch(predictionRecallSeedsProvider).asData?.value ?? const {};
   final drop = <String>{
@@ -97,6 +101,7 @@ final predictionRecallSeedsActiveProvider =
       catalog: catalog,
       realHistory: real,
       seedRootIds: seeds.keys,
+      lastAtCacheByRoot: lastAtCache,
     ),
   };
   if (drop.isNotEmpty) {

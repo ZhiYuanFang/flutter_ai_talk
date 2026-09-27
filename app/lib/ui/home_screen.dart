@@ -18,6 +18,7 @@ import '../config/recording_diagnostics_store.dart';
 import '../config/speech_engine.dart';
 import '../config/speech_engine_store.dart';
 import '../providers/voice_asr_ws_provider.dart';
+import '../voice/voice_asr_ws_client.dart';
 import '../bootstrap/cold_start_background_sync.dart';
 import '../bootstrap/gateway_bootstrap_gate.dart';
 import '../providers/app_push_registration_provider.dart';
@@ -787,7 +788,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (!_voiceReady || _recognizer == null) return;
     final recognizer = _recognizer!;
     final fromEngine = await recognizer.endSession();
-    final text = (fromEngine.isNotEmpty ? fromEngine : _partial).trim();
+    // 取定稿与预览中更完整者，避免短 final 覆盖长草稿
+    final text =
+        VoiceAsrWsClient.preferRicherTranscript(fromEngine, _partial);
     if (!mounted) return;
     setState(() {
       _listening = false;

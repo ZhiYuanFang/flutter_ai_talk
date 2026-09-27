@@ -112,20 +112,29 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
     return isFeatureEffectivelyUnlocked(item: item, isVip: isVip);
   }
 
-  /// 进页拉最新结果（已开通时）。
+  /// 与进页门闸一致：已开通 / VIP / 试用可进详情。
+  bool get canAccessGrowthDetail {
+    final isVip = _ref.read(vipStatusProvider).valueOrNull?.isVip == true;
+    final item = _ref
+        .read(featureCatalogStateProvider)
+        .byId(kFeatureIdGrowthTrajectoryPredict);
+    return canAccessFeatureDetail(item: item, isVip: isVip);
+  }
+
+  /// 进页拉最新结果；内存中已有追问/流式时 MUST 保题，不得因开通抖动清掉。
   Future<void> ensureLatest({bool force = false}) async {
-    if (!isEffectivelyUnlocked) {
-      state = state.copyWith(
-        latestLoaded: true,
-        phase: GrowthTrajectoryPhase.idle,
-      );
-      return;
-    }
-    if (state.latestLoaded && !force) return;
+    // 先保题：asking / streaming 一律不拉 latest、不改 phase
     if (state.phase == GrowthTrajectoryPhase.streaming ||
         state.phase == GrowthTrajectoryPhase.asking) {
       return;
     }
+
+    // 与页面 canAccess 对齐（含试用）；不可进时也不要强行 idle 冲掉其它态
+    if (!canAccessGrowthDetail) {
+      state = state.copyWith(latestLoaded: true);
+      return;
+    }
+    if (state.latestLoaded && !force) return;
 
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) {
@@ -145,6 +154,11 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
       final latest = await _ref
           .read(growthTrajectoryRepositoryProvider)
           .fetchLatest(deviceNo: deviceNo);
+      // 异步返回前若已进入追问/流式，放弃覆盖
+      if (state.phase == GrowthTrajectoryPhase.streaming ||
+          state.phase == GrowthTrajectoryPhase.asking) {
+        return;
+      }
       final md = latest?.resultMarkdown?.trim() ?? '';
       state = state.copyWith(
         phase: md.isNotEmpty
@@ -161,6 +175,10 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
       );
     } on ApiBusinessException catch (e) {
       AppDebugLog.growthTrajectory('ensureLatest business ${e.message}');
+      if (state.phase == GrowthTrajectoryPhase.streaming ||
+          state.phase == GrowthTrajectoryPhase.asking) {
+        return;
+      }
       state = state.copyWith(
         phase: GrowthTrajectoryPhase.idle,
         latestLoaded: true,
@@ -168,6 +186,10 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
       );
     } catch (e) {
       AppDebugLog.growthTrajectory('ensureLatest err=$e');
+      if (state.phase == GrowthTrajectoryPhase.streaming ||
+          state.phase == GrowthTrajectoryPhase.asking) {
+        return;
+      }
       state = state.copyWith(
         phase: GrowthTrajectoryPhase.idle,
         latestLoaded: true,
@@ -219,6 +241,39 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
     _inFlight = completer.future;
     String? errOut;
 
+    // 提交答案失败时恢复追问（latest API 无 pending question）
+    final isAnswer = action == 'answer';
+    final savedQuestion = state.question;
+    final savedSessionId = state.sessionId.trim();
+
+    /// 失败回落：answer 且仍有可恢复追问 → asking；否则 idle/ready
+    void applyTurnFailure(String message) {
+      final canRestoreAsk = isAnswer &&
+          savedQuestion != null &&
+          savedSessionId.isNotEmpty;
+      if (canRestoreAsk) {
+        AppDebugLog.growthTrajectory('turn fail restore asking qId=${savedQuestion.id}');
+        state = state.copyWith(
+          phase: GrowthTrajectoryPhase.asking,
+          showThinking: false,
+          thinking: '',
+          question: savedQuestion,
+          sessionId: savedSessionId,
+          errorMessage: message,
+        );
+        return;
+      }
+      state = state.copyWith(
+        phase: state.hasResult
+            ? GrowthTrajectoryPhase.ready
+            : GrowthTrajectoryPhase.idle,
+        showThinking: false,
+        thinking: '',
+        clearQuestion: true,
+        errorMessage: message,
+      );
+    }
+
     try {
       var dn = _deviceNo();
       if (dn == null || dn.isEmpty) {
@@ -235,7 +290,8 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
         phase: GrowthTrajectoryPhase.streaming,
         showThinking: true,
         thinking: '',
-        clearQuestion: true,
+        // answer：保留当前题直至新 question/result；start/restart 可清
+        clearQuestion: !isAnswer,
         errorMessage: '',
       );
 
@@ -287,54 +343,42 @@ class GrowthTrajectoryNotifier extends StateNotifier<GrowthTrajectoryUiState> {
             );
           case GrowthTrajectoryErrorEvent(:final message):
             errOut = message.isNotEmpty ? message : '成长轨迹预测失败';
-            state = state.copyWith(
-              phase: state.hasResult
-                  ? GrowthTrajectoryPhase.ready
-                  : GrowthTrajectoryPhase.idle,
-              showThinking: false,
-              thinking: '',
-              clearQuestion: true,
-              errorMessage: errOut,
-            );
+            applyTurnFailure(errOut);
           case GrowthTrajectoryDoneEvent():
             break;
         }
       }
 
-      // 流结束仍在 streaming：回落到 idle/ready
+      // 流结束仍在 streaming：answer 恢复追问，否则回落 idle/ready
       if (state.phase == GrowthTrajectoryPhase.streaming) {
-        state = state.copyWith(
-          phase: state.hasResult
-              ? GrowthTrajectoryPhase.ready
-              : GrowthTrajectoryPhase.idle,
-          showThinking: false,
-          thinking: '',
-        );
+        if (isAnswer &&
+            savedQuestion != null &&
+            savedSessionId.isNotEmpty) {
+          state = state.copyWith(
+            phase: GrowthTrajectoryPhase.asking,
+            showThinking: false,
+            thinking: '',
+            question: savedQuestion,
+            sessionId: savedSessionId,
+          );
+        } else {
+          state = state.copyWith(
+            phase: state.hasResult
+                ? GrowthTrajectoryPhase.ready
+                : GrowthTrajectoryPhase.idle,
+            showThinking: false,
+            thinking: '',
+          );
+        }
       }
     } on ApiBusinessException catch (e) {
       errOut = e.message.isNotEmpty ? e.message : '成长轨迹预测失败';
       AppDebugLog.growthTrajectory('turn business $errOut');
-      state = state.copyWith(
-        phase: state.hasResult
-            ? GrowthTrajectoryPhase.ready
-            : GrowthTrajectoryPhase.idle,
-        showThinking: false,
-        thinking: '',
-        clearQuestion: true,
-        errorMessage: errOut,
-      );
+      applyTurnFailure(errOut);
     } catch (e) {
       errOut = '成长轨迹预测暂时不可用，请稍后再试';
       AppDebugLog.growthTrajectory('turn catch err=$e');
-      state = state.copyWith(
-        phase: state.hasResult
-            ? GrowthTrajectoryPhase.ready
-            : GrowthTrajectoryPhase.idle,
-        showThinking: false,
-        thinking: '',
-        clearQuestion: true,
-        errorMessage: errOut,
-      );
+      applyTurnFailure(errOut);
     } finally {
       completer.complete();
       _inFlight = null;
