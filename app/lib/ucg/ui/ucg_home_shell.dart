@@ -26,10 +26,14 @@ import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/toast_bus.dart';
+import '../../providers/landscape_voice_provider.dart';
 import '../../ui/history_event_fly_overlay.dart';
 import '../../ui/home_screen.dart';
 import '../../ui/home_shell_dialog_bootstrap.dart';
+import '../../ui/landscape_voice_lifecycle_binder.dart';
+import '../../ui/landscape_voice_subtitle_toast.dart';
 import '../../ui/prediction_card_fly_landing.dart';
+import '../../ui/prediction_voice_edge_dock.dart';
 import '../../ui/smart_prediction_screen.dart';
 import '../../ui/widgets/feature_lock_overlay.dart';
 import '../../ui/widgets/feeding_eligibility_progress_text.dart';
@@ -345,6 +349,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       await reporter.reportEvent(ClientUsageEvents.feedingShow);
     } else if (index == HomePagerPage.prediction) {
       await reporter.reportEvent(ClientUsageEvents.predictionShow);
+    } else if (index == HomePagerPage.ucg) {
+      await reporter.reportEvent(ClientUsageEvents.ucgShellShow);
     }
   }
 
@@ -431,6 +437,19 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     });
 
     final voiceHoldBlocksScroll = ref.watch(homePagerScrollBlockedProvider);
+    final isPortrait =
+        MediaQuery.orientationOf(context) == Orientation.portrait;
+    final eligibility = ref.watch(ucgEligibilityStateProvider);
+    // UCG 未合格锁页：藏球并让 binder surfaceVisible=false
+    final ucgLocked =
+        _pageIndex == HomePagerPage.ucg && !eligibility.isQualified;
+    final portraitVoiceSurface =
+        kPredictionPortraitVoiceEnabled && isPortrait && !ucgLocked;
+    final landscapeVoice = portraitVoiceSurface
+        ? ref.watch(landscapeVoiceControllerProvider)
+        : null;
+    final mqPad = MediaQuery.paddingOf(context);
+    final voiceBottom = 86.0 + mqPad.bottom;
 
     return PopScope(
       canPop: navigatorCanPop || !_isAndroid,
@@ -438,75 +457,118 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
         if (didPop) return;
         _onRootBackInvoked();
       },
-      child: PageView.builder(
-        controller: _pageController,
-        itemCount: HomePagerPage.count,
-        physics: (_blockPageScroll || voiceHoldBlocksScroll)
-            ? const NeverScrollableScrollPhysics()
-            : const PageScrollPhysics(),
-        onPageChanged: _onPageChanged,
-        itemBuilder: (context, index) {
-          if (index == HomePagerPage.feeding) {
-            return _KeepAliveHomeScreen(
-              onDockDraggingChanged: (dragging) {
-                if (_blockPageScroll != dragging) {
-                  setState(() => _blockPageScroll = dragging);
-                }
-              },
-            );
-          }
-          if (index == HomePagerPage.prediction) {
-            if (!_predictionEverMounted) {
-              return const SizedBox.expand();
-            }
-            return const _KeepAlivePredictionPage();
-          }
-          // UCG 页：仅闸门开启且 itemCount=3 时可达
-          if (!kUcgHomePagerEnabled) {
-            return const SizedBox.expand();
-          }
-          if (!_ucgEverMounted) {
-            return const SizedBox.expand();
-          }
-          // 回调名保留；行为回预测主页
-          final eligibility = ref.watch(ucgEligibilityStateProvider);
-          // GlobalKey：锁层树形变化时不重建壳，保留推送切到的消息 Tab
-          final shell = UcgShell(
-            key: _ucgShellKey,
-            onBackToFeeding: _goToHomeHub,
-          );
-          // fail-closed：仅 qualified=true 放行；isVip 不得解除
-          // KeepAlive 包整棵子树：滑走预测再回 UCG 不 dispose 广场 State
-          if (eligibility.isQualified) {
-            return _KeepAliveUcgPage(child: shell);
-          }
-          final data = eligibility.data;
-          final String? subtitle = data != null
-              ? null
-              : (eligibility.failed
-                  ? '资格校验失败，请稍后重试或返回预测页'
-                  : '真实喂养记录天数未满足要求…');
-          final Widget? subtitleWidget = data == null
-              ? null
-              : FeedingEligibilityProgressText(
-                  eligibility: data,
-                  kind: FeedingEligibilityProgressKind.ucgEntry,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: HomePagerPage.count,
+            physics: (_blockPageScroll || voiceHoldBlocksScroll)
+                ? const NeverScrollableScrollPhysics()
+                : const PageScrollPhysics(),
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, index) {
+              if (index == HomePagerPage.feeding) {
+                return _KeepAliveHomeScreen(
+                  onDockDraggingChanged: (dragging) {
+                    if (_blockPageScroll != dragging) {
+                      setState(() => _blockPageScroll = dragging);
+                    }
+                  },
                 );
-          return _KeepAliveUcgPage(
-            child: FeatureLockOverlay(
-              fullScreen: true,
-              centerLabel: '仅真实带娃家庭可进入',
-              subtitle: subtitle,
-              subtitleWidget: subtitleWidget,
-              onTap: null,
-              footer: FilledButton(
-                onPressed: () => unawaited(_goToHomeHub()),
-                child: const Text('返回预测页'),
-              ),
-              child: shell,
+              }
+              if (index == HomePagerPage.prediction) {
+                if (!_predictionEverMounted) {
+                  return const SizedBox.expand();
+                }
+                return const _KeepAlivePredictionPage();
+              }
+              // UCG 页：仅闸门开启且 itemCount=3 时可达
+              if (!kUcgHomePagerEnabled) {
+                return const SizedBox.expand();
+              }
+              if (!_ucgEverMounted) {
+                return const SizedBox.expand();
+              }
+              // GlobalKey：锁层树形变化时不重建壳，保留推送切到的消息 Tab
+              final shell = UcgShell(
+                key: _ucgShellKey,
+                onBackToFeeding: _goToHomeHub,
+              );
+              // fail-closed：仅 qualified=true 放行；isVip 不得解除
+              // KeepAlive 包整棵子树：滑走预测再回 UCG 不 dispose 广场 State
+              if (eligibility.isQualified) {
+                return _KeepAliveUcgPage(child: shell);
+              }
+              final data = eligibility.data;
+              final String? subtitle = data != null
+                  ? null
+                  : (eligibility.failed
+                      ? '资格校验失败，请稍后重试或返回预测页'
+                      : '真实喂养记录天数未满足要求…');
+              final Widget? subtitleWidget = data == null
+                  ? null
+                  : FeedingEligibilityProgressText(
+                      eligibility: data,
+                      kind: FeedingEligibilityProgressKind.ucgEntry,
+                    );
+              return _KeepAliveUcgPage(
+                child: FeatureLockOverlay(
+                  fullScreen: true,
+                  centerLabel: '仅真实带娃家庭可进入',
+                  subtitle: subtitle,
+                  subtitleWidget: subtitleWidget,
+                  onTap: null,
+                  footer: FilledButton(
+                    onPressed: () => unawaited(_goToHomeHub()),
+                    child: const Text('返回预测页'),
+                  ),
+                  child: shell,
+                ),
+              );
+            },
+          ),
+          // 竖屏语音：仅竖屏挂 binder/球，避免横屏时 deactivate 冲掉预测页会话
+          if (kPredictionPortraitVoiceEnabled && isPortrait) ...[
+            LandscapeVoiceLifecycleBinder(
+              landscape: false,
+              surfaceVisible: portraitVoiceSurface,
             ),
-          );
-        },
+            if (portraitVoiceSurface && landscapeVoice != null) ...[
+              Positioned.fill(
+                child: PredictionVoiceEdgeDock(
+                  statusCaption: landscapeVoice.statusCaption,
+                  chatConnected: landscapeVoice.chatConnected,
+                  chatListening: landscapeVoice.chatListening,
+                  bottomReserve: voiceBottom,
+                  onPointerOccupied: (occupied) {
+                    ref.read(homePagerScrollBlockedProvider.notifier).state =
+                        occupied;
+                  },
+                  onListenTap: () => ref
+                      .read(landscapeVoiceControllerProvider.notifier)
+                      .onListenChipTap(context),
+                ),
+              ),
+              if (landscapeVoice.subtitle.trim().isNotEmpty)
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: voiceBottom + 24,
+                  child: IgnorePointer(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: LandscapeVoiceSubtitleToast(
+                        text: landscapeVoice.subtitle,
+                        isThinking: landscapeVoice.subtitleKind ==
+                            LandscapeVoiceSubtitleKind.thinking,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ],
       ),
     );
   }

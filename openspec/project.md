@@ -22,9 +22,9 @@
 
 ### OpenSpec 基线参考约定（强制）
 
-- 后续 AI 发起任何新变更前，**必须**先读取并对照 **`openspec/specs/v2.1.2.md`**（v2.1.2 合并基线规格），再生成 proposal / design / tasks。
+- 后续 AI 发起任何新变更前，**必须**先读取并对照 **`openspec/specs/v2.1.3.md`**（v2.1.3 合并基线规格），再生成 proposal / design / tasks。
 - 若本次需求涉及已有 capability，必须在 proposal 中明确标注复用/变更了哪些已有 spec 边界；禁止脱离历史 spec 直接重写同类能力。
-- AI 在实现阶段（apply）必须以 v2.1.2 基线中的 Requirement / Scenario 作为验收约束；若实现与基线冲突，需先更新变更规格再改代码。
+- AI 在实现阶段（apply）必须以 v2.1.3 基线中的 Requirement / Scenario 作为验收约束；若实现与基线冲突，需先更新变更规格再改代码。
 - 若变更涉及**用户可见行为、对外 API/契约、兼容性或安全语义**的调整，须在 OpenSpec 制品中落到明确的 **`### Requirement`** 与 **`#### Scenario`**（含 `changes/<name>/specs/**` 内 ADDED/MODIFIED delta）；PR 说明、任务勾选理由或评审记录中应能一句话指回对应能力名与需求标题，禁止「只改代码、规格悬空」。
 
 ### 测试文件约定（强制）
@@ -51,6 +51,7 @@
 - **`shouldConnect` / `prepareToken` 失败时**传输层 **必须**自动前置条件重试（`ResilientWebSocketClient._schedulePreconditionRetry`）；业务层 **不得**依赖仅 token 轮换才 reconnect。新通道 **应**使用 `bindAuthenticatedWsSession` 在 refresh 结束后 reconnect。
 - 新增业务 WS 通道前 **须** OpenSpec change（含 `ws-transport-governance` 或等价 spec delta），PR 说明指回能力名与 Requirement。
 - **例外（须文档化）**：**语音 ASR**（`/voice/asr/ws`）无 access token 鉴权，可独立 `VoiceAsrWsClient`；不得复制为其它业务通道模板。
+- **`/voice/asr/ws` 听写全文语义（强制）**：业务 `asr_final` **必须**仅由 client `commit` / `end` 触发；引擎句末（如百炼 `sentence_end`）**不得**单独作为整轮结束。服务端（`go_ai_talk` 听写 WS）对 `asr_partial` / `asr_final` 的 `text` **必须**下发本次 `start`…`commit` **会话全文**（句末在服务端拼接）。Flutter `VoiceAsrWsClient` **必须**以下行全文为准（旧服务端段重置时可本地拼段兜底）；Feature **不得**用更短的 final 无脑覆盖更长预览。本条 **仅**约束 `/voice/asr/ws`（Flutter 听写），不强制 `/voice/chat/ws` 同构。
 - **参考**：`app/lib/network/resilient_websocket_client.dart`、`app/lib/network/ws_connect_context.dart`、`app/lib/network/ws_auth_error_handler.dart`；架构说明见 `app/README.md`「WebSocket 架构」。
 - **禁止**：未经 OpenSpec 授权，在 `app/lib/**` 新增并行 WS 传输实现（含「临时」3s 重连、裸 token getter 首帧 auth）。
 
@@ -142,13 +143,13 @@
 - **默认删除** `openspec/changes/*` 下各 change 目录（跳过 `archive/` 若存在）；**不**创建 `openspec/changes/archive/` dated 目录。
 - 用户**显式**要求保留 change 目录时（如 `--keep-changes`、口头「不要删 change」），才省略 `--remove-changes`。
 - 合并前仍可用 `openspec list --json` 警告 in-progress change，**不阻塞**合并（除非用户要求仅合并 complete）。
-- 收版后 **必须**更新本文件「OpenSpec 基线参考约定」中的版本号（如 `v2.1.2` → 新版本）。
+- 收版后 **必须**更新本文件「OpenSpec 基线参考约定」中的版本号（如 `v2.1.3` → 新版本）。
 - 合并完成后摘要须说明：**Changes removed: yes**（删除数量）或 **no**（用户要求保留）。
 - 所有新增需求涉及代码，必须补全每行代码的中文注释，解释此代码的业务场景。
 
 ## 重要约束（评审检查项）
 
-- 是否引用并遵循 **`openspec/specs/v2.1.2.md`** 基线；行为变更是否可追溯到 Requirement / Scenario。
+- 是否引用并遵循 **`openspec/specs/v2.1.3.md`** 基线；行为变更是否可追溯到 Requirement / Scenario。
 - 是否存在「只改代码、规格悬空」。
 - **WebSocket**：新鉴权通道是否走 `ResilientWebSocketClient`；是否未经 OpenSpec 新增手写 WS 传输。
 - **Debug 日志**：是否引入裸 `debugPrint`/`print`；新 tag 是否三联改。

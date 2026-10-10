@@ -820,17 +820,22 @@ final landscapeVoiceControllerProvider =
   LandscapeVoiceController.new,
 );
 
-/// 由预测页在横屏∩可见且横屏语音 flag 开启时驱动 activate/deactivate。
+/// 由宿主在「表面可见 ∩ 对应方向 flag 开启」时驱动 activate/deactivate。
+/// 横屏：预测页可见 + [kPredictionLandscapeVoiceEnabled]；
+/// 竖屏：主壳表面（路由当前且非 UCG 未合格等）+ [kPredictionPortraitVoiceEnabled]。
 void syncLandscapeVoiceLifecycle(
   WidgetRef ref, {
   required BuildContext context,
   required bool landscape,
-  required bool predictionVisible,
+  required bool surfaceVisible,
 }) {
+  // 竖/横各自独立 flag；平台仍限非 Web 的 Android/iOS
+  final orientationOk = landscape
+      ? kPredictionLandscapeVoiceEnabled
+      : kPredictionPortraitVoiceEnabled;
   final want = !kIsWeb &&
-      landscape &&
-      predictionVisible &&
-      kPredictionLandscapeVoiceEnabled &&
+      surfaceVisible &&
+      orientationOk &&
       (Platform.isAndroid || Platform.isIOS);
   final ctrl = ref.read(landscapeVoiceControllerProvider.notifier);
   if (want) {
@@ -840,7 +845,7 @@ void syncLandscapeVoiceLifecycle(
       ),
     );
   } else {
-    // 离开横屏：清会话拒绝标记，下次进入可再提示用途。
+    // 离开应激活的预测语音表面：清会话拒绝标记，下次进入可再提示用途。
     landscapeMicDeniedThisSession = false;
     unawaited(ctrl.deactivate());
   }

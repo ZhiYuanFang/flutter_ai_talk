@@ -15,10 +15,10 @@ const kHistorySquareSyncEnabled = false;
 const kVipPurchaseEnabled = true;
 
 /// 预测页竖屏语音对话（贴边球 / 会话 activate）。
-/// 对话模型未训练完成：默认关闭；翻 `true` 恢复竖屏入口。
+/// 默认开启；翻 `false` 可紧急关闭竖屏入口（不影响横屏）。
 /// 横屏助手由 [kPredictionLandscapeVoiceEnabled] 单独控制。
-const kPredictionPortraitVoiceEnabled = false;
+const kPredictionPortraitVoiceEnabled = true;
 
 /// 预测页横屏语音助手（KWS 唤醒 / 监听 chip / chat / 字幕）。
-/// 对话模型未训练完成：默认关闭整条表面；翻 `true` 恢复横屏入口。
-const kPredictionLandscapeVoiceEnabled = false;
+/// 默认开启；翻 `false` 可紧急关闭横屏入口（不影响竖屏）。
+const kPredictionLandscapeVoiceEnabled = true;

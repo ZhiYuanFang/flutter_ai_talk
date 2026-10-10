@@ -62,7 +62,8 @@ import 'event_logo.dart';
 import 'prediction_recall_interval_picker.dart';
 import '../config/prediction_landscape_column_store.dart';
 import 'prediction_landscape_card_metrics.dart';
-import 'prediction_voice_edge_dock.dart';
+import 'landscape_voice_lifecycle_binder.dart';
+import 'landscape_voice_subtitle_toast.dart';
 import 'ucg_square_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
@@ -506,12 +507,10 @@ class SmartPredictionScreen extends ConsumerWidget {
         ref.watch(ucgEligibilityStateProvider).isQualified;
     final cardsBottomPad = showWidgetShowcaseFab ? 96.0 : 24.0;
 
-    // 仅在对应方向 flag 开启时 watch，避免暂停表面仍驱动会话
-    final landscapeVoice =
-        ((isLandscape && kPredictionLandscapeVoiceEnabled) ||
-                kPredictionPortraitVoiceEnabled)
-            ? ref.watch(landscapeVoiceControllerProvider)
-            : null;
+    // 横屏 chip 仍在本页；竖屏球已上移主壳，此处不再因竖屏 flag watch
+    final landscapeVoice = (isLandscape && kPredictionLandscapeVoiceEnabled)
+        ? ref.watch(landscapeVoiceControllerProvider)
+        : null;
 
     Widget buildCardsBody() {
       if (rows.isEmpty) {
@@ -724,11 +723,11 @@ class SmartPredictionScreen extends ConsumerWidget {
               Expanded(
                 child: Stack(
                   children: [
-                    // 横屏语音：模型未就绪时 flag 关闭，不挂 binder / 不 activate
+                    // 横屏语音：flag 关闭时不挂 binder / 不 activate
                     if (kPredictionLandscapeVoiceEnabled)
-                      _LandscapeVoiceLifecycleBinder(
-                        landscape: isLandscape,
-                        predictionVisible: predictionPageVisible,
+                      LandscapeVoiceLifecycleBinder(
+                        landscape: true,
+                        surfaceVisible: predictionPageVisible,
                       ),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -798,7 +797,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                     mqPad.right,
                 bottom: MediaQuery.sizeOf(context).height * 0.18,
                 child: IgnorePointer(
-                  child: _LandscapeVoiceSubtitleToast(
+                  child: LandscapeVoiceSubtitleToast(
                     text: landscapeVoice.subtitle,
                     isThinking: landscapeVoice.subtitleKind ==
                         LandscapeVoiceSubtitleKind.thinking,
@@ -1008,47 +1007,7 @@ class SmartPredictionScreen extends ConsumerWidget {
             ],
           ),
 
-          // 竖屏语音：模型未就绪时 flag 关闭，完全无入口 / 不 activate
-          if (kPredictionPortraitVoiceEnabled && landscapeVoice != null) ...[
-            // 竖屏语音生命周期绑定（零尺寸）
-            _LandscapeVoiceLifecycleBinder(
-              landscape: false,
-              predictionVisible: predictionPageVisible,
-            ),
-            // 竖屏语音贴边球（EdgeDockShell）
-            Positioned.fill(
-              child: PredictionVoiceEdgeDock(
-                statusCaption: landscapeVoice.statusCaption,
-                chatConnected: landscapeVoice.chatConnected,
-                chatListening: landscapeVoice.chatListening,
-                bottomReserve: voiceBottom,
-                onPointerOccupied: (occupied) {
-                  ref.read(homePagerScrollBlockedProvider.notifier).state =
-                      occupied;
-                },
-                onListenTap: () => ref
-                    .read(landscapeVoiceControllerProvider.notifier)
-                    .onListenChipTap(context),
-              ),
-            ),
-            // 竖屏语音字幕 toast（底中独立，不随球）
-            if (landscapeVoice.subtitle.trim().isNotEmpty)
-              Positioned(
-                left: 24,
-                right: 24,
-                bottom: voiceBottom + 24,
-                child: IgnorePointer(
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: _LandscapeVoiceSubtitleToast(
-                      text: landscapeVoice.subtitle,
-                      isThinking: landscapeVoice.subtitleKind ==
-                          LandscapeVoiceSubtitleKind.thinking,
-                    ),
-                  ),
-                ),
-              ),
-          ],
+          // 竖屏语音球已上移 UcgHomeShell；本页仅保留广场贴边球
           // 竖屏广场入口贴边球（资格开通后）
           if (showUcgSquareBall)
             Positioned.fill(
@@ -1109,58 +1068,6 @@ class SmartPredictionScreen extends ConsumerWidget {
     }
     return formatWidgetPredictSubtitle(pred.nextAt, now, overdue: overdue);
   }
-}
-
-/// 绑定横屏语音 activate/deactivate，仅在条件变化时触发。
-class _LandscapeVoiceLifecycleBinder extends ConsumerStatefulWidget {
-  const _LandscapeVoiceLifecycleBinder({
-    required this.landscape,
-    required this.predictionVisible,
-  });
-
-  final bool landscape;
-  final bool predictionVisible;
-
-  @override
-  ConsumerState<_LandscapeVoiceLifecycleBinder> createState() =>
-      _LandscapeVoiceLifecycleBinderState();
-}
-
-class _LandscapeVoiceLifecycleBinderState
-    extends ConsumerState<_LandscapeVoiceLifecycleBinder> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
-  }
-
-  @override
-  void didUpdateWidget(covariant _LandscapeVoiceLifecycleBinder oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.landscape != widget.landscape ||
-        oldWidget.predictionVisible != widget.predictionVisible) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
-    }
-  }
-
-  @override
-  void dispose() {
-    // 不在此 deactivate：Notifier 可能已 dispose；由 deactivate 在条件变化时处理。
-    super.dispose();
-  }
-
-  void _sync() {
-    if (!mounted) return;
-    syncLandscapeVoiceLifecycle(
-      ref,
-      context: context,
-      landscape: widget.landscape, // 是否横屏,竖屏可用语音时改为true常量
-      predictionVisible: widget.predictionVisible,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 /// 横屏左下监听 chip：横向文案超长换行；表面与弹幕同属 panelGlass 族。
@@ -1252,119 +1159,6 @@ class _LandscapeVoiceListenChip extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 底部偏上字幕条：panelGlass；思考态浅字+慢弱脉冲；首次挂载短淡入。
-class _LandscapeVoiceSubtitleToast extends StatefulWidget {
-  const _LandscapeVoiceSubtitleToast({
-    required this.text,
-    required this.isThinking,
-  });
-
-  final String text;
-  final bool isThinking;
-
-  @override
-  State<_LandscapeVoiceSubtitleToast> createState() =>
-      _LandscapeVoiceSubtitleToastState();
-}
-
-class _LandscapeVoiceSubtitleToastState
-    extends State<_LandscapeVoiceSubtitleToast> with TickerProviderStateMixin {
-  late final AnimationController _fade;
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    // 仅挂载时淡入；换字不重置。
-    _fade = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    )..forward();
-    // 思考态慢弱脉冲（约 1.5s 往返）。
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
-    _syncPulse(widget.isThinking);
-  }
-
-  @override
-  void didUpdateWidget(covariant _LandscapeVoiceSubtitleToast oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 仅 kind 切入/离开 thinking 时启停；换字不重启相位。
-    if (oldWidget.isThinking != widget.isThinking) {
-      _syncPulse(widget.isThinking);
-    }
-  }
-
-  void _syncPulse(bool thinking) {
-    if (thinking) {
-      if (!_pulse.isAnimating) {
-        unawaited(_pulse.repeat(reverse: true));
-      }
-    } else {
-      _pulse
-        ..stop()
-        ..value = 1;
-    }
-  }
-
-  @override
-  void dispose() {
-    _fade.dispose();
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final onGlass = AppColor.textOnPanelGlass(context);
-    // 思考用 muted，答案/ASR 满对比。
-    final textColor = widget.isThinking
-        ? AppColor.textOnPanelGlassMuted(context)
-        : onGlass.withValues(alpha: 0.95);
-    const toastRadius = 16.0;
-    return AnimatedBuilder(
-      animation: Listenable.merge([_fade, _pulse]),
-      builder: (context, child) {
-        // 挂载淡入 × 思考脉冲（非思考时 pulse=1）。
-        final pulseOpacity =
-            widget.isThinking ? (0.65 + 0.35 * _pulse.value) : 1.0;
-        return Opacity(
-          opacity: _fade.value * pulseOpacity,
-          child: child,
-        );
-      },
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              gradient: AppColor.panelGlassGradient(context),
-              borderRadius: BorderRadius.circular(toastRadius),
-              border: Border.all(
-                color: onGlass.withValues(alpha: 0.2),
-              ),
-            ),
-            child: Text(
-              widget.text,
-              textAlign: TextAlign.center,
-              softWrap: true,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.35,
-                color: textColor,
-              ),
             ),
           ),
         ),
@@ -2475,6 +2269,62 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     }
   }
 
+  /// countdown 块：预约可点改约（吸收手势，不冒泡到整卡 add）。
+  Widget _buildAppointmentAwareCountdown({
+    required bool isAppointment,
+    required String titleName,
+    required String countdown,
+    required double captionFontSize,
+    required double countdownFontSize,
+    required double sectionGapSm,
+    required Color accent,
+    required EventDefinition? definition,
+  }) {
+    final block = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '距离下次$titleName倒计时',
+          style: TextStyle(
+            fontSize: captionFontSize,
+            color: accent.withAlpha(153),
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        SizedBox(height: sectionGapSm),
+        Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              countdown,
+              style: TextStyle(
+                fontSize: countdownFontSize,
+                fontWeight: FontWeight.w700,
+                color: accent,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    if (!isAppointment) return block;
+    // GestureDetector 吸收命中，避免冒泡到整卡 InkWell 加喂养
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _appointmentBusy
+          ? null
+          : () => unawaited(
+                _onSupplementAppointment(definition: definition),
+              ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: block,
+      ),
+    );
+  }
+
   /// 热态单事件样本不足：仅间隔 Sheet 写回忆种子（不写喂养历史）；确认后同层思考。
   Future<void> _onPickIntervalRecall({
     required EventDefinition? definition,
@@ -2829,6 +2679,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
               onPressed: () => unawaited(_onStop(widget.activeTiming!)),
             ),
           ] else ...[
+            // 竖屏 compact：倒计时；预约根可点改约
             if (enabled && pred != null && compact && countdown != null) ...[
               SizedBox(height: sectionGapMd),
               // 首列（或非手机后列）：倒计时上方居中大图
@@ -2849,40 +2700,40 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 ),
                 SizedBox(height: heroGap),
               ],
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '距离下次$titleName倒计时',
-                    style: TextStyle(
-                      fontSize: captionFontSize,
-                      color: accent.withAlpha(153),
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  SizedBox(height: sectionGapSm),
-                  Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        countdown,
-                        style: TextStyle(
-                          fontSize: countdownFontSize,
-                          fontWeight: FontWeight.w700,
-                          color: accent,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              _buildAppointmentAwareCountdown(
+                isAppointment: isAppointment,
+                titleName: titleName,
+                countdown: countdown,
+                captionFontSize: captionFontSize,
+                countdownFontSize: countdownFontSize,
+                sectionGapSm: sectionGapSm,
+                accent: accent,
+                definition: titleDef ?? definition,
+              ),
+            ],
+            // 横屏：预约有 pred 时同样展示可点 countdown；非预约仅图
+            if (enabled &&
+                pred != null &&
+                !compact &&
+                isAppointment &&
+                countdown != null) ...[
+              const SizedBox(height: 8),
+              _buildAppointmentAwareCountdown(
+                isAppointment: true,
+                titleName: titleName,
+                countdown: countdown,
+                captionFontSize: captionFontSize,
+                countdownFontSize: countdownFontSize,
+                sectionGapSm: sectionGapSm,
+                accent: accent,
+                definition: titleDef ?? definition,
               ),
             ],
             if (enabled && pred != null && !compact) ...[
               const SizedBox(height: 8),
               SizedBox(
-                height: chartH,
+                // 预约卡已有 countdown 时略压矮图区
+                height: isAppointment ? chartH * 0.72 : chartH,
                 child: widget.chartLoading
                     ? Center(
                         child: Text(

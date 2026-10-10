@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/home_pager.dart';
 import '../providers/session_provider.dart';
 import '../config/env.dart';
+import 'app_route_observer.dart';
 import 'focus_cleanup_observer.dart';
 import '../ucg/ui/ucg_home_shell.dart';
 import '../ucg/data/ucg_feature_flags.dart';
@@ -19,6 +20,9 @@ import '../ui/change_password_screen.dart';
 import '../ui/feedback_list_screen.dart';
 import '../ui/notification_settings_screen.dart';
 import '../ui/settings_screen.dart';
+import '../ui/xiaozhi_speaker_screen.dart';
+import '../ui/xiaozhi_speaker_field_help_screen.dart';
+import '../ui/xiaozhi_speaker_buy_howto_screen.dart';
 import '../data/prediction_care_alert.dart';
 import '../ui/pangbao_ai_screen.dart';
 import '../ui/prediction_care_alert_screen.dart';
@@ -41,7 +45,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: session,
-    observers: [focusObserver],
+    observers: [focusObserver, appRouteObserver],
     redirect: (context, state) {
       final uri = state.uri;
       if (uri.scheme == 'pangbao' &&
@@ -65,6 +69,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/change-password',
         '/settings/feedback',
         '/settings/notifications',
+        '/settings/xiaozhi-speaker',
+        '/settings/xiaozhi-speaker/help-mac',
+        '/settings/xiaozhi-speaker/help-token',
+        '/settings/xiaozhi-speaker/howto-buy',
         '/features/unlock',
         '/features/invite-howto',
         '/vip/purchase',
@@ -216,6 +224,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/notifications',
         builder: (context, state) => const NotificationSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/xiaozhi-speaker',
+        builder: (context, state) => const XiaozhiSpeakerScreen(),
+      ),
+      GoRoute(
+        path: '/settings/xiaozhi-speaker/help-mac',
+        builder: (context, state) => const XiaozhiSpeakerFieldHelpScreen(
+          kind: XiaozhiSpeakerFieldHelpKind.mac,
+        ),
+      ),
+      GoRoute(
+        path: '/settings/xiaozhi-speaker/help-token',
+        builder: (context, state) => const XiaozhiSpeakerFieldHelpScreen(
+          kind: XiaozhiSpeakerFieldHelpKind.token,
+        ),
+      ),
+      GoRoute(
+        path: '/settings/xiaozhi-speaker/howto-buy',
+        builder: (context, state) => const XiaozhiSpeakerBuyHowtoScreen(),
       ),
       GoRoute(
         path: '/policy',

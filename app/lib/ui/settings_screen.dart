@@ -188,6 +188,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const SizedBox(height: 12),
                 _buildGlassTile(
                   context,
+                  leading: Icons.speaker_outlined,
+                  title: '小智音箱',
+                  subtitle: '绑定小智 MCP，语音录入喂养',
+                  onTap: () => context.push('/settings/xiaozhi-speaker'),
+                ),
+                const SizedBox(height: 12),
+                _buildGlassTile(
+                  context,
                   leading: Icons.notifications_outlined,
                   title: '消息通知',
                   subtitle: '临近提醒与推送开关',
