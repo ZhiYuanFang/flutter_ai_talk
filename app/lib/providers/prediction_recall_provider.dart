@@ -13,6 +13,7 @@ import 'event_catalog_notifier.dart';
 import 'event_last_at_provider.dart';
 import 'forecast_toggle_provider.dart';
 import 'home_history_notifier.dart';
+import 'predict_active_eta_sync_provider.dart';
 import 'predict_imminent_sync_provider.dart';
 import 'prediction_range_history_provider.dart';
 
@@ -57,6 +58,8 @@ class PredictionRecallSeedsNotifier
     unawaited(scheduleHomeWidgetSync(ref));
     // 本机改喂养间隔后同步预测临近 pending（延迟读见 request 实现）
     unawaited(requestPredictImminentPendingSync(ref));
+    // 间隔变化可能改变 duration 中位，顺带刷新进行中 ETA
+    unawaited(requestPredictActiveEtaPendingSync(ref));
   }
 
   Future<void> clearSeeds(Iterable<String> rootIds) async {

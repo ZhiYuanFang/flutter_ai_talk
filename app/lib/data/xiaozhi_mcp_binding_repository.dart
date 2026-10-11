@@ -88,4 +88,20 @@ class XiaozhiMcpBindingRepository {
       rethrow;
     }
   }
+
+  /// 强制重连 MCP Bridge（快速返回；不保证立刻 connected）。
+  Future<void> reconnect(int id) async {
+    try {
+      await _api.postJsonEnvelope(
+        '/device/app/api/xiaozhi-mcp/bindings/$id/reconnect',
+        const {},
+      );
+    } on ApiBusinessException catch (e) {
+      _onToastError(e.message);
+      rethrow;
+    } on ApiHttpException catch (e) {
+      _onToastError('网络错误(${e.statusCode})');
+      rethrow;
+    }
+  }
 }

@@ -13,6 +13,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../data/client_usage_events.dart';
 import '../providers/client_usage_provider.dart';
 import '../config/prediction_layout_store.dart';
+import '../data/active_timing_eta.dart';
 import '../data/active_timing_stop.dart';
 import '../data/appointment_event.dart';
 import '../data/event_branding.dart';
@@ -24,6 +25,7 @@ import '../data/prediction_recall_seed.dart';
 import '../data/event_next_predictor.dart';
 import '../data/feature_unlock_models.dart';
 import '../data/smart_prediction_rows.dart';
+import '../providers/settings_baby.dart';
 import '../home_widget/format_widget_relative_time.dart';
 import '../api/api_exceptions.dart';
 import '../providers/appointment_next_provider.dart';
@@ -440,6 +442,22 @@ class SmartPredictionScreen extends ConsumerWidget {
     // 网格计时中 chrome：从喂养历史匹配进行中记录
     final historyItems = ref.watch(homeHistoryProvider).items;
     final rangeHistoryItems = ref.watch(predictionRangeHistoryProvider).items;
+    // 进行中 ETA：duration 样本用月龄半衰期
+    final babyBirth = ref.watch(settingsBabyProvider).asData?.value.birthDate ??
+        DateTime(now.year, 1, 1);
+    DateTime? etaForActive(HistoryRecord? active, String rootId) {
+      if (active == null || useDemoSkeleton) return null;
+      return expectEndAtForActiveTiming(
+        active: active,
+        rootEventId: rootId,
+        homeItems: historyItems,
+        rangeItems: rangeHistoryItems,
+        catalog: catalog,
+        now: now,
+        birthDate: babyBirth,
+      );
+    }
+
     // 落库飞入：按 root 挂当前展示 logo 锚点
     final logoAnchors = ref.watch(predictionLogoAnchorRegistryProvider);
     logoAnchors.retainOnly(rows.map((r) => r.eventId));
@@ -618,6 +636,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                     ? null
                     : _relativeFor(row, now, grid: true),
                 activeTiming: activeTiming,
+                activeExpectEndAt: etaForActive(activeTiming, row.eventId),
                 landscapeMetrics: metrics,
                 onToggle: useDemoSkeleton
                     ? null
@@ -653,6 +672,13 @@ class SmartPredictionScreen extends ConsumerWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, i) {
           final row = rows[i];
+          final activeTiming = useDemoSkeleton
+              ? null
+              : findLatestActiveTimingForRoot(
+                  items: historyItems,
+                  rootEventId: row.eventId,
+                  catalog: catalog,
+                );
           return _PredictionEventCard(
             row: row,
             definition: lookupEventById(catalog, row.eventId),
@@ -661,16 +687,22 @@ class SmartPredictionScreen extends ConsumerWidget {
             chartLoading: useDemoSkeleton ? false : chartsLoading,
             compact: false,
             heartbeat: false,
-            chartPoints: useDemoSkeleton ? const [] : row.chartPoints,
+            chartPoints: useDemoSkeleton || activeTiming != null
+                ? const []
+                : row.chartPoints,
             pastDaysBeforeToday: 6,
-            showYAxis: !useDemoSkeleton,
-            relativeText: _relativeFor(row, now, grid: false),
+            showYAxis: !useDemoSkeleton && activeTiming == null,
+            relativeText: activeTiming != null
+                ? null
+                : _relativeFor(row, now, grid: false),
+            activeTiming: activeTiming,
+            activeExpectEndAt: etaForActive(activeTiming, row.eventId),
             onToggle: useDemoSkeleton
                 ? null
                 : (v) {
                     unawaited(onForecastToggle(row.eventId, v));
                   },
-            onCardTap: addEventTapFor(row),
+            onCardTap: addEventTapFor(row, activeTiming: activeTiming),
             onEditLastOccurrence: editLastTapFor(row),
           );
         },
@@ -2194,6 +2226,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
     required this.relativeText,
     this.titleInlineLogo = false,
     this.activeTiming,
+    this.activeExpectEndAt,
     this.landscapeMetrics,
     this.onToggle,
     this.onCardTap,
@@ -2218,8 +2251,11 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
   /// 手机横屏非首行：标题旁小 logo，隐藏倒计时上方大图。
   final bool titleInlineLogo;
 
-  /// 网格计时中：非 null 时走 active chrome（列表态忽略）。
+  /// 进行中计时：非 null 时走 active chrome（列表与网格均支持）。
   final HistoryRecord? activeTiming;
+
+  /// 进行中预计结束（duration 有把握时）；无则不展示 ETA 行。
+  final DateTime? activeExpectEndAt;
 
   /// 横屏 compact：按列宽 scale 的尺寸表；竖屏 grid 为 null。
   final PredictionLandscapeCardMetrics? landscapeMetrics;
@@ -2398,7 +2434,12 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final enabled = row.forecastEnabled;
     final pred = row.prediction;
     // 计时中仅网格：名旁小 logo + elapsed + 停止
-    final showActiveTiming = compact && widget.activeTiming != null;
+    // 列表与网格均展示进行中 chrome + 可选 ETA
+    final showActiveTiming = widget.activeTiming != null;
+    final activeEtaLabel = (showActiveTiming &&
+            widget.activeExpectEndAt != null)
+        ? formatActiveTimingEtaLabel(widget.activeExpectEndAt!, now)
+        : null;
     // 计时中：叶子图/名/色；目录不可解析则回退根；预约 CTA 也需目录
     final catalog = ref.watch(eventCatalogProvider).items;
     final leafDef = showActiveTiming
@@ -2446,6 +2487,13 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final showLastOccurrence = !showActiveTiming && widget.onToggle != null;
     final lastOccurrenceLabel = showLastOccurrence
         ? formatPredictionLastOccurrenceLabel(titleName, row.lastAt, now)
+        : null;
+    // 胜出用量/用时次级文案；横屏紧凑省略叶子名
+    final expectLabel = (pred != null && !showActiveTiming && pred.hasExpect)
+        ? formatPredictionExpectCardLabel(
+            pred,
+            includeLeaf: widget.landscapeMetrics == null,
+          )
         : null;
     // 瀑布流倒计时文案（停表见 formatPredictionCountdownHms）
     final countdown = (pred == null || showActiveTiming)
@@ -2620,6 +2668,23 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                         ),
                 ),
               ],
+              // 有胜出 expect 才占位；无则不留空行
+              if (expectLabel != null) ...[
+                SizedBox(height: sectionGapSm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    expectLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: captionFontSize,
+                      color: accent.withValues(alpha: 0.85),
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
               if (showAddLastOccurrence) ...[
                 SizedBox(height: sectionGapMd),
                 _HeartbeatAccentButton(
@@ -2671,6 +2736,23 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 ),
               ),
             ),
+            // 有 duration 把握才占位；超时保留原时刻 +「已超时」
+            if (activeEtaLabel != null) ...[
+              SizedBox(height: sectionGapSm),
+              Center(
+                child: Text(
+                  activeEtaLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: captionFontSize,
+                    color: accent.withValues(alpha: 0.85),
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
             SizedBox(height: sectionGapMd),
             // 停止独立命中 + 可点时心跳
             _HeartbeatStopButton(

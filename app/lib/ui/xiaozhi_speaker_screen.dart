@@ -28,6 +28,8 @@ class XiaozhiSpeakerScreen extends ConsumerStatefulWidget {
 
 class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
   bool _paying = false;
+  /// 正在重连的绑定 id；null 表示无进行中请求。
+  int? _reconnectingId;
 
   /// 规范化 MAC 便于本地判断 upsert。
   String _normMac(String raw) {
@@ -194,6 +196,28 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
       // toasted
     } catch (_) {
       if (mounted) ref.showApiToastError('删除失败');
+    }
+  }
+
+  Future<void> _reconnectBinding(XiaozhiMcpBindingItem item) async {
+    if (_reconnectingId != null) return;
+    setState(() => _reconnectingId = item.id);
+    try {
+      await ref.read(xiaozhiMcpBindingRepositoryProvider).reconnect(item.id);
+      if (!mounted) return;
+      ref.showApiToast('已触发重连', tone: AppToastTone.success);
+      ref.invalidate(xiaozhiMcpBindingsProvider);
+      // 握手常滞后于接口；短延迟再刷一次连接态。
+      Future<void>.delayed(const Duration(milliseconds: 1500), () {
+        if (!mounted) return;
+        ref.invalidate(xiaozhiMcpBindingsProvider);
+      });
+    } on ApiBusinessException {
+      // toasted
+    } catch (_) {
+      if (mounted) ref.showApiToastError('重连失败');
+    } finally {
+      if (mounted) setState(() => _reconnectingId = null);
     }
   }
 
@@ -465,8 +489,12 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
                                 _BindingCard(
                                   item: items[i],
                                   onShell: onShell,
+                                  reconnecting: _reconnectingId == items[i].id,
                                   onEditAlias: () => _editAlias(items[i]),
                                   onDelete: () => _deleteBinding(items[i]),
+                                  onReconnect: items[i].connected
+                                      ? null
+                                      : () => _reconnectBinding(items[i]),
                                 ),
                               ],
                             ],
@@ -577,14 +605,19 @@ class _BindingCard extends StatelessWidget {
   const _BindingCard({
     required this.item,
     required this.onShell,
+    required this.reconnecting,
     required this.onEditAlias,
     required this.onDelete,
+    this.onReconnect,
   });
 
   final XiaozhiMcpBindingItem item;
   final Color onShell;
+  final bool reconnecting;
   final VoidCallback onEditAlias;
   final VoidCallback onDelete;
+  /// 未连接时非 null；已连接为 null（不渲染重连钮）。
+  final VoidCallback? onReconnect;
 
   @override
   Widget build(BuildContext context) {
@@ -642,6 +675,17 @@ class _BindingCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
+              if (onReconnect != null)
+                TextButton(
+                  onPressed: reconnecting ? null : onReconnect,
+                  child: reconnecting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('重连'),
+                ),
               TextButton(onPressed: onEditAlias, child: const Text('改备注')),
               TextButton(
                 onPressed: onDelete,

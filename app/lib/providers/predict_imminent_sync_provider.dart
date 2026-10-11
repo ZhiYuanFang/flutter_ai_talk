@@ -66,12 +66,12 @@ Future<void> _syncPredictImminentPendingOnce(dynamic ref) async {
     final predictions =
         ref.read(smartPredictionsProvider) as List<EventNextPrediction>;
 
-    // 指纹：避免同 nextAt 重复刷 HTTP；空列表也上报以清空
+    // 指纹：含 expect，避免仅用量/用时变化时跳过 PUT；空列表也上报以清空
     final fp = predictions.isEmpty
         ? 'empty'
         : predictions
             .map((p) =>
-                '${p.eventId}:${p.nextAt.toUtc().millisecondsSinceEpoch ~/ 1000}')
+                '${p.eventId}:${p.nextAt.toUtc().millisecondsSinceEpoch ~/ 1000}:${expectFingerprintToken(p)}')
             .join('|');
     if (fp == _lastPredictImminentFingerprint) return;
 

@@ -27,11 +27,31 @@ class PredictImminentRepository {
       }
       final nextAtSec = p.nextAt.toUtc().millisecondsSinceEpoch ~/ 1000;
       if (nextAtSec < 1) continue;
-      events.add({
+      // 胜出 expect 结构化字段（与 Go pending 契约对齐；无则 omit）
+      final body = <String, dynamic>{
         'eventId': id,
         'nextAt': nextAtSec,
         if (p.eventName.trim().isNotEmpty) 'title': p.eventName.trim(),
-      });
+      };
+      if (p.hasExpect) {
+        final kind = p.expectKind!.trim();
+        body['expectKind'] = kind;
+        if (kind == kExpectKindDuration) {
+          final sec = p.expectDurationSec;
+          if (sec != null && sec > 0) body['expectDurationSec'] = sec;
+        } else if (kind == kExpectKindAmount) {
+          final amt = p.expectAmount;
+          if (amt != null && amt > 0) {
+            body['expectAmount'] =
+                amt == amt.roundToDouble() ? amt.toInt() : amt;
+          }
+          final unit = p.expectUnit?.trim() ?? '';
+          if (unit.isNotEmpty) body['expectUnit'] = unit;
+          final leaf = p.expectLeafTitle?.trim() ?? '';
+          if (leaf.isNotEmpty) body['expectLeafTitle'] = leaf;
+        }
+      }
+      events.add(body);
     }
 
     await _api.putJsonEnvelope(

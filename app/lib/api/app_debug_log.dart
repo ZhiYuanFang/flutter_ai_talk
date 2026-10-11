@@ -108,6 +108,12 @@ abstract final class AppDebugLog {
     debugPrint('[PredictImminent] ${_ts()} $message');
   }
 
+  /// 进行中计时 ETA 同步（active-eta Redis）。
+  static void predictActiveEta(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[PredictActiveEta] ${_ts()} $message');
+  }
+
   /// 预约下次约定 GET/PUT。
   static void appointmentNext(String message) {
     if (!kDebugMode) return;

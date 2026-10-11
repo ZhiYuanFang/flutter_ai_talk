@@ -15,6 +15,7 @@ import '../data/models.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/home_history_notifier.dart';
+import '../providers/predict_active_eta_sync_provider.dart';
 import '../providers/predict_imminent_sync_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
@@ -127,8 +128,9 @@ Future<EventAddSubmitResult?> submitEventAdd({
     } else {
       history.insertOptimistic(record);
     }
-    // 本机加餐后同步预测临近 pending（他端 WS 不加此调用）
+    // 本机加餐后同步预测临近 pending 与进行中 ETA（他端 WS 不加此调用）
     unawaited(requestPredictImminentPendingSync(ref));
+    unawaited(requestPredictActiveEtaPendingSync(ref));
     unawaited(EventButtonUsageStore.increment(event.id));
     return EventAddSubmitResult(
       record: record,
