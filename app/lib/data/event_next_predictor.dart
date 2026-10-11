@@ -180,10 +180,24 @@ String _recordEventUnit(HistoryRecord record) {
   return (p['event_unit'] as String?)?.trim() ?? '';
 }
 
-/// 可计量模态：已结束计时 → duration；正数量 → amount。
-String? countableExpectKind(HistoryRecord record) {
+/// 目录叶子 eventType；查不到或非法为 null（不得仅因此当 one 排除）。
+EventCatalogEventType? _leafEventType(
+  List<EventDefinition> catalog,
+  HistoryRecord record,
+) {
+  return lookupEventForRecord(catalog, record)?.parsedEventType;
+}
+
+/// 可计量模态：已结束计时 → duration；number 正数量 → amount；one 永不计入。
+String? countableExpectKind(
+  HistoryRecord record, {
+  required List<EventDefinition> catalog,
+}) {
   if (_isRecallSeedRecord(record)) return null;
   if (isActiveTimingRecord(record)) return null;
+  final leafType = _leafEventType(catalog, record);
+  // one 不参与量线与决胜
+  if (leafType == EventCatalogEventType.one) return null;
   final p = record.rawPayload;
   final n = historyPayloadInt(p, 'eventNumber');
   if (n == 0) {
@@ -193,7 +207,11 @@ String? countableExpectKind(HistoryRecord record) {
     if (end.difference(start).inSeconds <= 0) return null;
     return kExpectKindDuration;
   }
-  if (n > 0) return kExpectKindAmount;
+  if (n > 0) {
+    // 已知 time 不得进 amount；number 或未知 type 按载荷计量
+    if (leafType == EventCatalogEventType.time) return null;
+    return kExpectKindAmount;
+  }
   return null;
 }
 
@@ -257,13 +275,17 @@ double? _confidentWeightedMedian({
   return weightedMedianValue(samples);
 }
 
-/// 收集已结束计时样本点（不含进行中、不含种子）。
+/// 收集已结束计时样本点（不含进行中、不含种子、不含 one）。
+/// [at] 用 startTime：时段桶与半衰期锚开始时刻，不得用 end（避免夜间长睡被清晨桶降权）。
 List<({DateTime at, double value})> _durationSamplePoints(
-  List<HistoryRecord> records,
-) {
+  List<HistoryRecord> records, {
+  required List<EventDefinition> catalog,
+}) {
   final durationPoints = <({DateTime at, double value})>[];
   for (final r in records) {
     if (_isRecallSeedRecord(r)) continue;
+    // one 叶子不进 duration
+    if (_leafEventType(catalog, r) == EventCatalogEventType.one) continue;
     final p = r.rawPayload;
     final n = historyPayloadInt(p, 'eventNumber');
     if (n != 0) continue;
@@ -273,7 +295,8 @@ List<({DateTime at, double value})> _durationSamplePoints(
     if (start == null || end == null || !end.isAfter(start)) continue;
     final sec = end.difference(start).inSeconds;
     if (sec <= 0) continue;
-    durationPoints.add((at: end, value: sec.toDouble()));
+    // value=时长秒；加权时刻=start（与进行中 ETA 的 start 锚点对齐）
+    durationPoints.add((at: start, value: sec.toDouble()));
   }
   return durationPoints;
 }
@@ -281,12 +304,13 @@ List<({DateTime at, double value})> _durationSamplePoints(
 /// 仅 duration 线有把握时的秒数（进行中 ETA 用；与胜出 kind 无关）。
 int? confidentDurationExpectSec({
   required List<HistoryRecord> records,
+  required List<EventDefinition> catalog,
   required DateTime now,
   required int halfLifeDays,
   required DateTime anchorAt,
 }) {
   final median = _confidentWeightedMedian(
-    points: _durationSamplePoints(records),
+    points: _durationSamplePoints(records, catalog: catalog),
     anchorAt: anchorAt,
     halfLifeDays: halfLifeDays,
     now: now,
@@ -304,18 +328,24 @@ int? confidentDurationExpectSec({
   String? leafTitle,
 })? resolveWinningExpect({
   required List<HistoryRecord> records,
+  required List<EventDefinition> catalog,
   required String rootEventName,
   required DateTime now,
   required int halfLifeDays,
   required DateTime anchorAt,
 }) {
-  final durationPoints = _durationSamplePoints(records);
+  final durationPoints = _durationSamplePoints(records, catalog: catalog);
   final amountPoints = <({DateTime at, double value, String unit, String leaf})>[];
 
   for (final r in records) {
     if (_isRecallSeedRecord(r)) continue;
+    final leafType = _leafEventType(catalog, r);
+    // one 永不进 amount；已知 time 也不进
+    if (leafType == EventCatalogEventType.one) continue;
+    if (leafType == EventCatalogEventType.time) continue;
     final p = r.rawPayload;
     final n = historyPayloadInt(p, 'eventNumber');
+    // number 或未知 type：正数量计入 amount
     if (n > 0) {
       final at = occurrenceInstant(r, includeActive: false) ?? r.createdAt;
       final leaf = r.eventName.trim();
@@ -351,7 +381,7 @@ int? confidentDurationExpectSec({
   HistoryRecord? latestCountable;
   DateTime? latestAt;
   for (final r in records) {
-    final kind = countableExpectKind(r);
+    final kind = countableExpectKind(r, catalog: catalog);
     if (kind == null) continue;
     final t = occurrenceInstant(r, includeActive: false);
     if (t == null) continue;
@@ -361,8 +391,9 @@ int? confidentDurationExpectSec({
     }
   }
   final latestRec = latestCountable;
-  final latestKind =
-      latestRec != null ? countableExpectKind(latestRec) : null;
+  final latestKind = latestRec != null
+      ? countableExpectKind(latestRec, catalog: catalog)
+      : null;
 
   final String pickKind;
   if (latestKind == kExpectKindDuration && durationOk) {
@@ -414,11 +445,13 @@ int? confidentDurationExpectSec({
 EventNextPrediction attachWinningExpect({
   required EventNextPrediction prediction,
   required List<HistoryRecord> records,
+  required List<EventDefinition> catalog,
   required DateTime now,
   required int halfLifeDays,
 }) {
   final win = resolveWinningExpect(
     records: records,
+    catalog: catalog,
     rootEventName: prediction.eventName,
     now: now,
     halfLifeDays: halfLifeDays,
@@ -740,6 +773,7 @@ List<EventNextPrediction> predictAllUpcoming({
         attachWinningExpect(
           prediction: p,
           records: entry.value,
+          catalog: catalog,
           now: now,
           halfLifeDays: halfLife,
         ),

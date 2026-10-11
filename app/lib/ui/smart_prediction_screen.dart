@@ -2306,6 +2306,26 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   }
 
   /// countdown 块：预约可点改约（吸收手势，不冒泡到整卡 add）。
+  /// 倒计时正上方的「预计约…」；无文案不占位。
+  Widget? _buildExpectAboveCountdownLine({
+    required String? expectLabel,
+    required double captionFontSize,
+    required Color accent,
+  }) {
+    if (expectLabel == null) return null;
+    return Text(
+      expectLabel,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: captionFontSize,
+        color: accent.withValues(alpha: 0.85),
+        fontWeight: FontWeight.w400,
+      ),
+    );
+  }
+
   Widget _buildAppointmentAwareCountdown({
     required bool isAppointment,
     required String titleName,
@@ -2315,10 +2335,21 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     required double sectionGapSm,
     required Color accent,
     required EventDefinition? definition,
+    String? expectLabel,
   }) {
+    // expect 紧贴倒计时上方（大 logo 已在外层更上方）
+    final expectLine = _buildExpectAboveCountdownLine(
+      expectLabel: expectLabel,
+      captionFontSize: captionFontSize,
+      accent: accent,
+    );
     final block = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (expectLine != null) ...[
+          expectLine,
+          SizedBox(height: sectionGapSm),
+        ],
         Text(
           '距离下次$titleName倒计时',
           style: TextStyle(
@@ -2668,23 +2699,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                         ),
                 ),
               ],
-              // 有胜出 expect 才占位；无则不留空行
-              if (expectLabel != null) ...[
-                SizedBox(height: sectionGapSm),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    expectLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: captionFontSize,
-                      color: accent.withValues(alpha: 0.85),
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
+              // expect 改挂倒计时区块上方，标题区不再占位
               if (showAddLastOccurrence) ...[
                 SizedBox(height: sectionGapMd),
                 _HeartbeatAccentButton(
@@ -2791,6 +2806,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 sectionGapSm: sectionGapSm,
                 accent: accent,
                 definition: titleDef ?? definition,
+                // 有大 logo 时位于 logo 与倒计时之间；无大 logo 仍贴倒计时
+                expectLabel: expectLabel,
               ),
             ],
             // 横屏：预约有 pred 时同样展示可点 countdown；非预约仅图
@@ -2809,6 +2826,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 sectionGapSm: sectionGapSm,
                 accent: accent,
                 definition: titleDef ?? definition,
+                expectLabel: expectLabel,
               ),
             ],
             if (enabled && pred != null && !compact) ...[

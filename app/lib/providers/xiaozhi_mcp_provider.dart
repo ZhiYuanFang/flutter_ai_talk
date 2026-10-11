@@ -42,3 +42,9 @@ final xiaozhiMcpBindingsProvider =
     FutureProvider.autoDispose<List<XiaozhiMcpBindingItem>>((ref) {
   return ref.watch(xiaozhiMcpBindingRepositoryProvider).list();
 });
+
+/// 引导视频清单；失败时 repository 已返回 []。
+final xiaozhiMcpGuideVideosProvider =
+    FutureProvider.autoDispose<List<XiaozhiMcpGuideVideoItem>>((ref) {
+  return ref.watch(xiaozhiMcpUnlockRepositoryProvider).listGuideVideos();
+});

@@ -141,6 +141,30 @@ class XiaozhiMcpUnlockView {
   }
 }
 
+/// 运营配置的引导视频项（能力宣传 / 绑定教学）。
+class XiaozhiMcpGuideVideoItem {
+  const XiaozhiMcpGuideVideoItem({
+    required this.slot,
+    required this.title,
+    required this.videoCdnUrl,
+    this.coverCdnUrl = '',
+  });
+
+  final String slot;
+  final String title;
+  final String videoCdnUrl;
+  final String coverCdnUrl;
+
+  factory XiaozhiMcpGuideVideoItem.fromJson(Map<String, dynamic> json) {
+    return XiaozhiMcpGuideVideoItem(
+      slot: (json['slot'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      videoCdnUrl: (json['videoCdnUrl'] ?? '').toString(),
+      coverCdnUrl: (json['coverCdnUrl'] ?? '').toString(),
+    );
+  }
+}
+
 /// POST orders 回执（字段对齐功能/VIP 建单）。
 class XiaozhiMcpOrder {
   const XiaozhiMcpOrder({

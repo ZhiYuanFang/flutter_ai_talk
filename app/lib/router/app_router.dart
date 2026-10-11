@@ -23,6 +23,7 @@ import '../ui/settings_screen.dart';
 import '../ui/xiaozhi_speaker_screen.dart';
 import '../ui/xiaozhi_speaker_field_help_screen.dart';
 import '../ui/xiaozhi_speaker_buy_howto_screen.dart';
+import '../ui/xiaozhi_speaker_guide_video_screen.dart';
 import '../data/prediction_care_alert.dart';
 import '../ui/pangbao_ai_screen.dart';
 import '../ui/prediction_care_alert_screen.dart';
@@ -73,6 +74,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/xiaozhi-speaker/help-mac',
         '/settings/xiaozhi-speaker/help-token',
         '/settings/xiaozhi-speaker/howto-buy',
+        '/settings/xiaozhi-speaker/guide-video',
         '/features/unlock',
         '/features/invite-howto',
         '/vip/purchase',
@@ -244,6 +246,23 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/xiaozhi-speaker/howto-buy',
         builder: (context, state) => const XiaozhiSpeakerBuyHowtoScreen(),
+      ),
+      GoRoute(
+        path: '/settings/xiaozhi-speaker/guide-video',
+        builder: (context, state) {
+          // 入参经 extra 传递，避免长 CDN URL 塞进 query。
+          final extra = state.extra;
+          var title = '';
+          var videoCdnUrl = '';
+          if (extra is Map) {
+            title = (extra['title'] ?? '').toString();
+            videoCdnUrl = (extra['videoCdnUrl'] ?? '').toString();
+          }
+          return XiaozhiSpeakerGuideVideoScreen(
+            title: title,
+            videoCdnUrl: videoCdnUrl,
+          );
+        },
       ),
       GoRoute(
         path: '/policy',

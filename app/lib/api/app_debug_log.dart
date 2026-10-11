@@ -119,4 +119,10 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[AppointmentNext] ${_ts()} $message');
   }
+
+  /// 小智音箱引导视频清单 / 播放。
+  static void xiaozhiGuide(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[XiaozhiGuide] ${_ts()} $message');
+  }
 }

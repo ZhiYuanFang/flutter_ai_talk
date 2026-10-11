@@ -42,6 +42,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[PredictImminent]` | 预测临近 pending 同步 |
 | `[PredictActiveEta]` | 进行中计时预计结束同步 |
 | `[AppointmentNext]` | 预约下次约定 GET/PUT |
+| `[XiaozhiGuide]` | 小智音箱引导视频清单拉取 / 播放失败 |
 | `[UcgShare]` | 辩论帖微信分享截图上传/分享失败（`upload fail` / `share fail`） |
 | `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |

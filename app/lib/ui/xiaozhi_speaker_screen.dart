@@ -11,6 +11,7 @@ import '../providers/toast_bus.dart';
 import '../providers/xiaozhi_mcp_provider.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
+import '../ucg/ui/widgets/ucg_network_image.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'xiaozhi_console_link.dart';
 import 'widgets/app_glass_overlay.dart';
@@ -45,6 +46,7 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
   Future<void> _refreshAll() async {
     ref.invalidate(xiaozhiMcpUnlockProvider);
     ref.invalidate(xiaozhiMcpBindingsProvider);
+    ref.invalidate(xiaozhiMcpGuideVideosProvider);
   }
 
   Future<void> _purchasePermanent(XiaozhiMcpProduct product) async {
@@ -246,6 +248,10 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
   Widget build(BuildContext context) {
     final unlockAsync = ref.watch(xiaozhiMcpUnlockProvider);
     final bindingsAsync = ref.watch(xiaozhiMcpBindingsProvider);
+    // 失败时 provider 已为 []；loading 期间亦不渲染入口行。
+    final guideVideos =
+        ref.watch(xiaozhiMcpGuideVideosProvider).asData?.value ??
+            const <XiaozhiMcpGuideVideoItem>[];
     final deviceNo =
         ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
     final hasBaby = deviceNo.isNotEmpty;
@@ -349,6 +355,28 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
                                 color: onShell.withValues(alpha: 0.85),
                               ),
                             ),
+                            // 有引导视频时挂在卡底；空/失败不渲染任何入口。
+                            if (guideVideos.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              for (var i = 0; i < guideVideos.length; i++) ...[
+                                if (i > 0) const SizedBox(height: 8),
+                                _GuideVideoEntryRow(
+                                  item: guideVideos[i],
+                                  onShell: onShell,
+                                  primary: scheme.primary,
+                                  onTap: () {
+                                    final item = guideVideos[i];
+                                    context.push(
+                                      '/settings/xiaozhi-speaker/guide-video',
+                                      extra: <String, String>{
+                                        'title': item.title,
+                                        'videoCdnUrl': item.videoCdnUrl,
+                                      },
+                                    );
+                                  },
+                                ),
+                              ],
+                            ],
                           ],
                         ),
                       ),
@@ -597,6 +625,90 @@ class _PermanentPayButtonLabel extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// 能力卡底部引导视频入口行（标题用服务端 title；可选封面）。
+class _GuideVideoEntryRow extends StatelessWidget {
+  const _GuideVideoEntryRow({
+    required this.item,
+    required this.onShell,
+    required this.primary,
+    required this.onTap,
+  });
+
+  final XiaozhiMcpGuideVideoItem item;
+  final Color onShell;
+  final Color primary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = item.coverCdnUrl.trim();
+    final title = item.title.trim().isEmpty ? '引导视频' : item.title.trim();
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: cover.isEmpty
+                    ? Container(
+                        width: 56,
+                        height: 40,
+                        color: primary.withValues(alpha: 0.12),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.play_circle_outline,
+                          color: primary,
+                          size: 28,
+                        ),
+                      )
+                    : UcgNetworkImage(
+                        url: cover,
+                        width: 56,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 56,
+                          height: 40,
+                          color: primary.withValues(alpha: 0.12),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.play_circle_outline,
+                            color: primary,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: onShell,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: onShell.withValues(alpha: 0.45),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

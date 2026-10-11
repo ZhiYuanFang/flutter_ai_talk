@@ -82,6 +82,7 @@ ActiveTimingEtaItem? buildActiveTimingEtaItem({
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
   final durationSec = confidentDurationExpectSec(
     records: rootRecords,
+    catalog: catalog,
     now: now,
     halfLifeDays: halfLife,
     anchorAt: startAt,
