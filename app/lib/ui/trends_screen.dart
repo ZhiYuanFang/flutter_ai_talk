@@ -54,6 +54,22 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
   Offset? _flyTargetCenter;
   var _flySession = 0;
   Completer<void>? _flyCompleter;
+  /// 上次 build 的方向；用于竖→横边沿上报（含首帧已横屏补报）。
+  Orientation? _lastOrientation;
+
+  /// 趋势页进入横屏时 fire-and-forget 上报一次。
+  void _maybeReportTrendsLandscape(Orientation orientation) {
+    final prev = _lastOrientation;
+    _lastOrientation = orientation;
+    if (orientation != Orientation.landscape) return;
+    // 首帧横屏（prev==null）或竖→横。
+    if (prev != null && prev != Orientation.portrait) return;
+    unawaited(
+      ref
+          .read(clientUsageReporterProvider)
+          .reportEvent(ClientUsageEvents.trendsLandscapeShow),
+    );
+  }
 
   @override
   void initState() {
@@ -482,7 +498,10 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final rangeReady = _startDate != null && _endDate != null;
     final catalogLoading = catalogState.isRefreshing ||
         (!catalogState.remoteLoadAttempted && catalog.isEmpty);
-    final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final orientation = MediaQuery.orientationOf(context);
+    final landscape = orientation == Orientation.landscape;
+    // 竖→横 / 冷启已横屏：各报一次；横→竖不报。
+    _maybeReportTrendsLandscape(orientation);
     final topPad = MediaQuery.paddingOf(context).top;
 
     return ClientUsageShowOnce(

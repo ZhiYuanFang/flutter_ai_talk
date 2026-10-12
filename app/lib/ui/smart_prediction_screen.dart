@@ -916,6 +916,14 @@ class SmartPredictionScreen extends ConsumerWidget {
                             ) ??
                             false;
                         if (go && context.mounted) {
+                          // 习惯上报：投屏确认；不 await，不堵锁横屏。
+                          unawaited(
+                            ref
+                                .read(clientUsageReporterProvider)
+                                .reportEvent(
+                                  ClientUsageEvents.predictionLandscapeCast,
+                                ),
+                          );
                           unawaited(_lockPredictionLandscapeCast());
                         }
                       },

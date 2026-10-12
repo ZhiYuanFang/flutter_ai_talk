@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/client_usage_events.dart';
 import '../providers/app_notification_preference_provider.dart';
+import '../providers/client_usage_provider.dart';
 import '../theme/app_color.dart';
 import '../ucg/push/ucg_push_native.dart';
 import 'widgets/settings_glass_panel.dart';
@@ -79,6 +81,14 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onChanged: kIsWeb
                       ? null
                       : (v) {
+                          // 习惯上报：开/关即报；不 await，不堵偏好落盘。
+                          unawaited(
+                            ref.read(clientUsageReporterProvider).reportEvent(
+                                  v
+                                      ? ClientUsageEvents.notificationPrefOn
+                                      : ClientUsageEvents.notificationPrefOff,
+                                ),
+                          );
                           unawaited(
                             ref
                                 .read(

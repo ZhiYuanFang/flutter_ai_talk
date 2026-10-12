@@ -188,6 +188,19 @@ class FeaturePaymentService {
                   const VipPaymentOutcome(success: true, message: '开通成功'),
                 );
               }
+            } on ApiBusinessException catch (e) {
+              // 透传 cash 业务文案；空则 fallback。
+              AppDebugLog.featureUnlock(
+                'apple verify biz err=${e.code} ${e.message}',
+              );
+              final msg = e.message.trim().isEmpty
+                  ? '验单失败，请稍后重试'
+                  : e.message;
+              if (!completer.isCompleted) {
+                completer.complete(
+                  VipPaymentOutcome(success: false, message: msg),
+                );
+              }
             } catch (e) {
               AppDebugLog.featureUnlock('apple verify err=$e');
               if (!completer.isCompleted) {

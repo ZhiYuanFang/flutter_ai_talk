@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../data/client_usage_events.dart';
+import '../providers/client_usage_provider.dart';
 import 'widgets/app_toast.dart';
 
 /// 小智控制台智能体列表（外链，系统浏览器打开）。
@@ -21,7 +26,7 @@ Future<void> openXiaozhiConsoleAgents() async {
 }
 
 /// 正文中可点的「小智控制台」链接（[TapGestureRecognizer] 由本 State 释放）。
-class XiaozhiConsoleLinkedText extends StatefulWidget {
+class XiaozhiConsoleLinkedText extends ConsumerStatefulWidget {
   const XiaozhiConsoleLinkedText({
     super.key,
     required this.leading,
@@ -39,17 +44,28 @@ class XiaozhiConsoleLinkedText extends StatefulWidget {
   final Color? linkColor;
 
   @override
-  State<XiaozhiConsoleLinkedText> createState() =>
+  ConsumerState<XiaozhiConsoleLinkedText> createState() =>
       _XiaozhiConsoleLinkedTextState();
 }
 
-class _XiaozhiConsoleLinkedTextState extends State<XiaozhiConsoleLinkedText> {
+class _XiaozhiConsoleLinkedTextState
+    extends ConsumerState<XiaozhiConsoleLinkedText> {
   late final TapGestureRecognizer _tap;
 
   @override
   void initState() {
     super.initState();
-    _tap = TapGestureRecognizer()..onTap = () => openXiaozhiConsoleAgents();
+    _tap = TapGestureRecognizer()..onTap = _onLinkTap;
+  }
+
+  /// 点击即报意愿；再开外链（不 await 上报）。
+  void _onLinkTap() {
+    unawaited(
+      ref
+          .read(clientUsageReporterProvider)
+          .reportEvent(ClientUsageEvents.xiaozhiConsoleLinkClick),
+    );
+    unawaited(openXiaozhiConsoleAgents());
   }
 
   @override

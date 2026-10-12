@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../api/api_exceptions.dart';
+import '../api/app_debug_log.dart';
 import '../data/cash_vip_repository.dart';
 import '../data/xiaozhi_mcp_models.dart';
 import '../data/xiaozhi_mcp_unlock_repository.dart';
@@ -165,7 +166,21 @@ class XiaozhiMcpPaymentService {
                   const VipPaymentOutcome(success: true, message: '开通成功'),
                 );
               }
-            } catch (_) {
+            } on ApiBusinessException catch (e) {
+              // 透传 cash 业务文案（如异号复用交易）；空则 fallback。
+              AppDebugLog.cashVip(
+                'xiaozhi apple verify biz err=${e.code} ${e.message}',
+              );
+              final msg = e.message.trim().isEmpty
+                  ? '验单失败，请稍后重试'
+                  : e.message;
+              if (!completer.isCompleted) {
+                completer.complete(
+                  VipPaymentOutcome(success: false, message: msg),
+                );
+              }
+            } catch (e) {
+              AppDebugLog.cashVip('xiaozhi apple verify err=$e');
               if (!completer.isCompleted) {
                 completer.complete(
                   const VipPaymentOutcome(
@@ -201,8 +216,14 @@ class XiaozhiMcpPaymentService {
         ),
       );
     } on ApiBusinessException catch (e) {
-      return VipPaymentOutcome(success: false, message: e.message);
-    } catch (_) {
+      AppDebugLog.cashVip(
+        'xiaozhi apple business err=${e.code} ${e.message}',
+      );
+      final msg =
+          e.message.trim().isEmpty ? '购买失败，请稍后重试' : e.message;
+      return VipPaymentOutcome(success: false, message: msg);
+    } catch (e) {
+      AppDebugLog.cashVip('xiaozhi apple err=$e');
       return const VipPaymentOutcome(success: false, message: '购买失败，请稍后重试');
     } finally {
       await sub?.cancel();

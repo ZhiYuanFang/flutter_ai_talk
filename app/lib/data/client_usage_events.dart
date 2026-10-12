@@ -62,6 +62,51 @@ abstract final class ClientUsageEvents {
       ClientUsageEvent('page_widget_showcase_show', '展示小组件秀页');
   static const companionShow =
       ClientUsageEvent('page_companion_show', '展示陪伴页');
+  static const xiaozhiSpeakerShow =
+      ClientUsageEvent('page_xiaozhi_speaker_show', '展示小智音箱页');
+
+  // —— 横屏展示 ——
+  static const predictionLandscapeCast = ClientUsageEvent(
+    'page_prediction_landscape_cast',
+    '预测页进入投屏横屏',
+  );
+  static const trendsLandscapeShow = ClientUsageEvent(
+    'page_trends_landscape_show',
+    '趋势页旋转进入横屏',
+  );
+
+  // —— 语音习惯（竖横共用 controller）——
+  static const voiceWakeKws =
+      ClientUsageEvent('voice_wake_kws', '语音唤醒');
+  static const voiceWakeTap =
+      ClientUsageEvent('voice_wake_tap', '点击唤醒');
+  static const voiceWakeBargeIn =
+      ClientUsageEvent('voice_wake_barge_in', '语音打断思考');
+
+  /// 仅用户 ASR；超长截断；空串调用方勿报。
+  static ClientUsageEvent voiceTurnUser(String userText) {
+    const prefix = '语音对话（用户）：';
+    final body = _sanitizeDescPart(userText);
+    return ClientUsageEvent('voice_turn_user', '$prefix$body');
+  }
+
+  // —— 小智点击漏斗（点击即报）——
+  static const xiaozhiAddBtnClick =
+      ClientUsageEvent('xiaozhi_add_btn_click', '点击添加音箱');
+  static const xiaozhiConsoleLinkClick =
+      ClientUsageEvent('xiaozhi_console_link_click', '点击小智控制台链接');
+  static const xiaozhiBuyHelpClick =
+      ClientUsageEvent('xiaozhi_buy_help_click', '点击如何购买说明');
+  static const xiaozhiAddDialogSubmitClick = ClientUsageEvent(
+    'xiaozhi_add_dialog_submit_click',
+    '点击添加弹窗确认',
+  );
+
+  // —— 消息通知偏好 ——
+  static const notificationPrefOn =
+      ClientUsageEvent('notification_pref_on', '开启消息通知');
+  static const notificationPrefOff =
+      ClientUsageEvent('notification_pref_off', '关闭消息通知');
 
   // —— 动作：稳定 featureId；description 由工厂生成 ——
   static const predictionToggleOnId = 'prediction_card_toggle_on';

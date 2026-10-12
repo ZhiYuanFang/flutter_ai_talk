@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../data/client_usage_events.dart';
 import '../ucg/data/ucg_feature_flags.dart';
 import '../util/thinking_stage_delta.dart';
 import '../voice/landscape_mic_permission.dart';
 import '../voice/landscape_wake_word.dart';
 import '../voice/voice_chat_ws_client.dart';
+import 'client_usage_provider.dart';
 import 'device_no_notifier.dart';
 import 'voice_chat_ws_provider.dart';
 
@@ -407,8 +409,14 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     await _restoreWakeListening(statusIfOk: caption);
   }
 
+  /// 习惯上报：fire-and-forget，宁丢点不堵开听。
+  void _reportVoiceUsage(ClientUsageEvent event) {
+    unawaited(ref.read(clientUsageReporterProvider).reportEvent(event));
+  }
+
   /// 检测分流：对话段内 barge-in vs 待唤醒普通唤醒。
-  Future<void> _onWakeDetection() async {
+  /// [fromTap] true=监听 chip / 竖屏贴边球点击开听。
+  Future<void> _onWakeDetection({bool fromTap = false}) async {
     if (!_active) return;
     // 播中禁止打断（含残留 armed）
     if (_ttsPlaybackActive) {
@@ -419,6 +427,12 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       await _onBargeInWake();
       return;
     }
+    // 汇合前分报：KWS vs 点击。
+    _reportVoiceUsage(
+      fromTap
+          ? ClientUsageEvents.voiceWakeTap
+          : ClientUsageEvents.voiceWakeKws,
+    );
     await _onWake();
   }
 
@@ -429,6 +443,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       AppDebugLog.landscapeVoice('bargeIn ignore tts_playing');
       return;
     }
+    // 独立事件：打断思考习惯。
+    _reportVoiceUsage(ClientUsageEvents.voiceWakeBargeIn);
     _turnBusy = true;
     _disarmBargeIn(reason: 'hit');
     _exitInFlight = false;
@@ -567,6 +583,11 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         _setSubtitle(text, kind: LandscapeVoiceSubtitleKind.asr);
       case VoiceChatAsrFinal(:final text):
         _setSubtitle(text, kind: LandscapeVoiceSubtitleKind.asr);
+        // 仅用户句截断上报；空串跳过；不 await。
+        final user = text.trim();
+        if (user.isNotEmpty) {
+          _reportVoiceUsage(ClientUsageEvents.voiceTurnUser(user));
+        }
       case VoiceChatThinkingDelta(:final delta):
         // 按 \r 分阶段展示思考，避免弹幕堆长文。
         final next = applyThinkingStageDelta(state.thinking, delta);
@@ -844,7 +865,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       await _exitWithWoXianTuiXia();
       return;
     }
-    await _onWakeDetection();
+    // 点击开听：与 KWS 分 featureId。
+    await _onWakeDetection(fromTap: true);
   }
 }
 

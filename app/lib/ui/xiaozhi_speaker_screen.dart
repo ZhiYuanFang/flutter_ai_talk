@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,7 +7,9 @@ import 'package:intl/intl.dart';
 
 import '../api/api_exceptions.dart';
 import '../data/cash_vip_models.dart';
+import '../data/client_usage_events.dart';
 import '../data/xiaozhi_mcp_models.dart';
+import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/toast_bus.dart';
 import '../providers/xiaozhi_mcp_provider.dart';
@@ -85,6 +89,12 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
     required XiaozhiMcpUnlockView unlock,
     required bool hasBaby,
   }) async {
+    // 点击即报意愿（含需先绑机/开通文案态）。
+    unawaited(
+      ref
+          .read(clientUsageReporterProvider)
+          .reportEvent(ClientUsageEvents.xiaozhiAddBtnClick),
+    );
     if (!hasBaby) {
       final go = await showGlassConfirmDialog(
             context,
@@ -263,7 +273,9 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
     final bgEnd =
         Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
 
-    return Scaffold(
+    return ClientUsageShowOnce(
+      event: ClientUsageEvents.xiaozhiSpeakerShow,
+      child: Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('小智音箱'),
@@ -326,8 +338,19 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
                                 size: 20,
                                 color: scheme.primary,
                               ),
-                              onPressed: () => context
-                                  .push('/settings/xiaozhi-speaker/howto-buy'),
+                              onPressed: () {
+                                // 购买问号：点击即报。
+                                unawaited(
+                                  ref
+                                      .read(clientUsageReporterProvider)
+                                      .reportEvent(
+                                        ClientUsageEvents.xiaozhiBuyHelpClick,
+                                      ),
+                                );
+                                context.push(
+                                  '/settings/xiaozhi-speaker/howto-buy',
+                                );
+                              },
                             ),
                           ],
                         ),
@@ -580,6 +603,7 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -827,7 +851,7 @@ class _AddBindingResult {
 }
 
 /// 添加表单：controller 由弹层 State 持有。
-class _AddBindingDialogBody extends StatefulWidget {
+class _AddBindingDialogBody extends ConsumerStatefulWidget {
   const _AddBindingDialogBody({
     required this.needTrialConfirm,
     required this.onHelpMac,
@@ -839,10 +863,11 @@ class _AddBindingDialogBody extends StatefulWidget {
   final VoidCallback onHelpToken;
 
   @override
-  State<_AddBindingDialogBody> createState() => _AddBindingDialogBodyState();
+  ConsumerState<_AddBindingDialogBody> createState() =>
+      _AddBindingDialogBodyState();
 }
 
-class _AddBindingDialogBodyState extends State<_AddBindingDialogBody> {
+class _AddBindingDialogBodyState extends ConsumerState<_AddBindingDialogBody> {
   late final TextEditingController _aliasCtrl;
   late final TextEditingController _macCtrl;
   late final TextEditingController _tokenCtrl;
@@ -872,6 +897,12 @@ class _AddBindingDialogBodyState extends State<_AddBindingDialogBody> {
   }
 
   Future<void> _submit() async {
+    // 弹窗「添加」点击即报（校验失败前亦可）。
+    unawaited(
+      ref
+          .read(clientUsageReporterProvider)
+          .reportEvent(ClientUsageEvents.xiaozhiAddDialogSubmitClick),
+    );
     final alias = _aliasCtrl.text.trim();
     final mac = _macCtrl.text.trim();
     final token = _tokenCtrl.text.trim();
