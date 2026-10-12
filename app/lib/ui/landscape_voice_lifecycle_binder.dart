@@ -4,7 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/landscape_voice_provider.dart';
 import '../router/app_route_observer.dart';
 
-/// 绑定预测语音 activate/deactivate；竖屏额外认主壳 [ModalRoute.isCurrent]。
+/// 绑定预测语音 activate/deactivate。
+///
+/// 竖屏：仅当主壳被**其它 PageRoute** 覆盖时视为离开表面；
+/// Overlay（sheet/dialog）会翻转 [ModalRoute.isCurrent]，但 **不得** 因此 teardown / 重载 KWS。
+/// 横屏：仍只认业务 [surfaceVisible]（预测页可见）。
 class LandscapeVoiceLifecycleBinder extends ConsumerStatefulWidget {
   const LandscapeVoiceLifecycleBinder({
     super.key,
@@ -25,6 +29,10 @@ class LandscapeVoiceLifecycleBinder extends ConsumerStatefulWidget {
 
 class _LandscapeVoiceLifecycleBinderState
     extends ConsumerState<LandscapeVoiceLifecycleBinder> with RouteAware {
+  /// 主壳 Page 之上是否压了另一 PageRoute（设置/登录等）。
+  /// 依赖 [appRouteObserver] 为 `RouteObserver<PageRoute>`：Overlay 不得回调。
+  var _coveredByPageRoute = false;
+
   @override
   void initState() {
     super.initState();
@@ -35,7 +43,7 @@ class _LandscapeVoiceLifecycleBinderState
   void didChangeDependencies() {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
-    if (route is PageRoute) {
+    if (route is PageRoute<dynamic>) {
       appRouteObserver.subscribe(this, route);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
@@ -52,13 +60,15 @@ class _LandscapeVoiceLifecycleBinderState
 
   @override
   void didPushNext() {
-    // 被上层路由盖住。
+    // 上层 PageRoute 盖住主壳（非 Overlay）。
+    _coveredByPageRoute = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
 
   @override
   void didPopNext() {
-    // 上层路由弹出，主壳回到前台。
+    // 上层 PageRoute 弹出，主壳回到 Page 级前台。
+    _coveredByPageRoute = false;
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
 
@@ -71,11 +81,10 @@ class _LandscapeVoiceLifecycleBinderState
 
   void _sync() {
     if (!mounted) return;
-    // 竖屏：须主壳为当前路由；横屏仍只认业务 surface（预测页可见）。
-    final routeCurrent = ModalRoute.of(context)?.isCurrent ?? false;
+    // 竖屏：Page 级覆盖才否；不得用 isCurrent（Overlay 也会 false → 误 teardown）。
     final surface = widget.landscape
         ? widget.surfaceVisible
-        : (widget.surfaceVisible && routeCurrent);
+        : (widget.surfaceVisible && !_coveredByPageRoute);
     syncLandscapeVoiceLifecycle(
       ref,
       context: context,

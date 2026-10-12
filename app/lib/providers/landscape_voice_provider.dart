@@ -91,6 +91,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   var _active = false;
   var _turnBusy = false;
   var _exitInFlight = false;
+  /// activate single-flight：防双 sync 重复冷启 KWS。
+  Future<void>? _activateInFlight;
+  /// deactivate 递增，取消进行中的 activate（ensureMic 之后勿再置 _active）。
+  var _lifecycleGen = 0;
 
   /// 思考阶段已 resume KWS，可唤醒打断（TTS 播中必须关闭）。
   var _bargeInArmed = false;
@@ -183,6 +187,27 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   }) async {
     if (kIsWeb) return;
     if (_active) return;
+    final existing = _activateInFlight;
+    if (existing != null) {
+      await existing;
+      return;
+    }
+    final flight = _activateBody(ensureMic: ensureMic);
+    _activateInFlight = flight;
+    try {
+      await flight;
+    } finally {
+      if (identical(_activateInFlight, flight)) {
+        _activateInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _activateBody({
+    required Future<bool> Function() ensureMic,
+  }) async {
+    if (_active) return;
+    final gen = _lifecycleGen;
 
     final dn = ref.read(deviceNoNotifierProvider).asData?.value;
     if (dn == null || dn.isEmpty) {
@@ -196,6 +221,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     }
 
     final micOk = await ensureMic();
+    if (gen != _lifecycleGen) return;
     if (!micOk) {
       state = state.copyWith(
         listening: false,
@@ -243,7 +269,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         if (_active) state = state.copyWith(statusCaption: s);
       },
     );
-    if (!_active) return;
+    if (gen != _lifecycleGen || !_active) return;
     _syncChatFlags();
     state = state.copyWith(
       listening: wakeOk,
@@ -254,8 +280,15 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   }
 
   Future<void> deactivate() async {
+    _lifecycleGen++;
     _active = false;
     _cancelIdleNoSpeechTimer(reason: 'deactivate');
+    final inflight = _activateInFlight;
+    if (inflight != null) {
+      try {
+        await inflight;
+      } catch (_) {}
+    }
     await _tearDown();
     state = const LandscapeVoiceUiState();
   }
@@ -822,7 +855,8 @@ final landscapeVoiceControllerProvider =
 
 /// 由宿主在「表面可见 ∩ 对应方向 flag 开启」时驱动 activate/deactivate。
 /// 横屏：预测页可见 + [kPredictionLandscapeVoiceEnabled]；
-/// 竖屏：主壳表面（路由当前且非 UCG 未合格等）+ [kPredictionPortraitVoiceEnabled]。
+/// 竖屏：主壳表面（未被其它 PageRoute 覆盖、非 UCG 未合格等）+ [kPredictionPortraitVoiceEnabled]；
+/// Overlay sheet/dialog 不得单独使竖屏 surface 变 false（见 LandscapeVoiceLifecycleBinder）。
 void syncLandscapeVoiceLifecycle(
   WidgetRef ref, {
   required BuildContext context,

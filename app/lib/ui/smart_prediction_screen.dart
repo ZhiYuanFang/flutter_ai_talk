@@ -2514,18 +2514,26 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         PredictionLandscapeCardMetrics.baselineCardBorderRadius;
     final toggleCaption = '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
-    // 热态卡片展示上次时刻；计时中/骨架（onToggle==null）豁免。
-    final showLastOccurrence = !showActiveTiming && widget.onToggle != null;
+    // 热态卡有 lastAt 才展示「上一次」行；无则不渲染（避免「暂无」）。
+    // 「补充上一次」仍由 showAddLastOccurrence 在 lastAt==null 时给出。
+    final showLastOccurrence = !showActiveTiming &&
+        widget.onToggle != null &&
+        row.lastAt != null;
     final lastOccurrenceLabel = showLastOccurrence
         ? formatPredictionLastOccurrenceLabel(titleName, row.lastAt, now)
         : null;
-    // 胜出用量/用时次级文案；横屏紧凑省略叶子名
-    final expectLabel = (pred != null && !showActiveTiming && pred.hasExpect)
-        ? formatPredictionExpectCardLabel(
-            pred,
-            includeLeaf: widget.landscapeMetrics == null,
-          )
-        : null;
+    // 卡上 expect：duration（下次用时）永不展示；amount（下次用量）仅倒计时超时展示。
+    // 计时中预计结束走 activeEtaLabel，不经此门闩。横屏紧凑省略叶子名。
+    String? expectLabel;
+    if (pred != null && !showActiveTiming && pred.hasExpect) {
+      final kind = pred.expectKind?.trim();
+      if (kind == kExpectKindAmount && overdue) {
+        expectLabel = formatPredictionExpectCardLabel(
+          pred,
+          includeLeaf: widget.landscapeMetrics == null,
+        );
+      }
+    }
     // 瀑布流倒计时文案（停表见 formatPredictionCountdownHms）
     final countdown = (pred == null || showActiveTiming)
         ? null
