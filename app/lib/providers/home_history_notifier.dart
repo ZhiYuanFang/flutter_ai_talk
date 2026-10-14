@@ -427,18 +427,31 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   }
 
   /// 刷新 home 第 1 页；网络成功 true。single-flight 复用 `_refreshFuture`。
-  Future<bool> refreshFromRemote() {
+  /// [preserveLoadedDepth] true：合并 page1 并保留更深页（resume/bootstrap）；
+  /// false：整表替换为最新一页（显式下拉/底部上拉）。
+  Future<bool> refreshFromRemote({bool preserveLoadedDepth = false}) {
     if (_flyAnimationFrozen) {
       // 飞行动画冻结：入队稍后刷，本调用不视为网络失败
-      _enqueueIfFrozen(() => unawaited(refreshFromRemote()));
+      _enqueueIfFrozen(
+        () => unawaited(
+          refreshFromRemote(preserveLoadedDepth: preserveLoadedDepth),
+        ),
+      );
       return Future.value(true);
     }
-    return _refreshFuture ??= _refreshFromRemoteImpl().whenComplete(() {
+    // 进行中以先入模式为准（single-flight）
+    final existing = _refreshFuture;
+    if (existing != null) return existing;
+    return _refreshFuture =
+        _refreshFromRemoteImpl(preserveLoadedDepth: preserveLoadedDepth)
+            .whenComplete(() {
       _refreshFuture = null;
     });
   }
 
-  Future<bool> _refreshFromRemoteImpl() async {
+  Future<bool> _refreshFromRemoteImpl({
+    required bool preserveLoadedDepth,
+  }) async {
     final epoch = _epoch;
     if (!_ref.read(sessionProvider).isLoggedIn) {
       if (_isStale(epoch)) return true;
@@ -474,41 +487,56 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (page == null) return false;
 
     final remoteAsc = historyListToHomeAsc(page.listDesc);
-    final mergedAsc = mergeRemoteHistoryAscWithPendingLocal(
-      remoteAsc: remoteAsc,
-      localItems: state.items,
-    );
+    final prevHighest = state.highestPageLoaded;
 
-    final firstPageOnlyCached = cachedSnapshot.highestPageLoaded <= 1 &&
-        historySnapshotsEqual(cachedSnapshot.items, remoteAsc);
-    if (firstPageOnlyCached) {
-      if (state.items.isEmpty && remoteAsc.isNotEmpty) {
-        _applyState(
-          state.copyWith(
-            items: mergedAsc,
-            total: page.total,
-            highestPageLoaded: 1,
-          ),
-          epoch: epoch,
-        );
-      } else if (state.total != page.total || state.highestPageLoaded != 1) {
-        _applyState(
-          state.copyWith(total: page.total, highestPageLoaded: 1),
-          epoch: epoch,
-        );
+    // 保留深度：page1 upsert + 不在 page1 的本地更旧行；手势路径仍整表 page1
+    final mergedAsc = preserveLoadedDepth
+        ? mergeRemotePage1PreservingLocalDepth(
+            remoteAsc: remoteAsc,
+            localItems: state.items,
+          )
+        : mergeRemoteHistoryAscWithPendingLocal(
+            remoteAsc: remoteAsc,
+            localItems: state.items,
+          );
+    final nextHighest =
+        preserveLoadedDepth && prevHighest > 1 ? prevHighest : 1;
+
+    // 仅瘦快照短路：无更深页且与远端 page1 等价时少写盘
+    if (!preserveLoadedDepth || prevHighest <= 1) {
+      final firstPageOnlyCached = cachedSnapshot.highestPageLoaded <= 1 &&
+          historySnapshotsEqual(cachedSnapshot.items, remoteAsc);
+      if (firstPageOnlyCached) {
+        if (state.items.isEmpty && remoteAsc.isNotEmpty) {
+          _applyState(
+            state.copyWith(
+              items: mergedAsc,
+              total: page.total,
+              highestPageLoaded: 1,
+            ),
+            epoch: epoch,
+          );
+        } else if (state.total != page.total || state.highestPageLoaded != 1) {
+          _applyState(
+            state.copyWith(total: page.total, highestPageLoaded: 1),
+            epoch: epoch,
+          );
+        }
+        if (_isStale(epoch)) return true;
+        if (_ref.read(sessionProvider).isLoggedIn) {
+          _ref
+              .read(predictionRangeHistoryProvider.notifier)
+              .scheduleInvalidation();
+          unawaited(scheduleHomeWidgetSync(_ref));
+        }
+        return true;
       }
-      if (_isStale(epoch)) return true;
-      if (_ref.read(sessionProvider).isLoggedIn) {
-        _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
-        unawaited(scheduleHomeWidgetSync(_ref));
-      }
-      return true;
     }
 
     final next = state.copyWith(
       items: mergedAsc,
       total: page.total,
-      highestPageLoaded: 1,
+      highestPageLoaded: nextHighest,
       loadingMore: false,
     );
     await HomeHistoryStore.saveSnapshot(
@@ -516,7 +544,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       HomeHistoryCacheSnapshot(
         items: mergedAsc,
         total: page.total,
-        highestPageLoaded: 1,
+        highestPageLoaded: nextHighest,
       ),
     );
     if (_isStale(epoch) || _deviceNo() != dn) {
@@ -610,7 +638,8 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       }
       await loadFromDisk();
       if (_isStale(epoch)) return;
-      await refreshFromRemote();
+      // resume / deviceNo bootstrap：合并 page1，保留已 loadMore 深度
+      await refreshFromRemote(preserveLoadedDepth: true);
     } finally {
       if (!_isStale(epoch)) {
         state = state.copyWith(initialLoadDone: true);

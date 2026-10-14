@@ -29,7 +29,10 @@ class ColdStartBackgroundSync {
     await container.read(deviceNoNotifierProvider.notifier).refresh();
     // 串行 HTTP，避免 iOS 同 host 连接槽与历史 WS 握手并行占满。
     await container.read(eventCatalogProvider.notifier).bootstrap();
-    await container.read(homeHistoryProvider.notifier).refreshFromRemote();
+    // 磁盘若已有多页：保留深度，避免首次远程砍成 page1-only
+    await container
+        .read(homeHistoryProvider.notifier)
+        .refreshFromRemote(preserveLoadedDepth: true);
     container.read(homeHistoryProvider.notifier).markInitialLoadComplete();
   }
 }

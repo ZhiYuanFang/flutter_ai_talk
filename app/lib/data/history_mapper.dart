@@ -219,6 +219,26 @@ List<HistoryRecord> mergeRemoteHistoryAscWithPendingLocal({
   return [...remoteAsc, ...pending];
 }
 
+/// page1 upsert + 保留本地不在 page1 的更旧 id + pending（resume/bootstrap 用）。
+List<HistoryRecord> mergeRemotePage1PreservingLocalDepth({
+  required List<HistoryRecord> remoteAsc,
+  required List<HistoryRecord> localItems,
+}) {
+  final remoteIds = remoteAsc.map((e) => e.id).toSet();
+  // 更深页：非 pending 且本轮 page1 未返回的本地行
+  final olderKept = <HistoryRecord>[
+    for (final e in localItems)
+      if (!remoteIds.contains(e.id) && !isPendingHistoryId(e.id)) e,
+  ];
+  final pending = listPendingAddsInOrder(localItems)
+      .where((p) => !remoteIds.contains(p.id))
+      .toList(growable: false);
+  final core = <HistoryRecord>[...olderKept, ...remoteAsc]
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  if (pending.isEmpty) return core;
+  return [...core, ...pending];
+}
+
 /// 构造 `POST /device/history/api/event/add` 请求体（无 `eventUnit`）。
 Map<String, dynamic> buildEventAddBody({
   required String deviceNo,
