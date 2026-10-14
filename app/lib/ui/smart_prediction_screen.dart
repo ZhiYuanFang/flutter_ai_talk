@@ -530,15 +530,45 @@ class SmartPredictionScreen extends ConsumerWidget {
         ? ref.watch(landscapeVoiceControllerProvider)
         : null;
 
+    // 下拉：home 第 1 页 + range force（清零熔断）；任一路失败 Toast
+    Future<void> onCardsPullRefresh() async {
+      final results = await Future.wait<bool>([
+        ref.read(homeHistoryProvider.notifier).refreshFromRemote(),
+        ref.read(predictionRangeHistoryProvider.notifier).reloadForUserPull(),
+      ]);
+      if (!results.every((ok) => ok)) {
+        showAppToast('刷新失败，请稍后重试', tone: AppToastTone.error);
+      }
+    }
+
+    Widget wrapCardsRefresh(Widget child) {
+      return RefreshIndicator(
+        onRefresh: onCardsPullRefresh,
+        child: child,
+      );
+    }
+
     Widget buildCardsBody() {
+      // 空态也须可拉：AlwaysScrollable + 撑满高度
       if (rows.isEmpty) {
-        // catalog 尚无根：pending 显示加载；否则轻提示（不再展示回忆缺省 Gallery）
-        return Center(
-          child: Text(
-            rangePending ? '正在加载中' : '暂无可用预测事件',
-            style: TextStyle(
-              color: onShell.withValues(alpha: 0.55),
-            ),
+        return wrapCardsRefresh(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Center(
+                    child: Text(
+                      rangePending ? '正在加载中' : '暂无可用预测事件',
+                      style: TextStyle(
+                        color: onShell.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         );
       }
@@ -600,53 +630,56 @@ class SmartPredictionScreen extends ConsumerWidget {
 
       if (useGridLayout) {
         Widget buildGrid({PredictionLandscapeCardMetrics? metrics}) {
-          return _WaterfallCards(
-            padding: EdgeInsets.fromLTRB(
-              isLandscape ? 8 : 16,
-              isLandscape ? 12 : 0,
-              isLandscape ? 8 : 16,
-              cardsBottomPad,
+          return wrapCardsRefresh(
+            _WaterfallCards(
+              padding: EdgeInsets.fromLTRB(
+                isLandscape ? 8 : 16,
+                isLandscape ? 12 : 0,
+                isLandscape ? 8 : 16,
+                cardsBottomPad,
+              ),
+              rows: rows,
+              columnCount: waterfallColumns,
+              columnGap: metrics?.columnGap ?? 12,
+              rowGap: metrics?.rowGap ?? 12,
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemBuilder: (row, columnIndex, rowIndexInColumn) {
+                final activeTiming = useDemoSkeleton
+                    ? null
+                    : findLatestActiveTimingForRoot(
+                        items: historyItems,
+                        rootEventId: row.eventId,
+                        catalog: catalog,
+                      );
+                final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
+                return _PredictionEventCard(
+                  row: row,
+                  definition: lookupEventById(catalog, row.eventId),
+                  logoAnchorKey: logoAnchors.keyFor(row.eventId),
+                  now: now,
+                  chartLoading: useDemoSkeleton ? false : chartsLoading,
+                  compact: true,
+                  titleInlineLogo: titleInlineLogo,
+                  heartbeat: row.eventId == heartbeatId,
+                  chartPoints: const [],
+                  pastDaysBeforeToday: 2,
+                  showYAxis: false,
+                  relativeText: activeTiming != null
+                      ? null
+                      : _relativeFor(row, now, grid: true),
+                  activeTiming: activeTiming,
+                  activeExpectEndAt: etaForActive(activeTiming, row.eventId),
+                  landscapeMetrics: metrics,
+                  onToggle: useDemoSkeleton
+                      ? null
+                      : (v) {
+                          unawaited(onForecastToggle(row.eventId, v));
+                        },
+                  onCardTap: addEventTapFor(row, activeTiming: activeTiming),
+                  onEditLastOccurrence: editLastTapFor(row),
+                );
+              },
             ),
-            rows: rows,
-            columnCount: waterfallColumns,
-            columnGap: metrics?.columnGap ?? 12,
-            rowGap: metrics?.rowGap ?? 12,
-            itemBuilder: (row, columnIndex, rowIndexInColumn) {
-              final activeTiming = useDemoSkeleton
-                  ? null
-                  : findLatestActiveTimingForRoot(
-                      items: historyItems,
-                      rootEventId: row.eventId,
-                      catalog: catalog,
-                    );
-              final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
-              return _PredictionEventCard(
-                row: row,
-                definition: lookupEventById(catalog, row.eventId),
-                logoAnchorKey: logoAnchors.keyFor(row.eventId),
-                now: now,
-                chartLoading: useDemoSkeleton ? false : chartsLoading,
-                compact: true,
-                titleInlineLogo: titleInlineLogo,
-                heartbeat: row.eventId == heartbeatId,
-                chartPoints: const [],
-                pastDaysBeforeToday: 2,
-                showYAxis: false,
-                relativeText: activeTiming != null
-                    ? null
-                    : _relativeFor(row, now, grid: true),
-                activeTiming: activeTiming,
-                activeExpectEndAt: etaForActive(activeTiming, row.eventId),
-                landscapeMetrics: metrics,
-                onToggle: useDemoSkeleton
-                    ? null
-                    : (v) {
-                        unawaited(onForecastToggle(row.eventId, v));
-                      },
-                onCardTap: addEventTapFor(row, activeTiming: activeTiming),
-                onEditLastOccurrence: editLastTapFor(row),
-              );
-            },
           );
         }
 
@@ -666,46 +699,49 @@ class SmartPredictionScreen extends ConsumerWidget {
         }
         return buildGrid();
       }
-      return ListView.separated(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, cardsBottomPad),
-        itemCount: rows.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, i) {
-          final row = rows[i];
-          final activeTiming = useDemoSkeleton
-              ? null
-              : findLatestActiveTimingForRoot(
-                  items: historyItems,
-                  rootEventId: row.eventId,
-                  catalog: catalog,
-                );
-          return _PredictionEventCard(
-            row: row,
-            definition: lookupEventById(catalog, row.eventId),
-            logoAnchorKey: logoAnchors.keyFor(row.eventId),
-            now: now,
-            chartLoading: useDemoSkeleton ? false : chartsLoading,
-            compact: false,
-            heartbeat: false,
-            chartPoints: useDemoSkeleton || activeTiming != null
-                ? const []
-                : row.chartPoints,
-            pastDaysBeforeToday: 6,
-            showYAxis: !useDemoSkeleton && activeTiming == null,
-            relativeText: activeTiming != null
+      return wrapCardsRefresh(
+        ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(16, 0, 16, cardsBottomPad),
+          itemCount: rows.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, i) {
+            final row = rows[i];
+            final activeTiming = useDemoSkeleton
                 ? null
-                : _relativeFor(row, now, grid: false),
-            activeTiming: activeTiming,
-            activeExpectEndAt: etaForActive(activeTiming, row.eventId),
-            onToggle: useDemoSkeleton
-                ? null
-                : (v) {
-                    unawaited(onForecastToggle(row.eventId, v));
-                  },
-            onCardTap: addEventTapFor(row, activeTiming: activeTiming),
-            onEditLastOccurrence: editLastTapFor(row),
-          );
-        },
+                : findLatestActiveTimingForRoot(
+                    items: historyItems,
+                    rootEventId: row.eventId,
+                    catalog: catalog,
+                  );
+            return _PredictionEventCard(
+              row: row,
+              definition: lookupEventById(catalog, row.eventId),
+              logoAnchorKey: logoAnchors.keyFor(row.eventId),
+              now: now,
+              chartLoading: useDemoSkeleton ? false : chartsLoading,
+              compact: false,
+              heartbeat: false,
+              chartPoints: useDemoSkeleton || activeTiming != null
+                  ? const []
+                  : row.chartPoints,
+              pastDaysBeforeToday: 6,
+              showYAxis: !useDemoSkeleton && activeTiming == null,
+              relativeText: activeTiming != null
+                  ? null
+                  : _relativeFor(row, now, grid: false),
+              activeTiming: activeTiming,
+              activeExpectEndAt: etaForActive(activeTiming, row.eventId),
+              onToggle: useDemoSkeleton
+                  ? null
+                  : (v) {
+                      unawaited(onForecastToggle(row.eventId, v));
+                    },
+              onCardTap: addEventTapFor(row, activeTiming: activeTiming),
+              onEditLastOccurrence: editLastTapFor(row),
+            );
+          },
+        ),
       );
     }
 
@@ -1668,6 +1704,7 @@ class _WaterfallCards extends StatelessWidget {
     this.columnCount = 2,
     this.columnGap = 12,
     this.rowGap = 12,
+    this.physics,
   });
 
   final EdgeInsets padding;
@@ -1684,6 +1721,7 @@ class _WaterfallCards extends StatelessWidget {
   final int columnCount;
   final double columnGap;
   final double rowGap;
+  final ScrollPhysics? physics;
 
   @override
   Widget build(BuildContext context) {
@@ -1705,6 +1743,7 @@ class _WaterfallCards extends StatelessWidget {
     }
 
     return SingleChildScrollView(
+      physics: physics,
       padding: padding,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

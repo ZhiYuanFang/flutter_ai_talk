@@ -1249,8 +1249,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           stoppingRecordIds: _stoppingRecordIds,
                                           hasMore: homeHistory.hasMore,
                                           loadingMore: homeHistory.loadingMore,
-                                          onRefresh: () =>
-                                              _history.refreshFromRemote(),
+                                          onRefresh: () async {
+                                            await _history.refreshFromRemote();
+                                          },
                                           onLoadMore: () =>
                                               _history.loadMoreHistory(),
                                         ),

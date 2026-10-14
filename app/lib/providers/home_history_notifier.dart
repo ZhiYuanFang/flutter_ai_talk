@@ -67,7 +67,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   final Ref _ref;
   Future<void>? _warmFuture;
   Future<bool>? _loadPageInFlight;
-  Future<void>? _refreshFuture;
+  Future<bool>? _refreshFuture;
   var _flyAnimationFrozen = false;
   var _consecutiveLoadMoreFailures = 0;
   final List<void Function()> _queuedWhileFlyFrozen = [];
@@ -426,36 +426,38 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     );
   }
 
-  Future<void> refreshFromRemote() {
+  /// 刷新 home 第 1 页；网络成功 true。single-flight 复用 `_refreshFuture`。
+  Future<bool> refreshFromRemote() {
     if (_flyAnimationFrozen) {
+      // 飞行动画冻结：入队稍后刷，本调用不视为网络失败
       _enqueueIfFrozen(() => unawaited(refreshFromRemote()));
-      return Future.value();
+      return Future.value(true);
     }
     return _refreshFuture ??= _refreshFromRemoteImpl().whenComplete(() {
       _refreshFuture = null;
     });
   }
 
-  Future<void> _refreshFromRemoteImpl() async {
+  Future<bool> _refreshFromRemoteImpl() async {
     final epoch = _epoch;
     if (!_ref.read(sessionProvider).isLoggedIn) {
-      if (_isStale(epoch)) return;
+      if (_isStale(epoch)) return true;
       state = const HomeHistoryState(initialLoadDone: true);
       HomeHistoryMemoryCache.clear();
-      return;
+      return false;
     }
     await _warmFromDisk();
-    if (_isStale(epoch)) return;
+    if (_isStale(epoch)) return true;
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) {
       _clearItemsForUnboundSession(epoch: epoch);
-      return;
+      return false;
     }
 
     final cachedSnapshot = state.items.isNotEmpty
         ? _currentSnapshot()
         : await HomeHistoryStore.loadSnapshot(dn);
-    if (_isStale(epoch)) return;
+    if (_isStale(epoch)) return true;
     if (cachedSnapshot.items.isNotEmpty && state.items.isEmpty) {
       _applyState(
         state.copyWith(
@@ -468,8 +470,8 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     }
 
     final page = await _ref.read(feedRepositoryProvider).tryLoadHistoryPage(page: 1);
-    if (_isStale(epoch)) return;
-    if (page == null) return;
+    if (_isStale(epoch)) return true;
+    if (page == null) return false;
 
     final remoteAsc = historyListToHomeAsc(page.listDesc);
     final mergedAsc = mergeRemoteHistoryAscWithPendingLocal(
@@ -495,12 +497,12 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
           epoch: epoch,
         );
       }
-      if (_isStale(epoch)) return;
+      if (_isStale(epoch)) return true;
       if (_ref.read(sessionProvider).isLoggedIn) {
         _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
         unawaited(scheduleHomeWidgetSync(_ref));
       }
-      return;
+      return true;
     }
 
     final next = state.copyWith(
@@ -519,15 +521,16 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     );
     if (_isStale(epoch) || _deviceNo() != dn) {
       await HomeHistoryStore.clearAll();
-      return;
+      return true;
     }
     _applyState(next, epoch: epoch);
     // 首页刷新可能变更近 7 日内容 → 失效预测 range
-    if (_isStale(epoch)) return;
+    if (_isStale(epoch)) return true;
     if (_ref.read(sessionProvider).isLoggedIn) {
       _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
       unawaited(scheduleHomeWidgetSync(_ref));
     }
+    return true;
   }
 
   Future<void> loadMoreHistory() async {

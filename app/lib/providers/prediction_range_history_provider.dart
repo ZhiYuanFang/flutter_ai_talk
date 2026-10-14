@@ -45,7 +45,7 @@ class PredictionRangeHistoryNotifier
       : super(const PredictionRangeHistoryState());
 
   final Ref _ref;
-  Future<void>? _inFlight;
+  Future<bool>? _inFlight;
   var _consecutiveFailures = 0;
   var _dirty = true;
   Timer? _debounce;
@@ -60,18 +60,29 @@ class PredictionRangeHistoryNotifier
   }
 
   /// Single-flight ensure；含 deviceNo 门控与 ready-空自愈。
-  Future<void> ensureLoaded({bool force = false}) {
+  Future<void> ensureLoaded({bool force = false}) async {
+    await _ensureLoadedCore(force: force);
+  }
+
+  /// 用户下拉显式重试：先清零熔断计数，再 force 拉取；成功返回 true。
+  Future<bool> reloadForUserPull() async {
+    _consecutiveFailures = 0;
+    AppDebugLog.homeWidget('range user pull reset circuit');
+    return _ensureLoadedCore(force: true);
+  }
+
+  Future<bool> _ensureLoadedCore({required bool force}) {
     if (!_ref.read(sessionProvider).isLoggedIn) {
       state = const PredictionRangeHistoryState();
-      return Future.value();
+      return Future.value(false);
     }
     final existing = _inFlight;
     if (existing != null) {
       // 进行中：非 force 复用；force 等当前结束后再拉一轮
       if (!force) return existing;
       return existing.then((_) async {
-        if (!_ref.read(sessionProvider).isLoggedIn) return;
-        await ensureLoaded(force: true);
+        if (!_ref.read(sessionProvider).isLoggedIn) return false;
+        return _ensureLoadedCore(force: true);
       });
     }
     return _inFlight = _ensureImpl(force: force).whenComplete(() {
@@ -79,7 +90,7 @@ class PredictionRangeHistoryNotifier
     });
   }
 
-  Future<void> _ensureImpl({required bool force}) async {
+  Future<bool> _ensureImpl({required bool force}) async {
     // 已登录：dn 空则先灌本地缓存
     var dn = _deviceNoOrNull();
     if (dn == null) {
@@ -94,11 +105,12 @@ class PredictionRangeHistoryNotifier
     final effectiveForce = force || healEmptyReady;
 
     if (!effectiveForce && state.ready && !_dirty && !state.loading) {
-      return;
+      return true;
     }
+    // 非 force 且已熔断：跳过（用户下拉经 reloadForUserPull 已清零）
     if (isCircuitOpen && !effectiveForce) {
       AppDebugLog.homeWidget('range ensure skipped circuit open');
-      return;
+      return false;
     }
     if (dn == null) {
       AppDebugLog.homeWidget('range ensure skipped no deviceNo');
@@ -109,16 +121,16 @@ class PredictionRangeHistoryNotifier
       } else {
         state = state.copyWith(loading: false);
       }
-      return;
+      return false;
     }
 
     if (healEmptyReady) {
       AppDebugLog.homeWidget('range ensure heal empty-ready');
     }
-    await _loadImpl(force: effectiveForce);
+    return _loadImpl(force: effectiveForce);
   }
 
-  Future<void> _loadImpl({required bool force}) async {
+  Future<bool> _loadImpl({required bool force}) async {
     state = state.copyWith(loading: true);
     AppDebugLog.homeWidget('range load start force=$force');
     try {
@@ -129,7 +141,7 @@ class PredictionRangeHistoryNotifier
         AppDebugLog.homeWidget(
           'range load fail consecutive=$_consecutiveFailures',
         );
-        return;
+        return false;
       }
       _consecutiveFailures = 0;
       _dirty = false;
@@ -146,9 +158,11 @@ class PredictionRangeHistoryNotifier
         final catalog = _ref.read(eventCatalogProvider).items;
         scheduleEventLastAtObserveFromHistory(_ref, list, catalog);
       }
+      return true;
     } catch (e) {
       _consecutiveFailures += 1;
       AppDebugLog.homeWidget('range load err=$e');
+      return false;
     } finally {
       // 防止 filter/超时挂死后永久 loading
       if (state.loading) {
