@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pangbao_app/ui/widgets/app_glass_overlay.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
+import 'prediction_wake_lock.dart';
 
 import '../data/client_usage_events.dart';
 import '../providers/client_usage_provider.dart';
@@ -215,7 +215,8 @@ class _PredictionLandscapeImmersiveHostState
       _held = true;
       try {
         await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        await WakelockPlus.enable();
+        // 与思考窗共用计数，避免思考结束误关投屏常亮。
+        await PredictionWakeLock.setImmersive(true);
       } catch (_) {
         // 平台失败不阻断 UI；下次 sync / resume 再试。
       }
@@ -229,7 +230,7 @@ class _PredictionLandscapeImmersiveHostState
     _held = false;
     if (kIsWeb) return;
     try {
-      await WakelockPlus.disable();
+      await PredictionWakeLock.setImmersive(false);
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } catch (_) {}
   }

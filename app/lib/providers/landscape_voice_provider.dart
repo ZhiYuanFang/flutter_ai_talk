@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/app_debug_log.dart';
 import '../data/client_usage_events.dart';
 import '../ucg/data/ucg_feature_flags.dart';
+import '../ui/prediction_wake_lock.dart';
 import '../util/thinking_stage_delta.dart';
 import '../voice/landscape_mic_permission.dart';
 import '../voice/landscape_wake_word.dart';
@@ -103,6 +104,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
 
   /// 回复 TTS 播放窗：禁止 barge-in / 芯片停播。
   var _ttsPlaybackActive = false;
+  var _thinkingWakeHeld = false;
 
   /// 本轮开听是否已出现有效音（跨 soft rearm 保留）。
   var _heardEffectiveSpeech = false;
@@ -243,6 +245,12 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _chatSub = chat.events.listen(_onChatEvent);
     chat.onEffectiveSpeech = _onEffectiveSpeechDetected;
     chat.onBeforeTtsPlay = _onBeforeTtsPlay;
+    chat.onTtsStoppedByLifecycle = () {
+      _ttsPlaybackActive = false;
+      unawaited(_setThinkingWake(false));
+      if (!_active || _turnBusy) return;
+      unawaited(_finishTurn(endReason: 'app_pause'));
+    };
     _readySub?.cancel();
     _readySub = chat.readyStream.listen((ready) {
       if (!_active) return;
@@ -307,6 +315,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     final chat = ref.read(voiceChatWsClientProvider);
     chat.onEffectiveSpeech = null;
     chat.onBeforeTtsPlay = null;
+    chat.onTtsStoppedByLifecycle = null;
     await chat.endSession(reason: 'teardown');
     await chat.disconnect();
     _turnBusy = false;
@@ -314,6 +323,13 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _heardEffectiveSpeech = false;
     _bargeInArmed = false;
     _ttsPlaybackActive = false;
+    await _setThinkingWake(false);
+  }
+
+  Future<void> _setThinkingWake(bool hold) async {
+    if (_thinkingWakeHeld == hold) return;
+    _thinkingWakeHeld = hold;
+    await PredictionWakeLock.setThinking(hold);
   }
 
   void _disarmBargeIn({required String reason}) {
@@ -322,10 +338,11 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     AppDebugLog.landscapeVoice('bargeIn disarm reason=$reason');
   }
 
-  /// TTS 开播前：释放 KWS 麦，关闭思考窗 barge-in。
+  /// TTS 开播前：释放思考常亮与 KWS 麦；开口打断改由本地能量检测。
   Future<void> _onBeforeTtsPlay() async {
     _ttsPlaybackActive = true;
     _bargeInArmed = false;
+    unawaited(_setThinkingWake(false));
     AppDebugLog.landscapeVoice('bargeIn disarm reason=tts_start');
     try {
       await _wake?.pause().timeout(_micHandoffTimeout);
@@ -436,7 +453,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     await _onWake();
   }
 
-  /// 思考窗再说唤醒词：停 TTS → end →「我在」→ 开听。
+  /// 思考窗再说唤醒词：停后续 TTS → end →「我在」→ 开听。播放中不得进入。
   Future<void> _onBargeInWake() async {
     if (!_active || _turnBusy) return;
     if (_ttsPlaybackActive) {
@@ -449,6 +466,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _disarmBargeIn(reason: 'hit');
     _exitInFlight = false;
     _heardEffectiveSpeech = false;
+    _ttsPlaybackActive = false;
+    unawaited(_setThinkingWake(false));
     _cancelIdleNoSpeechTimer(reason: 'barge_in');
     AppDebugLog.landscapeVoice('bargeIn hit');
 
@@ -671,6 +690,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     // 已有有效音：空片段续听，不整轮退下。
     if (_heardEffectiveSpeech || chat.hasEffectiveSpeech) {
       _heardEffectiveSpeech = true;
+      unawaited(_setThinkingWake(false));
       _cancelIdleNoSpeechTimer(reason: 'no_result_soft');
       AppDebugLog.landscapeVoice('asr_no_result soft rearm');
       try {
@@ -755,6 +775,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _syncChatFlags();
     // 仅有效音后的思考/TTS 窗口武装 barge-in（空结果续听不开）
     if (_heardEffectiveSpeech) {
+      unawaited(_setThinkingWake(true));
       unawaited(_armBargeInWake());
     }
   }
@@ -775,6 +796,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _heardEffectiveSpeech = false;
     _disarmBargeIn(reason: 'finish');
     _cancelIdleNoSpeechTimer(reason: 'finish');
+    unawaited(_setThinkingWake(false));
     // 兜底：无播音路径也可能残留字幕。
     _clearSubtitle(reason: 'finish_turn');
     final chat = ref.read(voiceChatWsClientProvider);
@@ -846,7 +868,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       await activate(ensureMic: () => ensureLandscapeMicPermission(context));
       return;
     }
-    // 回复 TTS 播中：禁止 stopTts / 强制退下打断
+    // 回复 TTS 播中：不占麦、不停播。
     if (_ttsPlaybackActive) {
       AppDebugLog.landscapeVoice('chip ignore tts_playing');
       return;

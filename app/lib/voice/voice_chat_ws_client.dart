@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -62,11 +63,14 @@ class VoiceChatExit extends VoiceChatEvent {
 }
 
 /// `/voice/chat/ws`：无 JWT；`start`+PCM；解析 thinking/answer/TTS。本期不做 text 上行。
-class VoiceChatWsClient {
+class VoiceChatWsClient with WidgetsBindingObserver {
   VoiceChatWsClient({
     required this.wsUrl,
     required this.deviceNoGetter,
-  });
+  }) {
+    // 回前台前先停播，避免播放器把上一句再播一遍。
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   final String wsUrl;
   final DeviceNoGetter deviceNoGetter;
@@ -91,6 +95,7 @@ class VoiceChatWsClient {
   StreamSubscription<Uint8List>? _pcmSub;
   final _pcmAbsSession = PcmAbsSessionAccumulator();
   var _feedBusy = false;
+  Completer<void>? _playStopped;
   Future<bool>? _connectFuture;
   Future<bool>? _restartRoundInFlight;
 
@@ -109,6 +114,9 @@ class VoiceChatWsClient {
 
   /// 即将播回复 TTS 前（编排层 pause KWS）；可 async。
   Future<void> Function()? onBeforeTtsPlay;
+
+  /// 进后台停掉正在播的 TTS / 本地提示后通知编排层收口。
+  void Function()? onTtsStoppedByLifecycle;
 
   final _ttsPlayer = AudioPlayer();
   final BytesBuilder _ttsPcm = BytesBuilder(copy: false);
@@ -132,6 +140,21 @@ class VoiceChatWsClient {
 
   /// 回复 TTS 是否正在播放（供编排层播中门闩）。
   bool get isTtsPlaying => _ttsPlaying;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // resumed 不重播；paused/hidden 时丢掉未播完音频。
+    if (state != AppLifecycleState.paused &&
+        state != AppLifecycleState.hidden) {
+      return;
+    }
+    if (!_ttsPlaying) return;
+    final notify = onTtsStoppedByLifecycle;
+    unawaited(() async {
+      await stopTts();
+      notify?.call();
+    }());
+  }
 
   void _emitReady(bool v) {
     if (!_readyController.isClosed) _readyController.add(v);
@@ -401,7 +424,7 @@ class VoiceChatWsClient {
     }
   }
 
-  /// 唤醒打断：立即停 TTS、清缓冲，并丢弃本轮后续音频直至新开听。
+  /// 进后台或思考窗打断：停播、清缓冲，并丢弃本轮后续音频直至新开听。
   Future<void> stopTts() async {
     _ttsDiscard = true;
     _ttsPcm.clear();
@@ -411,6 +434,9 @@ class VoiceChatWsClient {
       } catch (_) {}
       _ttsPlaying = false;
     }
+    // 解开正在等播完的 Future，避免看门狗空等后再重入播放。
+    final wait = _playStopped;
+    if (wait != null && !wait.isCompleted) wait.complete();
     AppDebugLog.landscapeVoice('stopTts');
   }
 
@@ -421,6 +447,7 @@ class VoiceChatWsClient {
       } catch (_) {}
     }
     _ttsPlaying = true;
+    _playStopped = Completer<void>();
     try {
       final wav = _pcm16ToWav(pcm, sampleRate: sampleRate);
       final dir = await getTemporaryDirectory();
@@ -431,9 +458,8 @@ class VoiceChatWsClient {
       final timeout = _ttsPlayTimeoutForPcm(pcm, sampleRate);
       await _ttsPlayer.play(DeviceFileSource(file.path));
       try {
-        await _ttsPlayer.onPlayerComplete.first.timeout(timeout);
+        await _awaitPlaybackEnd(timeout);
       } on TimeoutException {
-        // 声停但 complete 未到：停播并返回，由 _onAudioEnd seal TurnEnded
         AppDebugLog.landscapeVoice(
           'tts play timeout seal timeoutMs=${timeout.inMilliseconds}',
         );
@@ -447,6 +473,16 @@ class VoiceChatWsClient {
     } finally {
       _ttsPlaying = false;
     }
+  }
+
+  /// 等到播完，或进后台提前结束。
+  Future<void> _awaitPlaybackEnd(Duration timeout) {
+    final stopped = _playStopped ?? Completer<void>();
+    _playStopped = stopped;
+    return Future.any<void>([
+      _ttsPlayer.onPlayerComplete.first,
+      stopped.future,
+    ]).timeout(timeout);
   }
 
   /// timeout = clamp(pcmDuration + slack, minFloor, hardCap)。
@@ -473,14 +509,13 @@ class VoiceChatWsClient {
         } catch (_) {}
       }
       _ttsPlaying = true;
+      _playStopped = Completer<void>();
       // mediaPlayer 更易完整播完短提示音；低延迟模式易片头裁切。
       await _ttsPlayer.setPlayerMode(PlayerMode.mediaPlayer);
       await _ttsPlayer.setReleaseMode(ReleaseMode.stop);
       await _ttsPlayer.play(AssetSource(assetPath));
       try {
-        await _ttsPlayer.onPlayerComplete.first.timeout(
-          const Duration(seconds: 12),
-        );
+        await _awaitPlaybackEnd(const Duration(seconds: 12));
       } on TimeoutException {
         AppDebugLog.landscapeVoice('playAssetWav timeout path=$assetPath');
       }
