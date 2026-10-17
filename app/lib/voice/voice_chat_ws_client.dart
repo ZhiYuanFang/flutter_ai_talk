@@ -143,17 +143,44 @@ class VoiceChatWsClient with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // resumed 不重播；paused/hidden 时丢掉未播完音频。
-    if (state != AppLifecycleState.paused &&
-        state != AppLifecycleState.hidden) {
-      return;
+    // 熄屏常先到 inactive；paused/hidden 同样释放。resumed 不补播。
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        unawaited(_dropPlaybackOnPause());
+        break;
+      case AppLifecycleState.resumed:
+        // 不 play；再释放一次，挡住插件把上一句续上。
+        unawaited(_releasePlayerSource());
+        break;
+      default:
+        break;
     }
+  }
+
+  /// 界面暂停：丢掉正在播的这一段，并通知编排层按丢弃收口。
+  Future<void> _dropPlaybackOnPause() async {
     if (!_ttsPlaying) return;
-    final notify = onTtsStoppedByLifecycle;
-    unawaited(() async {
-      await stopTts();
-      notify?.call();
-    }());
+    // 同步清掉，避免 inactive 后再来的 paused 重复收口。
+    _ttsPlaying = false;
+    _ttsDiscard = true;
+    _ttsPcm.clear();
+    final wait = _playStopped;
+    if (wait != null && !wait.isCompleted) wait.complete();
+    await _releasePlayerSource();
+    AppDebugLog.landscapeVoice('pause release playback');
+    onTtsStoppedByLifecycle?.call();
+  }
+
+  /// 停掉并放开播放器源，避免回到前台时 MediaPlayer 续播。
+  Future<void> _releasePlayerSource() async {
+    try {
+      await _ttsPlayer.stop();
+    } catch (_) {}
+    try {
+      await _ttsPlayer.release();
+    } catch (_) {}
   }
 
   void _emitReady(bool v) {
@@ -424,19 +451,14 @@ class VoiceChatWsClient with WidgetsBindingObserver {
     }
   }
 
-  /// 进后台或思考窗打断：停播、清缓冲，并丢弃本轮后续音频直至新开听。
+  /// 进后台或思考窗打断：停播、释放播放器，并丢弃本轮后续音频直至新开听。
   Future<void> stopTts() async {
     _ttsDiscard = true;
     _ttsPcm.clear();
-    if (_ttsPlaying) {
-      try {
-        await _ttsPlayer.stop();
-      } catch (_) {}
-      _ttsPlaying = false;
-    }
-    // 解开正在等播完的 Future，避免看门狗空等后再重入播放。
+    _ttsPlaying = false;
     final wait = _playStopped;
     if (wait != null && !wait.isCompleted) wait.complete();
+    await _releasePlayerSource();
     AppDebugLog.landscapeVoice('stopTts');
   }
 
@@ -456,6 +478,9 @@ class VoiceChatWsClient with WidgetsBindingObserver {
       );
       await file.writeAsBytes(wav, flush: true);
       final timeout = _ttsPlayTimeoutForPcm(pcm, sampleRate);
+      // release 之后要重新设模式，否则下一句可能沿用被系统暂停的源。
+      await _ttsPlayer.setPlayerMode(PlayerMode.mediaPlayer);
+      await _ttsPlayer.setReleaseMode(ReleaseMode.stop);
       await _ttsPlayer.play(DeviceFileSource(file.path));
       try {
         await _awaitPlaybackEnd(timeout);
@@ -720,12 +745,14 @@ class VoiceChatWsClient with WidgetsBindingObserver {
           'pcm chunkAvgAbs=${metrics.chunkAvgAbs} sessionAvgAbs=${metrics.sessionAvgAbs}',
         );
       }
-      if (!_hasEffectiveSpeech &&
-          metrics.chunkAvgAbs >= AppVoiceRecordConfig.effectiveChunkAvgAbs) {
-        _hasEffectiveSpeech = true;
-        AppDebugLog.landscapeVoice(
-          'effectiveSpeech avgAbs=${metrics.chunkAvgAbs}',
-        );
+      if (metrics.chunkAvgAbs >= AppVoiceRecordConfig.effectiveChunkAvgAbs) {
+        // 首块打点；之后每块仍通知编排层重置静音窗。
+        if (!_hasEffectiveSpeech) {
+          _hasEffectiveSpeech = true;
+          AppDebugLog.landscapeVoice(
+            'effectiveSpeech avgAbs=${metrics.chunkAvgAbs}',
+          );
+        }
         onEffectiveSpeech?.call();
       }
       _channel?.sink.add(bytes);

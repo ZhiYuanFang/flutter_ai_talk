@@ -120,6 +120,12 @@ abstract final class AppDebugLog {
     debugPrint('[AppointmentNext] ${_ts()} $message');
   }
 
+  /// 主壳满意度问卷 GET/POST（GET 失败静默）。
+  static void survey(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[Survey] ${_ts()} $message');
+  }
+
   /// 小智音箱引导视频清单 / 播放。
   static void xiaozhiGuide(String message) {
     if (!kDebugMode) return;

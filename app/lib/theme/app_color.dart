@@ -77,6 +77,12 @@ abstract final class AppColor {
   /// 压在 primary 实心底上的字/图标（确认钮文字）。
   static Color onPrimary(BuildContext context) => _scheme(context).onPrimary;
 
+  /// 表单错误字：提交失败等行内提示，跟主题 error。
+  static Color error(BuildContext context) => _scheme(context).error;
+
+  /// 压在错误色实底上的字，例如问卷「不好用」选中态。
+  static Color onError(BuildContext context) => _scheme(context).onError;
+
   /// 未读红点：消息 Tab / 广场悬浮球等；固定红，不跟主题 primary。
   static Color unreadDot(BuildContext context) => _kUnreadDot;
 

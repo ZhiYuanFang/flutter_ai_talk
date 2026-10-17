@@ -155,34 +155,38 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     );
   }
 
-  void _cancelIdleNoSpeechTimer({required String reason}) {
-    if (_idleNoSpeechTimer != null) {
+  /// 思考窗内不计静音退下。
+  var _silenceExitSuspended = false;
+
+  void _cancelIdleNoSpeechTimer({required String reason, bool quiet = false}) {
+    if (_idleNoSpeechTimer != null && !quiet) {
       AppDebugLog.landscapeVoice('idle cancel reason=$reason');
     }
     _idleNoSpeechTimer?.cancel();
     _idleNoSpeechTimer = null;
   }
 
-  /// 开听成功后武装 5s 无声退出。
-  void _armIdleNoSpeechTimer() {
-    _cancelIdleNoSpeechTimer(reason: 'rearm');
-    AppDebugLog.landscapeVoice('idle arm ${_idleNoSpeech.inSeconds}s');
+  /// 开听成功后武装 5s 静音退出。有效音用 [quiet] 重置，避免每块都打日志。
+  void _armIdleNoSpeechTimer({bool quiet = false}) {
+    _silenceExitSuspended = false;
+    _cancelIdleNoSpeechTimer(reason: 'rearm', quiet: quiet);
+    if (!quiet) {
+      AppDebugLog.landscapeVoice('idle arm ${_idleNoSpeech.inSeconds}s');
+    }
     _idleNoSpeechTimer = Timer(_idleNoSpeech, () {
-      if (!_active || _exitInFlight) return;
-      final chat = ref.read(voiceChatWsClientProvider);
-      if (_heardEffectiveSpeech || chat.hasEffectiveSpeech) {
-        AppDebugLog.landscapeVoice('idle fire skipped hasSpeech');
-        return;
-      }
+      if (!_active || _exitInFlight || _silenceExitSuspended) return;
       AppDebugLog.landscapeVoice('idle fire');
       unawaited(_exitWithWoXianTuiXia());
     });
   }
 
   void _onEffectiveSpeechDetected() {
-    if (_heardEffectiveSpeech) return;
     _heardEffectiveSpeech = true;
-    _cancelIdleNoSpeechTimer(reason: 'effective');
+    // 思考中或麦已停：不把静音窗重新打开。
+    if (_silenceExitSuspended || _exitInFlight) return;
+    final chat = ref.read(voiceChatWsClientProvider);
+    if (!chat.isListening) return;
+    _armIdleNoSpeechTimer(quiet: true);
   }
 
   /// 预测页横屏可见时调用；[ensureMic] 负责用途框 + 系统权限。
@@ -338,10 +342,12 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     AppDebugLog.landscapeVoice('bargeIn disarm reason=$reason');
   }
 
-  /// TTS 开播前：释放思考常亮与 KWS 麦；开口打断改由本地能量检测。
+  /// TTS 开播前：释放思考常亮与 KWS 麦。播放期间不计静音退下。
   Future<void> _onBeforeTtsPlay() async {
     _ttsPlaybackActive = true;
     _bargeInArmed = false;
+    _silenceExitSuspended = true;
+    _cancelIdleNoSpeechTimer(reason: 'tts');
     unawaited(_setThinkingWake(false));
     AppDebugLog.landscapeVoice('bargeIn disarm reason=tts_start');
     try {
@@ -707,6 +713,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
           chatListening: true,
           awakened: true,
         );
+        // 空片段不是退下；续听后静音窗重新从 5 秒起算。
+        _armIdleNoSpeechTimer();
       } else {
         AppDebugLog.landscapeVoice('soft rearm fail');
         await _exitWithWoXianTuiXia();
@@ -773,8 +781,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       chatListening: false,
     );
     _syncChatFlags();
-    // 仅有效音后的思考/TTS 窗口武装 barge-in（空结果续听不开）
+    // 思考窗不计静音；空结果随后 asr_no_result 再武装。
     if (_heardEffectiveSpeech) {
+      _silenceExitSuspended = true;
+      _cancelIdleNoSpeechTimer(reason: 'thinking');
       unawaited(_setThinkingWake(true));
       unawaited(_armBargeInWake());
     }

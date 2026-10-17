@@ -29,6 +29,7 @@ import '../../providers/toast_bus.dart';
 import '../../providers/landscape_voice_provider.dart';
 import '../../ui/history_event_fly_overlay.dart';
 import '../../ui/home_screen.dart';
+import '../../ui/home_satisfaction_survey.dart';
 import '../../ui/home_shell_dialog_bootstrap.dart';
 import '../../ui/landscape_voice_lifecycle_binder.dart';
 import '../../ui/landscape_voice_subtitle_toast.dart';
@@ -75,7 +76,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   /// resume HTTP bundle single-flight
   Future<void>? _resumeHttpBundleInFlight;
 
-  /// 启动级弹窗（notify→version）同挂载 single-flight；不挂 resume / 登录中途
+  /// 启动级弹窗（notify→version→问卷）同挂载 single-flight；不挂 resume / 登录中途
   Future<void>? _dialogBootstrapInFlight;
 
   /// 稳定 Key：资格锁 Overlay 插入/移除时保活 UcgShell State（避免消息 Tab 被重置回广场）。
@@ -132,11 +133,18 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
       ref.read(homePagerRequestProvider.notifier).requestPage(HomePagerPage.prediction);
     }
   }
+  /// 启动级弹窗（notify→version→问卷）同挂载 single-flight；不挂 resume / 登录中途。
   Future<void> _ensureHomeShellDialogBootstrap() {
-    return _dialogBootstrapInFlight ??= runHomeShellDialogBootstrap(
+    return _dialogBootstrapInFlight ??= _runHomeShellDialogs();
+  }
+
+  Future<void> _runHomeShellDialogs() async {
+    await runHomeShellDialogBootstrap(
       context: context,
       versionRepo: ref.read(versionRepositoryProvider),
     );
+    if (!mounted) return;
+    await maybeOfferHomeSatisfactionSurvey(context: context, ref: ref);
   }
 
   @override

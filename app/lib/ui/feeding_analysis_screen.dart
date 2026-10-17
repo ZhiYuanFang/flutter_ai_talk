@@ -62,6 +62,12 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
   }
 
   Future<void> _onTapAnalyze() async {
+    // 点击即报，不等分析成功；进行中再点也记这一下。
+    unawaited(
+      ref
+          .read(clientUsageReporterProvider)
+          .reportEvent(ClientUsageEvents.feedingAnalyzeBtnClick),
+    );
     final err = await ref
         .read(predictionCareAlertStateProvider.notifier)
         .refreshDailyManual();

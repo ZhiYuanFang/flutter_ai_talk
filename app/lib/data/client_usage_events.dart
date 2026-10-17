@@ -102,6 +102,10 @@ abstract final class ClientUsageEvents {
     '点击添加弹窗确认',
   );
 
+  // —— AI 分析点击（点击即报）——
+  static const feedingAnalyzeBtnClick =
+      ClientUsageEvent('feeding_analyze_btn_click', '点击AI智能分析');
+
   // —— 消息通知偏好 ——
   static const notificationPrefOn =
       ClientUsageEvent('notification_pref_on', '开启消息通知');

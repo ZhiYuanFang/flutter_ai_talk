@@ -536,19 +536,33 @@ String expectFingerprintToken(EventNextPrediction p) {
   return 'amount:$amtStr:${p.expectUnit ?? ''}:${p.expectLeafTitle ?? ''}';
 }
 
+/// 间隔投票范围：同档、同档加相邻、全桶。
+enum _IntervalBucketScope { same, adjacent, all }
+
 List<({Duration interval, double weight})> _collectWeightedIntervals({
   required List<DateTime> times,
   required int anchorBucket,
   required int halfLifeDays,
   required DateTime now,
-  required bool strictBuckets,
+  required _IntervalBucketScope scope,
 }) {
   final out = <({Duration interval, double weight})>[];
   for (var i = 1; i < times.length; i++) {
     final delta = times[i].difference(times[i - 1]);
     if (delta < kMinIntervalForPrediction) continue;
+    // 样本桶取间隔起点，与 lastAt 锚点桶比较。
     final b = timeOfDayBucket(times[i - 1]);
-    final bw = strictBuckets ? bucketWeight(b, anchorBucket) : 1.0;
+    final double bw;
+    switch (scope) {
+      case _IntervalBucketScope.same:
+        if (b != anchorBucket) continue;
+        bw = 1.0;
+      case _IntervalBucketScope.adjacent:
+        if (!bucketsAdjacent(b, anchorBucket)) continue;
+        bw = bucketWeight(b, anchorBucket);
+      case _IntervalBucketScope.all:
+        bw = 1.0;
+    }
     final ageDays = now.difference(times[i]).inHours / 24.0;
     final w = bw * recencyWeight(ageDays, halfLifeDays);
     if (w > 0.001) out.add((interval: delta, weight: w));
@@ -596,12 +610,13 @@ EventNextPrediction? predictNextForEventKey({
   Duration? median;
   var confidence = 0.3;
   if (times.length >= 2) {
+    // 同档够门槛就只投同档，避免白天短间隔压过过夜长间隔。
     var samples = _collectWeightedIntervals(
       times: times,
       anchorBucket: anchorBucket,
       halfLifeDays: halfLifeDays,
       now: now,
-      strictBuckets: true,
+      scope: _IntervalBucketScope.same,
     );
     if (samples.length < kMinSamplesForPrediction) {
       samples = _collectWeightedIntervals(
@@ -609,7 +624,16 @@ EventNextPrediction? predictNextForEventKey({
         anchorBucket: anchorBucket,
         halfLifeDays: halfLifeDays,
         now: now,
-        strictBuckets: false,
+        scope: _IntervalBucketScope.adjacent,
+      );
+    }
+    if (samples.length < kMinSamplesForPrediction) {
+      samples = _collectWeightedIntervals(
+        times: times,
+        anchorBucket: anchorBucket,
+        halfLifeDays: halfLifeDays,
+        now: now,
+        scope: _IntervalBucketScope.all,
       );
     }
     if (samples.length >= kMinSamplesForPrediction) {
