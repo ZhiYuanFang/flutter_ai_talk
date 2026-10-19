@@ -167,6 +167,12 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_onShellLifecycleResumed());
+      // 空闲唤醒流可能在后台被系统停掉，订阅却还在。
+      unawaited(
+        ref
+            .read(landscapeVoiceControllerProvider.notifier)
+            .rebuildIdleWakeStreamOnResume(),
+      );
     }
   }
 
@@ -570,6 +576,10 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
                         text: landscapeVoice.subtitle,
                         isThinking: landscapeVoice.subtitleKind ==
                             LandscapeVoiceSubtitleKind.thinking,
+                        breathe: landscapeVoice.subtitleKind ==
+                                LandscapeVoiceSubtitleKind.thinking ||
+                            landscapeVoice.subtitleKind ==
+                                LandscapeVoiceSubtitleKind.status,
                       ),
                     ),
                   ),

@@ -15,9 +15,9 @@ const kLandscapeKwsModelArchiveUrl =
     'https://resorce.cuplay.top/app/models/kws/'
     'sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2';
 
-/// 「你好，胖宝」ppinyin 关键词行（Wenetspeech KWS tokens_type=ppinyin）。
-const kLandscapeWakeKeywordsPinyin =
-    'n ǐ h ǎo p àng b ǎo :2.0 #0.25 @你好胖宝\n';
+/// 「胖宝」ppinyin 关键词行（Wenetspeech KWS tokens_type=ppinyin）。
+/// boost 与 `#` 阈值保持原值，不因词变短而调高。
+const kLandscapeWakeKeywordsPinyin = 'p àng b ǎo :2.0 #0.25 @胖宝\n';
 
 /// 解析后的本地模型文件路径。
 class LandscapeKwsModelPaths {

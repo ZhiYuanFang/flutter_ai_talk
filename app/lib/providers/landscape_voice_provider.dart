@@ -17,18 +17,23 @@ import 'client_usage_provider.dart';
 import 'device_no_notifier.dart';
 import 'voice_chat_ws_provider.dart';
 
-/// 本地「我在」提示音。
-const kLandscapeWoZaiAsset = 'audio/wo_zai.wav';
+/// 唤醒确认短「叮」（与开听并行，不再阻塞等人声「我在」）。
+const kLandscapeDingAsset = 'audio/ding.wav';
+
+/// 待唤醒时球旁 / 芯片文案。
+const kLandscapeWakeHint = '说「胖宝」唤醒我';
 
 /// 本地「我先退下了」提示音（对齐硬件 exit_dialog）。
 const kLandscapeExitDialogAsset = 'audio/wo_xian_tui_xia_le.wav';
 
-/// 横屏弹幕角色：思考态浅字+脉冲，其余满对比。
+/// 横屏弹幕角色：思考态浅字+脉冲；状态字幕同样呼吸但不按静默清空。
 enum LandscapeVoiceSubtitleKind {
   none,
   asr,
   thinking,
   answer,
+  /// 唤醒确认与回合引导（我在 / 请说话 / 连接中）。
+  status,
 }
 
 /// 横屏语音会话 UI 状态。
@@ -39,7 +44,7 @@ class LandscapeVoiceUiState {
     this.awakened = false,
     this.subtitle = '',
     this.subtitleKind = LandscapeVoiceSubtitleKind.none,
-    this.statusCaption = '说「你好，胖宝」唤醒我',
+    this.statusCaption = kLandscapeWakeHint,
     this.thinking = '',
     this.micDenied = false,
     this.chatConnected = false,
@@ -113,7 +118,6 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
 
   static const _micHandoffTimeout = Duration(seconds: 5);
   static const _micHandoffGap = Duration(milliseconds: 400);
-  static const _afterPromptGap = Duration(milliseconds: 400);
   static const _afterExitResumeGap = Duration(milliseconds: 350);
   static const _idleNoSpeech = Duration(seconds: 5);
 
@@ -121,6 +125,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   LandscapeVoiceUiState build() {
     ref.onDispose(() {
       _cancelIdleNoSpeechTimer(reason: 'dispose');
+      _subtitleIdleTimer?.cancel();
       unawaited(_tearDown());
     });
     return const LandscapeVoiceUiState();
@@ -134,16 +139,39 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     );
   }
 
-  /// 更新字幕并标注角色（思考态供弹幕浅字+脉冲）。
+  /// 思考 / 回答字幕静默清空；状态字幕不走这只计时。
+  Timer? _subtitleIdleTimer;
+
+  static const _subtitleIdleClear = Duration(seconds: 3);
+
+  /// 更新字幕并标注角色。思考与回答满 3 秒无变更则清空；状态字幕保留到被替换。
   void _setSubtitle(
     String text, {
     required LandscapeVoiceSubtitleKind kind,
   }) {
+    _subtitleIdleTimer?.cancel();
+    _subtitleIdleTimer = null;
     state = state.copyWith(subtitle: text, subtitleKind: kind);
+    if (kind == LandscapeVoiceSubtitleKind.thinking ||
+        kind == LandscapeVoiceSubtitleKind.answer) {
+      final snapshot = text;
+      _subtitleIdleTimer = Timer(_subtitleIdleClear, () {
+        if (state.subtitle != snapshot || state.subtitleKind != kind) return;
+        _clearSubtitle(reason: 'idle_3s');
+      });
+    }
+  }
+
+  /// 回合引导写到字幕并呼吸；球旁不再显示这句。
+  void _setStatusSubtitle(String text) {
+    _setSubtitle(text, kind: LandscapeVoiceSubtitleKind.status);
+    state = state.copyWith(statusCaption: '');
   }
 
   /// 播完音频或本轮结束时清空弹幕。
   void _clearSubtitle({required String reason}) {
+    _subtitleIdleTimer?.cancel();
+    _subtitleIdleTimer = null;
     if (state.subtitle.isEmpty &&
         state.subtitleKind == LandscapeVoiceSubtitleKind.none) {
       return;
@@ -288,7 +316,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     state = state.copyWith(
       listening: wakeOk,
       statusCaption: wakeOk
-          ? '说「你好，胖宝」唤醒我'
+          ? kLandscapeWakeHint
           : (_wake!.unavailableReason ?? '唤醒未就绪'),
     );
   }
@@ -420,6 +448,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _cancelIdleNoSpeechTimer(reason: 'wake_fail');
     _disarmBargeIn(reason: 'wake_fail');
     _heardEffectiveSpeech = false;
+    _clearSubtitle(reason: 'wake_fail');
     state = state.copyWith(
       statusCaption: caption,
       awakened: false,
@@ -482,15 +511,14 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     try {
       await chat.stopTts();
       await chat.endSession(reason: 'wake_barge_in');
-      _setSubtitle('我在', kind: LandscapeVoiceSubtitleKind.asr);
+      // 字幕「我在」；叮与开听并行，不等播完。
+      _setStatusSubtitle('我在');
       state = state.copyWith(
         awakened: true,
         thinking: '',
-        statusCaption: '我在听…',
         chatListening: false,
       );
 
-      state = state.copyWith(statusCaption: '正在让出麦克风…');
       AppDebugLog.landscapeVoice('bargeIn step=pause');
       await _wake?.pause().timeout(_micHandoffTimeout);
       await Future<void>.delayed(_micHandoffGap);
@@ -499,17 +527,9 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         _turnBusy = false;
         return;
       }
-      state = state.copyWith(statusCaption: '我在听…');
-      AppDebugLog.landscapeVoice('bargeIn step=play_wo_zai');
-      await chat.playAssetWav(kLandscapeWoZaiAsset);
-      _clearSubtitle(reason: 'wo_zai_done');
-      await Future<void>.delayed(_afterPromptGap);
-
-      if (!_active) {
-        _turnBusy = false;
-        return;
-      }
-      state = state.copyWith(statusCaption: '正在接通会话…');
+      AppDebugLog.landscapeVoice('bargeIn step=play_ding');
+      unawaited(chat.playAssetWav(kLandscapeDingAsset));
+      _setStatusSubtitle('正在接通会话…');
       AppDebugLog.landscapeVoice('bargeIn step=beginListen');
       final ok = await chat.beginListen().timeout(_micHandoffTimeout);
       if (!_active) {
@@ -521,8 +541,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         return;
       }
       _syncChatFlags();
+      _setStatusSubtitle('请说话…');
       state = state.copyWith(
-        statusCaption: '请说话…',
         chatListening: true,
         chatConnected: chat.isReady,
         awakened: true,
@@ -545,16 +565,14 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _exitInFlight = false;
     _heardEffectiveSpeech = false;
     _cancelIdleNoSpeechTimer(reason: 'wake');
-    _setSubtitle('我在', kind: LandscapeVoiceSubtitleKind.asr);
+    _setStatusSubtitle('我在');
     state = state.copyWith(
       awakened: true,
       thinking: '',
-      statusCaption: '我在听…',
     );
     final chat = ref.read(voiceChatWsClientProvider);
     chat.onEffectiveSpeech = _onEffectiveSpeechDetected;
     try {
-      state = state.copyWith(statusCaption: '正在让出麦克风…');
       AppDebugLog.landscapeVoice('wake step=pause');
       await _wake?.pause().timeout(_micHandoffTimeout);
       await Future<void>.delayed(_micHandoffGap);
@@ -563,17 +581,9 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         _turnBusy = false;
         return;
       }
-      state = state.copyWith(statusCaption: '我在听…');
-      AppDebugLog.landscapeVoice('wake step=play_wo_zai');
-      await chat.playAssetWav(kLandscapeWoZaiAsset);
-      _clearSubtitle(reason: 'wo_zai_done');
-      await Future<void>.delayed(_afterPromptGap);
-
-      if (!_active) {
-        _turnBusy = false;
-        return;
-      }
-      state = state.copyWith(statusCaption: '正在接通会话…');
+      AppDebugLog.landscapeVoice('wake step=play_ding');
+      unawaited(chat.playAssetWav(kLandscapeDingAsset));
+      _setStatusSubtitle('正在接通会话…');
       AppDebugLog.landscapeVoice('wake step=beginListen');
       final ok = await chat.beginListen().timeout(_micHandoffTimeout);
       if (!_active) {
@@ -585,8 +595,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         return;
       }
       _syncChatFlags();
+      _setStatusSubtitle('请说话…');
       state = state.copyWith(
-        statusCaption: '请说话…',
         chatListening: true,
         chatConnected: chat.isReady,
       );
@@ -657,9 +667,9 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _disarmBargeIn(reason: 'continue_listen');
     _heardEffectiveSpeech = false;
     _cancelIdleNoSpeechTimer(reason: 'continue');
+    _setStatusSubtitle('请说话…');
     state = state.copyWith(
       thinking: '',
-      statusCaption: '请说话…',
       awakened: true,
       chatListening: false,
     );
@@ -682,8 +692,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     }
     _turnBusy = false;
     _syncChatFlags();
+    _setStatusSubtitle('请说话…');
     state = state.copyWith(
-      statusCaption: '请说话…',
       chatListening: true,
       awakened: true,
     );
@@ -708,8 +718,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       if (ok) {
         _turnBusy = false;
         _syncChatFlags();
+        _setStatusSubtitle('请说话…');
         state = state.copyWith(
-          statusCaption: '请说话…',
           chatListening: true,
           awakened: true,
         );
@@ -728,8 +738,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     if (ok) {
       _turnBusy = false;
       _syncChatFlags();
+      _setStatusSubtitle('请说话…');
       state = state.copyWith(
-        statusCaption: '请说话…',
         chatListening: true,
         awakened: true,
       );
@@ -776,10 +786,15 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   Future<void> _afterServerCommit() async {
     // 服务端已 interrupt_commit：麦克已停，等待 TTS/结束事件。
     // 有转写时会走 thinking；空结果随后 asr_no_result 续听。
-    state = state.copyWith(
-      statusCaption: _heardEffectiveSpeech ? '思考中…' : '请说话…',
-      chatListening: false,
-    );
+    if (_heardEffectiveSpeech) {
+      state = state.copyWith(
+        statusCaption: '思考中…',
+        chatListening: false,
+      );
+    } else {
+      _setStatusSubtitle('请说话…');
+      state = state.copyWith(chatListening: false);
+    }
     _syncChatFlags();
     // 思考窗不计静音；空结果随后 asr_no_result 再武装。
     if (_heardEffectiveSpeech) {
@@ -814,12 +829,34 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       await chat.endSession(reason: endReason);
     }
     await _restoreWakeListening(
-      statusIfOk: '说「你好，胖宝」唤醒我',
+      statusIfOk: kLandscapeWakeHint,
     );
   }
 
-  /// 停 chat 麦 → 短延迟 → resume；失败重试再 fallback 完整 start。
+  /// 回唤醒与主壳 resume 共用，避免两路同时开麦。
+  Future<void>? _restoreInFlight;
+  var _restoreSerial = 0;
+
+  /// 停 chat 麦 → pause 清掉旧订阅 → resume 新建流；失败再 fallback 完整 start。
   Future<void> _restoreWakeListening({required String statusIfOk}) async {
+    final ticket = ++_restoreSerial;
+    final pending = _restoreInFlight;
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {}
+      if (ticket != _restoreSerial) return;
+    }
+    final run = _restoreWakeListeningBody(statusIfOk: statusIfOk);
+    _restoreInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (identical(_restoreInFlight, run)) _restoreInFlight = null;
+    }
+  }
+
+  Future<void> _restoreWakeListeningBody({required String statusIfOk}) async {
     final chat = ref.read(voiceChatWsClientProvider);
     // 等 asr_no_result 里未 await 的停麦收尾完成。
     await chat.ensureMicStopped();
@@ -838,10 +875,14 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     final wake = _wake;
     if (wake == null) return;
 
+    // 订阅还在时 resume 会直接返回，必须先 pause 清掉旧流。
+    AppDebugLog.landscapeVoice('restoreWake step=pause');
+    await wake.pause();
     AppDebugLog.landscapeVoice('restoreWake step=resume');
     var ok = await wake.resume();
     if (!ok && _active) {
       AppDebugLog.landscapeVoice('restoreWake step=resume_retry');
+      await wake.pause();
       await Future<void>.delayed(const Duration(milliseconds: 400));
       ok = await wake.resume();
     }
@@ -871,6 +912,20 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     }
   }
 
+  /// 主壳回到前台：不在聆听、思考或回复播放时重建麦克风流。
+  Future<void> rebuildIdleWakeStreamOnResume() async {
+    if (!_active || _exitInFlight || _turnBusy) return;
+    if (state.chatListening ||
+        _ttsPlaybackActive ||
+        _bargeInArmed ||
+        state.thinking.isNotEmpty ||
+        state.subtitleKind == LandscapeVoiceSubtitleKind.thinking ||
+        state.statusCaption.contains('思考中')) {
+      return;
+    }
+    await _restoreWakeListening(statusIfOk: kLandscapeWakeHint);
+  }
+
   /// 点按左下角：权限被拒时重试用途框；「请说话」假死可强制复位；否则触发唤醒。
   Future<void> onListenChipTap(BuildContext context) async {
     if (state.micDenied || landscapeMicDeniedThisSession) {
@@ -885,7 +940,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     }
     // 已在「请说话/思考中/上行中」：强制 end + 退下，避免假死无响应。
     final forceReset = state.awakened &&
-        (state.statusCaption.contains('请说话') ||
+        (state.subtitle.contains('请说话') ||
             state.statusCaption.contains('思考中') ||
             state.chatListening);
     if (forceReset) {

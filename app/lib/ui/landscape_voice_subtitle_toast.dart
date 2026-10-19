@@ -10,10 +10,14 @@ class LandscapeVoiceSubtitleToast extends StatefulWidget {
     super.key,
     required this.text,
     required this.isThinking,
+    this.breathe = false,
   });
 
   final String text;
   final bool isThinking;
+
+  /// 状态字幕与思考字幕共用呼吸透明度。
+  final bool breathe;
 
   @override
   State<LandscapeVoiceSubtitleToast> createState() =>
@@ -38,15 +42,17 @@ class _LandscapeVoiceSubtitleToastState
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-    _syncPulse(widget.isThinking);
+    _syncPulse(widget.isThinking || widget.breathe);
   }
 
   @override
   void didUpdateWidget(covariant LandscapeVoiceSubtitleToast oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 仅 kind 切入/离开 thinking 时启停；换字不重启相位。
-    if (oldWidget.isThinking != widget.isThinking) {
-      _syncPulse(widget.isThinking);
+    final pulse = widget.isThinking || widget.breathe;
+    if (oldWidget.isThinking != widget.isThinking ||
+        oldWidget.breathe != widget.breathe) {
+      _syncPulse(pulse);
     }
   }
 
@@ -81,8 +87,8 @@ class _LandscapeVoiceSubtitleToastState
       animation: Listenable.merge([_fade, _pulse]),
       builder: (context, child) {
         // 挂载淡入 × 思考脉冲（非思考时 pulse=1）。
-        final pulseOpacity =
-            widget.isThinking ? (0.65 + 0.35 * _pulse.value) : 1.0;
+        final pulseOn = widget.isThinking || widget.breathe;
+        final pulseOpacity = pulseOn ? (0.65 + 0.35 * _pulse.value) : 1.0;
         return Opacity(
           opacity: _fade.value * pulseOpacity,
           child: child,

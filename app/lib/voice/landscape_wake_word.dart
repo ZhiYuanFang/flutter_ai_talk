@@ -9,7 +9,7 @@ import '../api/app_debug_log.dart';
 import '../audio/app_voice_record_config.dart';
 import 'landscape_kws_models.dart';
 
-/// 横屏前台唤醒词检测（「你好，胖宝」）。
+/// 横屏前台唤醒词检测（「胖宝」）。
 abstract class LandscapeWakeWord {
   /// 每次命中唤醒词发一次事件。
   Stream<void> get detections;
@@ -65,7 +65,7 @@ void _ensureSherpaBindings() {
   _sherpaBindingsReady = true;
 }
 
-/// Sherpa-ONNX 中文 KWS：「你好，胖宝」。
+/// Sherpa-ONNX 中文 KWS：「胖宝」。
 ///
 /// 模型首次从 GitHub Release 下载到应用支持目录；之后离线可用。
 class SherpaLandscapeWakeWord implements LandscapeWakeWord {

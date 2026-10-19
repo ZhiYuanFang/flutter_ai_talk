@@ -14,7 +14,7 @@
 
 ## 3. 回前台不重播
 
-- [x] 3.1 `paused` 时 `stopTts` 丢弃缓冲；`resumed` 不得再 `play` 上一句
+- [x] 3.1 撤回：仅 `stop()` 盖不住熄屏续播，改由 `voice-pause-release-playback` 在暂停时 release
 - [x] 3.2 等待播完被打断时按 discard 收口，不补成功 `VoiceChatTurnEnded`
 
 ## 4. 验收对照

@@ -870,6 +870,10 @@ class SmartPredictionScreen extends ConsumerWidget {
                     text: landscapeVoice.subtitle,
                     isThinking: landscapeVoice.subtitleKind ==
                         LandscapeVoiceSubtitleKind.thinking,
+                    breathe: landscapeVoice.subtitleKind ==
+                            LandscapeVoiceSubtitleKind.thinking ||
+                        landscapeVoice.subtitleKind ==
+                            LandscapeVoiceSubtitleKind.status,
                   ),
                 ),
               ),
