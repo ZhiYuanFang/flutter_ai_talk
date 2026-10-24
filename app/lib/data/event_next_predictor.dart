@@ -52,15 +52,11 @@ DateTime? occurrenceInstant(HistoryRecord record, {bool includeActive = false}) 
   final p = record.rawPayload;
   if (isActiveTimingRecord(record)) {
     if (!includeActive) return null;
-    // Treat an active timing record as an occurrence: prefer startTime, fall back to createdAt.
+    // 进行中：发生 = 开始（间隔 / lastAt 不用 end）
     final start = parseHistoryInstant(p['startTime']);
     return start ?? record.createdAt;
   }
-  final n = historyPayloadInt(p, 'eventNumber');
-  if (n == 0) {
-    final end = parseHistoryInstant(p['endTime']);
-    return end;
-  }
+  // 已结束计时、one、number：间隔与 lastAt 一律用 start；时长 expect 另走 end−start
   return parseHistoryInstant(p['startTime']) ?? record.createdAt;
 }
 
