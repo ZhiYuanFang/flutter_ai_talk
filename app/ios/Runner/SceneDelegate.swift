@@ -27,4 +27,14 @@ class SceneDelegate: FlutterSceneDelegate {
     UcgNotificationCenterProxy.install(reason: "sceneDidBecomeActive")
     super.sceneDidBecomeActive(scene)
   }
+
+  /// Live Activity / 小组件 pangbao:// 深链（不 dismiss LA，仅投递 bizType）。
+  override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    for ctx in URLContexts {
+      if ctx.url.scheme?.lowercased() == "pangbao" {
+        PredictLiveActivityBridge.noteOpenURL(ctx.url)
+      }
+    }
+    super.scene(scene, openURLContexts: URLContexts)
+  }
 }

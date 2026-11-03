@@ -211,6 +211,33 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
         result(FlutterMethodNotImplemented)
       }
     }
+    // Live Activity token / 深链通道（Push to Start 监听；禁止本地 Activity.request）
+    let laChannel = FlutterMethodChannel(
+      name: PredictLiveActivityBridge.channelName,
+      binaryMessenger: messenger
+    )
+    PredictLiveActivityBridge.channel = laChannel
+    laChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "startListening":
+        PredictLiveActivityBridge.startIfNeeded()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  /// 自定义 URL（Live Activity widgetURL / 小组件）。
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    if url.scheme?.lowercased() == "pangbao" {
+      PredictLiveActivityBridge.noteOpenURL(url)
+    }
+    return super.application(app, open: url, options: options)
   }
 
   override func application(

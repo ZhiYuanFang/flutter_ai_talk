@@ -464,7 +464,18 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
     }
 }
 
+/// 桌面小组件 + Live Activity 共用 Extension 入口。
 @main
+struct PangbaoWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        PangbaoWidgetMain()
+        if #available(iOSApplicationExtension 16.1, *) {
+            PredictImminentLiveActivity()
+            PredictTimingLiveActivity()
+        }
+    }
+}
+
 struct PangbaoWidgetMain: Widget {
     let kind: String = "PangbaoWidget"
 

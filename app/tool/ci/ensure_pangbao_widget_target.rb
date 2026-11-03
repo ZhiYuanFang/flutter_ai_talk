@@ -181,6 +181,26 @@ if File.exist?(File.join(WIDGET_DIR, intent_file))
   puts "已确保 #{intent_file} 加入 Runner 与 PangbaoWidget"
 end
 
+# Live Activity：Attributes 双 target；Views 仅 Extension；Bridge 仅 Runner
+la_attrs = 'PredictLiveActivityAttributes.swift'
+if File.exist?(File.join(WIDGET_DIR, la_attrs))
+  ensure_source_on_target(widget_group, widget_target, la_attrs)
+  ensure_source_on_target(widget_group, runner, la_attrs)
+  puts "已确保 #{la_attrs} 加入 Runner 与 PangbaoWidget"
+end
+la_views = 'PredictLiveActivityViews.swift'
+if File.exist?(File.join(WIDGET_DIR, la_views))
+  ensure_source_on_target(widget_group, widget_target, la_views)
+  puts "已确保 #{la_views} 加入 PangbaoWidget"
+end
+runner_group = project.main_group.groups.find { |g| g.display_name == 'Runner' || g.path == 'Runner' }
+runner_group ||= project.main_group.new_group('Runner', 'Runner')
+la_bridge = 'PredictLiveActivityBridge.swift'
+if File.exist?(File.join(IOS_DIR, 'Runner', la_bridge))
+  ensure_source_on_target(runner_group, runner, la_bridge)
+  puts "已确保 #{la_bridge} 加入 Runner"
+end
+
 unless runner.dependencies.any? { |dep| dep.target == widget_target }
   runner.add_dependency(widget_target)
 end
@@ -188,7 +208,8 @@ end
 add_system_framework(widget_target, project, 'WidgetKit')
 add_system_framework(widget_target, project, 'SwiftUI')
 add_system_framework(widget_target, project, 'AppIntents')
-
+add_system_framework(widget_target, project, 'ActivityKit')
+add_system_framework(runner, project, 'ActivityKit')
 # 交互「跳过」：Extension 须 SPM 链接 FlutterGeneratedPluginSwiftPackage 才能 import home_widget。
 # 禁止再给 PangbaoWidget 单独 pod home_widget（会撞 Flutter-static）。
 def ensure_flutter_plugin_package_on_widget(project, widget_target, runner_target)

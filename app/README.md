@@ -40,6 +40,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[UcgUnread]` | UCG 未读 HTTP 校准失败（`sync err=`） |
 | `[UcgPush]` | UCG push register / china_push init（勿打完整 token） |
 | `[PredictImminent]` | 预测临近 pending 同步 |
+| `[LiveActivity]` | iOS Live Activity token 上报 |
 | `[PredictActiveEta]` | 进行中计时预计结束同步 |
 | `[AppointmentNext]` | 预约下次约定 GET/PUT |
 | `[Survey]` | 主壳满意度问卷 current/submit（GET 失败静默） |

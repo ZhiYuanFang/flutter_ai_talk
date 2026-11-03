@@ -7,6 +7,7 @@ import '../api/app_debug_log.dart';
 import '../config/app_notification_preference_store.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/session_provider.dart';
+import '../push/live_activity_registration_service.dart';
 import '../ucg/push/ucg_push_registration_service.dart';
 
 /// 全局推送注册服务（经 authorized ApiClient → `/app/api/push/*`）。
@@ -21,6 +22,17 @@ final appPushRegistrationServiceProvider =
 
 /// 兼容旧引用名。
 final ucgPushRegistrationServiceProvider = appPushRegistrationServiceProvider;
+
+/// iOS Live Activity token → `/app/api/push/live-activity/register`。
+final liveActivityRegistrationServiceProvider =
+    Provider<LiveActivityRegistrationService>((ref) {
+  final service = LiveActivityRegistrationService(
+    api: ref.watch(authorizedApiClientProvider),
+    pushRegistration: ref.watch(appPushRegistrationServiceProvider),
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 Future<void>? _appPushRegisterInFlight;
 const _kAppPushRegisterFailThreshold = 2;
@@ -48,10 +60,13 @@ final appPushBootstrapProvider = Provider<void>((ref) {
     await syncAppPushRegistration(ref);
   }));
 
+  final la = ref.watch(liveActivityRegistrationServiceProvider);
+
   ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
     if (!loggedIn) {
       resetAppPushRegisterState();
       unawaited(push.unregister());
+      unawaited(la.stop());
       return;
     }
     unawaited(syncAppPushRegistration(ref));
@@ -95,10 +110,13 @@ Future<void> _syncAppPushRegistrationOnce(dynamic ref) async {
     await push.unregister();
     return;
   }
+  final la = ref.read(liveActivityRegistrationServiceProvider)
+      as LiveActivityRegistrationService;
   // 应用层偏好关闭：跳过 register（不覆盖用户「可关」）。
   final preferenceOn = await AppNotificationPreferenceStore.load();
   if (!preferenceOn) {
     AppDebugLog.ucgPush('register skip preference off');
+    unawaited(la.stop());
     return;
   }
   try {
@@ -114,4 +132,6 @@ Future<void> _syncAppPushRegistrationOnce(dynamic ref) async {
       AppDebugLog.ucgPush('gaveUp after $_appPushRegisterFailCount failures');
     }
   }
+  // LA token 与设备 register 解耦：登录+偏好开即可听（禁止本地 Activity.request）
+  unawaited(la.startIfEligible(isLoggedIn: true));
 }

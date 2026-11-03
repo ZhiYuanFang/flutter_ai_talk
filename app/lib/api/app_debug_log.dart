@@ -114,6 +114,12 @@ abstract final class AppDebugLog {
     debugPrint('[PredictActiveEta] ${_ts()} $message');
   }
 
+  /// iOS Live Activity token 上报 / 深链。
+  static void liveActivity(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[LiveActivity] ${_ts()} $message');
+  }
+
   /// 预约下次约定 GET/PUT。
   static void appointmentNext(String message) {
     if (!kDebugMode) return;
