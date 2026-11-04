@@ -10,10 +10,7 @@ struct PredictImminentLiveActivity: Widget {
     ActivityConfiguration(for: PredictImminentAttributes.self) { context in
       let visual = WidgetVisualHelpers.visual(forEventId: context.attributes.eventId)
       let accent = WidgetVisualHelpers.laAccentColor(visual.color)
-      let nextUnix = context.state.nextAt > 0
-        ? context.state.nextAt
-        : context.attributes.nextAt
-      // 锁屏双层：上品牌、下事件 + 中文到分钟
+      // 锁屏双层：上品牌名、下事件；无时间维
       LockScreenTwoTier(
         accent: accent,
         logoFile: visual.logoFile,
@@ -24,7 +21,7 @@ struct PredictImminentLiveActivity: Widget {
           empty: "事件即将发生"
         )
       ) {
-        LockImminentMinuteText(nextUnix: nextUnix)
+        EmptyView()
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 10)
@@ -34,10 +31,7 @@ struct PredictImminentLiveActivity: Widget {
     } dynamicIsland: { context in
       let visual = WidgetVisualHelpers.visual(forEventId: context.attributes.eventId)
       let accent = WidgetVisualHelpers.laAccentColor(visual.color)
-      let nextUnix = context.state.nextAt > 0
-        ? context.state.nextAt
-        : context.attributes.nextAt
-      // compact 短名来自 title，不用「即将发生」模板
+      // compact 短名来自 title；标题可留「即将发生」，无时间维
       let compactName = compactIslandName(
         state: context.state.title,
         fallback: context.attributes.title
@@ -58,10 +52,8 @@ struct PredictImminentLiveActivity: Widget {
             .lineLimit(2)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          // Island 固定 hh:mm:ss；过期不展示时间维文案
-          IslandImminentHmsText(nextUnix: nextUnix)
-            .font(.caption.monospacedDigit().weight(.semibold))
-            .foregroundStyle(accent)
+          // 预计事件不展示时间维
+          EmptyView()
         }
       } compactLeading: {
         CompactIslandLeading(
@@ -71,12 +63,8 @@ struct PredictImminentLiveActivity: Widget {
           accent: accent
         )
       } compactTrailing: {
-        // compact 宽度由占位槽报告；过期则空内容叠在槽上
-        CompactIslandTimeSlot {
-          IslandImminentHmsText(nextUnix: nextUnix)
-        }
-        .font(.caption2.monospacedDigit())
-        .foregroundStyle(accent)
+        // 收掉右槽，不预留 timer 宽
+        EmptyView()
       } minimal: {
         WidgetVisualHelpers.eventLogo(
           path: visual.logoFile,
@@ -99,7 +87,7 @@ struct PredictTimingLiveActivity: Widget {
         state: context.state.startTime,
         fallback: context.attributes.startTime
       )
-      // 锁屏双层：上品牌、下事件 + 中文已计时
+      // 锁屏双层：上品牌名、下事件 + 系统 timer 已计时
       LockScreenTwoTier(
         accent: accent,
         logoFile: visual.logoFile,
@@ -109,7 +97,7 @@ struct PredictTimingLiveActivity: Widget {
           fallback: context.attributes.eventName
         )
       ) {
-        LockTimingMinuteText(startUnix: startUnix)
+        LockTimingElapsedText(startUnix: startUnix)
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 10)
@@ -198,21 +186,20 @@ private struct LockScreenTwoTier<Trailing: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      // 上层：圆形 App logo +「胖宝」，色随事件
+      // 上层：仅「胖宝」文字，无 App 圆标
       HStack(spacing: 6) {
-        AppBrandMark(size: 18)
         Text("胖宝")
           .font(.caption.weight(.semibold))
           .foregroundStyle(accent)
           .lineLimit(1)
         Spacer(minLength: 0)
       }
-      // 下层：事件 logo + 标题 + 右侧时间（约 ×2 尺度）
+      // 下层：事件 logo（约原 56 的 2/3）+ 标题 + 右侧时间
       HStack(alignment: .center, spacing: 12) {
         WidgetVisualHelpers.eventLogo(
           path: logoFile,
           color: eventColor,
-          size: 56
+          size: 37
         )
         Text(title)
           .font(.title3.weight(.semibold))
@@ -228,75 +215,23 @@ private struct LockScreenTwoTier<Trailing: View>: View {
   }
 }
 
-/// 圆形 BrandLogo（锁屏上层品牌标）。
+// MARK: - 锁屏时间位
+
+/// Timing：系统 timerInterval 已计时（可带秒）；上界约 99 小时。
 @available(iOS 16.1, *)
-private struct AppBrandMark: View {
-  let size: CGFloat
-
-  var body: some View {
-    Image("BrandLogo")
-      .resizable()
-      .scaledToFill()
-      .frame(width: size, height: size)
-      .clipShape(Circle())
-  }
-}
-
-// MARK: - 锁屏中文到分钟
-
-/// Timing：已过去h时m分钟 / h=0 省略时；不足 1 分钟按 1。
-@available(iOS 16.1, *)
-private struct LockTimingMinuteText: View {
+private struct LockTimingElapsedText: View {
   let startUnix: Int64
 
   var body: some View {
-    // 锁屏约分钟档刷新；不绑秒级 timerInterval
-    TimelineView(.periodic(from: .now, by: 60)) { context in
-      Text(timingElapsedChinese(now: context.date, startUnix: startUnix))
-    }
+    let start = Date(timeIntervalSince1970: TimeInterval(max(0, startUnix)))
+    // 有限上界，避免 distantFuture 测量副作用
+    let end = start.addingTimeInterval(99 * 3600)
+    Text(timerInterval: start...end, countsDown: false, showsHours: true)
+      .monospacedDigit()
   }
 }
 
-/// Imminent：「预计m分钟后」；过期不渲染。
-@available(iOS 16.1, *)
-private struct LockImminentMinuteText: View {
-  let nextUnix: Int64
-
-  var body: some View {
-    TimelineView(.periodic(from: .now, by: 60)) { context in
-      if let copy = imminentRemainingChinese(now: context.date, nextUnix: nextUnix) {
-        Text(copy)
-      }
-    }
-  }
-}
-
-/// 已计时 →「已过去h时m分钟」或「已过去m分钟」。
-private func timingElapsedChinese(now: Date, startUnix: Int64) -> String {
-  let start = Date(timeIntervalSince1970: TimeInterval(max(0, startUnix)))
-  let elapsed = max(0, now.timeIntervalSince(start))
-  // 不足 1 分钟（含刚开始 0 秒）按 1 分钟
-  let totalMinutes = max(1, Int(ceil(elapsed / 60.0)))
-  let hours = totalMinutes / 60
-  let minutes = totalMinutes % 60
-  if hours >= 1 {
-    return "已过去\(hours)时\(minutes)分钟"
-  }
-  return "已过去\(totalMinutes)分钟"
-}
-
-/// 距 nextAt →「预计m分钟后」；过期返回 nil（无时间维文案）。
-private func imminentRemainingChinese(now: Date, nextUnix: Int64) -> String? {
-  if nextUnix <= 0 { return nil }
-  let end = Date(timeIntervalSince1970: TimeInterval(nextUnix))
-  let remaining = end.timeIntervalSince(now)
-  if remaining <= 0 { return nil }
-  // 不足 1 分钟按 1；超过 1h 仍用总分钟（如 90）
-  let totalMinutes = max(1, Int(ceil(remaining / 60.0)))
-  return "预计\(totalMinutes)分钟后"
-}
-
-// MARK: - Island hh:mm:ss
+// MARK: - Island hh:mm:ss（仅 Timing）
 
 /// Timing 已计时：始终零填充 hh:mm:ss。
 @available(iOS 16.1, *)
@@ -308,24 +243,6 @@ private struct IslandTimingHmsText: View {
       let start = Date(timeIntervalSince1970: TimeInterval(max(0, startUnix)))
       let elapsed = max(0, Int(context.date.timeIntervalSince(start)))
       Text(formatHms(elapsed))
-    }
-  }
-}
-
-/// Imminent 倒计时：始终零填充 hh:mm:ss；过期空。
-@available(iOS 16.1, *)
-private struct IslandImminentHmsText: View {
-  let nextUnix: Int64
-
-  var body: some View {
-    TimelineView(.periodic(from: .now, by: 1)) { context in
-      if nextUnix > 0 {
-        let end = Date(timeIntervalSince1970: TimeInterval(nextUnix))
-        let remaining = Int(end.timeIntervalSince(context.date))
-        if remaining > 0 {
-          Text(formatHms(remaining))
-        }
-      }
     }
   }
 }
@@ -350,7 +267,8 @@ private func lockTitle(state: String, fallback: String, empty: String) -> String
 
 private func timingLockTitle(state: String, fallback: String) -> String {
   let name = state.isEmpty ? fallback : state
-  return name.isEmpty ? "事件计时中" : "\(name)计时中"
+  // 锁屏标题仅事件名，不拼「计时中」
+  return name.isEmpty ? "事件" : name
 }
 
 private func timingIslandTitle(state: String, fallback: String) -> String {

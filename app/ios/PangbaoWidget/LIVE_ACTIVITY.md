@@ -42,9 +42,9 @@
 
 ## 锁屏 / 灵动岛展示（客户端 UI）
 
-- **锁屏 content（双层）**：上层窄行圆形 BrandLogo +「胖宝」（事件提亮色）；下层事件 logo + 既有标题（Timing「…计时中」）+ 右侧中文到分钟时间。
-- **锁屏时间**：Timing「已过去h时m分钟」（`h=0` 省略时 →「已过去m分钟」）；Imminent「预计m分钟后」（总分钟）；不足 1 分钟按 1；Imminent 过期 **不** 展示「已过时」或其它时间维文案。
-- **Dynamic Island 时间位**：compact / expanded 均为零填充 **`hh:mm:ss`**（不足 1h 仍含时）；compact 继续短占位箍宽，**不用**锁屏中文长句。Imminent 过期 Island 时间位同样无时间维文案。
+- **锁屏 content（双层）**：上层窄行仅「胖宝」文字（事件提亮色，**无**圆形 App logo）；下层事件 logo（约 37pt）+ 标题（Timing 仅为事件名，**不**拼「计时中」；Imminent 可留「事件即将发生」）+ 右侧时间位（仅 Timing）。
+- **锁屏时间**：Timing 用系统 `Text(timerInterval:)` 已计时（可带秒，自 `startTime` 起约 99h 上界）。Imminent **不**展示任何时间维文案（含「预计m分钟后」、倒计时、「已过时」）。
+- **Dynamic Island**：Timing compact / expanded 时间位为零填充 **`hh:mm:ss`**（不足 1h 仍含时），compact 短占位箍宽。Imminent Island **不**展示时间维；compact **不**预留右侧 timer 槽；expanded 中心「即将发生」等状态标题可留。
 
 ## Token
 
@@ -65,5 +65,5 @@
 
 - Timing 起活动 **必须** 带固定字段 `eventId`、`eventName`、`startTime`
 - Imminent start **必须** 带 `title`（与 ContentState 同一句）
-- 锁屏标题：ContentState 为空时回退 Attributes，避免「事件计时中 / 事件即将发生」
+- 锁屏标题：ContentState 为空时回退 Attributes（Timing 空名短兜底「事件」；Imminent 空名「事件即将发生」）
 - `startTime` / `nextAt` **必须** 为 unix **秒**
