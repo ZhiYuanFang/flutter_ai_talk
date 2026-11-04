@@ -33,6 +33,7 @@ import 'widget_hero_skip_store.dart';
 import 'widget_interactivity.dart';
 import 'widget_prediction_snapshot.dart';
 import 'widget_tip_cache.dart';
+import '../push/live_activity_event_visuals.dart';
 
 export 'format_widget_relative_time.dart';
 export 'home_widget_constants.dart';
@@ -325,6 +326,8 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
     lastAtCacheByRoot: lastAtCacheByRoot,
   );
   await pushHomeWidgetPayload(payload);
+  // 与桌面 enrich 同期刷新 LA 视觉索引（全量 catalog）
+  unawaited(syncLiveActivityEventVisuals(catalog));
   final tipBody = tip?.text.trim() ?? '';
   if (tipBody.isNotEmpty) {
     bumpWidgetTipDisplayEpoch(ref);

@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import WidgetKit
 
-private let appGroupId = "group.com.fzy.pangbao.widget"
+private let appGroupId = WidgetVisualHelpers.appGroupId
 private let payloadKey = "widgetPayload"
 
 struct PangbaoWidgetEntry: TimelineEntry {
@@ -394,45 +394,16 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
 
     @ViewBuilder
     private func eventLogo(path: String?, color: String?, size: CGFloat) -> some View {
-        if let uiImage = loadLogoImage(path: path) {
+        // 桌面：有色无图用色球；不用 BrandLogo 兜底以免与 LA 共用逻辑冲突
+        if let uiImage = WidgetVisualHelpers.loadLogoImage(path: path) {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFill()
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
         } else {
-            eventOrb(color: color, size: size)
+            WidgetVisualHelpers.eventOrb(color: color, size: size)
         }
-    }
-
-    private func eventOrb(color: String?, size: CGFloat) -> some View {
-        let tint = parseColor(color ?? "#5BA3E8")
-        return Circle()
-            .fill(tint.opacity(0.25))
-            .frame(width: size, height: size)
-            .overlay(
-                Circle()
-                    .fill(tint)
-                    .frame(width: size * 0.55, height: size * 0.55),
-            )
-    }
-
-    private func loadLogoImage(path: String?) -> UIImage? {
-        guard let path, !path.isEmpty else { return nil }
-        let fileURL: URL
-        if path.hasPrefix("/") {
-            fileURL = URL(fileURLWithPath: path)
-        } else if let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupId
-        ) {
-            fileURL = container.appendingPathComponent(path)
-        } else {
-            return nil
-        }
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else { return nil }
-        return image
     }
 
     private func predictSubtitle(for row: WidgetRow) -> String {
@@ -503,16 +474,7 @@ extension ISO8601DateFormatter {
 }
 
 private func parseColor(_ raw: String?) -> Color {
-    var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "#5BA3E8"
-    if s.hasPrefix("#") { s.removeFirst() }
-    if s.count == 8 { s = String(s.suffix(6)) }
-    var rgb: UInt64 = 0
-    Scanner(string: s).scanHexInt64(&rgb)
-    return Color(
-        red: Double((rgb >> 16) & 0xFF) / 255,
-        green: Double((rgb >> 8) & 0xFF) / 255,
-        blue: Double(rgb & 0xFF) / 255,
-    )
+    WidgetVisualHelpers.parseColor(raw)
 }
 
 func formatElapsed(from start: Date) -> String {

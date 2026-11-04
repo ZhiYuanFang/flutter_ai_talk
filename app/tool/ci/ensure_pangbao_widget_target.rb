@@ -193,6 +193,11 @@ if File.exist?(File.join(WIDGET_DIR, la_views))
   ensure_source_on_target(widget_group, widget_target, la_views)
   puts "已确保 #{la_views} 加入 PangbaoWidget"
 end
+la_visual = 'WidgetVisualHelpers.swift'
+if File.exist?(File.join(WIDGET_DIR, la_visual))
+  ensure_source_on_target(widget_group, widget_target, la_visual)
+  puts "已确保 #{la_visual} 加入 PangbaoWidget"
+end
 runner_group = project.main_group.groups.find { |g| g.display_name == 'Runner' || g.path == 'Runner' }
 runner_group ||= project.main_group.new_group('Runner', 'Runner')
 la_bridge = 'PredictLiveActivityBridge.swift'

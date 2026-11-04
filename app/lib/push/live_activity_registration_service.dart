@@ -7,7 +7,9 @@ import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import '../api/app_debug_log.dart';
 import '../config/live_activity_registration_store.dart';
+import '../data/event_catalog_store.dart';
 import '../ucg/push/ucg_push_registration_service.dart';
+import 'live_activity_event_visuals.dart';
 import 'live_activity_native.dart';
 import 'live_activity_registration_status.dart';
 
@@ -57,7 +59,18 @@ class LiveActivityRegistrationService {
     await LiveActivityNative.startListening();
     await refreshSystemStatus();
     _patchStatus(listening: true);
+    // 预热 App Group 视觉索引，供锁屏 Extension 按 eventId 取图/色
+    unawaited(_syncEventVisuals());
     AppDebugLog.liveActivity('registration service started');
+  }
+
+  Future<void> _syncEventVisuals() async {
+    try {
+      final catalog = await EventCatalogStore.loadFromDisk();
+      await syncLiveActivityEventVisuals(catalog);
+    } catch (e) {
+      AppDebugLog.liveActivity('visuals sync err=$e');
+    }
   }
 
   Future<void> stop() async {
@@ -158,6 +171,7 @@ class LiveActivityRegistrationService {
       _started = true;
       _patchStatus(listening: true);
       await refreshSystemStatus();
+      unawaited(_syncEventVisuals());
 
       await Future.wait<void>([
         imminentDone.future,

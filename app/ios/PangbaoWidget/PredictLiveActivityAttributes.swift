@@ -61,4 +61,33 @@ struct PredictTimingAttributes: ActivityAttributes {
   var activityId: String
   var deviceNo: String
   var historyId: Int64
+  /// 事件目录 id；旧推送可能缺省，解码兜底 0（UI 走无图）。
+  var eventId: Int64
+
+  enum CodingKeys: String, CodingKey {
+    case activityId, deviceNo, historyId, eventId
+  }
+
+  init(activityId: String, deviceNo: String, historyId: Int64, eventId: Int64 = 0) {
+    self.activityId = activityId
+    self.deviceNo = deviceNo
+    self.historyId = historyId
+    self.eventId = eventId
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    activityId = try c.decodeIfPresent(String.self, forKey: .activityId) ?? ""
+    deviceNo = try c.decodeIfPresent(String.self, forKey: .deviceNo) ?? ""
+    historyId = try c.decodeIfPresent(Int64.self, forKey: .historyId) ?? 0
+    eventId = try c.decodeIfPresent(Int64.self, forKey: .eventId) ?? 0
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(activityId, forKey: .activityId)
+    try c.encode(deviceNo, forKey: .deviceNo)
+    try c.encode(historyId, forKey: .historyId)
+    try c.encode(eventId, forKey: .eventId)
+  }
 }

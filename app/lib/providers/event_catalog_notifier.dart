@@ -9,6 +9,7 @@ import '../data/event_catalog_store.dart';
 import '../data/event_catalog_sync.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
+import '../push/live_activity_event_visuals.dart';
 import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
 import 'session_provider.dart';
@@ -126,7 +127,10 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
   void _scheduleSaveToDisk() {
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 300), () {
-      unawaited(EventCatalogStore.saveToDisk(state.items));
+      unawaited(() async {
+        await EventCatalogStore.saveToDisk(state.items);
+        await syncLiveActivityEventVisuals(state.items);
+      }());
     });
   }
 
@@ -189,6 +193,8 @@ class EventCatalogNotifier extends StateNotifier<EventCatalogState> {
       final keepPaths =
           state.items.map((e) => e.localLogoPath).whereType<String>().toSet();
       await EventCatalogStore.pruneLogoFiles(keepPaths);
+      // logo 落盘后刷新 LA App Group 视觉索引
+      unawaited(syncLiveActivityEventVisuals(state.items));
     } catch (_) {}
   }
 
