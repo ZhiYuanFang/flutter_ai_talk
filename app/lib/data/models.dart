@@ -125,10 +125,21 @@ class TrendCatalogItem {
 
 @immutable
 class TrendPoint {
-  const TrendPoint({required this.t, required this.value});
+  const TrendPoint({
+    required this.t,
+    required this.value,
+    this.expectStartTimeSec,
+    this.actualStartSec,
+  });
 
   final DateTime t;
   final double value;
+
+  /// 打戳预计开始（unix 秒）；null/缺省表示不计准确率样本。
+  final int? expectStartTimeSec;
+
+  /// 实际开始（unix 秒）；与 expect 对照计命中。
+  final int? actualStartSec;
 }
 
 @immutable

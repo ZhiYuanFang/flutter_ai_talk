@@ -25,6 +25,7 @@ import '../data/prediction_recall_seed.dart';
 import '../data/event_next_predictor.dart';
 import '../data/feature_unlock_models.dart';
 import '../data/smart_prediction_rows.dart';
+import '../data/trend_predict_accuracy.dart';
 import '../providers/settings_baby.dart';
 import '../home_widget/format_widget_relative_time.dart';
 import '../api/api_exceptions.dart';
@@ -629,6 +630,17 @@ class SmartPredictionScreen extends ConsumerWidget {
         };
       }
 
+      // 竖列表准确率：合并真历史按根聚合（不计回忆种子）
+      final accuracyByRoot = useDemoSkeleton
+          ? const <String, List<HistoryRecord>>{}
+          : groupHistoryByRootEvent(
+              history: mergeRealHistoryById(
+                rangeItems: rangeHistoryItems,
+                homeItems: historyItems,
+              ),
+              catalog: catalog,
+            );
+
       if (useGridLayout) {
         Widget buildGrid({PredictionLandscapeCardMetrics? metrics}) {
           return wrapCardsRefresh(
@@ -726,6 +738,8 @@ class SmartPredictionScreen extends ConsumerWidget {
               chartPoints: useDemoSkeleton || activeTiming != null
                   ? const []
                   : row.chartPoints,
+              // 该根近窗真历史，供准确率柱 / 小结
+              accuracyRecords: accuracyByRoot[row.eventId] ?? const [],
               pastDaysBeforeToday: 6,
               showYAxis: !useDemoSkeleton && activeTiming == null,
               relativeText: activeTiming != null
@@ -2276,6 +2290,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
     required this.pastDaysBeforeToday,
     required this.showYAxis,
     required this.relativeText,
+    this.accuracyRecords = const [],
     this.titleInlineLogo = false,
     this.activeTiming,
     this.activeExpectEndAt,
@@ -2296,6 +2311,9 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
   final bool compact;
   final bool heartbeat;
   final List<DateTime> chartPoints;
+
+  /// 该卡事件根真历史（竖列表准确率柱 / 小结）；瀑布不传。
+  final List<HistoryRecord> accuracyRecords;
   final int pastDaysBeforeToday;
   final bool showYAxis;
   final String? relativeText;
@@ -2904,13 +2922,12 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                           ),
                         ),
                       )
-                    : _LookbackChart(
-                        points: widget.chartPoints,
+                    // 竖列表：近7日准确率柱；点柱卡内换小结
+                    : _PredictAccuracyChartPane(
+                        records: widget.accuracyRecords,
                         now: now,
                         accent: accent,
-                        anchorTod: pred.nextAt,
                         pastDaysBeforeToday: widget.pastDaysBeforeToday,
-                        showYAxis: widget.showYAxis,
                       ),
               ),
             ],
@@ -2952,48 +2969,35 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   }
 }
 
-/// 每日一点：解释 [anchorTod]；[pastDaysBeforeToday] 控制 X 窗。
-class _LookbackChart extends StatelessWidget {
-  const _LookbackChart({
-    required this.points,
+/// 竖列表卡图区：近 N 日准确率柱 ↔ 点柱后当日预测小结。
+class _PredictAccuracyChartPane extends StatefulWidget {
+  const _PredictAccuracyChartPane({
+    required this.records,
     required this.now,
     required this.accent,
-    required this.anchorTod,
     required this.pastDaysBeforeToday,
-    required this.showYAxis,
   });
 
-  final List<DateTime> points;
+  final List<HistoryRecord> records;
   final DateTime now;
   final Color accent;
-  final DateTime anchorTod;
   final int pastDaysBeforeToday;
-  final bool showYAxis;
 
-  static double _yAxisStep(double minY, double maxY) {
-    final span = (maxY - minY).abs();
-    if (span <= 0) return 60;
-    final raw = span / 2;
-    const candidates = <double>[15, 30, 60, 90, 120, 180, 240, 360, 480, 720];
-    for (final c in candidates) {
-      if (c + 1e-6 >= raw) return c;
-    }
-    return raw;
-  }
+  @override
+  State<_PredictAccuracyChartPane> createState() =>
+      _PredictAccuracyChartPaneState();
+}
 
-  static String _fmtMinutes(double minutes) {
-    var total = minutes.round();
-    if (total < 0) total = 0;
-    if (total >= 24 * 60) total = 24 * 60 - 1;
-    final h = total ~/ 60;
-    final m = total % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-  }
+class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
+  /// 非 null 时图区展示该日小结
+  DateTime? _summaryDay;
 
-  /// X 轴日标签：今天/昨天/前天，更早用 M/d（列表前 4 日与网格三日共用）。
+  /// Down 时缓存柱索引（TapUp 时 spot 可能已空）
+  int? _pendingBarIndex;
+
   static String _xAxisDayLabel(DateTime day, DateTime today) {
-    final d = DateTime(day.year, day.month, day.day);
-    final t = DateTime(today.year, today.month, today.day);
+    final d = predictAccuracyDayKey(day);
+    final t = predictAccuracyDayKey(today);
     final diff = t.difference(d).inDays;
     if (diff == 0) return '今天';
     if (diff == 1) return '昨天';
@@ -3001,252 +3005,239 @@ class _LookbackChart extends StatelessWidget {
     return '${d.month}/${d.day}';
   }
 
+  static String _fmtHm(DateTime t) {
+    final l = t.toLocal();
+    return '${l.hour.toString().padLeft(2, '0')}:'
+        '${l.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final maxDayIndex = pastDaysBeforeToday.toDouble();
-    final day0 = DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: pastDaysBeforeToday));
-    final today = DateTime(now.year, now.month, now.day);
-    final pastSpots = <FlSpot>[];
-    FlSpot? todaySpot;
+    // 阻断冒泡到整卡 InkWell，避免点柱误触发加事件
+    return GestureDetector(
+      onTap: () {},
+      behavior: HitTestBehavior.opaque,
+      child: _summaryDay == null ? _buildBars(context) : _buildSummary(context),
+    );
+  }
 
-    for (final t in points) {
-      final day = DateTime(t.year, t.month, t.day);
-      final dayIndex = day.difference(day0).inDays.toDouble();
-      if (dayIndex < 0 || dayIndex > maxDayIndex) continue;
-      final minutes = t.hour * 60 + t.minute + t.second / 60.0;
-      final spot = FlSpot(dayIndex, minutes);
-      if (day == today) {
-        todaySpot = spot;
-      } else {
-        pastSpots.add(spot);
-      }
-    }
-    pastSpots.sort((a, b) => a.x.compareTo(b.x));
+  Widget _buildBars(BuildContext context) {
+    final days = predictAccuracyWindowDays(
+      now: widget.now,
+      pastDaysBeforeToday: widget.pastDaysBeforeToday,
+    );
+    final samples = predictAccuracySamplesFromHistory(widget.records);
+    final percents =
+        predictDailyAccuracyPercents(days: days, samples: samples);
+    final hasAny = percents.any((e) => e != null);
+    final muted = AppColor.textOnPanelGlassMuted(context);
+    final today = predictAccuracyDayKey(widget.now);
 
-    if (pastSpots.isEmpty && todaySpot == null) {
+    if (!hasAny) {
       return Center(
         child: Text(
-          pastDaysBeforeToday <= 2 ? '近 3 日暂无可比时刻' : '近 7 日暂无可比时刻',
-          style: TextStyle(
-            fontSize: 11,
-            color:
-                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
-          ),
+          '暂无预测对照',
+          style: TextStyle(fontSize: 11, color: muted),
         ),
       );
     }
 
-    final allSpots = <FlSpot>[...pastSpots, if (todaySpot != null) todaySpot];
-    final anchorM = (anchorTod.hour * 60 + anchorTod.minute).toDouble();
-    var minY = allSpots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
-    var maxY = allSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
-    minY = (minY < anchorM ? minY : anchorM) - 90;
-    maxY = (maxY > anchorM ? maxY : anchorM) + 90;
-    if (minY < 0) minY = 0;
-    if (maxY > 24 * 60) maxY = 24 * 60;
-    if (maxY - minY < 180) {
-      minY = (anchorM - 90).clamp(0, 24 * 60);
-      maxY = (anchorM + 90).clamp(0, 24 * 60);
-    }
-    final yStep = _yAxisStep(minY, maxY);
-    final alignedMax = minY + 2 * yStep;
-    if (alignedMax > maxY && alignedMax <= 24 * 60) {
-      maxY = alignedMax;
-    }
-    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final accent = widget.accent;
+    final topHighlight = Color.lerp(accent, Colors.white, 0.35) ?? accent;
 
-    final bars = <LineChartBarData>[];
-    if (pastSpots.isNotEmpty) {
-      bars.add(
-        LineChartBarData(
-          spots: pastSpots,
-          isCurved: false,
-          color: accent,
-          barWidth: 2,
-          dotData: FlDotData(
-            show: true,
-            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
-              radius: 3.5,
-              color: accent,
-              strokeWidth: 0,
+    return BarChart(
+      BarChartData(
+        minY: 0,
+        maxY: 100,
+        alignment: BarChartAlignment.spaceAround,
+        groupsSpace: 4,
+        barGroups: [
+          for (var i = 0; i < days.length; i++)
+            BarChartGroupData(
+              x: i,
+              barRods: [
+                BarChartRodData(
+                  // 无样本日高度 0 + 透明，不画可见柱
+                  toY: (percents[i] ?? 0).toDouble(),
+                  width: days.length > 8 ? 8 : 10,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(6)),
+                  color: percents[i] == null
+                      ? Colors.transparent
+                      : null,
+                  gradient: percents[i] == null
+                      ? null
+                      : LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            accent.withValues(alpha: 0.45),
+                            accent.withValues(alpha: 0.9),
+                            topHighlight.withValues(alpha: 0.95),
+                          ],
+                        ),
+                ),
+              ],
             ),
-          ),
-        ),
-      );
-    }
-    final todayOnly = todaySpot;
-    if (todayOnly != null && pastSpots.isNotEmpty) {
-      bars.add(
-        LineChartBarData(
-          spots: [pastSpots.last, todayOnly],
-          isCurved: false,
-          color: accent,
-          barWidth: 2,
-          dashArray: const [6, 4],
-          dotData: FlDotData(
-            show: true,
-            checkToShowDot: (s, _) =>
-                (s.x - todayOnly.x).abs() < 1e-6 &&
-                (s.y - todayOnly.y).abs() < 1e-6,
-            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
-              radius: 3.5,
-              color: accent,
-              strokeWidth: 0,
-            ),
-          ),
-        ),
-      );
-    } else if (todayOnly != null) {
-      bars.add(
-        LineChartBarData(
-          spots: [todayOnly],
-          isCurved: false,
-          color: accent,
-          barWidth: 2,
-          dotData: FlDotData(
-            show: true,
-            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
-              radius: 3.5,
-              color: accent,
-              strokeWidth: 0,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return LineChart(
-      LineChartData(
-        minX: 0,
-        maxX: maxDayIndex,
-        minY: minY,
-        maxY: maxY,
-        clipData: const FlClipData.all(),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: true,
-          drawHorizontalLine: showYAxis,
-          horizontalInterval: yStep,
-          verticalInterval: 1,
-          getDrawingHorizontalLine: (_) => FlLine(
-            color: Colors.white.withValues(alpha: 0.08),
-            strokeWidth: 1,
-          ),
-          getDrawingVerticalLine: (_) => FlLine(
-            color: Colors.white.withValues(alpha: 0.08),
-            strokeWidth: 1,
-          ),
-        ),
+        ],
         titlesData: FlTitlesData(
           show: true,
-          topTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
+          leftTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          // 柱顶准确率 %
+          topTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 18,
-              interval: 1,
-              getTitlesWidget: (v, _) {
-                if (v < 0 || v > maxDayIndex || v != v.roundToDouble()) {
+              getTitlesWidget: (value, meta) {
+                final i = value.round();
+                if (i < 0 || i >= percents.length) {
                   return const SizedBox.shrink();
                 }
-                final d = day0.add(Duration(days: v.toInt()));
-                final label = _xAxisDayLabel(d, today);
-                // 网格窄卡：相对日两字略宽于 M/d，略降字号减少裁切
-                final fontSize = pastDaysBeforeToday <= 2 ? 8.0 : 9.0;
-                return Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    color: onSurface.withValues(alpha: 0.45),
+                final pct = percents[i];
+                if (pct == null) return const SizedBox.shrink();
+                final alpha = pct >= 70 ? 0.95 : 0.62;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 1),
+                  child: Text(
+                    '$pct%',
+                    style: TextStyle(
+                      color: accent.withValues(alpha: alpha),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 );
               },
             ),
           ),
-          leftTitles: AxisTitles(
+          bottomTitles: AxisTitles(
             sideTitles: SideTitles(
-              showTitles: showYAxis,
-              reservedSize: showYAxis ? 36 : 0,
-              interval: yStep,
-              getTitlesWidget: (v, meta) {
-                if (!showYAxis) return const SizedBox.shrink();
-                if (v < minY - 0.5 || v > maxY + 0.5) {
+              showTitles: true,
+              reservedSize: 18,
+              getTitlesWidget: (value, meta) {
+                final i = value.round();
+                if (i < 0 || i >= days.length) {
                   return const SizedBox.shrink();
                 }
                 return Text(
-                  _fmtMinutes(v),
-                  style: TextStyle(
-                    fontSize: 8,
-                    color: onSurface.withValues(alpha: 0.45),
-                  ),
+                  _xAxisDayLabel(days[i], today),
+                  style: TextStyle(fontSize: 9, color: muted),
                 );
               },
             ),
           ),
         ),
         borderData: FlBorderData(show: false),
-        extraLinesData: ExtraLinesData(
-          horizontalLines: [
-            HorizontalLine(
-              y: anchorM,
-              color: accent.withValues(alpha: 0.35),
-              strokeWidth: 1,
-              dashArray: [4, 4],
-            ),
-          ],
-        ),
-        lineBarsData: bars,
-        lineTouchData: LineTouchData(
+        gridData: const FlGridData(show: false),
+        barTouchData: BarTouchData(
           enabled: true,
-          handleBuiltInTouches: true,
-          touchSpotThreshold: 18,
-          getTouchedSpotIndicator: (barData, spotIndexes) {
-            return spotIndexes.map((i) {
-              return TouchedSpotIndicatorData(
-                FlLine(
-                  color: accent.withValues(alpha: 0.35),
-                  strokeWidth: 1,
-                ),
-                FlDotData(
-                  show: true,
-                  getDotPainter: (s, p, b, idx) => FlDotCirclePainter(
-                    radius: 5,
-                    color: accent,
-                    strokeWidth: 1.5,
-                    strokeColor: Colors.white.withValues(alpha: 0.85),
-                  ),
-                ),
-              );
-            }).toList();
+          handleBuiltInTouches: false,
+          touchCallback: (event, response) {
+            final group = response?.spot?.touchedBarGroup;
+            if (group != null) _pendingBarIndex = group.x;
+            if (event is FlTapUpEvent || event is FlPanEndEvent) {
+              final i = _pendingBarIndex;
+              _pendingBarIndex = null;
+              if (i == null || i < 0 || i >= days.length) return;
+              // 空日不进小结
+              if (percents[i] == null) return;
+              setState(() => _summaryDay = days[i]);
+            }
           },
-          touchTooltipData: LineTouchTooltipData(
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            tooltipRoundedRadius: 8,
-            tooltipPadding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            getTooltipColor: (_) => accent.withValues(alpha: 0.92),
-            tooltipMargin: 8,
-            getTooltipItems: (touchedSpots) {
-              return [
-                for (final s in touchedSpots)
-                  LineTooltipItem(
-                    _fmtMinutes(s.y),
-                    const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-              ];
-            },
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) => null,
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSummary(BuildContext context) {
+    final day = _summaryDay!;
+    final samples = predictAccuracySamplesForDay(
+      samples: predictAccuracySamplesFromHistory(widget.records),
+      day: day,
+    );
+    final muted = AppColor.textOnPanelGlassMuted(context);
+    final onGlass = AppColor.textOnPanelGlass(context);
+    final today = predictAccuracyDayKey(widget.now);
+    final dayLabel = _xAxisDayLabel(day, today);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 返回近7日柱图
+        Row(
+          children: [
+            InkWell(
+              onTap: () => setState(() => _summaryDay = null),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  '近7日',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: widget.accent,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '$dayLabel · 预测小结',
+                style: TextStyle(fontSize: 11, color: muted),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: samples.isEmpty
+              ? Center(
+                  child: Text(
+                    '该日暂无对照',
+                    style: TextStyle(fontSize: 11, color: muted),
+                  ),
+                )
+              : ListView.separated(
+                  padding: EdgeInsets.zero,
+                  itemCount: samples.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 4),
+                  itemBuilder: (context, i) {
+                    final s = samples[i];
+                    return Row(
+                      children: [
+                        Text(
+                          s.hit ? '准' : '偏',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: s.hit
+                                ? widget.accent
+                                : muted,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '预计 ${_fmtHm(s.expectAt)} → 实际 ${_fmtHm(s.actualAt)}',
+                            style: TextStyle(fontSize: 11, color: onGlass),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }

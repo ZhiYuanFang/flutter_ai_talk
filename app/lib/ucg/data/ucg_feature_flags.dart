@@ -5,7 +5,7 @@ const kUcgTreasureEnabled = false;
 
 /// 主壳 PageView 是否含 UCG 广场页。
 /// 商业化重开（commercial-ucg-feature-unlock）：三页主壳喂养 | 预测 | UCG。
-const kUcgHomePagerEnabled = true;
+const kUcgHomePagerEnabled = false;
 
 /// 历史编辑「同步广场」开关与 UCG 发帖/改帖/删帖副作用。
 const kHistorySquareSyncEnabled = false;
