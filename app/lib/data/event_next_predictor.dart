@@ -438,6 +438,7 @@ int? confidentDurationExpectSec({
 }
 
 /// 将胜出 expect 挂到已有 nextAt 预测上。
+/// 查询锚用 nextAt（即将发生的那场时段），与进行中 ETA 的 startAt 语义对齐。
 EventNextPrediction attachWinningExpect({
   required EventNextPrediction prediction,
   required List<HistoryRecord> records,
@@ -451,7 +452,8 @@ EventNextPrediction attachWinningExpect({
     rootEventName: prediction.eventName,
     now: now,
     halfLifeDays: halfLifeDays,
-    anchorAt: prediction.lastAt,
+    // 开事前用 nextAt 作时段/半衰期查询锚，不得再用 lastAt（避免昼夜双峰贴短睡）
+    anchorAt: prediction.nextAt,
   );
   if (win == null) {
     return prediction.copyWith(
