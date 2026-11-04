@@ -14,6 +14,39 @@ enum PredictLiveActivityBridge {
   static func startIfNeeded() {
     guard !started else { return }
     started = true
+    beginObserving()
+    NSLog("[live_activity] bridge started")
+  }
+
+  /// 手动重试：允许再次订阅 Push-to-Start（可能与旧 Task 并存，上报幂等）。
+  static func restartListening() {
+    started = false
+    startIfNeeded()
+    NSLog("[live_activity] bridge restarted")
+  }
+
+  /// 系统是否允许 Live Activities、是否支持 Push-to-Start。
+  static func systemStatus() -> [String: Any] {
+    if #available(iOS 16.2, *) {
+      let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
+      let pts: Bool
+      if #available(iOS 17.2, *) {
+        pts = true
+      } else {
+        pts = false
+      }
+      return [
+        "areActivitiesEnabled": enabled,
+        "pushToStartSupported": pts,
+      ]
+    }
+    return [
+      "areActivitiesEnabled": false,
+      "pushToStartSupported": false,
+    ]
+  }
+
+  private static func beginObserving() {
     if #available(iOS 17.2, *) {
       observePushToStart(kind: "imminent", type: PredictImminentAttributes.self)
       observePushToStart(kind: "timing", type: PredictTimingAttributes.self)
@@ -22,7 +55,6 @@ enum PredictLiveActivityBridge {
       observeActivityTokens(kind: "imminent", type: PredictImminentAttributes.self) { $0.attributes.activityId }
       observeActivityTokens(kind: "timing", type: PredictTimingAttributes.self) { $0.attributes.activityId }
     }
-    NSLog("[live_activity] bridge started")
   }
 
   @available(iOS 17.2, *)

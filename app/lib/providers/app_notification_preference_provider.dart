@@ -97,16 +97,10 @@ bool shouldShowNotificationOptInBanner({
   return true;
 }
 
-/// App resume：刷新授权；偏好 On 且已授权且已登录则同步 register。
+/// App resume：刷新系统通知授权态；已登录则 sync（偏好 Off / 未授权时仍拉起 LA，设备 push 在 sync 内按偏好跳过）。
 Future<void> onAppResumeNotificationSync(dynamic ref) async {
   if (kIsWeb) return;
-  final auth = await ref.read(osNotificationAuthProvider.notifier).refresh();
-  // dynamic 上不能用 AsyncValue 扩展 asData；先收成 AsyncValue。
-  final prefAsync =
-      ref.read(appNotificationPreferenceProvider) as AsyncValue<bool>;
-  final pref = prefAsync.value ?? true;
-  if (!pref) return;
-  if (auth != OsNotificationAuth.granted) return;
+  await ref.read(osNotificationAuthProvider.notifier).refresh();
   if (!ref.read(sessionProvider).isLoggedIn) return;
   await syncAppPushRegistration(ref);
 }

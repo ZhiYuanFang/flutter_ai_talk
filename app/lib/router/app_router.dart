@@ -18,6 +18,7 @@ import '../ui/baby_bind_screen.dart';
 import '../ui/baby_profile_edit_screen.dart';
 import '../ui/change_password_screen.dart';
 import '../ui/feedback_list_screen.dart';
+import '../ui/live_activity_settings_screen.dart';
 import '../ui/notification_settings_screen.dart';
 import '../ui/settings_screen.dart';
 import '../ui/xiaozhi_speaker_screen.dart';
@@ -70,6 +71,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/change-password',
         '/settings/feedback',
         '/settings/notifications',
+        '/settings/live-activity',
         '/settings/xiaozhi-speaker',
         '/settings/xiaozhi-speaker/help-mac',
         '/settings/xiaozhi-speaker/help-token',
@@ -226,6 +228,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/notifications',
         builder: (context, state) => const NotificationSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/live-activity',
+        builder: (context, state) => const LiveActivitySettingsScreen(),
       ),
       GoRoute(
         path: '/settings/xiaozhi-speaker',

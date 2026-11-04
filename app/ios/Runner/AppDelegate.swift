@@ -222,6 +222,11 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
       case "startListening":
         PredictLiveActivityBridge.startIfNeeded()
         result(nil)
+      case "restartListening":
+        PredictLiveActivityBridge.restartListening()
+        result(nil)
+      case "getSystemStatus":
+        result(PredictLiveActivityBridge.systemStatus())
       default:
         result(FlutterMethodNotImplemented)
       }

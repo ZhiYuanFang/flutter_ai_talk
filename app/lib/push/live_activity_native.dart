@@ -36,6 +36,52 @@ class LiveActivityNative {
     }
   }
 
+  /// 强制重启原生 Push-to-Start / activity 观察（手动重试用）。
+  static Future<void> restartListening() async {
+    if (!_supported) return;
+    _ensureHandler();
+    try {
+      await _channel.invokeMethod<void>('restartListening');
+      AppDebugLog.liveActivity('restartListening ok');
+    } catch (e) {
+      AppDebugLog.liveActivity('restartListening err=$e');
+    }
+  }
+
+  /// 探测系统是否允许 Live Activities / 是否支持 Push-to-Start。
+  static Future<LiveActivitySystemInfo> getSystemStatus() async {
+    if (!_supported) {
+      return const LiveActivitySystemInfo(
+        supported: false,
+        areActivitiesEnabled: false,
+        pushToStartSupported: false,
+      );
+    }
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('getSystemStatus');
+      if (raw is! Map) {
+        return const LiveActivitySystemInfo(
+          supported: true,
+          areActivitiesEnabled: false,
+          pushToStartSupported: false,
+        );
+      }
+      final map = Map<String, dynamic>.from(raw);
+      return LiveActivitySystemInfo(
+        supported: true,
+        areActivitiesEnabled: map['areActivitiesEnabled'] == true,
+        pushToStartSupported: map['pushToStartSupported'] == true,
+      );
+    } catch (e) {
+      AppDebugLog.liveActivity('getSystemStatus err=$e');
+      return const LiveActivitySystemInfo(
+        supported: true,
+        areActivitiesEnabled: false,
+        pushToStartSupported: false,
+      );
+    }
+  }
+
   static void _ensureHandler() {
     if (_listening) return;
     _listening = true;
@@ -63,6 +109,19 @@ class LiveActivityNative {
       );
     });
   }
+}
+
+/// 原生系统能力探测结果。
+class LiveActivitySystemInfo {
+  const LiveActivitySystemInfo({
+    required this.supported,
+    required this.areActivitiesEnabled,
+    required this.pushToStartSupported,
+  });
+
+  final bool supported;
+  final bool areActivitiesEnabled;
+  final bool pushToStartSupported;
 }
 
 /// 单次 LA token 上报载荷。

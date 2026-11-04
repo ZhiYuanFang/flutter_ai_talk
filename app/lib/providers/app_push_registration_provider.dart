@@ -80,7 +80,6 @@ final appPushBootstrapProvider = Provider<void>((ref) {
 /// 外部（如喂养页 bootstrap）也可主动触发。
 Future<void> syncAppPushRegistration(dynamic ref) async {
   if (kIsWeb) return;
-  if (_appPushRegisterGaveUp) return;
   if (_appPushRegisterInFlight != null) {
     await _appPushRegisterInFlight;
     return;
@@ -95,7 +94,7 @@ Future<void> syncAppPushRegistration(dynamic ref) async {
     }
     if (_appPushTokenRefreshDeferred) {
       _appPushTokenRefreshDeferred = false;
-      if (!_appPushRegisterGaveUp && ref.read(sessionProvider).isLoggedIn) {
+      if (ref.read(sessionProvider).isLoggedIn) {
         unawaited(syncAppPushRegistration(ref));
       }
     }
@@ -105,33 +104,35 @@ Future<void> syncAppPushRegistration(dynamic ref) async {
 Future<void> _syncAppPushRegistrationOnce(dynamic ref) async {
   final session = ref.read(sessionProvider);
   final push = ref.read(appPushRegistrationServiceProvider);
+  final la = ref.read(liveActivityRegistrationServiceProvider)
+      as LiveActivityRegistrationService;
   if (!session.isLoggedIn) {
     resetAppPushRegisterState();
     await push.unregister();
+    await la.stop();
     return;
   }
-  final la = ref.read(liveActivityRegistrationServiceProvider)
-      as LiveActivityRegistrationService;
-  // 应用层偏好关闭：跳过 register（不覆盖用户「可关」）。
+  // 消息偏好仅约束设备 push；LA 监听与偏好解耦。
   final preferenceOn = await AppNotificationPreferenceStore.load();
   if (!preferenceOn) {
-    AppDebugLog.ucgPush('register skip preference off');
-    unawaited(la.stop());
-    return;
-  }
-  try {
-    await push.registerIfEligible(isLoggedIn: true);
-    _appPushRegisterFailCount = 0;
-  } catch (e) {
-    _appPushRegisterFailCount++;
-    AppDebugLog.ucgPush(
-      'register fail count=$_appPushRegisterFailCount err=$e',
-    );
-    if (_appPushRegisterFailCount >= _kAppPushRegisterFailThreshold) {
-      _appPushRegisterGaveUp = true;
-      AppDebugLog.ucgPush('gaveUp after $_appPushRegisterFailCount failures');
+    AppDebugLog.ucgPush('register skip preference off (device push only)');
+  } else if (_appPushRegisterGaveUp) {
+    AppDebugLog.ucgPush('register skip gaveUp (device push only)');
+  } else {
+    try {
+      await push.registerIfEligible(isLoggedIn: true);
+      _appPushRegisterFailCount = 0;
+    } catch (e) {
+      _appPushRegisterFailCount++;
+      AppDebugLog.ucgPush(
+        'register fail count=$_appPushRegisterFailCount err=$e',
+      );
+      if (_appPushRegisterFailCount >= _kAppPushRegisterFailThreshold) {
+        _appPushRegisterGaveUp = true;
+        AppDebugLog.ucgPush('gaveUp after $_appPushRegisterFailCount failures');
+      }
     }
   }
-  // LA token 与设备 register 解耦：登录+偏好开即可听（禁止本地 Activity.request）
+  // 已登录即可听 LA（禁止本地 Activity.request）
   unawaited(la.startIfEligible(isLoggedIn: true));
 }
