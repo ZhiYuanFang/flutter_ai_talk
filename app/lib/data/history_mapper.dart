@@ -1,5 +1,6 @@
 import '../api/gateway_json.dart';
 import 'event_definition.dart';
+import 'event_next_predictor.dart';
 import 'history_line_format.dart';
 import 'models.dart';
 
@@ -187,10 +188,83 @@ int _payloadIntField(Map<String, Object?> p, String key, {int fallback = 0}) {
   return int.tryParse(v?.toString() ?? '') ?? fallback;
 }
 
+/// Add 可选打戳（对齐 Go `*int64`/`*float64` omitempty）；缺维不写键、不写 0。
+class HistoryExpectStamp {
+  const HistoryExpectStamp({
+    this.expectStartTime,
+    this.expectEndTime,
+    this.expectAmount,
+  });
+
+  /// 预计开始：unix 秒
+  final int? expectStartTime;
+
+  /// 预计结束：unix 秒（start + duration）
+  final int? expectEndTime;
+
+  /// 预计用量：浮点，禁止 toInt 截断
+  final double? expectAmount;
+
+  bool get isEmpty =>
+      expectStartTime == null && expectEndTime == null && expectAmount == null;
+
+  /// 从 [EventNextPrediction] 打戳：nextAt→start（含过期）；duration→end；amount 浮点。
+  /// 无 pred 返回 null；缺维字段为 null（调用方省略键）。
+  static HistoryExpectStamp? fromPrediction(EventNextPrediction? pred) {
+    if (pred == null) return null;
+    // 预计开始：预报 nextAt（过期仍打）
+    final start = historyDateTimeToUnixSeconds(pred.nextAt);
+    // 有正 duration 才算预计结束
+    final dur = pred.expectDurationSec;
+    final end = (dur != null && dur > 0) ? start + dur : null;
+    // 正 amount 才上传；禁止 toInt
+    final amt = pred.expectAmount;
+    final amount = (amt != null && amt > 0) ? amt : null;
+    return HistoryExpectStamp(
+      expectStartTime: start,
+      expectEndTime: end,
+      expectAmount: amount,
+    );
+  }
+}
+
+/// 将非 null expect* 写入 body（不写 0 占位）。
+void applyHistoryExpectStamp(Map<String, dynamic> body, HistoryExpectStamp? stamp) {
+  if (stamp == null || stamp.isEmpty) return;
+  final start = stamp.expectStartTime;
+  if (start != null) body['expectStartTime'] = start;
+  final end = stamp.expectEndTime;
+  if (end != null) body['expectEndTime'] = end;
+  final amount = stamp.expectAmount;
+  if (amount != null) body['expectAmount'] = amount;
+}
+
+/// 从 payload 透传已有 expect*（pending flush）；amount 保留 double。
+void _copyExpectFieldsFromPayload(Map<String, dynamic> body, Map<String, Object?> p) {
+  final start = p['expectStartTime'];
+  if (start is int) {
+    body['expectStartTime'] = start;
+  } else if (start is num) {
+    body['expectStartTime'] = start.toInt();
+  }
+  final end = p['expectEndTime'];
+  if (end is int) {
+    body['expectEndTime'] = end;
+  } else if (end is num) {
+    body['expectEndTime'] = end.toInt();
+  }
+  final amount = p['expectAmount'];
+  if (amount is double) {
+    body['expectAmount'] = amount;
+  } else if (amount is num) {
+    body['expectAmount'] = amount.toDouble();
+  }
+}
+
 /// 从 pending 乐观行 `rawPayload` 构造 add 请求体（无 `eventUnit`）。
 Map<String, dynamic> buildEventAddBodyFromPendingRecord(HistoryRecord pending) {
   final p = pending.rawPayload;
-  return {
+  final body = <String, dynamic>{
     'deviceNo': readGatewayStr(Map<String, dynamic>.from(p), 'deviceNo', 'device_no') ?? '',
     'eventId': _payloadIntField(p, 'eventId'),
     'eventName': pending.eventName,
@@ -199,6 +273,9 @@ Map<String, dynamic> buildEventAddBodyFromPendingRecord(HistoryRecord pending) {
     'endTime': _payloadIntField(p, 'endTime'),
     'remark': p['remark']?.toString() ?? '',
   };
+  // pending 行若已带 expect*，flush 时原样带上
+  _copyExpectFieldsFromPayload(body, p);
+  return body;
 }
 
 /// 过滤 `pending:*` 行并保持原列表顺序。
@@ -240,6 +317,7 @@ List<HistoryRecord> mergeRemotePage1PreservingLocalDepth({
 }
 
 /// 构造 `POST /device/history/api/event/add` 请求体（无 `eventUnit`）。
+/// [expect] 仅 add 打戳；update/stop MUST NOT 传入。
 Map<String, dynamic> buildEventAddBody({
   required String deviceNo,
   required EventDefinition event,
@@ -247,8 +325,9 @@ Map<String, dynamic> buildEventAddBody({
   required DateTime startTime,
   required DateTime endTime,
   String remark = '',
+  HistoryExpectStamp? expect,
 }) {
-  return {
+  final body = <String, dynamic>{
     'deviceNo': deviceNo,
     'eventId': int.tryParse(event.id) ?? 0,
     'eventName': event.name,
@@ -257,4 +336,6 @@ Map<String, dynamic> buildEventAddBody({
     'endTime': historyDateTimeToUnixSeconds(endTime),
     'remark': remark,
   };
+  applyHistoryExpectStamp(body, expect);
+  return body;
 }

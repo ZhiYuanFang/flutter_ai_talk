@@ -8,6 +8,7 @@ import '../config/event_button_usage_store.dart';
 import '../data/appointment_event.dart';
 import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
+import '../data/event_next_predictor.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
 import '../data/history_post_outcome.dart';
@@ -19,6 +20,7 @@ import '../providers/predict_active_eta_sync_provider.dart';
 import '../providers/predict_imminent_sync_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
+import '../providers/smart_prediction_provider.dart';
 import '../providers/toast_bus.dart';
 import 'appointment_next_sheet.dart';
 import 'event_catalog_picker_sheet.dart';
@@ -86,6 +88,34 @@ class EventAddSubmitResult {
   final bool insertedOptimistic;
 }
 
+/// 按叶子及其祖先根匹配预报（预测按 root 键）。
+EventNextPrediction? _predictionForEventAdd(
+  WidgetRef ref,
+  EventDefinition event,
+) {
+  final preds = ref.read(smartPredictionsProvider);
+  if (preds.isEmpty) return null;
+  final catalog = ref.read(eventCatalogProvider).items;
+  // 候选：本事件 id + 向上 walk 到根
+  final keys = <String>{event.id};
+  var pid = event.parentId?.trim();
+  final seen = <String>{event.id};
+  while (pid != null && pid.isNotEmpty && seen.add(pid)) {
+    keys.add(pid);
+    final parent =
+        catalog.where((e) => catalogIdsEqual(e.id, pid!)).firstOrNull;
+    pid = parent?.parentId?.trim();
+  }
+  for (final p in preds) {
+    for (final k in keys) {
+      if (catalogIdsEqual(p.eventId, k) || historyEventIdsMatch(p.eventId, k)) {
+        return p;
+      }
+    }
+  }
+  return null;
+}
+
 /// 提交一条历史事件；失败返回 null。
 Future<EventAddSubmitResult?> submitEventAdd({
   required WidgetRef ref,
@@ -98,6 +128,10 @@ Future<EventAddSubmitResult?> submitEventAdd({
   if (_eventAddInFlight) return null;
   final dn = ref.read(deviceNoNotifierProvider).asData?.value;
   if (dn == null || dn.isEmpty) return null;
+  // 仅 add 打戳：有预报则带 expect*；无预报省略
+  final expect = HistoryExpectStamp.fromPrediction(
+    _predictionForEventAdd(ref, event),
+  );
   final body = buildEventAddBody(
     deviceNo: dn,
     event: event,
@@ -105,6 +139,7 @@ Future<EventAddSubmitResult?> submitEventAdd({
     startTime: startTime,
     endTime: endTime,
     remark: remark,
+    expect: expect,
   );
 
   _eventAddInFlight = true;

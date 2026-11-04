@@ -1,4 +1,4 @@
-# iOS Live Activity（与 Go `predict-live-activity-push` 对齐）
+# iOS Live Activity（与 Go `predict-live-activity-push` / `live-activity-expect-lock-go` 对齐）
 
 ## Attributes 名
 
@@ -25,13 +25,16 @@
 
 - `eventId`：事件目录 id（十进制字符串与 Flutter catalog `def.id` 对齐）。客户端用其查 App Group 视觉索引，**推送不得下发 logo / color**。
 - `nextAt` / ContentState 内时间字段：均为 **unix 秒**（非毫秒）。Timing `startTime` 若误用毫秒会导致锁屏已计时卡在 `00:00`。
+- Imminent `title`：Go twin 已发基句（如 `{昵称}要{事件名}了`），**不含**「，预计这次约…」后缀。
 
 ## ContentState（Go → Codable）
 
-**Imminent：** `title`、`phase`、`nextAt`（unix 秒）  
-**Timing：** `eventName`、`startTime`（unix 秒）、`phase`
+**Imminent：** `title`、`phase`、`nextAt`（unix 秒）；可选 `expectKind`（`duration`|`amount`）、`expectDurationSec`、`expectAmount`（浮点）、`expectUnit`  
+**Timing：** `eventName`、`startTime`（unix 秒）、`phase`；可选 `expectEndAt`（unix 秒）
 
-不含 `logo` / `color` / `logoFile`。
+不含 `logo` / `color` / `logoFile` / 成品中文 expect label / `expectLeafTitle`。缺键客户端兜底不画。
+
+Go twin：`live-activity-expect-lock-go`（已完成）：开火透传 expect*；active-eta / history update 灌入或保留 `expectEndAt`。
 
 ## 客户端视觉（App Group）
 
@@ -42,9 +45,10 @@
 
 ## 锁屏 / 灵动岛展示（客户端 UI）
 
-- **锁屏 content（双层）**：上层窄行仅「胖宝」文字（事件提亮色，**无**圆形 App logo）；下层事件 logo（约 37pt）+ 标题（Timing 仅为事件名，**不**拼「计时中」；Imminent 可留「事件即将发生」）+ 右侧时间位（仅 Timing）。
-- **锁屏时间**：Timing 用系统 `Text(timerInterval:)` 已计时（可带秒，自 `startTime` 起约 99h 上界）。Imminent **不**展示任何时间维文案（含「预计m分钟后」、倒计时、「已过时」）。
-- **Dynamic Island**：Timing compact / expanded 时间位为零填充 **`hh:mm:ss`**（不足 1h 仍含时），compact 右槽短占位箍宽。Imminent Island **不**展示时间维；compact **不**预留右侧 timer 槽。compactLeading 展示 **完整** 事件名（仅 trim，无三字硬截；空名仅 logo）；expanded 中心标题 **不**设产品侧 `lineLimit` 上限（「即将发生」等空回退可留）。Timing 长名可能导致 compact 变宽，以真机为准。
+- **锁屏 content（双层）**：上层窄行仅「胖宝」文字（事件提亮色，**无**圆形 App logo）；下层事件 logo（约 37pt）+ 标题列（主标题；Timing 可有副行）+ 右侧槽。
+- **Timing**：主标题仅为事件名（**不**拼「计时中」）；有正 `expectEndAt` 时副行「预计 HH:mm 结束」（无「约」、无超时后缀）；右侧系统 `timerInterval` 已计时（可带秒，约 99h 上界），字号为 trailing `.title` 基准。
+- **Imminent**：主标题展示推送基句；右侧有可用 expect 时短版「预计{h}时{m}分钟」/「预计{m}分钟」/「预计{N}{unit}」；**右槽字号 = `.title` 基准 − 5pt**；无 expect 空右槽。MUST NOT 展示基于 `nextAt` 的「预计m分钟后」、倒计时、「已过时」。
+- **Dynamic Island**：Timing compact / expanded 时间位为零填充 **`hh:mm:ss`**，compact 右槽短占位箍宽。Imminent Island **不**展示时间维 / expect；compact **不**预留右侧 timer 槽。compactLeading 展示 **完整** 事件名（仅 trim）；expanded 中心标题产品侧不硬截。
 
 ## Token
 
@@ -61,9 +65,9 @@
 
 服务端 `PUSH_LIVE_ACTIVITY_ENABLED=true` 后才会扇出。
 
-## 对端联调（本仓不实现 Go fanout）
+## 对端联调
 
-- Timing 起活动 **必须** 带固定字段 `eventId`、`eventName`、`startTime`
-- Imminent start **必须** 带 `title`（与 ContentState 同一句）
+- Timing 起活动 **必须** 带固定字段 `eventId`、`eventName`、`startTime`；ETA 经 active-eta update 带 `expectEndAt`
+- Imminent start **必须** 带基句 `title`；有预计时另带结构化 expect*
 - 锁屏标题：ContentState 为空时回退 Attributes（Timing 空名短兜底「事件」；Imminent 空名「事件即将发生」）
-- `startTime` / `nextAt` **必须** 为 unix **秒**
+- `startTime` / `nextAt` / `expectEndAt` **必须** 为 unix **秒**

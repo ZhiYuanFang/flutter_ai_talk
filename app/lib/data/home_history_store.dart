@@ -166,7 +166,17 @@ class HomeHistoryStore {
   }
 }
 
-const _snapshotPayloadKeys = ['startTime', 'endTime', 'eventNumber', 'remark', 'eventId'];
+const _snapshotPayloadKeys = [
+  'startTime',
+  'endTime',
+  'eventNumber',
+  'remark',
+  'eventId',
+  // 预报打戳：磁盘/内存快照相等性须纳入，避免误判未变
+  'expectStartTime',
+  'expectEndTime',
+  'expectAmount',
+];
 
 bool _payloadFieldEqual(Object? a, Object? b) {
   if (a == b) return true;

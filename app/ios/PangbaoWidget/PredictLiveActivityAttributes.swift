@@ -7,15 +7,36 @@ struct PredictImminentAttributes: ActivityAttributes {
     var title: String
     var phase: String
     var nextAt: Int64
+    /// duration | amount；旧推送缺省空
+    var expectKind: String
+    /// duration 维；秒；缺省 0
+    var expectDurationSec: Int64
+    /// amount 维；浮点；缺省 0
+    var expectAmount: Double
+    /// amount 单位；缺省空
+    var expectUnit: String
 
-    init(title: String = "", phase: String = "", nextAt: Int64 = 0) {
+    init(
+      title: String = "",
+      phase: String = "",
+      nextAt: Int64 = 0,
+      expectKind: String = "",
+      expectDurationSec: Int64 = 0,
+      expectAmount: Double = 0,
+      expectUnit: String = ""
+    ) {
       self.title = title
       self.phase = phase
       self.nextAt = nextAt
+      self.expectKind = expectKind
+      self.expectDurationSec = expectDurationSec
+      self.expectAmount = expectAmount
+      self.expectUnit = expectUnit
     }
 
     enum CodingKeys: String, CodingKey {
       case title, phase, nextAt
+      case expectKind, expectDurationSec, expectAmount, expectUnit
     }
 
     init(from decoder: Decoder) throws {
@@ -24,6 +45,17 @@ struct PredictImminentAttributes: ActivityAttributes {
       title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
       phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? ""
       nextAt = try c.decodeIfPresent(Int64.self, forKey: .nextAt) ?? 0
+      expectKind = try c.decodeIfPresent(String.self, forKey: .expectKind) ?? ""
+      expectDurationSec = try c.decodeIfPresent(Int64.self, forKey: .expectDurationSec) ?? 0
+      // amount：优先 Double；整型 JSON 亦兼容
+      if let d = try c.decodeIfPresent(Double.self, forKey: .expectAmount) {
+        expectAmount = d
+      } else if let i = try c.decodeIfPresent(Int64.self, forKey: .expectAmount) {
+        expectAmount = Double(i)
+      } else {
+        expectAmount = 0
+      }
+      expectUnit = try c.decodeIfPresent(String.self, forKey: .expectUnit) ?? ""
     }
   }
 
@@ -63,15 +95,23 @@ struct PredictTimingAttributes: ActivityAttributes {
     var eventName: String
     var startTime: Int64
     var phase: String
+    /// 预计结束 unix 秒；缺省 0 表示不画副行
+    var expectEndAt: Int64
 
-    init(eventName: String = "", startTime: Int64 = 0, phase: String = "") {
+    init(
+      eventName: String = "",
+      startTime: Int64 = 0,
+      phase: String = "",
+      expectEndAt: Int64 = 0
+    ) {
       self.eventName = eventName
       self.startTime = startTime
       self.phase = phase
+      self.expectEndAt = expectEndAt
     }
 
     enum CodingKeys: String, CodingKey {
-      case eventName, startTime, phase
+      case eventName, startTime, phase, expectEndAt
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +119,7 @@ struct PredictTimingAttributes: ActivityAttributes {
       eventName = try c.decodeIfPresent(String.self, forKey: .eventName) ?? ""
       startTime = try c.decodeIfPresent(Int64.self, forKey: .startTime) ?? 0
       phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? ""
+      expectEndAt = try c.decodeIfPresent(Int64.self, forKey: .expectEndAt) ?? 0
     }
   }
 
