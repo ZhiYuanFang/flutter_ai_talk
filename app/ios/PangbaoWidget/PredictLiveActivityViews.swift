@@ -66,9 +66,12 @@ struct PredictImminentLiveActivity: Widget {
           size: 18
         )
       } compactTrailing: {
-        ImminentCountdownText(nextUnix: nextUnix)
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(accent)
+        // compact 宽度由占位槽报告，倒计时不得撑开岛
+        CompactIslandTimeSlot {
+          ImminentCountdownText(nextUnix: nextUnix)
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(accent)
       } minimal: {
         WidgetVisualHelpers.eventLogo(
           path: visual.logoFile,
@@ -137,9 +140,12 @@ struct PredictTimingLiveActivity: Widget {
           size: 18
         )
       } compactTrailing: {
-        TimingElapsedText(startUnix: timingStartUnix(state: context.state.startTime, fallback: context.attributes.startTime))
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(accent)
+        // compact 宽度由占位槽报告，已计时不得撑开岛
+        CompactIslandTimeSlot {
+          TimingElapsedText(startUnix: timingStartUnix(state: context.state.startTime, fallback: context.attributes.startTime))
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(accent)
       } minimal: {
         Image(systemName: "timer")
       }
@@ -190,6 +196,31 @@ private struct ImminentCountdownText: View {
   }
 }
 
+/// compact 岛固有宽度由隐藏占位报告；真内容叠在槽内，不得决定岛宽。
+@available(iOS 16.1, *)
+private struct CompactIslandTimeSlot<Content: View>: View {
+  let content: Content
+
+  init(@ViewBuilder content: () -> Content) {
+    self.content = content()
+  }
+
+  var body: some View {
+    // 等宽 "00:00:00" 作为胶囊宽度；hidden 仍占布局
+    Text("00:00:00")
+      .hidden()
+      .overlay(alignment: .trailing) {
+        // 倒计时 / 已计时 /「已过时」画在占位上，超宽则缩小
+        content
+          .lineLimit(1)
+          .minimumScaleFactor(0.6)
+      }
+  }
+}
+
+/// Timing 已计时上界（秒）；不用 distantFuture，避免 Text 量成天文宽度。
+private let timingElapsedCapSeconds: TimeInterval = 99 * 60 * 60
+
 /// 自 start unix 秒起的已计时（系统 timerInterval）。
 @available(iOS 16.1, *)
 private struct TimingElapsedText: View {
@@ -197,9 +228,10 @@ private struct TimingElapsedText: View {
 
   var body: some View {
     let start = Date(timeIntervalSince1970: TimeInterval(max(0, startUnix)))
-    // countsDown: false → 从 start 向上累加
+    // 上界约 99 小时；countsDown: false → 从 start 向上累加
+    let end = start.addingTimeInterval(timingElapsedCapSeconds)
     Text(
-      timerInterval: start...Date.distantFuture,
+      timerInterval: start...end,
       countsDown: false,
       showsHours: true
     )
