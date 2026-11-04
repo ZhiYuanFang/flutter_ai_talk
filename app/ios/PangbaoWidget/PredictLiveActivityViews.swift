@@ -39,6 +39,11 @@ struct PredictImminentLiveActivity: Widget {
       let nextUnix = context.state.nextAt > 0
         ? context.state.nextAt
         : context.attributes.nextAt
+      // compact 短名来自 title，不用「即将发生」模板
+      let compactName = compactIslandName(
+        state: context.state.title,
+        fallback: context.attributes.title
+      )
       // 有 let 后须显式 return DynamicIsland
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
@@ -60,10 +65,11 @@ struct PredictImminentLiveActivity: Widget {
             .foregroundStyle(accent)
         }
       } compactLeading: {
-        WidgetVisualHelpers.eventLogo(
-          path: visual.logoFile,
+        CompactIslandLeading(
+          logoFile: visual.logoFile,
           color: visual.color,
-          size: 18
+          name: compactName,
+          accent: accent
         )
       } compactTrailing: {
         // compact 宽度由占位槽报告，倒计时不得撑开岛
@@ -113,6 +119,11 @@ struct PredictTimingLiveActivity: Widget {
     } dynamicIsland: { context in
       let visual = WidgetVisualHelpers.visual(forEventId: context.attributes.eventId)
       let accent = WidgetVisualHelpers.laAccentColor(visual.color)
+      // compact 短名来自 eventName，不用「计时中」模板
+      let compactName = compactIslandName(
+        state: context.state.eventName,
+        fallback: context.attributes.eventName
+      )
       // 有 let 后须显式 return DynamicIsland
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
@@ -134,10 +145,11 @@ struct PredictTimingLiveActivity: Widget {
             .foregroundStyle(accent)
         }
       } compactLeading: {
-        WidgetVisualHelpers.eventLogo(
-          path: visual.logoFile,
+        CompactIslandLeading(
+          logoFile: visual.logoFile,
           color: visual.color,
-          size: 18
+          name: compactName,
+          accent: accent
         )
       } compactTrailing: {
         // compact 宽度由占位槽报告，已计时不得撑开岛
@@ -173,6 +185,38 @@ private func timingIslandTitle(state: String, fallback: String) -> String {
 
 private func timingStartUnix(state: Int64, fallback: Int64) -> Int64 {
   state > 0 ? state : fallback
+}
+
+/// compact 短名：ContentState 优先，trim 后最多 3 个 Character；空则空串，无省略号。
+private func compactIslandName(state: String, fallback: String) -> String {
+  let trimmedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
+  let raw = trimmedState.isEmpty
+    ? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+    : trimmedState
+  if raw.isEmpty { return "" }
+  // String.prefix 按 Character 计，不是 UTF-16
+  return String(raw.prefix(3))
+}
+
+/// compact 左侧：logo + 最多三字；空名则只 logo。
+@available(iOS 16.1, *)
+private struct CompactIslandLeading: View {
+  let logoFile: String?
+  let color: String?
+  let name: String
+  let accent: Color
+
+  var body: some View {
+    HStack(spacing: 3) {
+      WidgetVisualHelpers.eventLogo(path: logoFile, color: color, size: 18)
+      if !name.isEmpty {
+        Text(name)
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(accent)
+          .lineLimit(1)
+      }
+    }
+  }
 }
 
 /// 距 nextAt 倒计时；到点显示「已过时」。
