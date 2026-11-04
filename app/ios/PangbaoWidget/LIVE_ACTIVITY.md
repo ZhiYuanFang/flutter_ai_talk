@@ -44,7 +44,7 @@
 
 - **锁屏 content（双层）**：上层窄行仅「胖宝」文字（事件提亮色，**无**圆形 App logo）；下层事件 logo（约 37pt）+ 标题（Timing 仅为事件名，**不**拼「计时中」；Imminent 可留「事件即将发生」）+ 右侧时间位（仅 Timing）。
 - **锁屏时间**：Timing 用系统 `Text(timerInterval:)` 已计时（可带秒，自 `startTime` 起约 99h 上界）。Imminent **不**展示任何时间维文案（含「预计m分钟后」、倒计时、「已过时」）。
-- **Dynamic Island**：Timing compact / expanded 时间位为零填充 **`hh:mm:ss`**（不足 1h 仍含时），compact 短占位箍宽。Imminent Island **不**展示时间维；compact **不**预留右侧 timer 槽；expanded 中心「即将发生」等状态标题可留。
+- **Dynamic Island**：Timing compact / expanded 时间位为零填充 **`hh:mm:ss`**（不足 1h 仍含时），compact 右槽短占位箍宽。Imminent Island **不**展示时间维；compact **不**预留右侧 timer 槽。compactLeading 展示 **完整** 事件名（仅 trim，无三字硬截；空名仅 logo）；expanded 中心标题 **不**设产品侧 `lineLimit` 上限（「即将发生」等空回退可留）。Timing 长名可能导致 compact 变宽，以真机为准。
 
 ## Token
 

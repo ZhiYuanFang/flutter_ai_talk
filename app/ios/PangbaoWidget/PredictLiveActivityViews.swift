@@ -31,7 +31,7 @@ struct PredictImminentLiveActivity: Widget {
     } dynamicIsland: { context in
       let visual = WidgetVisualHelpers.visual(forEventId: context.attributes.eventId)
       let accent = WidgetVisualHelpers.laAccentColor(visual.color)
-      // compact 短名来自 title；标题可留「即将发生」，无时间维
+      // compact 全名来自 title；标题可留「即将发生」，无时间维
       let compactName = compactIslandName(
         state: context.state.title,
         fallback: context.attributes.title
@@ -49,7 +49,6 @@ struct PredictImminentLiveActivity: Widget {
           Text(lockTitle(state: context.state.title, fallback: context.attributes.title, empty: "即将发生"))
             .font(.caption.weight(.semibold))
             .foregroundStyle(accent)
-            .lineLimit(2)
         }
         DynamicIslandExpandedRegion(.trailing) {
           // 预计事件不展示时间维
@@ -111,7 +110,7 @@ struct PredictTimingLiveActivity: Widget {
         state: context.state.startTime,
         fallback: context.attributes.startTime
       )
-      // compact 短名来自 eventName，不用「计时中」模板
+      // compact 全名来自 eventName，不用「计时中」模板
       let compactName = compactIslandName(
         state: context.state.eventName,
         fallback: context.attributes.eventName
@@ -129,7 +128,6 @@ struct PredictTimingLiveActivity: Widget {
           Text(timingIslandTitle(state: context.state.eventName, fallback: context.attributes.eventName))
             .font(.caption.weight(.semibold))
             .foregroundStyle(accent)
-            .lineLimit(1)
         }
         DynamicIslandExpandedRegion(.trailing) {
           // Island 已计时固定 hh:mm:ss
@@ -280,18 +278,16 @@ private func timingStartUnix(state: Int64, fallback: Int64) -> Int64 {
   state > 0 ? state : fallback
 }
 
-/// compact 短名：ContentState 优先，trim 后最多 3 个 Character；空则空串，无省略号。
+/// compact 事件名：ContentState 优先，仅 trim；不做字数硬截；空则空串。
 private func compactIslandName(state: String, fallback: String) -> String {
   let trimmedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
   let raw = trimmedState.isEmpty
     ? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
     : trimmedState
-  if raw.isEmpty { return "" }
-  // String.prefix 按 Character 计，不是 UTF-16
-  return String(raw.prefix(3))
+  return raw
 }
 
-/// compact 左侧：logo + 最多三字；空名则只 logo。
+/// compact 左侧：logo + 全名（单行布局）；空名则只 logo。
 @available(iOS 16.1, *)
 private struct CompactIslandLeading: View {
   let logoFile: String?
