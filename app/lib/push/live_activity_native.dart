@@ -48,13 +48,15 @@ class LiveActivityNative {
     }
   }
 
-  /// 探测系统是否允许 Live Activities / 是否支持 Push-to-Start。
+  /// 探测系统是否允许 Live Activities / 是否支持 Push-to-Start / PTS deliver 计数。
   static Future<LiveActivitySystemInfo> getSystemStatus() async {
     if (!_supported) {
       return const LiveActivitySystemInfo(
         supported: false,
         areActivitiesEnabled: false,
         pushToStartSupported: false,
+        pushToStartDeliverCount: 0,
+        iosVersion: '',
       );
     }
     try {
@@ -64,13 +66,21 @@ class LiveActivityNative {
           supported: true,
           areActivitiesEnabled: false,
           pushToStartSupported: false,
+          pushToStartDeliverCount: 0,
+          iosVersion: '',
         );
       }
       final map = Map<String, dynamic>.from(raw);
+      final deliverRaw = map['pushToStartDeliverCount'];
+      final deliver = deliverRaw is int
+          ? deliverRaw
+          : int.tryParse('$deliverRaw') ?? 0;
       return LiveActivitySystemInfo(
         supported: true,
         areActivitiesEnabled: map['areActivitiesEnabled'] == true,
         pushToStartSupported: map['pushToStartSupported'] == true,
+        pushToStartDeliverCount: deliver < 0 ? 0 : deliver,
+        iosVersion: map['iosVersion']?.toString().trim() ?? '',
       );
     } catch (e) {
       AppDebugLog.liveActivity('getSystemStatus err=$e');
@@ -78,6 +88,8 @@ class LiveActivityNative {
         supported: true,
         areActivitiesEnabled: false,
         pushToStartSupported: false,
+        pushToStartDeliverCount: 0,
+        iosVersion: '',
       );
     }
   }
@@ -117,11 +129,17 @@ class LiveActivitySystemInfo {
     required this.supported,
     required this.areActivitiesEnabled,
     required this.pushToStartSupported,
+    this.pushToStartDeliverCount = 0,
+    this.iosVersion = '',
   });
 
   final bool supported;
   final bool areActivitiesEnabled;
   final bool pushToStartSupported;
+  /// Bridge 本进程已 deliver 的 push_to_start 次数。
+  final int pushToStartDeliverCount;
+  /// 如 `18.2`。
+  final String iosVersion;
 }
 
 /// 单次 LA token 上报载荷。

@@ -30,6 +30,12 @@ class LiveActivityRegistrationService {
   Completer<void>? _imminentPtsCompleter;
   Completer<void>? _timingPtsCompleter;
 
+  /// 本轮手动重试：是否见过 PTS / 是否已记 HTTP 失败（防超时覆盖）。
+  var _attemptImminentSeen = false;
+  var _attemptTimingSeen = false;
+  var _attemptHttpFailed = false;
+  String? _attemptHttpError;
+
   /// UI 可监听的注册显态（无 token）。
   final ValueNotifier<LiveActivityRegistrationStatus> status =
       ValueNotifier(LiveActivityRegistrationStatus.initial());
@@ -68,12 +74,13 @@ class LiveActivityRegistrationService {
     status.dispose();
   }
 
-  /// 刷新系统 Live Activities 允许态与 Push-to-Start 能力。
+  /// 刷新系统 Live Activities 允许态、Push-to-Start 能力与原生 deliver 计数。
   Future<void> refreshSystemStatus() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       _patchStatus(
         pushToStartSupported: false,
         systemAuth: LiveActivitySystemAuth.unsupported,
+        iosVersionLabel: '',
       );
       return;
     }
@@ -86,34 +93,50 @@ class LiveActivityRegistrationService {
     _patchStatus(
       pushToStartSupported: info.pushToStartSupported,
       systemAuth: auth,
+      pushToStartDeliverCount: info.pushToStartDeliverCount,
+      iosVersionLabel: info.iosVersion,
     );
   }
 
   /// 手动重试：强制重启监听并等待两类 push_to_start 上报。
   Future<void> forceRetryPushToStart({
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 15),
   }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       _patchStatus(
         lastError: '当前平台不支持锁屏 Live Activity',
-        clearLastError: false,
+        errorCategory: LiveActivityErrorCategory.unknown,
       );
       return;
     }
-    _patchStatus(retrying: true, clearLastError: true);
+    _attemptImminentSeen = false;
+    _attemptTimingSeen = false;
+    _attemptHttpFailed = false;
+    _attemptHttpError = null;
+    _patchStatus(
+      retrying: true,
+      clearLastError: true,
+      clearErrorCategory: true,
+    );
     await refreshSystemStatus();
     final cur = status.value;
     if (!cur.pushToStartSupported) {
       _patchStatus(
         retrying: false,
-        lastError: '系统版本过低，需要 iOS 17.2 及以上才能开通锁屏推送',
+        errorCategory: LiveActivityErrorCategory.osUnsupported,
+        lastError: liveActivityErrorCategoryMessage(
+          LiveActivityErrorCategory.osUnsupported,
+        ),
       );
       return;
     }
     if (cur.systemAuth == LiveActivitySystemAuth.disabled) {
       _patchStatus(
         retrying: false,
-        lastError: '系统未允许实时活动 / Live Activities，请在系统设置中开启后再重试',
+        errorCategory: LiveActivityErrorCategory.systemDisallowed,
+        lastError: liveActivityErrorCategoryMessage(
+          LiveActivityErrorCategory.systemDisallowed,
+        ),
       );
       return;
     }
@@ -134,26 +157,31 @@ class LiveActivityRegistrationService {
       await LiveActivityNative.restartListening();
       _started = true;
       _patchStatus(listening: true);
+      await refreshSystemStatus();
 
       await Future.wait<void>([
         imminentDone.future,
         timingDone.future,
       ]).timeout(timeout);
 
-      _patchStatus(retrying: false, clearLastError: true);
+      _patchStatus(
+        retrying: false,
+        clearLastError: true,
+        clearErrorCategory: true,
+      );
       AppDebugLog.liveActivity('forceRetry ok both push_to_start');
     } on TimeoutException {
-      final after = status.value;
-      final stillPartial = !after.imminentPushToStartOk ||
-          !after.timingPushToStartOk;
-      final msg = stillPartial
-          ? '等待系统 Push-to-Start token 超时，未能完成上报'
-          : '本次重试未收到新的系统 token；仍保留上次开通成功记录';
-      _patchStatus(retrying: false, lastError: msg);
-      AppDebugLog.liveActivity('forceRetry timeout stillPartial=$stillPartial');
+      await refreshSystemStatus();
+      _applyTimeoutDiagnosis();
+      AppDebugLog.liveActivity(
+        'forceRetry timeout cat=${status.value.errorCategoryCode} '
+        'attImm=$_attemptImminentSeen attTim=$_attemptTimingSeen '
+        'httpFail=$_attemptHttpFailed',
+      );
     } catch (e) {
       _patchStatus(
         retrying: false,
+        errorCategory: LiveActivityErrorCategory.unknown,
         lastError: _userFacingError(e),
       );
       AppDebugLog.liveActivity('forceRetry err=$e');
@@ -165,6 +193,54 @@ class LiveActivityRegistrationService {
         _timingPtsCompleter = null;
       }
     }
+  }
+
+  /// 超时后按本轮证据分类，禁止用「无 token」盖住 HTTP 错。
+  void _applyTimeoutDiagnosis() {
+    final after = status.value;
+    if (_attemptHttpFailed) {
+      _patchStatus(
+        retrying: false,
+        errorCategory: LiveActivityErrorCategory.registerHttpFailed,
+        lastError: _attemptHttpError ??
+            liveActivityErrorCategoryMessage(
+              LiveActivityErrorCategory.registerHttpFailed,
+            ),
+      );
+      return;
+    }
+    final bothOk =
+        after.imminentPushToStartOk && after.timingPushToStartOk;
+    if (bothOk) {
+      _patchStatus(
+        retrying: false,
+        errorCategory: LiveActivityErrorCategory.timeoutKeptPriorSuccess,
+        lastError: liveActivityErrorCategoryMessage(
+          LiveActivityErrorCategory.timeoutKeptPriorSuccess,
+        ),
+      );
+      return;
+    }
+    final anySeen = _attemptImminentSeen || _attemptTimingSeen;
+    final deliver = after.pushToStartDeliverCount;
+    if (!anySeen && deliver <= 0) {
+      _patchStatus(
+        retrying: false,
+        errorCategory: LiveActivityErrorCategory.noSystemToken,
+        lastError: liveActivityErrorCategoryMessage(
+          LiveActivityErrorCategory.noSystemToken,
+        ),
+      );
+      return;
+    }
+    // 有事件或原生曾 deliver，但未齐成功 → 部分开通
+    _patchStatus(
+      retrying: false,
+      errorCategory: LiveActivityErrorCategory.partialAttributes,
+      lastError: liveActivityErrorCategoryMessage(
+        LiveActivityErrorCategory.partialAttributes,
+      ),
+    );
   }
 
   Future<void> _hydrateStatus() async {
@@ -195,6 +271,16 @@ class LiveActivityRegistrationService {
       AppDebugLog.liveActivity('skip activity without activityId');
       return;
     }
+    if (kind == 'push_to_start') {
+      // 先标记「已见事件」，与 HTTP 成败分离
+      if (attr == 'imminent') {
+        _attemptImminentSeen = true;
+        _patchStatus(imminentPtsEventSeen: true);
+      } else {
+        _attemptTimingSeen = true;
+        _patchStatus(timingPtsEventSeen: true);
+      }
+    }
     try {
       final deviceKey = await _pushRegistration.deviceKey();
       final body = <String, dynamic>{
@@ -222,6 +308,7 @@ class LiveActivityRegistrationService {
             imminentPushToStartOk: true,
             imminentLastSuccessAt: now,
             clearLastError: true,
+            clearErrorCategory: true,
           );
           _completeIfPending(_imminentPtsCompleter);
         } else {
@@ -230,13 +317,19 @@ class LiveActivityRegistrationService {
             timingPushToStartOk: true,
             timingLastSuccessAt: now,
             clearLastError: true,
+            clearErrorCategory: true,
           );
           _completeIfPending(_timingPtsCompleter);
         }
       }
     } catch (e) {
       final msg = _userFacingError(e);
-      _patchStatus(lastError: msg);
+      _attemptHttpFailed = true;
+      _attemptHttpError = msg;
+      _patchStatus(
+        lastError: msg,
+        errorCategory: LiveActivityErrorCategory.registerHttpFailed,
+      );
       AppDebugLog.liveActivity('register err=$e');
     }
   }
@@ -271,10 +364,16 @@ class LiveActivityRegistrationService {
     LiveActivitySystemAuth? systemAuth,
     bool? imminentPushToStartOk,
     bool? timingPushToStartOk,
+    bool? imminentPtsEventSeen,
+    bool? timingPtsEventSeen,
     DateTime? imminentLastSuccessAt,
     DateTime? timingLastSuccessAt,
+    int? pushToStartDeliverCount,
+    String? iosVersionLabel,
     String? lastError,
     bool clearLastError = false,
+    LiveActivityErrorCategory? errorCategory,
+    bool clearErrorCategory = false,
     bool? retrying,
   }) {
     status.value = status.value.copyWith(
@@ -283,10 +382,16 @@ class LiveActivityRegistrationService {
       systemAuth: systemAuth,
       imminentPushToStartOk: imminentPushToStartOk,
       timingPushToStartOk: timingPushToStartOk,
+      imminentPtsEventSeen: imminentPtsEventSeen,
+      timingPtsEventSeen: timingPtsEventSeen,
       imminentLastSuccessAt: imminentLastSuccessAt,
       timingLastSuccessAt: timingLastSuccessAt,
+      pushToStartDeliverCount: pushToStartDeliverCount,
+      iosVersionLabel: iosVersionLabel,
       lastError: lastError,
       clearLastError: clearLastError,
+      errorCategory: errorCategory,
+      clearErrorCategory: clearErrorCategory,
       retrying: retrying,
     );
   }

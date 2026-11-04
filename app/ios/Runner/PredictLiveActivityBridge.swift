@@ -9,6 +9,8 @@ enum PredictLiveActivityBridge {
   static let channelName = "com.fzy.pangbao/live_activity"
   static weak var channel: FlutterMethodChannel?
   private static var started = false
+  /// 本进程经 channel 投递的 push_to_start 次数（排障用，不含 token）。
+  private static var pushToStartDeliverCount: Int = 0
 
   /// Dart 绑定 channel 后调用，开始监听两类 Attributes 的 token 流。
   static func startIfNeeded() {
@@ -25,8 +27,9 @@ enum PredictLiveActivityBridge {
     NSLog("[live_activity] bridge restarted")
   }
 
-  /// 系统是否允许 Live Activities、是否支持 Push-to-Start。
+  /// 系统是否允许 Live Activities、是否支持 Push-to-Start、PTS deliver 计数。
   static func systemStatus() -> [String: Any] {
+    let iosVer = UIDevice.current.systemVersion
     if #available(iOS 16.2, *) {
       let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
       let pts: Bool
@@ -38,11 +41,15 @@ enum PredictLiveActivityBridge {
       return [
         "areActivitiesEnabled": enabled,
         "pushToStartSupported": pts,
+        "pushToStartDeliverCount": pushToStartDeliverCount,
+        "iosVersion": iosVer,
       ]
     }
     return [
       "areActivitiesEnabled": false,
       "pushToStartSupported": false,
+      "pushToStartDeliverCount": pushToStartDeliverCount,
+      "iosVersion": iosVer,
     ]
   }
 
@@ -102,6 +109,15 @@ enum PredictLiveActivityBridge {
   }
 
   private static func deliver(_ args: [String: Any]) {
+    let kind = (args["tokenKind"] as? String)?.lowercased() ?? ""
+    if kind == "push_to_start" {
+      pushToStartDeliverCount += 1
+      NSLog(
+        "[live_activity] deliver push_to_start count=%d attr=%@",
+        pushToStartDeliverCount,
+        (args["attributesKind"] as? String) ?? ""
+      )
+    }
     guard let channel = channel else {
       NSLog("[live_activity] deliver skip reason=no_channel")
       return

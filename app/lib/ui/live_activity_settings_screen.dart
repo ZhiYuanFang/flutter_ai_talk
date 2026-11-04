@@ -53,6 +53,16 @@ class _LiveActivitySettingsScreenState
     return '未开通';
   }
 
+  String _kindLine({
+    required String label,
+    required bool seen,
+    required bool ok,
+  }) {
+    final seenText = seen ? '已见事件' : '未见事件';
+    final okText = ok ? '已上报' : '未上报';
+    return '$label：$seenText / $okText';
+  }
+
   String _subtitle(LiveActivityRegistrationStatus s) {
     if (s.retrying) return '正在重新监听并上报 Push-to-Start';
     if (!s.pushToStartSupported) {
@@ -64,10 +74,18 @@ class _LiveActivitySettingsScreenState
     if (s.isFullyEnabled) {
       return '即将发生与计时中的锁屏 token 均已上报';
     }
-    final parts = <String>[];
-    parts.add(s.imminentPushToStartOk ? '即将发生：已上报' : '即将发生：未上报');
-    parts.add(s.timingPushToStartOk ? '计时中：已上报' : '计时中：未上报');
-    return parts.join('；');
+    return [
+      _kindLine(
+        label: '即将发生',
+        seen: s.imminentPtsEventSeen,
+        ok: s.imminentPushToStartOk,
+      ),
+      _kindLine(
+        label: '计时中',
+        seen: s.timingPtsEventSeen,
+        ok: s.timingPushToStartOk,
+      ),
+    ].join('\n');
   }
 
   String? _formatAt(DateTime? at) {
@@ -110,6 +128,7 @@ class _LiveActivitySettingsScreenState
             valueListenable: la.status,
             builder: (context, s, _) {
               final err = s.lastError?.trim();
+              final diag = s.diagnosticSummary;
               return ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
@@ -163,7 +182,8 @@ class _LiveActivitySettingsScreenState
                           '· 事件即将发生时的锁屏提醒\n'
                           '· 事件计时进行中的锁屏展示\n\n'
                           '「开通」表示本机已向服务端上报锁屏推送 token；'
-                          '锁屏是否出现内容仍依赖服务端推送，与消息通知开关相互独立。',
+                          '锁屏是否出现内容仍依赖服务端推送，与消息通知开关相互独立。\n'
+                          '「已见事件」= 系统已下发 Push-to-Start；「已上报」= register 成功。',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.35,
@@ -218,16 +238,65 @@ class _LiveActivitySettingsScreenState
                   if (err != null && err.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     SettingsGlassPanel(
-                      child: SelectableText(
-                        err,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.35,
-                          color: scheme.error,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '失败信息',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: scheme.error,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SelectableText(
+                            err,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.35,
+                              color: scheme.error,
+                            ),
+                          ),
+                          if (s.errorCategory !=
+                              LiveActivityErrorCategory.none) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              '类别：${s.errorCategoryCode}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColor.textSecondary(context),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  SettingsGlassPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '诊断摘要（可长按复制）',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: AppColor.textPrimary(context),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        SelectableText(
+                          diag,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            fontFamily: 'monospace',
+                            color: AppColor.textSecondary(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               );
             },
