@@ -7,7 +7,8 @@ import UIKit
 /// MUST NOT 在此调用 Activity.request（仅等服务端推送起停）。
 enum PredictLiveActivityBridge {
   static let channelName = "com.fzy.pangbao/live_activity"
-  static weak var channel: FlutterMethodChannel?
+  /// 强引用：Native→Dart invoke 依赖实例；weak + 局部 let 会被 ARC 回收（Dart→Native 仍通）。
+  static var channel: FlutterMethodChannel?
   private static var started = false
   /// 本进程经 channel 投递的 push_to_start 次数（排障用，不含 token）。
   private static var pushToStartDeliverCount: Int = 0
@@ -110,20 +111,21 @@ enum PredictLiveActivityBridge {
 
   private static func deliver(_ args: [String: Any]) {
     let kind = (args["tokenKind"] as? String)?.lowercased() ?? ""
-    if kind == "push_to_start" {
-      pushToStartDeliverCount += 1
-      NSLog(
-        "[live_activity] deliver push_to_start count=%d attr=%@",
-        pushToStartDeliverCount,
-        (args["attributesKind"] as? String) ?? ""
-      )
-    }
     guard let channel = channel else {
       NSLog("[live_activity] deliver skip reason=no_channel")
       return
     }
     DispatchQueue.main.async {
       channel.invokeMethod("onLiveActivityToken", arguments: args)
+      // 仅成功投递给 Dart 后计数
+      if kind == "push_to_start" {
+        pushToStartDeliverCount += 1
+        NSLog(
+          "[live_activity] deliver push_to_start count=%d attr=%@",
+          pushToStartDeliverCount,
+          (args["attributesKind"] as? String) ?? ""
+        )
+      }
     }
   }
 

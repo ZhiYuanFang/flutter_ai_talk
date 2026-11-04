@@ -27,8 +27,11 @@ enum LiveActivityErrorCategory {
   /// 已见 token 但 live-activity/register HTTP/业务失败。
   registerHttpFailed,
 
-  /// 仅一类 attributes 成功。
+  /// 仅一类 attributes 成功（至少一类 seen 或一类 registerOk）。
   partialAttributes,
+
+  /// 原生已 invoke 到 Dart 通道，但本轮未见 PTS 事件。
+  nativeDeliverDartMiss,
 
   /// 两类此前已成功，本轮超时未收到新事件。
   timeoutKeptPriorSuccess,
@@ -107,6 +110,8 @@ class LiveActivityRegistrationStatus {
         return 'register_http_failed';
       case LiveActivityErrorCategory.partialAttributes:
         return 'partial_attributes';
+      case LiveActivityErrorCategory.nativeDeliverDartMiss:
+        return 'native_deliver_dart_miss';
       case LiveActivityErrorCategory.timeoutKeptPriorSuccess:
         return 'timeout_kept_prior_success';
       case LiveActivityErrorCategory.unknown:
@@ -183,6 +188,8 @@ String liveActivityErrorCategoryMessage(LiveActivityErrorCategory c) {
       return '已收到系统 token，但上报 live-activity/register 失败';
     case LiveActivityErrorCategory.partialAttributes:
       return '仅部分类型开通成功（即将发生 / 计时中未齐）';
+    case LiveActivityErrorCategory.nativeDeliverDartMiss:
+      return '原生已投递 token，但应用未收到（通道异常）';
     case LiveActivityErrorCategory.timeoutKeptPriorSuccess:
       return '本次重试未收到新的系统 token；仍保留上次开通成功记录';
     case LiveActivityErrorCategory.unknown:

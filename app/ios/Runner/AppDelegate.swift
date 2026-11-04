@@ -130,6 +130,8 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var ucgPushChannel: FlutterMethodChannel?
+  /// 强持有 LA channel，避免仅赋给 Bridge 后局部变量释放。
+  private var liveActivityChannel: FlutterMethodChannel?
   private var cachedApnsToken: String?
 
   override func application(
@@ -212,12 +214,12 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
       }
     }
     // Live Activity token / 深链通道（Push to Start 监听；禁止本地 Activity.request）
-    let laChannel = FlutterMethodChannel(
+    liveActivityChannel = FlutterMethodChannel(
       name: PredictLiveActivityBridge.channelName,
       binaryMessenger: messenger
     )
-    PredictLiveActivityBridge.channel = laChannel
-    laChannel.setMethodCallHandler { call, result in
+    PredictLiveActivityBridge.channel = liveActivityChannel
+    liveActivityChannel?.setMethodCallHandler { call, result in
       switch call.method {
       case "startListening":
         PredictLiveActivityBridge.startIfNeeded()

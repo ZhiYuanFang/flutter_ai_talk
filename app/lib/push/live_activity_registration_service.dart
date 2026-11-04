@@ -223,6 +223,17 @@ class LiveActivityRegistrationService {
     }
     final anySeen = _attemptImminentSeen || _attemptTimingSeen;
     final deliver = after.pushToStartDeliverCount;
+    // 原生已 invoke 但 Dart 未见事件（通道异常）；成功开通后不应再出现 deliver>0 && seen=0
+    if (!anySeen && deliver > 0) {
+      _patchStatus(
+        retrying: false,
+        errorCategory: LiveActivityErrorCategory.nativeDeliverDartMiss,
+        lastError: liveActivityErrorCategoryMessage(
+          LiveActivityErrorCategory.nativeDeliverDartMiss,
+        ),
+      );
+      return;
+    }
     if (!anySeen && deliver <= 0) {
       _patchStatus(
         retrying: false,
@@ -233,7 +244,7 @@ class LiveActivityRegistrationService {
       );
       return;
     }
-    // 有事件或原生曾 deliver，但未齐成功 → 部分开通
+    // 本轮至少见过一类事件，但两类未齐成功
     _patchStatus(
       retrying: false,
       errorCategory: LiveActivityErrorCategory.partialAttributes,
