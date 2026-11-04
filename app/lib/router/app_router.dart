@@ -54,6 +54,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           (uri.host == 'home' || uri.path == '/home' || uri.path == '/')) {
         return '/home';
       }
+      // Live Activity widgetURL：引擎会把整段 URL 丢给 GoRouter；业务由原生 noteOpenURL 投 bizType。
+      if (uri.scheme == 'pangbao' && uri.host == 'live-activity') {
+        return '/home';
+      }
       // 华为通知 click intent，不作为业务路由。
       if (uri.scheme == 'pangbaopush') {
         return '/home';
