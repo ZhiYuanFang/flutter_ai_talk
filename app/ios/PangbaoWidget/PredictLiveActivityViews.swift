@@ -39,7 +39,8 @@ struct PredictImminentLiveActivity: Widget {
       let nextUnix = context.state.nextAt > 0
         ? context.state.nextAt
         : context.attributes.nextAt
-      DynamicIsland {
+      // 有 let 后须显式 return DynamicIsland
+      return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           WidgetVisualHelpers.eventLogo(
             path: visual.logoFile,
@@ -113,7 +114,8 @@ struct PredictTimingLiveActivity: Widget {
     } dynamicIsland: { context in
       let visual = WidgetVisualHelpers.visual(forEventId: context.attributes.eventId)
       let accent = WidgetVisualHelpers.laAccentColor(visual.color)
-      DynamicIsland {
+      // 有 let 后须显式 return DynamicIsland
+      return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           WidgetVisualHelpers.eventLogo(
             path: visual.logoFile,
