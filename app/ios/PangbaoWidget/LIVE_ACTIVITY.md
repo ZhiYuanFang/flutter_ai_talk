@@ -40,6 +40,12 @@
 - Logo 文件：`home_widget_logos/{eventId}.{ext}`（Flutter `widgetLogoFileForEvent` 预热）
 - Extension 按 Attributes.`eventId` 查找；缺失则 BrandLogo / 色球兜底；深色底上事件色过深则提亮
 
+## 锁屏 / 灵动岛展示（客户端 UI）
+
+- **锁屏 content（双层）**：上层窄行圆形 BrandLogo +「胖宝」（事件提亮色）；下层事件 logo + 既有标题（Timing「…计时中」）+ 右侧中文到分钟时间。
+- **锁屏时间**：Timing「已过去h时m分钟」（`h=0` 省略时 →「已过去m分钟」）；Imminent「预计m分钟后」（总分钟）；不足 1 分钟按 1；Imminent 过期 **不** 展示「已过时」或其它时间维文案。
+- **Dynamic Island 时间位**：compact / expanded 均为零填充 **`hh:mm:ss`**（不足 1h 仍含时）；compact 继续短占位箍宽，**不用**锁屏中文长句。Imminent 过期 Island 时间位同样无时间维文案。
+
 ## Token
 
 `POST /app/api/push/live-activity/register`  
