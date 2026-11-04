@@ -20,8 +20,8 @@
 
 | 类型 | 字段 |
 |------|------|
-| Imminent | `activityId`、`deviceNo`、`eventId`、`nextAt` |
-| Timing | `activityId`、`deviceNo`、`historyId`、`eventId` |
+| Imminent | `activityId`、`deviceNo`、`eventId`、`nextAt`、`title` |
+| Timing | `activityId`、`deviceNo`、`historyId`、`eventId`、`eventName`、`startTime` |
 
 - `eventId`：事件目录 id（十进制字符串与 Flutter catalog `def.id` 对齐）。客户端用其查 App Group 视觉索引，**推送不得下发 logo / color**。
 - `nextAt` / ContentState 内时间字段：均为 **unix 秒**（非毫秒）。Timing `startTime` 若误用毫秒会导致锁屏已计时卡在 `00:00`。
@@ -57,5 +57,7 @@
 
 ## 对端联调（本仓不实现 Go fanout）
 
-- Timing 起活动 **必须** 带固定字段 `eventId`
+- Timing 起活动 **必须** 带固定字段 `eventId`、`eventName`、`startTime`
+- Imminent start **必须** 带 `title`（与 ContentState 同一句）
+- 锁屏标题：ContentState 为空时回退 Attributes，避免「事件计时中 / 事件即将发生」
 - `startTime` / `nextAt` **必须** 为 unix **秒**

@@ -19,7 +19,7 @@ struct PredictImminentLiveActivity: Widget {
           color: visual.color,
           size: 28
         )
-        Text(context.state.title.isEmpty ? "事件即将发生" : context.state.title)
+        Text(lockTitle(state: context.state.title, fallback: context.attributes.title, empty: "事件即将发生"))
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(accent)
           .lineLimit(2)
@@ -49,7 +49,7 @@ struct PredictImminentLiveActivity: Widget {
           )
         }
         DynamicIslandExpandedRegion(.center) {
-          Text(context.state.title.isEmpty ? "即将发生" : context.state.title)
+          Text(lockTitle(state: context.state.title, fallback: context.attributes.title, empty: "即将发生"))
             .font(.caption.weight(.semibold))
             .foregroundStyle(accent)
             .lineLimit(2)
@@ -93,16 +93,12 @@ struct PredictTimingLiveActivity: Widget {
           color: visual.color,
           size: 28
         )
-        Text(
-          context.state.eventName.isEmpty
-            ? "事件计时中"
-            : "\(context.state.eventName)计时中"
-        )
+        Text(timingLockTitle(state: context.state.eventName, fallback: context.attributes.eventName))
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(accent)
         .lineLimit(2)
         Spacer(minLength: 4)
-        TimingElapsedText(startUnix: context.state.startTime)
+        TimingElapsedText(startUnix: timingStartUnix(state: context.state.startTime, fallback: context.attributes.startTime))
           .font(.title3.monospacedDigit().weight(.semibold))
           .foregroundStyle(accent)
       }
@@ -124,13 +120,13 @@ struct PredictTimingLiveActivity: Widget {
           )
         }
         DynamicIslandExpandedRegion(.center) {
-          Text(context.state.eventName.isEmpty ? "计时中" : context.state.eventName)
+          Text(timingIslandTitle(state: context.state.eventName, fallback: context.attributes.eventName))
             .font(.caption.weight(.semibold))
             .foregroundStyle(accent)
             .lineLimit(1)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          TimingElapsedText(startUnix: context.state.startTime)
+          TimingElapsedText(startUnix: timingStartUnix(state: context.state.startTime, fallback: context.attributes.startTime))
             .font(.caption.monospacedDigit().weight(.semibold))
             .foregroundStyle(accent)
         }
@@ -141,7 +137,7 @@ struct PredictTimingLiveActivity: Widget {
           size: 18
         )
       } compactTrailing: {
-        TimingElapsedText(startUnix: context.state.startTime)
+        TimingElapsedText(startUnix: timingStartUnix(state: context.state.startTime, fallback: context.attributes.startTime))
           .font(.caption2.monospacedDigit())
           .foregroundStyle(accent)
       } minimal: {
@@ -150,6 +146,27 @@ struct PredictTimingLiveActivity: Widget {
       .widgetURL(URL(string: "pangbao://live-activity/timing"))
     }
   }
+}
+
+/// ContentState 文案为空时回退固定 Attributes（Push-to-Start 常不套用 content-state）。
+private func lockTitle(state: String, fallback: String, empty: String) -> String {
+  if !state.isEmpty { return state }
+  if !fallback.isEmpty { return fallback }
+  return empty
+}
+
+private func timingLockTitle(state: String, fallback: String) -> String {
+  let name = state.isEmpty ? fallback : state
+  return name.isEmpty ? "事件计时中" : "\(name)计时中"
+}
+
+private func timingIslandTitle(state: String, fallback: String) -> String {
+  let name = state.isEmpty ? fallback : state
+  return name.isEmpty ? "计时中" : name
+}
+
+private func timingStartUnix(state: Int64, fallback: Int64) -> Int64 {
+  state > 0 ? state : fallback
 }
 
 /// 距 nextAt 倒计时；到点显示「已过时」。
