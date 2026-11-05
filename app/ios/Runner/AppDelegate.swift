@@ -148,6 +148,8 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
     if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       UcgPushTapInbox.noteUserInfo(remote, source: "launchOptions")
     }
+    // LA token 尽早观察：不依赖 Flutter/Dart startListening（后台唤醒窗口）
+    PredictLiveActivityBridge.startObservingEarly()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -219,13 +221,21 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
       binaryMessenger: messenger
     )
     PredictLiveActivityBridge.channel = liveActivityChannel
+    // 引擎就绪后再确保一次观察（与 didFinishLaunching early start 幂等）
+    PredictLiveActivityBridge.startObservingEarly()
     liveActivityChannel?.setMethodCallHandler { call, result in
       switch call.method {
       case "startListening":
+        // 确保观察 + Dart 可收 + flush inbox
         PredictLiveActivityBridge.startIfNeeded()
+        PredictLiveActivityBridge.onDartListening()
         result(nil)
       case "restartListening":
         PredictLiveActivityBridge.restartListening()
+        result(nil)
+      case "pauseDartListening":
+        // 登出：停投递，原生观察与 inbox 保留
+        PredictLiveActivityBridge.pauseDartListening()
         result(nil)
       case "getSystemStatus":
         result(PredictLiveActivityBridge.systemStatus())

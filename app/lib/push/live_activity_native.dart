@@ -24,7 +24,7 @@ class LiveActivityNative {
     return _controller!.stream;
   }
 
-  /// 通知原生开始监听 ActivityKit token（禁止本地 Activity.request）。
+  /// 通知原生：确保观察 + Dart 可收 + flush inbox（禁止本地 Activity.request）。
   static Future<void> startListening() async {
     if (!_supported) return;
     _ensureHandler();
@@ -45,6 +45,17 @@ class LiveActivityNative {
       AppDebugLog.liveActivity('restartListening ok');
     } catch (e) {
       AppDebugLog.liveActivity('restartListening err=$e');
+    }
+  }
+
+  /// 登出 / stop：暂停 Native→Dart 投递；原生观察与 inbox 继续。
+  static Future<void> pauseDartListening() async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('pauseDartListening');
+      AppDebugLog.liveActivity('pauseDartListening ok');
+    } catch (e) {
+      AppDebugLog.liveActivity('pauseDartListening err=$e');
     }
   }
 

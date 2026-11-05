@@ -32,6 +32,9 @@ class LiveActivityRegistrationService {
   Completer<void>? _imminentPtsCompleter;
   Completer<void>? _timingPtsCompleter;
 
+  /// 成功 register 身份缓存（副作用 HTTP 去重；登出清）。
+  final Set<String> _registeredIdentities = <String>{};
+
   /// 本轮手动重试：是否见过 PTS / 是否已记 HTTP 失败（防超时覆盖）。
   var _attemptImminentSeen = false;
   var _attemptTimingSeen = false;
@@ -79,6 +82,9 @@ class LiveActivityRegistrationService {
     _started = false;
     _imminentPtsCompleter = null;
     _timingPtsCompleter = null;
+    // 停投递但保留原生观察；token 入 inbox 待下次登录 flush
+    await LiveActivityNative.pauseDartListening();
+    _registeredIdentities.clear();
     _patchStatus(listening: false, retrying: false);
   }
 
@@ -308,6 +314,23 @@ class LiveActivityRegistrationService {
     }
     try {
       final deviceKey = await _pushRegistration.deviceKey();
+      final activityId =
+          kind == 'activity' ? ev.activityId!.trim() : '';
+      // 成功身份：不变则跳过重复 POST（early observe + 补扫易连打）
+      final identity =
+          '$deviceKey|$kind|$attr|$activityId|${ev.token}';
+      if (_registeredIdentities.contains(identity)) {
+        AppDebugLog.liveActivity(
+          'register skip cached kind=$kind attr=$attr '
+          'activityIdLen=${activityId.length}',
+        );
+        if (kind == 'push_to_start') {
+          _completeIfPending(
+            attr == 'imminent' ? _imminentPtsCompleter : _timingPtsCompleter,
+          );
+        }
+        return;
+      }
       final body = <String, dynamic>{
         'deviceKey': deviceKey,
         'tokenKind': kind,
@@ -315,15 +338,16 @@ class LiveActivityRegistrationService {
         'token': ev.token,
       };
       if (kind == 'activity') {
-        body['activityId'] = ev.activityId!.trim();
+        body['activityId'] = activityId;
       }
       // 专用 LA 路径，禁止复用 device push register
       await _api.postJsonEnvelope(
         '/app/api/push/live-activity/register',
         body,
       );
+      _registeredIdentities.add(identity);
       AppDebugLog.liveActivity(
-        'register ok kind=$kind attr=$attr activityIdLen=${ev.activityId?.length ?? 0}',
+        'register ok kind=$kind attr=$attr activityIdLen=${activityId.length}',
       );
       if (kind == 'push_to_start') {
         final now = DateTime.now();
@@ -355,7 +379,8 @@ class LiveActivityRegistrationService {
         lastError: msg,
         errorCategory: LiveActivityErrorCategory.registerHttpFailed,
       );
-      AppDebugLog.liveActivity('register err=$e');
+      // 勿把完整异常串（可能含 token）打满；截断已在 _userFacingError
+      AppDebugLog.liveActivity('register err=$msg');
     }
   }
 

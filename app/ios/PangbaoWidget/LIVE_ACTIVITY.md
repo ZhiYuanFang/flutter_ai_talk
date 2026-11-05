@@ -55,7 +55,15 @@ Go twin：`live-activity-expect-lock-go`（已完成）：开火透传 expect*�
 `POST /app/api/push/live-activity/register`  
 `tokenKind`=`push_to_start`|`activity`，`attributesKind`=`imminent`|`timing`。
 
-主 App `PredictLiveActivityBridge` 监听 token；**禁止** `Activity.request`。
+主 App `PredictLiveActivityBridge`：
+
+- **Early observe**：`didFinishLaunching` 即订 Push-to-Start / per-activity（不依赖 Dart `startListening`）。
+- **补扫**：`beginObserving` 枚举 `Activity.activities` 再订 `activityUpdates`，覆盖 App 未打开时已展示的 LA。
+- **Inbox**：channel / Dart 未可收时进程内暂存（去重）；`startListening` → `onDartListening` 后 flush。登出 `pauseDartListening`，观察不停。
+- **HTTP**：仅 Dart 已登录后 `live-activity/register`；成功身份缓存防重复 POST。
+- **禁止** `Activity.request`。
+
+真机核对：App killed → Push-to-Start 出锁屏 LA 后（系统唤醒或随后打开 App）应出现 `register ok kind=activity`；前台起 LA 路径回归不破。
 
 ## 深链
 
