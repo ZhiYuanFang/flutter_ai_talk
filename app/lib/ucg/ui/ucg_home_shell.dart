@@ -24,6 +24,7 @@ import '../../providers/app_push_registration_provider.dart';
 import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
+import '../../providers/device_no_notifier.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/toast_bus.dart';
 import '../../providers/landscape_voice_provider.dart';
@@ -34,6 +35,7 @@ import '../../ui/home_shell_dialog_bootstrap.dart';
 import '../../ui/landscape_voice_lifecycle_binder.dart';
 import '../../ui/landscape_voice_subtitle_toast.dart';
 import '../../ui/prediction_card_fly_landing.dart';
+import '../../ui/prediction_home_widget_edge_dock.dart';
 import '../../ui/prediction_voice_edge_dock.dart';
 import '../../ui/smart_prediction_screen.dart';
 import '../../ui/widgets/feature_lock_overlay.dart';
@@ -464,6 +466,16 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
         : null;
     final mqPad = MediaQuery.paddingOf(context);
     final voiceBottom = 86.0 + mqPad.bottom;
+    // 小组件贴边球：竖屏 + 预测 Tab + 已登录已绑定 + 平台支持
+    final loggedIn = ref.watch(sessionProvider).isLoggedIn;
+    final deviceNo =
+        ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
+    final showHomeWidgetDock = PredictionHomeWidgetEdgeDock.isPlatformSupported &&
+        isPortrait &&
+        loggedIn &&
+        deviceNo.isNotEmpty &&
+        _pageIndex == HomePagerPage.prediction &&
+        !ucgLocked;
 
     return PopScope(
       canPop: navigatorCanPop || !_isAndroid,
@@ -586,6 +598,17 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
                 ),
             ],
           ],
+          // 竖屏桌面小组件贴边球（替代预测页底栏 pill FAB）
+          if (showHomeWidgetDock)
+            Positioned.fill(
+              child: PredictionHomeWidgetEdgeDock(
+                bottomReserve: voiceBottom,
+                onPointerOccupied: (occupied) {
+                  ref.read(homePagerScrollBlockedProvider.notifier).state =
+                      occupied;
+                },
+              ),
+            ),
         ],
       ),
     );

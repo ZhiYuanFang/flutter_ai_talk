@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../api/app_debug_log.dart';
 import 'appointment_event.dart';
 import 'baby_age.dart';
 import 'event_branding.dart';
@@ -10,6 +11,22 @@ import 'models.dart';
 
 const kMinIntervalForPrediction = Duration(minutes: 15);
 const kMinSamplesForPrediction = 2;
+
+/// 钟点亲和带宽（分钟）：Δ 越大权越低。
+const kTodAffinityBandwidthMinutes = 90.0;
+
+/// 亲和低于此值的间隔不进中位。
+const kTodAffinityMinWeight = 0.05;
+
+/// 历史钟点直方图：30 分钟 × 48 格。
+const kTodHistBinMinutes = 30;
+const kTodHistBinCount = 48;
+
+/// 少于该发生数则跳过密度护栏。
+const kTodHistMinOccurrences = 7;
+
+/// 相对峰值低于此则视为冷区。
+const kTodHistRelPeakMin = 0.2;
 
 /// 半衰期（天）按月龄分段。
 int halfLifeDaysForBirthDate(DateTime birthDate, DateTime now) {
@@ -22,6 +39,7 @@ int halfLifeDaysForBirthDate(DateTime birthDate, DateTime now) {
   return 30;
 }
 
+/// 时段桶：仅用于 expect 用量/时长加权（间隔 nextAt 已改钟点亲和，不再用桶投票）。
 int timeOfDayBucket(DateTime t) {
   final h = t.hour;
   if (h < 6) return 0;
@@ -46,6 +64,35 @@ double bucketWeight(int sampleBucket, int anchorBucket) {
 double recencyWeight(double ageDays, int halfLifeDays) {
   if (halfLifeDays <= 0) return 1.0;
   return math.exp(-math.ln2 * ageDays / halfLifeDays);
+}
+
+/// 本地一天内分钟 0–1439。
+int localClockMinutes(DateTime t) {
+  final local = t.toLocal();
+  return local.hour * 60 + local.minute;
+}
+
+/// 环形钟点差（分钟），最大 12 小时。
+int circularClockDeltaMinutes(int a, int b) {
+  var d = (a - b).abs();
+  if (d > 12 * 60) d = 24 * 60 - d;
+  return d;
+}
+
+/// 间隔起点相对 lastAt 的钟点亲和 ∈ (0,1]。
+double todAffinityWeight(DateTime start, DateTime lastAt) {
+  final delta = circularClockDeltaMinutes(
+    localClockMinutes(start),
+    localClockMinutes(lastAt),
+  );
+  return math.exp(-delta / kTodAffinityBandwidthMinutes);
+}
+
+/// 是否跨本地自然日（终点日历日晚于起点）。
+bool crossesLocalCalendarDay(DateTime start, DateTime end) {
+  final s = DateTime(start.toLocal().year, start.toLocal().month, start.toLocal().day);
+  final e = DateTime(end.toLocal().year, end.toLocal().month, end.toLocal().day);
+  return e.isAfter(s);
 }
 
 DateTime? occurrenceInstant(HistoryRecord record, {bool includeActive = false}) {
@@ -534,41 +581,113 @@ String expectFingerprintToken(EventNextPrediction p) {
   return 'amount:$amtStr:${p.expectUnit ?? ''}:${p.expectLeafTitle ?? ''}';
 }
 
-/// 间隔投票范围：同档、同档加相邻、全桶。
-enum _IntervalBucketScope { same, adjacent, all }
+/// 亲和加权后的间隔票（保留起终点供跨日回退）。
+class _AffinityIntervalSample {
+  const _AffinityIntervalSample({
+    required this.start,
+    required this.end,
+    required this.interval,
+    required this.weight,
+  });
 
-List<({Duration interval, double weight})> _collectWeightedIntervals({
+  final DateTime start;
+  final DateTime end;
+  final Duration interval;
+  final double weight;
+}
+
+/// 收集钟点亲和 × 时间衰减的间隔样本（已截断低亲和）。
+List<_AffinityIntervalSample> _collectAffinityIntervals({
   required List<DateTime> times,
-  required int anchorBucket,
+  required DateTime lastAt,
   required int halfLifeDays,
   required DateTime now,
-  required _IntervalBucketScope scope,
 }) {
-  final out = <({Duration interval, double weight})>[];
+  final out = <_AffinityIntervalSample>[];
   for (var i = 1; i < times.length; i++) {
-    final delta = times[i].difference(times[i - 1]);
+    final start = times[i - 1];
+    final end = times[i];
+    final delta = end.difference(start);
     if (delta < kMinIntervalForPrediction) continue;
-    // 样本桶取间隔起点，与 lastAt 锚点桶比较。
-    final b = timeOfDayBucket(times[i - 1]);
-    final double bw;
-    switch (scope) {
-      case _IntervalBucketScope.same:
-        if (b != anchorBucket) continue;
-        bw = 1.0;
-      case _IntervalBucketScope.adjacent:
-        if (!bucketsAdjacent(b, anchorBucket)) continue;
-        bw = bucketWeight(b, anchorBucket);
-      case _IntervalBucketScope.all:
-        bw = 1.0;
+    final wTod = todAffinityWeight(start, lastAt);
+    if (wTod < kTodAffinityMinWeight) continue;
+    final ageDays = now.difference(end).inHours / 24.0;
+    final w = wTod * recencyWeight(ageDays, halfLifeDays);
+    if (w > 0.001) {
+      out.add(
+        _AffinityIntervalSample(
+          start: start,
+          end: end,
+          interval: delta,
+          weight: w,
+        ),
+      );
     }
-    final ageDays = now.difference(times[i]).inHours / 24.0;
-    final w = bw * recencyWeight(ageDays, halfLifeDays);
-    if (w > 0.001) out.add((interval: delta, weight: w));
   }
   return out;
 }
 
-// 预测核心算法逻辑
+Duration? _weightedMedianFromAffinity(List<_AffinityIntervalSample> samples) {
+  if (samples.isEmpty) return null;
+  return weightedMedianInterval([
+    for (final s in samples) (interval: s.interval, weight: s.weight),
+  ]);
+}
+
+/// 环形直方图相对峰值；样本不足返回 null（表示跳过护栏）。
+double? _todHistogramRelativePeak({
+  required List<DateTime> occurrenceTimes,
+  required DateTime nextAt,
+}) {
+  if (occurrenceTimes.length < kTodHistMinOccurrences) return null;
+  final raw = List<double>.filled(kTodHistBinCount, 0);
+  for (final t in occurrenceTimes) {
+    final m = localClockMinutes(t);
+    final bin = (m ~/ kTodHistBinMinutes).clamp(0, kTodHistBinCount - 1);
+    raw[bin] += 1;
+  }
+  // ±1 邻格平滑（环形）
+  final smooth = List<double>.filled(kTodHistBinCount, 0);
+  for (var i = 0; i < kTodHistBinCount; i++) {
+    final prev = (i - 1 + kTodHistBinCount) % kTodHistBinCount;
+    final next = (i + 1) % kTodHistBinCount;
+    smooth[i] = raw[prev] + raw[i] + raw[next];
+  }
+  var maxScore = 0.0;
+  for (final s in smooth) {
+    if (s > maxScore) maxScore = s;
+  }
+  if (maxScore <= 0) return 0;
+  final nextBin =
+      (localClockMinutes(nextAt) ~/ kTodHistBinMinutes).clamp(0, kTodHistBinCount - 1);
+  return smooth[nextBin] / maxScore;
+}
+
+bool _passesTodHistogramGuard({
+  required List<DateTime> occurrenceTimes,
+  required DateTime nextAt,
+  required String eventKey,
+  required String path,
+}) {
+  final rel = _todHistogramRelativePeak(
+    occurrenceTimes: occurrenceTimes,
+    nextAt: nextAt,
+  );
+  if (rel == null) {
+    AppDebugLog.predictInterval(
+      'hist skip n=${occurrenceTimes.length} path=$path eventIdLen=${eventKey.length}',
+    );
+    return true;
+  }
+  final ok = rel >= kTodHistRelPeakMin;
+  AppDebugLog.predictInterval(
+    'hist path=$path rel=${rel.toStringAsFixed(3)} ok=${ok ? 1 : 0} '
+    'eventIdLen=${eventKey.length}',
+  );
+  return ok;
+}
+
+// 预测核心：亲和加权中位 + 钟点直方图护栏
 EventNextPrediction? predictNextForEventKey({
   required String eventKey,
   required String eventName,
@@ -592,70 +711,130 @@ EventNextPrediction? predictNextForEventKey({
   if (times.isEmpty) {
     if (cachedLastAt == null) return null;
     if (fallback == null || fallback < kMinIntervalForPrediction) return null;
+    final nextAt = cachedLastAt.add(fallback);
+    // 无发生序列无法建直方图 → 护栏跳过
     return EventNextPrediction(
       eventId: eventKey,
       eventName: eventName,
       lastAt: cachedLastAt,
-      nextAt: cachedLastAt.add(fallback),
+      nextAt: nextAt,
       colorHex: colorHex,
       confidence: 0.3,
     );
   }
   times.sort();
   final lastAt = times.last;
-  final anchorBucket = timeOfDayBucket(lastAt);
 
-  Duration? median;
+  final affinitySamples = times.length >= 2
+      ? _collectAffinityIntervals(
+          times: times,
+          lastAt: lastAt,
+          halfLifeDays: halfLifeDays,
+          now: now,
+        )
+      : <_AffinityIntervalSample>[];
+
+  Duration? primaryMedian;
   var confidence = 0.3;
-  if (times.length >= 2) {
-    // 同档够门槛就只投同档，避免白天短间隔压过过夜长间隔。
-    var samples = _collectWeightedIntervals(
-      times: times,
-      anchorBucket: anchorBucket,
-      halfLifeDays: halfLifeDays,
-      now: now,
-      scope: _IntervalBucketScope.same,
-    );
-    if (samples.length < kMinSamplesForPrediction) {
-      samples = _collectWeightedIntervals(
-        times: times,
-        anchorBucket: anchorBucket,
-        halfLifeDays: halfLifeDays,
-        now: now,
-        scope: _IntervalBucketScope.adjacent,
-      );
-    }
-    if (samples.length < kMinSamplesForPrediction) {
-      samples = _collectWeightedIntervals(
-        times: times,
-        anchorBucket: anchorBucket,
-        halfLifeDays: halfLifeDays,
-        now: now,
-        scope: _IntervalBucketScope.all,
-      );
-    }
-    if (samples.length >= kMinSamplesForPrediction) {
-      median = weightedMedianInterval(samples);
-      if (median != null) {
-        confidence = math.min(1.0, samples.length / 7.0);
-      }
+  if (affinitySamples.length >= kMinSamplesForPrediction) {
+    primaryMedian = _weightedMedianFromAffinity(affinitySamples);
+    if (primaryMedian != null) {
+      confidence = math.min(1.0, affinitySamples.length / 7.0);
     }
   }
 
-  final interval = median ??
+  final usedSeed = primaryMedian == null;
+  final interval = primaryMedian ??
       (fallback != null && fallback >= kMinIntervalForPrediction
           ? fallback
           : null);
   if (interval == null) return null;
 
-  return EventNextPrediction(
-    eventId: eventKey,
-    eventName: eventName,
-    lastAt: lastAt,
-    nextAt: lastAt.add(interval),
-    colorHex: colorHex,
-    confidence: confidence,
+  AppDebugLog.predictInterval(
+    'vote nAff=${affinitySamples.length} medianMin=${primaryMedian?.inMinutes} '
+    'seed=${usedSeed ? 1 : 0} eventIdLen=${eventKey.length}',
   );
+
+  bool accept(DateTime nextAt, String path) => _passesTodHistogramGuard(
+        occurrenceTimes: times,
+        nextAt: nextAt,
+        eventKey: eventKey,
+        path: path,
+      );
+
+  // 主候选（中位或种子）
+  var nextAt = lastAt.add(interval);
+  if (accept(nextAt, usedSeed ? 'seed' : 'primary')) {
+    return EventNextPrediction(
+      eventId: eventKey,
+      eventName: eventName,
+      lastAt: lastAt,
+      nextAt: nextAt,
+      colorHex: colorHex,
+      confidence: confidence,
+    );
+  }
+
+  // 种子失败护栏 → 不可预测（final 便于闭包内非空提升）
+  final medianFloor = primaryMedian;
+  if (usedSeed || medianFloor == null) {
+    AppDebugLog.predictInterval(
+      'reject seed cold eventIdLen=${eventKey.length}',
+    );
+    return null;
+  }
+
+  // 回退 1：时长 ≥ 主中位
+  final gePrimary = affinitySamples
+      .where((s) => s.interval >= medianFloor)
+      .toList();
+  if (gePrimary.length >= kMinSamplesForPrediction) {
+    final iv = _weightedMedianFromAffinity(gePrimary);
+    if (iv != null) {
+      nextAt = lastAt.add(iv);
+      if (accept(nextAt, 'gePrimary')) {
+        AppDebugLog.predictInterval(
+          'fallback gePrimary min=${iv.inMinutes} eventIdLen=${eventKey.length}',
+        );
+        return EventNextPrediction(
+          eventId: eventKey,
+          eventName: eventName,
+          lastAt: lastAt,
+          nextAt: nextAt,
+          colorHex: colorHex,
+          confidence: confidence,
+        );
+      }
+    }
+  }
+
+  // 回退 2：跨本地自然日
+  final crossDay =
+      affinitySamples.where((s) => crossesLocalCalendarDay(s.start, s.end)).toList();
+  if (crossDay.length >= kMinSamplesForPrediction) {
+    final iv = _weightedMedianFromAffinity(crossDay);
+    if (iv != null) {
+      nextAt = lastAt.add(iv);
+      if (accept(nextAt, 'crossDay')) {
+        AppDebugLog.predictInterval(
+          'fallback crossDay min=${iv.inMinutes} eventIdLen=${eventKey.length}',
+        );
+        return EventNextPrediction(
+          eventId: eventKey,
+          eventName: eventName,
+          lastAt: lastAt,
+          nextAt: nextAt,
+          colorHex: colorHex,
+          confidence: confidence,
+        );
+      }
+    }
+  }
+
+  AppDebugLog.predictInterval(
+    'reject all cold eventIdLen=${eventKey.length}',
+  );
+  return null;
 }
 
 String colorHexFromEvent(EventDefinition? def) {

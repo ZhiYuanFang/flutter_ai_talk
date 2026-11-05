@@ -12,6 +12,9 @@ const kEdgeDockOccupancyPredictionVoiceId = 'prediction-voice';
 /// 预测竖屏广场入口球占位 id（sticky）。
 const kEdgeDockOccupancyUcgSquareId = 'ucg-square';
 
+/// 预测竖屏桌面小组件入口球占位 id（sticky）。
+const kEdgeDockOccupancyHomeWidgetId = 'prediction-home-widget';
+
 /// 首页 tip 球占位 id（非 sticky）。
 const kEdgeDockOccupancyTipId = 'home-tip';
 

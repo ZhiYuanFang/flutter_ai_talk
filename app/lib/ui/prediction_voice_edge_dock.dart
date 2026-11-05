@@ -193,9 +193,9 @@ class _PredictionVoiceEdgeDockState extends State<PredictionVoiceEdgeDock> {
           top: center.dy - 14,
           child: caption,
         ),
+      // 锚右缘贴球（勿用 maxWidth 推 left，否则短文案会离球过远）
       DockEdge.right => Positioned(
-          left: (center.dx - radius - gap - maxCaptionWidth)
-              .clamp(0.0, bounds.width - maxCaptionWidth),
+          right: bounds.width - (center.dx - radius - gap),
           top: center.dy - 14,
           child: caption,
         ),

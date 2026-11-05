@@ -71,7 +71,6 @@ import 'ucg_square_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
-import 'widgets/prediction_widget_showcase_fab.dart';
 
 /// 投屏入口：锁定横屏（与 [_exitLandscapeToPortrait] 对称）。
 Future<void> _lockPredictionLandscapeCast() async {
@@ -514,18 +513,13 @@ class SmartPredictionScreen extends ConsumerWidget {
         ref.watch(homePagerIndexProvider) == HomePagerPage.prediction;
     final immersiveActive = !kIsWeb && isLandscape && predictionPageVisible;
 
-    // 竖屏秀小组件入口：须有正式 nextAt 预测；列表底留白避免遮挡
-    final hasFormalPrediction =
-        !useDemoSkeleton && realRows.any((r) => r.prediction != null);
-    final showWidgetShowcaseFab = hasFormalPrediction &&
-        !isLandscape &&
-        PredictionWidgetShowcaseFab.isPlatformSupported;
     // 广场资格开通后：预测竖屏贴边入口球（横屏/喂养不挂）
+    // 桌面小组件入口已上移主壳 EdgeDock，本页不再垫 FAB 底
     final showUcgSquareBall = kUcgHomePagerEnabled &&
         !isLandscape &&
         predictionPageVisible &&
         ref.watch(ucgEligibilityStateProvider).isQualified;
-    final cardsBottomPad = showWidgetShowcaseFab ? 96.0 : 24.0;
+    const cardsBottomPad = 24.0;
 
     // 横屏 chip 仍在本页；竖屏球已上移主壳，此处不再因竖屏 flag watch
     final landscapeVoice = (isLandscape && kPredictionLandscapeVoiceEnabled)
@@ -574,6 +568,29 @@ class SmartPredictionScreen extends ConsumerWidget {
           ),
         );
       }
+      // 竖屏热态：整卡长按切换 list↔grid（与 AppBar 同源）；横屏 / 骨架不参与
+      final VoidCallback? onLongPressLayoutToggle =
+          (useDemoSkeleton || isLandscape)
+              ? null
+              : () {
+                  HapticFeedback.lightImpact();
+                  final next = layout == PredictionCardsLayout.grid
+                      ? PredictionCardsLayout.list
+                      : PredictionCardsLayout.grid;
+                  unawaited(
+                    ref
+                        .read(predictionCardsLayoutProvider.notifier)
+                        .setLayout(next)
+                        .then((_) {
+                      return ref.read(clientUsageReporterProvider).reportEvent(
+                            next == PredictionCardsLayout.list
+                                ? ClientUsageEvents.predictionLayoutToList()
+                                : ClientUsageEvents.predictionLayoutToGrid(),
+                          );
+                    }),
+                  );
+                };
+
       // 热态加事件：关推演永远 add；开推演无 lastAt 仍 supplement；计时中不可点
       VoidCallback? addEventTapFor(SmartPredictionRow row,
           {HistoryRecord? activeTiming}) {
@@ -689,6 +706,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                           unawaited(onForecastToggle(row.eventId, v));
                         },
                   onCardTap: addEventTapFor(row, activeTiming: activeTiming),
+                  onLongPressLayout: onLongPressLayoutToggle,
                   onEditLastOccurrence: editLastTapFor(row),
                 );
               },
@@ -753,6 +771,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                       unawaited(onForecastToggle(row.eventId, v));
                     },
               onCardTap: addEventTapFor(row, activeTiming: activeTiming),
+              onLongPressLayout: onLongPressLayoutToggle,
               onEditLastOccurrence: editLastTapFor(row),
             );
           },
@@ -1102,7 +1121,7 @@ class SmartPredictionScreen extends ConsumerWidget {
             ],
           ),
 
-          // 竖屏语音球已上移 UcgHomeShell；本页仅保留广场贴边球
+          // 竖屏语音/小组件球已上移 UcgHomeShell；本页仅保留广场贴边球
           // 竖屏广场入口贴边球（资格开通后）
           if (showUcgSquareBall)
             Positioned.fill(
@@ -1113,14 +1132,6 @@ class SmartPredictionScreen extends ConsumerWidget {
                       occupied;
                 },
               ),
-            ),
-          // 竖屏桌面小组件入口（仅移动端竖屏）
-          if (showWidgetShowcaseFab)
-            const Positioned(
-              left: 16,
-              right: 16,
-              bottom: 12,
-              child: Center(child: PredictionWidgetShowcaseFab()),
             ),
         ],
       );
@@ -2297,6 +2308,7 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
     this.landscapeMetrics,
     this.onToggle,
     this.onCardTap,
+    this.onLongPressLayout,
     this.onEditLastOccurrence,
   });
 
@@ -2335,6 +2347,9 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 
   /// 仅网格态：整卡加事件；冷态引导登录/绑定。
   final VoidCallback? onCardTap;
+
+  /// 竖屏热态整卡长按切换布局；横屏 / 骨架为 null。
+  final VoidCallback? onLongPressLayout;
 
   /// 「上一次」文案：打开喂养同款编辑 Sheet；null 表示不可点。
   final VoidCallback? onEditLastOccurrence;
@@ -2534,28 +2549,31 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final compact = widget.compact;
     final enabled = row.forecastEnabled;
     final pred = row.prediction;
+    // 竖列表有准确率图区：纯对照卡（仅名+logo+开关+图）
+    final accuracyOnlyChrome = !compact && enabled && pred != null;
     // 计时中仅网格：名旁小 logo + elapsed + 停止
-    // 列表与网格均展示进行中 chrome + 可选 ETA
+    // 列表与网格均展示进行中 chrome + 可选 ETA（对照卡除外）
     final showActiveTiming = widget.activeTiming != null;
     final activeEtaLabel = (showActiveTiming &&
             widget.activeExpectEndAt != null)
         ? formatActiveTimingEtaLabel(widget.activeExpectEndAt!, now)
         : null;
-    // 计时中：叶子图/名/色；目录不可解析则回退根；预约 CTA 也需目录
+    // 计时中：叶子图/名/色；对照卡强制根身份，不跟叶子计时态
     final catalog = ref.watch(eventCatalogProvider).items;
     final leafDef = showActiveTiming
         ? lookupEventForRecord(catalog, widget.activeTiming!)
         : null;
-    final titleDef = showActiveTiming ? (leafDef ?? definition) : definition;
-    final titleName = showActiveTiming
+    final useTimingTitle = showActiveTiming && !accuracyOnlyChrome;
+    final titleDef = useTimingTitle ? (leafDef ?? definition) : definition;
+    final titleName = useTimingTitle
         ? ((leafDef?.name.trim().isNotEmpty ?? false)
             ? leafDef!.name.trim()
             : (widget.activeTiming!.eventName.trim().isNotEmpty
                 ? widget.activeTiming!.eventName.trim()
                 : row.eventName))
         : row.eventName;
-    // 叶子可解析用叶子色；否则回退根行 colorHex
-    final accent = showActiveTiming
+    // 叶子可解析用叶子色；对照卡 / 非计时用根色
+    final accent = useTimingTitle
         ? (leafDef != null
             ? resolveEventColor(context, leafDef)
             : _rootAccent(context))
@@ -2564,7 +2582,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final m = widget.landscapeMetrics;
     final titleLogoSize = m?.titleLogoSize ?? 28.0;
     final heroLogoSize = m?.heroLogoSize ?? 52.0;
-    final chartH = 96.0;
+    // 对照卡需给标题留高
+    final chartH = accuracyOnlyChrome ? 112.0 : 96.0;
     final switchScale = m?.switchScale ?? (compact ? 0.72 : 0.8);
     final switchColumnWidth = m?.switchColumnWidth ??
         (PredictionLandscapeCardMetrics.baselineSwitchWidth * switchScale);
@@ -2584,9 +2603,10 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         PredictionLandscapeCardMetrics.baselineCardBorderRadius;
     final toggleCaption = '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
-    // 热态卡有 lastAt 才展示「上一次」行；无则不渲染（避免「暂无」）。
+    // 热态卡有 lastAt 才展示「上一次」行；对照卡隐藏。
     // 「补充上一次」仍由 showAddLastOccurrence 在 lastAt==null 时给出。
-    final showLastOccurrence = !showActiveTiming &&
+    final showLastOccurrence = !accuracyOnlyChrome &&
+        !showActiveTiming &&
         widget.onToggle != null &&
         row.lastAt != null;
     final lastOccurrenceLabel = showLastOccurrence
@@ -2595,7 +2615,10 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     // 卡上 expect：duration（下次用时）永不展示；amount（下次用量）仅倒计时超时展示。
     // 计时中预计结束走 activeEtaLabel，不经此门闩。横屏紧凑省略叶子名。
     String? expectLabel;
-    if (pred != null && !showActiveTiming && pred.hasExpect) {
+    if (!accuracyOnlyChrome &&
+        pred != null &&
+        !showActiveTiming &&
+        pred.hasExpect) {
       final kind = pred.expectKind?.trim();
       if (kind == kExpectKindAmount && overdue) {
         expectLabel = formatPredictionExpectCardLabel(
@@ -2624,19 +2647,22 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final hotCard = widget.onToggle != null;
     final isAppointment =
         catalogRootIsAppointment(widget.row.eventId, catalog);
-    final showAddLastOccurrence = enabled &&
+    final showAddLastOccurrence = !accuracyOnlyChrome &&
+        enabled &&
         !showActiveTiming &&
         pred == null &&
         row.lastAt == null &&
         hotCard &&
         widget.onCardTap != null;
     // 预约：无预测时「补充下次」；非预约：有 lastAt 时「补充大概多久一次」
-    final showAppointmentNext = enabled &&
+    final showAppointmentNext = !accuracyOnlyChrome &&
+        enabled &&
         !showActiveTiming &&
         pred == null &&
         hotCard &&
         isAppointment;
-    final showIntervalRecall = enabled &&
+    final showIntervalRecall = !accuracyOnlyChrome &&
+        enabled &&
         !showActiveTiming &&
         pred == null &&
         row.lastAt != null &&
@@ -2701,43 +2727,45 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                   ),
                 ],
               ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  if (widget.relativeText != null)
-                    Expanded(
-                      child: Text(
-                        widget.relativeText!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.left,
-                        style: TextStyle(
-                          fontSize: relativeFontSize,
-                          color: accent,
-                          fontWeight: FontWeight.w500,
+              // 对照卡不展示 relative / 开关旁说明
+              if (!accuracyOnlyChrome)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (widget.relativeText != null)
+                      Expanded(
+                        child: Text(
+                          widget.relativeText!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.left,
+                          style: TextStyle(
+                            fontSize: relativeFontSize,
+                            color: accent,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      )
+                    else
+                      const Expanded(flex: 0, child: SizedBox.shrink()),
+                    SizedBox(width: captionRowGap),
+                    if (pred != null) ...[
+                      Expanded(
+                        child: Text(
+                          toggleCaption,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: captionFontSize,
+                            color: accent.withAlpha(153),
+                            fontWeight: FontWeight.w400,
+                          ),
                         ),
                       ),
-                    )
-                  else
-                    const Expanded(flex: 0, child: SizedBox.shrink()),
-                  SizedBox(width: captionRowGap),
-                  if (pred != null) ...[
-                    Expanded(
-                      child: Text(
-                        toggleCaption,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          fontSize: captionFontSize,
-                          color: accent.withAlpha(153),
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
+                    ],
                   ],
-                ],
-              ),
+                ),
               if (lastOccurrenceLabel != null) ...[
                 SizedBox(height: sectionGapSm),
                 Align(
@@ -2812,7 +2840,10 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
               ],
             ],
           ),
-          if (showActiveTiming && activeElapsed != null) ...[
+          // 对照卡隐藏计时中整块（含停止）
+          if (!accuracyOnlyChrome &&
+              showActiveTiming &&
+              activeElapsed != null) ...[
             SizedBox(height: sectionGapLg),
             Center(
               child: FittedBox(
@@ -2888,8 +2919,9 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 expectLabel: expectLabel,
               ),
             ],
-            // 横屏：预约有 pred 时同样展示可点 countdown；非预约仅图
-            if (enabled &&
+            // 非对照卡：预约竖卡可改约 countdown；对照卡只留准确率图
+            if (!accuracyOnlyChrome &&
+                enabled &&
                 pred != null &&
                 !compact &&
                 isAppointment &&
@@ -2910,8 +2942,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             if (enabled && pred != null && !compact) ...[
               const SizedBox(height: 8),
               SizedBox(
-                // 预约卡已有 countdown 时略压矮图区
-                height: isAppointment ? chartH * 0.72 : chartH,
+                height: chartH,
                 child: widget.chartLoading
                     ? Center(
                         child: Text(
@@ -2922,12 +2953,16 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                           ),
                         ),
                       )
-                    // 竖列表：近7日准确率柱；点柱卡内换小结
+                    // 竖列表：准确率柱 / 示例柱 / 点柱小结
                     : _PredictAccuracyChartPane(
+                        eventId: widget.row.eventId,
                         records: widget.accuracyRecords,
+                        catalog: catalog,
                         now: now,
                         accent: accent,
                         pastDaysBeforeToday: widget.pastDaysBeforeToday,
+                        oneShot: definition?.parsedEventType ==
+                            EventCatalogEventType.one,
                       ),
               ),
             ],
@@ -2953,12 +2988,13 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             // 事件品牌色经 accent 注入 panelGlass（α 在原子内）
             gradient: AppColor.panelGlassGradient(context, accent: accent),
           ),
-          child: widget.onCardTap == null
+          child: widget.onCardTap == null && widget.onLongPressLayout == null
               ? content
               : Material(
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: widget.onCardTap,
+                    onLongPress: widget.onLongPressLayout,
                     borderRadius: BorderRadius.circular(cardBorderRadius),
                     child: content,
                   ),
@@ -2969,19 +3005,27 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   }
 }
 
-/// 竖列表卡图区：近 N 日准确率柱 ↔ 点柱后当日预测小结。
+/// 竖列表卡图区：近 N 日准确率柱 ↔ 点柱后当日预测小结（无真样本时示例柱）。
 class _PredictAccuracyChartPane extends StatefulWidget {
   const _PredictAccuracyChartPane({
+    required this.eventId,
     required this.records,
+    required this.catalog,
     required this.now,
     required this.accent,
     required this.pastDaysBeforeToday,
+    this.oneShot = false,
   });
 
+  final String eventId;
   final List<HistoryRecord> records;
+  final List<EventDefinition> catalog;
   final DateTime now;
   final Color accent;
   final int pastDaysBeforeToday;
+
+  /// 一次性事件：示例细节不含量段
+  final bool oneShot;
 
   @override
   State<_PredictAccuracyChartPane> createState() =>
@@ -2991,6 +3035,9 @@ class _PredictAccuracyChartPane extends StatefulWidget {
 class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
   /// 非 null 时图区展示该日小结
   DateTime? _summaryDay;
+
+  /// 当前小结是否来自示例柱（有真样本后须清掉）
+  bool _summaryIsSample = false;
 
   /// Down 时缓存柱索引（TapUp 时 spot 可能已空）
   int? _pendingBarIndex;
@@ -3011,37 +3058,161 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
         '${l.minute.toString().padLeft(2, '0')}';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // 阻断冒泡到整卡 InkWell，避免点柱误触发加事件
-    return GestureDetector(
-      onTap: () {},
-      behavior: HitTestBehavior.opaque,
-      child: _summaryDay == null ? _buildBars(context) : _buildSummary(context),
-    );
+  /// 合成分 → 绿/黄/红
+  static Color _trafficColor(PredictAccuracyTraffic t) {
+    switch (t) {
+      case PredictAccuracyTraffic.green:
+        return const Color(0xFF2CB771);
+      case PredictAccuracyTraffic.yellow:
+        return const Color(0xFFE6A23C);
+      case PredictAccuracyTraffic.red:
+        return const Color(0xFFE45B5B);
+    }
   }
 
-  Widget _buildBars(BuildContext context) {
+  /// 细节行：预计 HH:mm[ · 量] → 实际 HH:mm[ · 量]
+  static String _detailLine(PredictAccuracySample s) {
+    final eq = s.expectQtyLabel;
+    final aq = s.actualQtyLabel;
+    final left = (eq != null && eq.isNotEmpty)
+        ? '预计 ${_fmtHm(s.expectAt)} · $eq'
+        : '预计 ${_fmtHm(s.expectAt)}';
+    final right = (aq != null && aq.isNotEmpty)
+        ? '实际 ${_fmtHm(s.actualAt)} · $aq'
+        : '实际 ${_fmtHm(s.actualAt)}';
+    return '$left → $right';
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final days = predictAccuracyWindowDays(
       now: widget.now,
       pastDaysBeforeToday: widget.pastDaysBeforeToday,
     );
-    final samples = predictAccuracySamplesFromHistory(widget.records);
-    final percents =
-        predictDailyAccuracyPercents(days: days, samples: samples);
-    final hasAny = percents.any((e) => e != null);
+    final realSamples = predictAccuracySamplesFromHistory(
+      widget.records,
+      catalog: widget.catalog,
+    );
+    final realPercents =
+        predictDailyAccuracyPercents(days: days, samples: realSamples);
+    final hasAny = realPercents.any((e) => e != null);
+
+    // 真样本到达后退出示例小结，避免假数据残留
+    if (hasAny && _summaryIsSample) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_summaryIsSample) return;
+        setState(() {
+          _summaryDay = null;
+          _summaryIsSample = false;
+        });
+      });
+    }
+
+    // 阻断冒泡到整卡 InkWell，避免点柱误触发加事件
+    return GestureDetector(
+      onTap: () {},
+      behavior: HitTestBehavior.opaque,
+      child: _summaryDay == null
+          ? _buildBars(
+              context,
+              days: days,
+              realPercents: realPercents,
+              hasAny: hasAny,
+            )
+          : _buildSummary(context, isSample: _summaryIsSample && !hasAny),
+    );
+  }
+
+  Widget _chartTitle({required bool isSample}) {
+    final accent = widget.accent;
+    final style = TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w600,
+      color: accent,
+    );
+    if (!isSample) {
+      return Text(
+        '预测准确率分布图',
+        textAlign: TextAlign.center,
+        style: style,
+      );
+    }
+    return Text.rich(
+      TextSpan(
+        style: style,
+        children: const [
+          TextSpan(text: '预测准确率分布图'),
+          TextSpan(text: ' · '),
+          TextSpan(text: '示例数据'),
+        ],
+      ),
+      textAlign: TextAlign.center,
+    );
+  }
+
+  Widget _buildBars(
+    BuildContext context, {
+    required List<DateTime> days,
+    required List<int?> realPercents,
+    required bool hasAny,
+  }) {
     final muted = AppColor.textOnPanelGlassMuted(context);
     final today = predictAccuracyDayKey(widget.now);
 
+    // 无真对照：示例柱（不写 history）
     if (!hasAny) {
-      return Center(
-        child: Text(
-          '暂无预测对照',
-          style: TextStyle(fontSize: 11, color: muted),
-        ),
+      final samplePct = predictAccuracySamplePercents(
+        eventId: widget.eventId,
+        dayCount: days.length,
+      );
+      final percents = <int?>[for (final p in samplePct) p];
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _chartTitle(isSample: true),
+          const SizedBox(height: 2),
+          Expanded(
+            child: _accuracyBarChart(
+              context,
+              days: days,
+              percents: percents,
+              today: today,
+              muted: muted,
+              isSample: true,
+            ),
+          ),
+        ],
       );
     }
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _chartTitle(isSample: false),
+        const SizedBox(height: 2),
+        Expanded(
+          child: _accuracyBarChart(
+            context,
+            days: days,
+            percents: realPercents,
+            today: today,
+            muted: muted,
+            isSample: false,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 共用柱图（真 / 示例）；示例日全部可点。
+  Widget _accuracyBarChart(
+    BuildContext context, {
+    required List<DateTime> days,
+    required List<int?> percents,
+    required DateTime today,
+    required Color muted,
+    required bool isSample,
+  }) {
     final accent = widget.accent;
     final topHighlight = Color.lerp(accent, Colors.white, 0.35) ?? accent;
 
@@ -3057,14 +3228,12 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
               x: i,
               barRods: [
                 BarChartRodData(
-                  // 无样本日高度 0 + 透明，不画可见柱
+                  // 真路径无样本日高度 0 + 透明；示例日必有 %
                   toY: (percents[i] ?? 0).toDouble(),
                   width: days.length > 8 ? 8 : 10,
                   borderRadius:
                       const BorderRadius.vertical(top: Radius.circular(6)),
-                  color: percents[i] == null
-                      ? Colors.transparent
-                      : null,
+                  color: percents[i] == null ? Colors.transparent : null,
                   gradient: percents[i] == null
                       ? null
                       : LinearGradient(
@@ -3086,7 +3255,6 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           leftTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          // 柱顶准确率 %
           topTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -3142,9 +3310,12 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
               final i = _pendingBarIndex;
               _pendingBarIndex = null;
               if (i == null || i < 0 || i >= days.length) return;
-              // 空日不进小结
+              // 真路径空日不进小结；示例全日可进
               if (percents[i] == null) return;
-              setState(() => _summaryDay = days[i]);
+              setState(() {
+                _summaryDay = days[i];
+                _summaryIsSample = isSample;
+              });
             }
           },
           touchTooltipData: BarTouchTooltipData(
@@ -3155,43 +3326,57 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
     );
   }
 
-  Widget _buildSummary(BuildContext context) {
+  Widget _buildSummary(BuildContext context, {required bool isSample}) {
     final day = _summaryDay!;
-    final samples = predictAccuracySamplesForDay(
-      samples: predictAccuracySamplesFromHistory(widget.records),
-      day: day,
-    );
+    final samples = isSample
+        ? predictAccuracySampleRowsForDay(
+            eventId: widget.eventId,
+            day: day,
+            oneShot: widget.oneShot,
+          )
+        : predictAccuracySamplesForDay(
+            samples: predictAccuracySamplesFromHistory(
+              widget.records,
+              catalog: widget.catalog,
+            ),
+            day: day,
+          );
     final muted = AppColor.textOnPanelGlassMuted(context);
-    final onGlass = AppColor.textOnPanelGlass(context);
     final today = predictAccuracyDayKey(widget.now);
     final dayLabel = _xAxisDayLabel(day, today);
+    final title =
+        isSample ? '$dayLabel · 预测小结 · 示例' : '$dayLabel · 预测小结';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 返回近7日柱图
+        // 左箭头返回柱图（不用「近7日」）；标题随事件色
         Row(
           children: [
             InkWell(
-              onTap: () => setState(() => _summaryDay = null),
+              onTap: () => setState(() {
+                _summaryDay = null;
+                _summaryIsSample = false;
+              }),
               borderRadius: BorderRadius.circular(6),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                child: Text(
-                  '近7日',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: widget.accent,
-                  ),
+                child: Icon(
+                  Icons.arrow_back_ios_new,
+                  size: 14,
+                  color: widget.accent,
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: Text(
-                '$dayLabel · 预测小结',
-                style: TextStyle(fontSize: 11, color: muted),
+                title,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: widget.accent,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -3212,27 +3397,15 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
                   separatorBuilder: (_, __) => const SizedBox(height: 4),
                   itemBuilder: (context, i) {
                     final s = samples[i];
-                    return Row(
-                      children: [
-                        Text(
-                          s.hit ? '准' : '偏',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: s.hit
-                                ? widget.accent
-                                : muted,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            '预计 ${_fmtHm(s.expectAt)} → 实际 ${_fmtHm(s.actualAt)}',
-                            style: TextStyle(fontSize: 11, color: onGlass),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                    return Text(
+                      _detailLine(s),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: _trafficColor(s.traffic),
+                      ),
                     );
                   },
                 ),

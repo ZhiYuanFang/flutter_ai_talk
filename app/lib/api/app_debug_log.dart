@@ -108,6 +108,12 @@ abstract final class AppDebugLog {
     debugPrint('[PredictImminent] ${_ts()} $message');
   }
 
+  /// 间隔预测：钟点亲和投票 / 直方图护栏（无 token、无全量历史）。
+  static void predictInterval(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[PredictInterval] ${_ts()} $message');
+  }
+
   /// 进行中计时 ETA 同步（active-eta Redis）。
   static void predictActiveEta(String message) {
     if (!kDebugMode) return;

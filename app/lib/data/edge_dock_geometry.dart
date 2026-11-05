@@ -25,6 +25,10 @@ const kHomeInputDockDefaultEdge = kPredictionVoiceDockDefaultEdge;
 const kHomeInputDockDefaultAlong = kPredictionVoiceDockDefaultAlong;
 const kHomeInputDockSnapThreshold = kDefaultEdgeDockSnapThreshold;
 
+/// 小组件贴边球默认：右侧偏下，错开广场右中。
+const kHomeWidgetDockDefaultEdge = DockEdge.right;
+const kHomeWidgetDockDefaultAlong = 0.72;
+
 DockEdge? parseDockEdge(String? raw) {
   return switch (raw) {
     'top' => DockEdge.top,
