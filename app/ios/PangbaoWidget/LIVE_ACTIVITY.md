@@ -53,17 +53,28 @@ Go twin：`live-activity-expect-lock-go`（已完成）：开火透传 expect*�
 ## Token
 
 `POST /app/api/push/live-activity/register`  
-`tokenKind`=`push_to_start`|`activity`，`attributesKind`=`imminent`|`timing`。
+Body：**非零 `wxId`**、`deviceKey`、`tokenKind`=`push_to_start`|`activity`、`attributesKind`=`imminent`|`timing`、`token`；`activity` 时 `activityId` 非空。
+
+- **对端**：`go_ai_talk` change `live-activity-register-no-auth-go` — gateway **不做 Bearer 拦截**；按 body.`wxId` 落 `push_live_activity_token`。
+- **客户端主路径**：Push-to-Start 唤醒窗内 **原生 URLSession** 直报（不附 Authorization）；登录后把 `wxId` / `deviceKey` / `apiBaseUrl` 写入 App Group + Keychain（`LiveActivityNativeRegister`）。
+- **Dart**：可选补传（同契约 body + 可附带 Bearer，服务端忽略）；**不**把「打开 App 自动 restartListening 补 activity」当作硬兜底；设置页手动重试仅排障。
 
 主 App `PredictLiveActivityBridge`：
 
 - **Early observe**：`didFinishLaunching` 即订 Push-to-Start / per-activity（不依赖 Dart `startListening`）。
-- **补扫**：`beginObserving` 枚举 `Activity.activities` 再订 `activityUpdates`，覆盖 App 未打开时已展示的 LA。
-- **Inbox**：channel / Dart 未可收时进程内暂存（去重）；`startListening` → `onDartListening` 后 flush。登出 `pauseDartListening`，观察不停。
-- **HTTP**：仅 Dart 已登录后 `live-activity/register`；成功身份缓存防重复 POST。
+- **补扫**：`beginObserving` 枚举 `Activity.activities` 再订 `activityUpdates`。
+- **原生 register**：`deliver` 时先 `LiveActivityNativeRegister.registerIfPossible`（有缓存 wxId 即 POST）。
+- **Inbox**：channel / Dart 未可收时进程内暂存；`startListening` → flush 供 Dart 补传。登出 `pauseDartListening` + `clearRegisterContext`。
 - **禁止** `Activity.request`。
 
-真机核对：App killed → Push-to-Start 出锁屏 LA 后（系统唤醒或随后打开 App）应出现 `register ok kind=activity`；前台起 LA 路径回归不破。
+### 联调检查清单（Flutter ↔ Go twin）
+
+1. Go 已合：精确豁免 `POST /app/api/push/live-activity/register`；body 必含 `wxId`。
+2. App 已登录一次（写入原生上下文）→ kill → Push-to-Start 出锁屏 → **不打开 App** → 服务端应有该 `wxId` 的 `tokenKind=activity`。
+3. 登出后清上下文 → 再唤醒不得按旧 `wxId` 落库。
+4. 前台 token 轮转 / 设置页手动重试仍可用。
+
+真机核对：killed → Push-to-Start → **不打开** 亦应 `nativeRegister ok`（或对端表有 activity 行）；前台起 LA 路径回归不破。
 
 ## 深链
 

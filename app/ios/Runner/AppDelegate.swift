@@ -239,6 +239,28 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
         result(nil)
       case "getSystemStatus":
         result(PredictLiveActivityBridge.systemStatus())
+      case "setRegisterContext":
+        // Dart 登录后写入 wxId/deviceKey/apiBase，供唤醒窗原生 register
+        let map = call.arguments as? [String: Any] ?? [:]
+        let wxRaw = map["wxId"]
+        let wxId: Int64
+        if let n = wxRaw as? NSNumber {
+          wxId = n.int64Value
+        } else {
+          wxId = Int64("\(wxRaw ?? "")") ?? 0
+        }
+        let deviceKey = (map["deviceKey"] as? String) ?? ""
+        let apiBase = (map["apiBaseUrl"] as? String) ?? ""
+        LiveActivityNativeRegister.setContext(
+          wxId: wxId,
+          deviceKey: deviceKey,
+          apiBaseUrl: apiBase
+        )
+        result(nil)
+      case "clearRegisterContext":
+        // 登出：清缓存，避免旧 wxId 继续上报
+        LiveActivityNativeRegister.clearContext()
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }

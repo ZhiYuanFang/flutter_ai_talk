@@ -106,6 +106,15 @@ abstract final class ClientUsageEvents {
   static const feedingAnalyzeBtnClick =
       ClientUsageEvent('feeding_analyze_btn_click', '点击AI智能分析');
 
+  /// 喂养按日汇总 chip 打开单日汇总图。
+  static ClientUsageEvent feedingDaySummaryChartOpen(String eventLabel) {
+    final label = _sanitizeDescPart(eventLabel);
+    return ClientUsageEvent(
+      'feeding_day_summary_chart_open',
+      '打开当日汇总图（$label）',
+    );
+  }
+
   // —— 消息通知偏好 ——
   static const notificationPrefOn =
       ClientUsageEvent('notification_pref_on', '开启消息通知');

@@ -7,6 +7,8 @@ import '../api/app_debug_log.dart';
 import '../config/app_notification_preference_store.dart';
 import '../providers/authorized_api_client_provider.dart';
 import '../providers/session_provider.dart';
+import '../push/live_activity_native.dart';
+import '../push/live_activity_register_context_sync.dart';
 import '../push/live_activity_registration_service.dart';
 import '../ucg/push/ucg_push_registration_service.dart';
 
@@ -65,12 +67,28 @@ final appPushBootstrapProvider = Provider<void>((ref) {
   ref.listen<bool>(sessionProvider.select((s) => s.isLoggedIn), (prev, loggedIn) {
     if (!loggedIn) {
       resetAppPushRegisterState();
+      // 登出：清原生 wxId 缓存，避免旧账号继续免鉴权上报
+      unawaited(LiveActivityNative.clearRegisterContext());
       unawaited(push.unregister());
       unawaited(la.stop());
       return;
     }
     unawaited(syncAppPushRegistration(ref));
   });
+
+  // access 轮换 / 初登：刷新原生 register 上下文（wxId 可能变）
+  ref.listen<String?>(
+    sessionProvider.select((s) => s.accessToken),
+    (prev, next) {
+      if (next == null || next.isEmpty) return;
+      unawaited(
+        syncLiveActivityRegisterContext(
+          accessToken: next,
+          pushRegistration: push,
+        ),
+      );
+    },
+  );
 
   if (ref.read(sessionProvider).isLoggedIn) {
     unawaited(syncAppPushRegistration(ref));
@@ -108,10 +126,16 @@ Future<void> _syncAppPushRegistrationOnce(dynamic ref) async {
       as LiveActivityRegistrationService;
   if (!session.isLoggedIn) {
     resetAppPushRegisterState();
+    await LiveActivityNative.clearRegisterContext();
     await push.unregister();
     await la.stop();
     return;
   }
+  // 唤醒窗原生 register 依赖缓存的 wxId/deviceKey/apiBase
+  await syncLiveActivityRegisterContext(
+    accessToken: session.accessToken,
+    pushRegistration: push,
+  );
   // 消息偏好仅约束设备 push；LA 监听与偏好解耦。
   final preferenceOn = await AppNotificationPreferenceStore.load();
   if (!preferenceOn) {
@@ -133,6 +157,6 @@ Future<void> _syncAppPushRegistrationOnce(dynamic ref) async {
       }
     }
   }
-  // 已登录即可听 LA（禁止本地 Activity.request）
+  // 已登录即可听 LA（Dart 补传）；主路径为原生免鉴权 register
   unawaited(la.startIfEligible(isLoggedIn: true));
 }

@@ -4,15 +4,19 @@ import 'models.dart';
 /// 按自然日分组的历史列表（用于主页 Sliver；日从新到旧，日内记录从新到旧）。
 class HomeHistoryDayGroup {
   const HomeHistoryDayGroup({
+    required this.dayLocal,
     required this.dayLabel,
     required this.recordsNewestFirst,
   });
 
+  /// 该分块本地自然日（年/月/日，时分秒为 0）。
+  final DateTime dayLocal;
   final String dayLabel;
   final List<HistoryRecord> recordsNewestFirst;
 
   /// 日内时间升序（旧→新），用于正向列表：块顶为日期头、块底为当日最新。
-  List<HistoryRecord> get recordsOldestFirst => recordsNewestFirst.reversed.toList();
+  List<HistoryRecord> get recordsOldestFirst =>
+      recordsNewestFirst.reversed.toList();
 }
 
 /// 扁平条目（调试或备用）；主页滚动优先用 [buildHomeHistoryDayGroups]。
@@ -34,6 +38,7 @@ final class HomeHistoryDayHeaderEntry extends HomeHistoryListEntry {
 }
 
 /// [itemsAsc] 时间升序（旧→新），与主页 `_items` 一致。
+/// 日键为 [historyHomeDayKeyInstant]（`startTime`）。
 List<HomeHistoryDayGroup> buildHomeHistoryDayGroups(
   List<HistoryRecord> itemsAsc, [
   DateTime? now,
@@ -44,7 +49,7 @@ List<HomeHistoryDayGroup> buildHomeHistoryDayGroups(
   final byDay = <DateTime, List<HistoryRecord>>{};
 
   for (final r in itemsAsc) {
-    final t = historyHomeDisplayInstant(r);
+    final t = historyHomeDayKeyInstant(r).toLocal();
     final key = DateTime(t.year, t.month, t.day);
     byDay.putIfAbsent(key, () => []).add(r);
   }
@@ -54,6 +59,7 @@ List<HomeHistoryDayGroup> buildHomeHistoryDayGroups(
   final groups = <HomeHistoryDayGroup>[];
   for (final day in dayKeys) {
     final list = byDay[day]!;
+    // 日内展示序仍按 display instant（行时刻），与旧行为一致。
     list.sort((a, b) {
       final ta = historyHomeDisplayInstant(a);
       final tb = historyHomeDisplayInstant(b);
@@ -61,6 +67,7 @@ List<HomeHistoryDayGroup> buildHomeHistoryDayGroups(
     });
     groups.add(
       HomeHistoryDayGroup(
+        dayLocal: day,
         dayLabel: formatHistoryDaySectionLabel(day, nowLocal),
         recordsNewestFirst: list,
       ),

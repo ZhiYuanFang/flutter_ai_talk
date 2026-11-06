@@ -59,6 +59,42 @@ class LiveActivityNative {
     }
   }
 
+  /// 登录后写入原生可读 register 上下文（唤醒窗免鉴权 POST 用）。
+  static Future<void> setRegisterContext({
+    required int wxId,
+    required String deviceKey,
+    required String apiBaseUrl,
+  }) async {
+    if (!_supported) return;
+    if (wxId <= 0) return;
+    final dk = deviceKey.trim();
+    final base = apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    if (dk.isEmpty || base.isEmpty) return;
+    try {
+      await _channel.invokeMethod<void>('setRegisterContext', {
+        'wxId': wxId,
+        'deviceKey': dk,
+        'apiBaseUrl': base,
+      });
+      AppDebugLog.liveActivity(
+        'setRegisterContext ok wxId=$wxId deviceKeyLen=${dk.length}',
+      );
+    } catch (e) {
+      AppDebugLog.liveActivity('setRegisterContext err=$e');
+    }
+  }
+
+  /// 登出：清除原生 wxId/deviceKey/apiBase，避免旧账号继续上报。
+  static Future<void> clearRegisterContext() async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('clearRegisterContext');
+      AppDebugLog.liveActivity('clearRegisterContext ok');
+    } catch (e) {
+      AppDebugLog.liveActivity('clearRegisterContext err=$e');
+    }
+  }
+
   /// 探测系统是否允许 Live Activities / 是否支持 Push-to-Start / PTS deliver 计数。
   static Future<LiveActivitySystemInfo> getSystemStatus() async {
     if (!_supported) {

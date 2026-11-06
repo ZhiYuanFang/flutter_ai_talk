@@ -8,13 +8,14 @@ import '../api/api_exceptions.dart';
 import '../api/app_debug_log.dart';
 import '../config/live_activity_registration_store.dart';
 import '../data/event_catalog_store.dart';
+import '../session/token_expiry.dart';
 import '../ucg/push/ucg_push_registration_service.dart';
 import 'live_activity_event_visuals.dart';
 import 'live_activity_native.dart';
 import 'live_activity_registration_status.dart';
 
 /// iOS Live Activity token → `POST /app/api/push/live-activity/register`。
-/// MUST NOT 走 `/app/api/push/register`。
+/// Dart 为可选补传；唤醒窗主路径在原生免鉴权 POST。MUST NOT 走 `/app/api/push/register`。
 class LiveActivityRegistrationService {
   LiveActivityRegistrationService({
     required ApiClient api,
@@ -45,7 +46,8 @@ class LiveActivityRegistrationService {
   final ValueNotifier<LiveActivityRegistrationStatus> status =
       ValueNotifier(LiveActivityRegistrationStatus.initial());
 
-  /// 已登录时启动原生监听并转发 HTTP（与消息通知偏好无关）。
+  /// 已登录时启动原生监听并做 Dart 侧补传 HTTP（与消息通知偏好无关）。
+  /// 唤醒窗主路径不依赖本方法；此处不新增 resume 自动 restartListening。
   Future<void> startIfEligible({required bool isLoggedIn}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     if (!isLoggedIn) {
@@ -54,7 +56,7 @@ class LiveActivityRegistrationService {
     }
     if (_started) return;
     _started = true;
-    // 先订阅再通知原生，避免 broadcast 丢首包
+    // 先订阅再通知原生，避免 broadcast 丢首包（Dart 补传）
     await _sub?.cancel();
     _sub = LiveActivityNative.tokenStream.listen((ev) {
       unawaited(_register(ev));
@@ -64,7 +66,7 @@ class LiveActivityRegistrationService {
     _patchStatus(listening: true);
     // 预热 App Group 视觉索引，供锁屏 Extension 按 eventId 取图/色
     unawaited(_syncEventVisuals());
-    AppDebugLog.liveActivity('registration service started');
+    AppDebugLog.liveActivity('registration service started (dart supplemental)');
   }
 
   Future<void> _syncEventVisuals() async {
@@ -313,12 +315,19 @@ class LiveActivityRegistrationService {
       }
     }
     try {
+      // 与原生免鉴权契约对齐：body 必含非零 wxId（服务端不依赖 Bearer）
+      final wxRaw = readJwtWxId(_api.accessTokenProvider());
+      final wxId = int.tryParse(wxRaw?.trim() ?? '') ?? 0;
+      if (wxId <= 0) {
+        AppDebugLog.liveActivity('skip register no wxId');
+        return;
+      }
       final deviceKey = await _pushRegistration.deviceKey();
       final activityId =
           kind == 'activity' ? ev.activityId!.trim() : '';
-      // 成功身份：不变则跳过重复 POST（early observe + 补扫易连打）
+      // 成功身份：含 wxId，与原生去重键对齐
       final identity =
-          '$deviceKey|$kind|$attr|$activityId|${ev.token}';
+          '$wxId|$deviceKey|$kind|$attr|$activityId|${ev.token}';
       if (_registeredIdentities.contains(identity)) {
         AppDebugLog.liveActivity(
           'register skip cached kind=$kind attr=$attr '
@@ -332,6 +341,7 @@ class LiveActivityRegistrationService {
         return;
       }
       final body = <String, dynamic>{
+        'wxId': wxId,
         'deviceKey': deviceKey,
         'tokenKind': kind,
         'attributesKind': attr,
@@ -340,7 +350,7 @@ class LiveActivityRegistrationService {
       if (kind == 'activity') {
         body['activityId'] = activityId;
       }
-      // 专用 LA 路径，禁止复用 device push register
+      // 专用 LA 路径；可附带 Bearer（服务端忽略），禁止复用 device push register
       await _api.postJsonEnvelope(
         '/app/api/push/live-activity/register',
         body,

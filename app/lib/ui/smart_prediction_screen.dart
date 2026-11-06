@@ -27,7 +27,6 @@ import '../data/feature_unlock_models.dart';
 import '../data/smart_prediction_rows.dart';
 import '../data/trend_predict_accuracy.dart';
 import '../providers/settings_baby.dart';
-import '../home_widget/format_widget_relative_time.dart';
 import '../api/api_exceptions.dart';
 import '../providers/appointment_next_provider.dart';
 import '../providers/cash_vip_provider.dart';
@@ -44,6 +43,7 @@ import '../providers/prediction_layout_provider.dart';
 import '../providers/prediction_range_history_provider.dart';
 import '../providers/prediction_recall_provider.dart';
 import '../providers/session_provider.dart';
+import '../home_widget/format_widget_relative_time.dart';
 import '../providers/baby_display_provider.dart';
 import '../providers/app_notification_preference_provider.dart';
 import '../providers/app_push_registration_provider.dart';
@@ -1005,9 +1005,6 @@ class SmartPredictionScreen extends ConsumerWidget {
                     ),
 
                     IconButton(
-                      tooltip: layout == PredictionCardsLayout.grid
-                          ? '切换为纵向列表'
-                          : '切换为瀑布流',
                       onPressed: () {
                         final cur = layout;
                         final next = cur == PredictionCardsLayout.grid
@@ -2411,6 +2408,60 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     );
   }
 
+  /// 钟点把握不足软标；无则不占位。
+  Widget? _buildTodConfidenceLowLine({
+    required bool show,
+    required double captionFontSize,
+    required Color accent,
+  }) {
+    if (!show) return null;
+    return Text(
+      '此刻把握不足',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: captionFontSize,
+        color: accent.withValues(alpha: 0.7),
+        fontWeight: FontWeight.w400,
+      ),
+    );
+  }
+
+  /// 时刻态大数字：日期前缀更小，HH:mm 保持倒计时字号。
+  Widget _buildEstimatedClockDigits({
+    required PredictionEstimatedClockParts parts,
+    required double countdownFontSize,
+    required Color accent,
+  }) {
+    final hmStyle = TextStyle(
+      fontSize: countdownFontSize,
+      fontWeight: FontWeight.w700,
+      color: accent,
+      fontFeatures: const [FontFeature.tabularFigures()],
+      letterSpacing: 0.5,
+    );
+    final prefix = parts.datePrefix;
+    if (prefix == null || prefix.isEmpty) {
+      return Text(parts.hm, style: hmStyle);
+    }
+    final dateStyle = TextStyle(
+      fontSize: countdownFontSize * 0.58,
+      fontWeight: FontWeight.w500,
+      color: accent.withValues(alpha: 0.85),
+    );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(prefix, style: dateStyle),
+        const SizedBox(width: 6),
+        Text(parts.hm, style: hmStyle),
+      ],
+    );
+  }
+
   Widget _buildAppointmentAwareCountdown({
     required bool isAppointment,
     required String titleName,
@@ -2421,22 +2472,63 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     required Color accent,
     required EventDefinition? definition,
     String? expectLabel,
+    bool todConfidenceLow = false,
+    /// 逾期或剩余 &gt;6h：只显示预估时刻。
+    bool showEstimatedClock = false,
+    PredictionEstimatedClockParts? clockParts,
   }) {
-    // expect 紧贴倒计时上方（大 logo 已在外层更上方）
+    // 预约根不展示钟点软标
+    final showSoft = !isAppointment && todConfidenceLow;
+    // 时刻态：软标并入标题「此刻把握不足 · 预计…时刻」；倒计时态仍独占一行
+    final softInlineInCaption = showSoft && showEstimatedClock;
+    final softLine = _buildTodConfidenceLowLine(
+      show: showSoft && !softInlineInCaption,
+      captionFontSize: captionFontSize,
+      accent: accent,
+    );
     final expectLine = _buildExpectAboveCountdownLine(
       expectLabel: expectLabel,
       captionFontSize: captionFontSize,
       accent: accent,
     );
+    // 时刻态改「预计…时刻」，倒计时态保持原标题；时刻态软标同行
+    final baseCaption = showEstimatedClock
+        ? '预计$titleName时刻'
+        : '距离下次$titleName倒计时';
+    final countdownCaption =
+        softInlineInCaption ? '此刻把握不足 · $baseCaption' : baseCaption;
+    final digits = showEstimatedClock && clockParts != null
+        ? _buildEstimatedClockDigits(
+            parts: clockParts,
+            countdownFontSize: countdownFontSize,
+            accent: accent,
+          )
+        : Text(
+            countdown,
+            style: TextStyle(
+              fontSize: countdownFontSize,
+              fontWeight: FontWeight.w700,
+              color: accent,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              letterSpacing: 0.5,
+            ),
+          );
     final block = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (softLine != null) ...[
+          softLine,
+          SizedBox(height: sectionGapSm),
+        ],
         if (expectLine != null) ...[
           expectLine,
           SizedBox(height: sectionGapSm),
         ],
         Text(
-          '距离下次$titleName倒计时',
+          countdownCaption,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: captionFontSize,
             color: accent.withAlpha(153),
@@ -2447,16 +2539,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         Center(
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(
-              countdown,
-              style: TextStyle(
-                fontSize: countdownFontSize,
-                fontWeight: FontWeight.w700,
-                color: accent,
-                fontFeatures: const [FontFeature.tabularFigures()],
-                letterSpacing: 0.5,
-              ),
-            ),
+            child: digits,
           ),
         ),
       ],
@@ -2627,7 +2710,17 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         );
       }
     }
-    // 瀑布流倒计时文案（停表见 formatPredictionCountdownHms）
+    // 时刻态：逾期或剩余 >6h；否则 H:MM:SS
+    final showEstimatedClock = pred != null &&
+        !showActiveTiming &&
+        predictionShowsEstimatedClock(
+          pred.nextAt,
+          now,
+          overdue: overdue,
+        );
+    final clockParts = (pred != null && showEstimatedClock)
+        ? predictionEstimatedClockParts(pred.nextAt, now)
+        : null;
     final countdown = (pred == null || showActiveTiming)
         ? null
         : formatPredictionCountdownHms(pred.nextAt, now, overdue: overdue);
@@ -2668,7 +2761,6 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         row.lastAt != null &&
         hotCard &&
         !isAppointment;
-
     // 标题旁 logo：列表、计时中、或手机后列紧凑
     final showTitleLogo = !showHeroLogo;
     final content = Opacity(
@@ -2917,6 +3009,9 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 definition: titleDef ?? definition,
                 // 有大 logo 时位于 logo 与倒计时之间；无大 logo 仍贴倒计时
                 expectLabel: expectLabel,
+                todConfidenceLow: pred.todConfidenceLow,
+                showEstimatedClock: showEstimatedClock,
+                clockParts: clockParts,
               ),
             ],
             // 非对照卡：预约竖卡可改约 countdown；对照卡只留准确率图
@@ -2937,6 +3032,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 accent: accent,
                 definition: titleDef ?? definition,
                 expectLabel: expectLabel,
+                showEstimatedClock: showEstimatedClock,
+                clockParts: clockParts,
               ),
             ],
             if (enabled && pred != null && !compact) ...[

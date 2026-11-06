@@ -38,11 +38,64 @@ String formatWidgetPredictSubtitle(DateTime nextAt, DateTime now, {required bool
   return formatWidgetUpcoming(nextAt.difference(now));
 }
 
-/// 网格倒计时：`H:MM:SS`（小时可超过 24；分秒两位补零）。
-/// [overdue] 为真时固定 `00:00:00`（停表）。
+/// 远距改显预估时刻的阈值（严格大于）。
+const kPredictionFarCountdownThreshold = Duration(hours: 6);
+
+/// 预估时刻拆分：日期前缀可空（今天无前缀、不加「今天」）。
+class PredictionEstimatedClockParts {
+  const PredictionEstimatedClockParts({this.datePrefix, required this.hm});
+
+  final String? datePrefix;
+  final String hm;
+
+  /// 单行拼接（无 UI 字号区分时用）。
+  String get combined =>
+      datePrefix == null ? hm : '$datePrefix $hm';
+}
+
+/// 预估 `nextAt` 本地钟点 parts。
+PredictionEstimatedClockParts predictionEstimatedClockParts(
+  DateTime nextAt,
+  DateTime now,
+) {
+  final local = nextAt.toLocal();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(local.year, local.month, local.day);
+  final hm =
+      '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  if (day == today) {
+    return PredictionEstimatedClockParts(hm: hm);
+  }
+  if (day == today.subtract(const Duration(days: 1))) {
+    return PredictionEstimatedClockParts(datePrefix: '昨天', hm: hm);
+  }
+  return PredictionEstimatedClockParts(
+    datePrefix: '${local.month}月${local.day}日',
+    hm: hm,
+  );
+}
+
+/// 逾期大数字 / 兼容：预估 `nextAt` 本地钟点串。
+String formatPredictionEstimatedClock(DateTime nextAt, DateTime now) {
+  return predictionEstimatedClockParts(nextAt, now).combined;
+}
+
+/// 是否进入「只显示预估时刻」态：逾期，或剩余严格大于 6 小时。
+bool predictionShowsEstimatedClock(
+  DateTime nextAt,
+  DateTime now, {
+  required bool overdue,
+}) {
+  if (overdue) return true;
+  return nextAt.difference(now) > kPredictionFarCountdownThreshold;
+}
+
+/// 网格倒计时：短距 `H:MM:SS`；时刻态（逾期或 &gt;6h）为预估本地时刻串。
 String formatPredictionCountdownHms(DateTime nextAt, DateTime now,
     {required bool overdue}) {
-  if (overdue) return '00:00:00';
+  if (predictionShowsEstimatedClock(nextAt, now, overdue: overdue)) {
+    return formatPredictionEstimatedClock(nextAt, now);
+  }
   var d = nextAt.difference(now);
   if (d.isNegative) d = Duration.zero;
   final h = d.inHours;

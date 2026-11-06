@@ -8,8 +8,10 @@ import '../theme/theme_preset.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
+import '../data/history_record_metric.dart';
 import '../data/home_history_list_entries.dart';
 import '../data/models.dart';
+import 'home_day_summary_chips.dart';
 import 'home_history_date_header.dart';
 import 'home_history_day_timeline_links.dart';
 import 'home_history_scroll_to_bottom_button.dart';
@@ -35,6 +37,7 @@ class HomeHistoryScroll extends StatefulWidget {
     this.loadingMore = false,
     this.onRefresh,
     this.onLoadMore,
+    this.onDaySummaryChipTap,
   });
 
   /// 时间升序（旧→新）。
@@ -50,6 +53,12 @@ class HomeHistoryScroll extends StatefulWidget {
   final bool loadingMore;
   final Future<void> Function()? onRefresh;
   final Future<void> Function()? onLoadMore;
+  /// 点击某日吸顶汇总 chip（打开单日详图由宿主处理）。
+  final void Function(
+    DateTime dayLocal,
+    TodayEventTotal total,
+    EventDefinition? event,
+  )? onDaySummaryChipTap;
 
   @override
   State<HomeHistoryScroll> createState() => HomeHistoryScrollState();
@@ -74,7 +83,31 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
   double _bottomPullExtent = 0;
   bool _bottomRefreshing = false;
 
+  /// 按日汇总：展开态与实测吸顶高度（dayLocal 键）。
+  final Map<DateTime, bool> _daySummaryExpanded = {};
+  final Map<DateTime, double> _dayHeaderExtent = {};
+
   bool get followLatest => _followLatest;
+
+  void _onDaySummaryMetrics(
+    DateTime dayLocal, {
+    required double extent,
+    required bool needsFold, // 仅测高副作用；折叠钮由 header 内部 needsFold 控制
+  }) {
+    final prev = _dayHeaderExtent[dayLocal];
+    if (prev != null && (prev - extent).abs() < 0.5) return;
+    if (!mounted) return;
+    setState(() => _dayHeaderExtent[dayLocal] = extent);
+  }
+
+  void _toggleDaySummaryExpanded(DateTime dayLocal) {
+    setState(() {
+      _daySummaryExpanded[dayLocal] =
+          !(_daySummaryExpanded[dayLocal] ?? false);
+      // 展开切换后清掉旧 extent，等下一帧实测回写。
+      _dayHeaderExtent.remove(dayLocal);
+    });
+  }
 
   Rect? get historyAreaGlobalBounds {
     final ctx = _historyAreaKey.currentContext;
@@ -292,25 +325,10 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     await widget.onRefresh?.call();
   }
 
+  /// 触顶 loadMore：prepend 后留在更旧端（新页窗口），不做原位置 jumpTo 补偿。
   Future<void> _handleLoadMore() async {
     if (widget.onLoadMore == null) return;
-    double? beforeMax;
-    double? beforePixels;
-    if (_controller.hasClients) {
-      beforeMax = _controller.position.maxScrollExtent;
-      beforePixels = _controller.position.pixels;
-    }
     await widget.onLoadMore!();
-    if (beforeMax == null || beforePixels == null) return;
-    final savedMax = beforeMax;
-    final savedPixels = beforePixels;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_controller.hasClients) return;
-      final delta = _controller.position.maxScrollExtent - savedMax;
-      if (delta > 0) {
-        _controller.jumpTo(savedPixels + delta);
-      }
-    });
   }
 
   @override
@@ -664,8 +682,20 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     final cardOpacity = isDarkShell ? kHistoryRecordsCardOpacityDark : kHistoryRecordsCardOpacityLight;
     final cardBgFill = _dayRecordsCardColor(context, tokens).withValues(alpha: cardOpacity);
 
+    final viewportW = MediaQuery.sizeOf(context).width;
     final daySlivers = <Widget>[];
     for (final g in groups) {
+      // 按日汇总：与日块 start 日键一致，来自本地已加载快照。
+      final dayTotals = aggregateDayTotals(widget.itemsAsc, g.dayLocal);
+      final expanded = _daySummaryExpanded[g.dayLocal] ?? false;
+      // 首帧用保守估高（默认按一行）；稳态用实测。
+      final headerExtent = _dayHeaderExtent[g.dayLocal] ??
+          (dayTotals.isEmpty
+              ? HomeHistoryDateHeader.extentDateOnly()
+              : estimateHomeDayStickyExtent(
+                  chipCount: expanded ? dayTotals.length : 1,
+                  maxWidth: viewportW - 16,
+                ));
       final recordsCard = _buildDayRecordsCard(
         context,
         g,
@@ -677,7 +707,23 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
       final groupSlivers = <Widget>[
         SliverPersistentHeader(
           pinned: true,
-          delegate: HomeHistoryDateHeaderDelegate(label: g.dayLabel),
+          delegate: HomeHistoryDateHeaderDelegate(
+            label: g.dayLabel,
+            extent: headerExtent,
+            totals: dayTotals,
+            catalog: widget.eventCatalog,
+            expanded: expanded,
+            onToggleExpand: () => _toggleDaySummaryExpanded(g.dayLocal),
+            onMetrics: ({required extent, required needsFold}) =>
+                _onDaySummaryMetrics(
+              g.dayLocal,
+              extent: extent,
+              needsFold: needsFold,
+            ),
+            onChipTap: widget.onDaySummaryChipTap == null
+                ? null
+                : (t, e) => widget.onDaySummaryChipTap!(g.dayLocal, t, e),
+          ),
         ),
         if (recordsCard != null)
           SliverToBoxAdapter(

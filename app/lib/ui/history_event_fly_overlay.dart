@@ -239,7 +239,7 @@ class _HistoryEventFlyOverlayState extends State<HistoryEventFlyOverlay>
                   builder: (context, _) {
                     final localStart = _localStart!;
                     final localEnd = _localEnd!;
-                    const baseLogo = HomeHistoryTimelineTile.logoSize;
+                    const baseLogo = HomeHistoryTimelineTile.logoSizeMax;
                     final screenWidth = MediaQuery.sizeOf(context).width;
                     final peakScale = (screenWidth * 0.5) / baseLogo;
 

@@ -134,12 +134,13 @@ class EventNextPrediction {
     required this.nextAt,
     required this.colorHex,
     required this.confidence,
+    bool todConfidenceLow = false,
     this.expectKind,
     this.expectDurationSec,
     this.expectAmount,
     this.expectUnit,
     this.expectLeafTitle,
-  });
+  }) : _todConfidenceLow = todConfidenceLow;
 
   final String eventId;
   final String eventName;
@@ -147,6 +148,12 @@ class EventNextPrediction {
   final DateTime nextAt;
   final String colorHex;
   final double confidence;
+
+  /// 可空槽位：热重载前残留实例字段为 null 时按 false。
+  final bool? _todConfidenceLow;
+
+  /// 钟点直方图皆冷后软保留 nextAt；驱动「此刻把握不足」（非样本数 confidence）。
+  bool get todConfidenceLow => _todConfidenceLow ?? false;
 
   /// `duration` / `amount`；无胜出为 null。
   final String? expectKind;
@@ -175,6 +182,7 @@ class EventNextPrediction {
     DateTime? nextAt,
     String? colorHex,
     double? confidence,
+    bool? todConfidenceLow,
     Object? expectKind = _expectUnset,
     Object? expectDurationSec = _expectUnset,
     Object? expectAmount = _expectUnset,
@@ -188,6 +196,7 @@ class EventNextPrediction {
       nextAt: nextAt ?? this.nextAt,
       colorHex: colorHex ?? this.colorHex,
       confidence: confidence ?? this.confidence,
+      todConfidenceLow: todConfidenceLow ?? this._todConfidenceLow ?? false,
       expectKind: identical(expectKind, _expectUnset)
           ? this.expectKind
           : expectKind as String?,
@@ -687,7 +696,7 @@ bool _passesTodHistogramGuard({
   return ok;
 }
 
-// 预测核心：亲和加权中位 + 钟点直方图护栏
+// 预测核心：亲和加权中位 + 钟点直方图护栏；皆冷后至多一次换锚
 EventNextPrediction? predictNextForEventKey({
   required String eventKey,
   required String eventName,
@@ -707,7 +716,7 @@ EventNextPrediction? predictNextForEventKey({
     if (t != null) times.add(t);
   }
   final fallback = recallIntervalFallback;
-  // 窗口无真发生：仅缓存 tip + 有效种子间隔可旁路（不得用种子 lastAt）
+  // 窗口无真发生：仅缓存 tip + 有效种子间隔可旁路（不得用种子 lastAt）；种子无自动跳
   if (times.isEmpty) {
     if (cachedLastAt == null) return null;
     if (fallback == null || fallback < kMinIntervalForPrediction) return null;
@@ -723,6 +732,7 @@ EventNextPrediction? predictNextForEventKey({
     );
   }
   times.sort();
+  // 展示 / 真 tip；加法基始终为真 tip
   final lastAt = times.last;
 
   final affinitySamples = times.length >= 2
@@ -752,19 +762,27 @@ EventNextPrediction? predictNextForEventKey({
 
   AppDebugLog.predictInterval(
     'vote nAff=${affinitySamples.length} medianMin=${primaryMedian?.inMinutes} '
-    'seed=${usedSeed ? 1 : 0} eventIdLen=${eventKey.length}',
+    'seed=${usedSeed ? 1 : 0} autoSkip=0 '
+    'eventIdLen=${eventKey.length}',
   );
 
-  bool accept(DateTime nextAt, String path) => _passesTodHistogramGuard(
+  bool accept(DateTime candidate, String path) => _passesTodHistogramGuard(
         occurrenceTimes: times,
-        nextAt: nextAt,
+        nextAt: candidate,
         eventKey: eventKey,
         path: path,
       );
 
-  // 主候选（中位或种子）
-  var nextAt = lastAt.add(interval);
-  if (accept(nextAt, usedSeed ? 'seed' : 'primary')) {
+  EventNextPrediction build(
+    DateTime nextAt, {
+    required bool soft,
+    required String path,
+    int autoSkip = 0,
+  }) {
+    AppDebugLog.predictInterval(
+      'pick path=$path soft=${soft ? 1 : 0} autoSkip=$autoSkip '
+      'eventIdLen=${eventKey.length}',
+    );
     return EventNextPrediction(
       eventId: eventKey,
       eventName: eventName,
@@ -772,69 +790,75 @@ EventNextPrediction? predictNextForEventKey({
       nextAt: nextAt,
       colorHex: colorHex,
       confidence: confidence,
+      todConfidenceLow: soft,
     );
   }
 
-  // 种子失败护栏 → 不可预测（final 便于闭包内非空提升）
+  // 主候选（中位或种子）：热则直接用
+  final primaryPath = usedSeed ? 'seed' : 'primary';
+  final primaryNext = lastAt.add(interval);
+  if (accept(primaryNext, primaryPath)) {
+    return build(primaryNext, soft: false, path: primaryPath);
+  }
+
+  // 纯种子冷：软保留，不走 gePrimary/crossDay，不自动跳
   final medianFloor = primaryMedian;
   if (usedSeed || medianFloor == null) {
-    AppDebugLog.predictInterval(
-      'reject seed cold eventIdLen=${eventKey.length}',
-    );
-    return null;
+    return build(primaryNext, soft: true, path: 'seedSoft');
   }
 
-  // 回退 1：时长 ≥ 主中位
+  // 回退 1：时长 ≥ 主中位（仅热区采纳）
   final gePrimary = affinitySamples
       .where((s) => s.interval >= medianFloor)
       .toList();
   if (gePrimary.length >= kMinSamplesForPrediction) {
     final iv = _weightedMedianFromAffinity(gePrimary);
     if (iv != null) {
-      nextAt = lastAt.add(iv);
+      final nextAt = lastAt.add(iv);
       if (accept(nextAt, 'gePrimary')) {
-        AppDebugLog.predictInterval(
-          'fallback gePrimary min=${iv.inMinutes} eventIdLen=${eventKey.length}',
-        );
-        return EventNextPrediction(
-          eventId: eventKey,
-          eventName: eventName,
-          lastAt: lastAt,
-          nextAt: nextAt,
-          colorHex: colorHex,
-          confidence: confidence,
-        );
+        return build(nextAt, soft: false, path: 'gePrimary');
       }
     }
   }
 
-  // 回退 2：跨本地自然日
+  // 回退 2：跨本地自然日（仅热区采纳）
   final crossDay =
       affinitySamples.where((s) => crossesLocalCalendarDay(s.start, s.end)).toList();
   if (crossDay.length >= kMinSamplesForPrediction) {
     final iv = _weightedMedianFromAffinity(crossDay);
     if (iv != null) {
-      nextAt = lastAt.add(iv);
+      final nextAt = lastAt.add(iv);
       if (accept(nextAt, 'crossDay')) {
-        AppDebugLog.predictInterval(
-          'fallback crossDay min=${iv.inMinutes} eventIdLen=${eventKey.length}',
-        );
-        return EventNextPrediction(
-          eventId: eventKey,
-          eventName: eventName,
-          lastAt: lastAt,
-          nextAt: nextAt,
-          colorHex: colorHex,
-          confidence: confidence,
-        );
+        return build(nextAt, soft: false, path: 'crossDay');
       }
     }
   }
 
-  AppDebugLog.predictInterval(
-    'reject all cold eventIdLen=${eventKey.length}',
+  // 皆冷：至多一次换锚 — 以冷 nextAt₀ 为钟点锚重估 interval₁，落点仍 lastAt+I₁
+  final reanchorSamples = _collectAffinityIntervals(
+    times: times,
+    lastAt: primaryNext,
+    halfLifeDays: halfLifeDays,
+    now: now,
   );
-  return null;
+  if (reanchorSamples.length >= kMinSamplesForPrediction) {
+    final interval1 = _weightedMedianFromAffinity(reanchorSamples);
+    if (interval1 != null) {
+      final nextAt1 = lastAt.add(interval1);
+      AppDebugLog.predictInterval(
+        'vote autoSkip=1 nAff=${reanchorSamples.length} '
+        'medianMin=${interval1.inMinutes} eventIdLen=${eventKey.length}',
+      );
+      if (accept(nextAt1, 'autoSkip')) {
+        return build(nextAt1, soft: false, path: 'autoSkip', autoSkip: 1);
+      }
+      // 仍冷：软留 nextAt₁，不再跳第二次
+      return build(nextAt1, soft: true, path: 'autoSkipSoft', autoSkip: 1);
+    }
+  }
+
+  // 换锚失败：退回主中位软标
+  return build(primaryNext, soft: true, path: 'primarySoft');
 }
 
 String colorHexFromEvent(EventDefinition? def) {

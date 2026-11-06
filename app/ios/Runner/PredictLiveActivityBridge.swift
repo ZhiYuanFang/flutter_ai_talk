@@ -3,7 +3,8 @@ import Foundation
 import Flutter
 import UIKit
 
-/// 主 App 侧 Live Activity：尽早监听 Push-to-Start / per-activity token，经 MethodChannel 交给 Dart 上报。
+/// 主 App 侧 Live Activity：尽早监听 Push-to-Start / per-activity token。
+/// 唤醒窗内由原生免鉴权 register；另经 MethodChannel 可选投递 Dart 补传。
 /// MUST NOT 在此调用 Activity.request（仅等服务端推送起停）。
 enum PredictLiveActivityBridge {
   static let channelName = "com.fzy.pangbao/live_activity"
@@ -158,7 +159,9 @@ enum PredictLiveActivityBridge {
   }
 
   private static func deliver(_ args: [String: Any]) {
-    // channel 未就绪或 Dart 未听：入队，勿永久丢弃
+    // 主路径：原生免鉴权 POST，不依赖 Dart / 登录壳 / channel
+    LiveActivityNativeRegister.registerIfPossible(args)
+    // channel 未就绪或 Dart 未听：入队，勿永久丢弃（Dart 补传）
     guard let channel = channel, dartListening else {
       enqueuePending(args)
       let reason = channel == nil ? "no_channel" : "dart_not_listening"

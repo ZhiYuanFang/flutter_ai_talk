@@ -78,7 +78,8 @@ String formatHistoryRelativeAgo(DateTime instant, DateTime now) {
   return '$h时$m分前';
 }
 
-/// 主页时间轴行用于展示/分组的时刻（与 [historyHomeRowDisplay] 一致）。
+/// 主页相对 ago / 「各事件最新」/ 日内排序用时刻。
+/// 已结束计时仍用 end；左列 `HH:mm` 请用 [historyHomeClockInstant]。
 DateTime historyHomeDisplayInstant(HistoryRecord record) {
   final p = record.rawPayload;
   final n = historyPayloadInt(p, 'eventNumber');
@@ -97,6 +98,17 @@ DateTime historyHomeDisplayInstant(HistoryRecord record) {
   }
   return record.createdAt;
 }
+
+/// 喂养主页历史日分块键用时刻：优先 `startTime`，缺失回退 `createdAt`。
+/// 仅用于主页分组/按日汇总/当日详图；不得用于预测分桶。
+DateTime historyHomeDayKeyInstant(HistoryRecord record) {
+  final start = parseHistoryInstant(record.rawPayload['startTime']);
+  return start ?? record.createdAt;
+}
+
+/// 主页时间轴左列钟点：与日键同源（start），与 [historyHomeDisplayInstant] 解耦。
+DateTime historyHomeClockInstant(HistoryRecord record) =>
+    historyHomeDayKeyInstant(record);
 
 /// 相对「当前」的列表用时间短串（本地自然日 / 年）。
 String formatHistoryInstant(DateTime t, DateTime nowLocal) {
@@ -362,8 +374,8 @@ HistoryHomeRowDisplay historyHomeRowDisplay(HistoryRecord record) {
   final endUnset = historyInstantUnset(end);
   final name = _displayEventName(record.eventName);
 
-  final instant = historyHomeDisplayInstant(record);
-  final timeHm = formatHistoryTimeHm(instant);
+  // 左列钟点用 start；ago/排序仍走 historyHomeDisplayInstant。
+  final timeHm = formatHistoryTimeHm(historyHomeClockInstant(record));
 
   if (n == 1) {
     return HistoryHomeRowDisplay(

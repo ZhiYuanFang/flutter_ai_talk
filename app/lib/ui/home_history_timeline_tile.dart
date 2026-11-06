@@ -44,7 +44,18 @@ class HomeHistoryTimelineTile extends StatelessWidget {
       timelineTimeColumnWidth +
       timelineTimeToDotGap +
       timelineDotColumnWidth / 2;
-  static const double logoSize = 16;
+  /// 最新行 logo 边长（原 16×1.5）；badge inset / 飞入峰值按此最大宽估算。
+  static const double logoSizeMax = 24;
+
+  /// 与正文同坡的 base 字号。
+  static double fontSizeForFromBottom(int fromBottom) =>
+      (13 - fromBottom * 0.35).clamp(9.0, 13.0);
+
+  /// logo 跟 base 字号同比例（不跟事件名 1.5×）。
+  static double logoSizeForFromBottom(int fromBottom) {
+    final fs = fontSizeForFromBottom(fromBottom);
+    return (logoSizeMax * fs / 13.0).clamp(10.0, logoSizeMax);
+  }
 
   static double get timelineBadgeLeftInset =>
       timelineRowHorizontalPadding +
@@ -52,7 +63,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
       timelineTimeToDotGap +
       timelineDotColumnWidth +
       2 +
-      logoSize +
+      logoSizeMax +
       4;
 
   /// Badge 区域占用高度（行下方，不含 [rowHeight]）。
@@ -89,7 +100,8 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = resolveEventColor(context, event);
-    final fontSize = (13 - fromBottom * 0.35).clamp(9.0, 13.0);
+    final fontSize = fontSizeForFromBottom(fromBottom);
+    final logoSize = logoSizeForFromBottom(fromBottom);
     final emphasis = (1.0 - fromBottom * 0.10).clamp(0.45, 1.0);
     final isNewest = fromBottom == 0;
 

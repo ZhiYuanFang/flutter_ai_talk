@@ -34,6 +34,7 @@ class _LiveActivitySettingsScreenState
     await la.refreshSystemStatus();
   }
 
+  /// 手动重试仅排障用，不是「打开 App 自动补 activity token」兜底。
   Future<void> _onRetry() async {
     final la = ref.read(liveActivityRegistrationServiceProvider);
     await la.forceRetryPushToStart();

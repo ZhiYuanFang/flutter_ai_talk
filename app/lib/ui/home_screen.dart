@@ -29,10 +29,11 @@ import '../data/feed_repository.dart';
 import '../data/active_timing_stop.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
-import '../data/history_record_metric.dart';
+import '../data/client_usage_events.dart';
 import '../data/models.dart';
+import '../providers/client_usage_provider.dart';
 import 'event_add_actions.dart';
-import 'home_today_summary_panel.dart';
+import 'home_day_summary_chart_sheet.dart';
 import 'home_button_event_grid.dart'
     show HomeButtonEventGrid, buttonGridRowEvents, kHomeButtonInputPanelHeight;
 import 'feeding_history_fly_landing.dart';
@@ -1128,8 +1129,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         tokens?.shellColor ?? Theme.of(context).scaffoldBackgroundColor;
     // 沉浸头身份条：经展示快照 Provider（L2）。
     final babyDisplay = ref.watch(babyDisplayProvider);
-    // 今日汇总 chip（仅展示，不接小时趋势 Sheet）。
-    final todayTotals = aggregateTodayTotals(historyItems);
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: shellBg,
@@ -1149,7 +1148,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       onAvatarTap: () => context.push('/settings'),
                       onTrendsTap: () => context.push('/trends'),
                     ),
-                    HomeTodaySummaryPanel(totals: todayTotals),
                     // 顶部固定本地预测贴士（替代 tip SSE 球/卡）
                     // const HomePredictionTipBar(),
                     const SizedBox(height: _kImmersiveHeaderContentSpacing),
@@ -1254,6 +1252,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           },
                                           onLoadMore: () =>
                                               _history.loadMoreHistory(),
+                                          onDaySummaryChipTap:
+                                              (dayLocal, total, event) {
+                                            // 异步上报，不阻塞 Sheet。
+                                            unawaited(
+                                              ref
+                                                  .read(
+                                                    clientUsageReporterProvider,
+                                                  )
+                                                  .reportEvent(
+                                                    ClientUsageEvents
+                                                        .feedingDaySummaryChartOpen(
+                                                      total.eventName,
+                                                    ),
+                                                  ),
+                                            );
+                                            unawaited(
+                                              showHomeDaySummaryChartSheet(
+                                                context,
+                                                dayLocal: dayLocal,
+                                                total: total,
+                                                event: event,
+                                                historyItems: historyItems,
+                                              ),
+                                            );
+                                          },
                                         ),
                                       ),
                               ),
