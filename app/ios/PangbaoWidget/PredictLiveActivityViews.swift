@@ -148,8 +148,8 @@ struct PredictTimingLiveActivity: Widget {
             .foregroundStyle(accent)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          // Island 已计时固定 hh:mm:ss
-          IslandTimingHmsText(startUnix: startUnix)
+          // 与锁屏同源：系统 timerInterval（会动）
+          LockTimingElapsedText(startUnix: startUnix)
             .font(.caption.monospacedDigit().weight(.semibold))
             .foregroundStyle(accent)
         }
@@ -161,9 +161,9 @@ struct PredictTimingLiveActivity: Widget {
           accent: accent
         )
       } compactTrailing: {
-        // compact 宽度由占位槽报告，已计时不得撑开岛
+        // compact 宽度由占位槽报告；槽内系统 timer，不得撑开岛
         CompactIslandTimeSlot {
-          IslandTimingHmsText(startUnix: startUnix)
+          LockTimingElapsedText(startUnix: startUnix)
         }
         .font(.caption2.monospacedDigit())
         .foregroundStyle(accent)
@@ -271,31 +271,6 @@ private struct LockTimingElapsedText: View {
     Text(timerInterval: start...end, countsDown: false, showsHours: true)
       .monospacedDigit()
   }
-}
-
-// MARK: - Island hh:mm:ss（仅 Timing）
-
-/// Timing 已计时：始终零填充 hh:mm:ss。
-@available(iOS 16.1, *)
-private struct IslandTimingHmsText: View {
-  let startUnix: Int64
-
-  var body: some View {
-    TimelineView(.periodic(from: .now, by: 1)) { context in
-      let start = Date(timeIntervalSince1970: TimeInterval(max(0, startUnix)))
-      let elapsed = max(0, Int(context.date.timeIntervalSince(start)))
-      Text(formatHms(elapsed))
-    }
-  }
-}
-
-/// 秒 → `hh:mm:ss`（两位时分秒，不足 1h 仍含时）。
-private func formatHms(_ totalSeconds: Int) -> String {
-  let s = max(0, totalSeconds)
-  let h = s / 3600
-  let m = (s % 3600) / 60
-  let sec = s % 60
-  return String(format: "%02d:%02d:%02d", h, m, sec)
 }
 
 // MARK: - 锁屏短版预计文案

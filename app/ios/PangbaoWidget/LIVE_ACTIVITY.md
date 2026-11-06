@@ -48,7 +48,7 @@ Go twin：`live-activity-expect-lock-go`（已完成）：开火透传 expect*�
 - **锁屏 content（双层）**：上层窄行仅「胖宝」文字（事件提亮色，**无**圆形 App logo）；下层事件 logo（约 37pt）+ 标题列（主标题；Timing 可有副行）+ 右侧槽。
 - **Timing**：主标题仅为事件名（**不**拼「计时中」）；有正 `expectEndAt` 时副行「预计 HH:mm 结束」（无「约」、无超时后缀）；右侧系统 `timerInterval` 已计时（可带秒，约 99h 上界），字号为 trailing `.title` 基准。
 - **Imminent**：主标题展示推送基句；右侧有可用 expect 时短版「预计{h}时{m}分钟」/「预计{m}分钟」/「预计{N}{unit}」；**右槽字号 = `.title` 基准 − 5pt**；无 expect 空右槽。MUST NOT 展示基于 `nextAt` 的「预计m分钟后」、倒计时、「已过时」。
-- **Dynamic Island**：Timing compact / expanded 时间位为零填充 **`hh:mm:ss`**，compact 右槽短占位箍宽。Imminent Island **不**展示时间维 / expect；compact **不**预留右侧 timer 槽。compactLeading 展示 **完整** 事件名（仅 trim）；expanded 中心标题产品侧不硬截。
+- **Dynamic Island**：Timing compact / expanded 时间位与锁屏同源，系统 **`timerInterval`** 已计时（可含秒，约 99h 上界）；compact 右槽仍用短占位（`CompactIslandTimeSlot` / 隐藏 `"00:00:00"`）箍宽，避免 timer 撑满屏。Imminent Island **不**展示时间维 / expect；compact **不**预留右侧 timer 槽。compactLeading 展示 **完整** 事件名（仅 trim）；expanded 中心标题产品侧不硬截。
 
 ## Token
 
