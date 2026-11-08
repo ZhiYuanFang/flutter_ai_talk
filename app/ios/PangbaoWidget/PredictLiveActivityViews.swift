@@ -10,16 +10,8 @@ struct BabyLiveActivityWidget: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: BabyLiveActivityAttributes.self) { context in
       let items = context.state.items
-      // 锁屏：居中主题色「胖宝」+ 动态行
+      // 锁屏：仅按 items 纵向堆叠（无 App 名顶栏，减高度占位）
       VStack(alignment: .leading, spacing: 10) {
-        HStack {
-          Spacer(minLength: 0)
-          Text("胖宝")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(WidgetVisualHelpers.laThemeBrandColor)
-            .lineLimit(1)
-          Spacer(minLength: 0)
-        }
         ForEach(items) { item in
           if item.isTiming {
             LiveActivityTimingRow(item: item)

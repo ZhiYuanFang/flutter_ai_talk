@@ -4,24 +4,28 @@ import Foundation
 /// 与 Go `PUSH_LA_ATTR_TYPE` 默认名 `BabyLiveActivityAttributes` 对齐（统一单条列表态）。
 struct BabyLiveActivityAttributes: ActivityAttributes {
   /// ContentState：phase + 有序 items（预测升序 + 进行中倒序，由 Go 排好）。
+  /// `ack`：仅 update 同包注入的送达回执序号；UI 忽略；缺键兜底空串。
   public struct ContentState: Codable, Hashable {
     var phase: String
     var items: [BabyLiveActivityItem]
+    var ack: String
 
-    init(phase: String = "", items: [BabyLiveActivityItem] = []) {
+    init(phase: String = "", items: [BabyLiveActivityItem] = [], ack: String = "") {
       self.phase = phase
       self.items = items
+      self.ack = ack
     }
 
     enum CodingKeys: String, CodingKey {
-      case phase, items
+      case phase, items, ack
     }
 
     init(from decoder: Decoder) throws {
       let c = try decoder.container(keyedBy: CodingKeys.self)
-      // end/clear 可能只带 phase
+      // end/clear 可能只带 phase；start 通常无 ack
       phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? ""
       items = try c.decodeIfPresent([BabyLiveActivityItem].self, forKey: .items) ?? []
+      ack = try c.decodeIfPresent(String.self, forKey: .ack) ?? ""
     }
   }
 

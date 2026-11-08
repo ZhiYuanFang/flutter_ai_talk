@@ -3,8 +3,9 @@ import Foundation
 import Flutter
 import UIKit
 
-/// 主 App 侧 Live Activity：尽早监听统一 Attributes 的 Push-to-Start / activity token。
-/// 唤醒窗内由原生免鉴权 register；另经 MethodChannel 可选投递 Dart 补传。
+/// 主 App 侧 Live Activity：尽早监听统一 Attributes 的 Push-to-Start / activity token，
+/// 以及 ContentState.`ack`（update 送达回执，仅原生 POST，无 Dart 补传）。
+/// 唤醒窗内由原生免鉴权 register；token 另经 MethodChannel 可选投递 Dart 补传。
 /// MUST NOT 在此调用 Activity.request（仅等服务端推送起停）。
 enum PredictLiveActivityBridge {
   static let channelName = "com.fzy.pangbao/live_activity"
@@ -15,9 +16,9 @@ enum PredictLiveActivityBridge {
   private static var started = false
   /// 本进程经 channel 成功投递的 push_to_start 次数（排障用）。
   private static var pushToStartDeliverCount: Int = 0
-  /// 已为某 activity 挂上 pushTokenUpdates 的稳定键。
+  /// 已为某 activity 挂上 pushTokenUpdates / contentUpdates 的稳定键。
   private static var observedActivityKeys = Set<String>()
-  /// channel / Dart 未就绪时的进程内 pending。
+  /// channel / Dart 未就绪时的进程内 pending（仅 token；ack 不进 Dart）。
   private static var pending: [[String: Any]] = []
   private static let pendingLock = NSLock()
   private static let maxPending = 32
@@ -101,20 +102,20 @@ enum PredictLiveActivityBridge {
   }
 
   @available(iOS 16.2, *)
-  private static func observeActivityTokens<A: ActivityAttributes>(type: A.Type) {
-    for activity in Activity<A>.activities {
-      attachPushTokenObserver(activity: activity)
+  private static func observeActivityTokens(type: BabyLiveActivityAttributes.Type) {
+    for activity in Activity<BabyLiveActivityAttributes>.activities {
+      attachActivityObservers(activity: activity)
     }
     Task {
-      for await activity in Activity<A>.activityUpdates {
-        attachPushTokenObserver(activity: activity)
+      for await activity in Activity<BabyLiveActivityAttributes>.activityUpdates {
+        attachActivityObservers(activity: activity)
       }
     }
   }
 
   @available(iOS 16.2, *)
-  private static func attachPushTokenObserver<A: ActivityAttributes>(
-    activity: Activity<A>
+  private static func attachActivityObservers(
+    activity: Activity<BabyLiveActivityAttributes>
   ) {
     // 稳定键：系统 activity.id（统一单轨，无 attributesKind）
     let key = activity.id
@@ -122,6 +123,10 @@ enum PredictLiveActivityBridge {
       return
     }
     observedActivityKeys.insert(key)
+
+    // 当前帧可能已带 update ack（避免只赶上后续 contentUpdates）
+    handleContentAck(activity.content.state)
+
     Task {
       for await tokenData in activity.pushTokenUpdates {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
@@ -131,6 +136,18 @@ enum PredictLiveActivityBridge {
         ])
       }
     }
+    Task {
+      for await content in activity.contentUpdates {
+        handleContentAck(content.state)
+      }
+    }
+  }
+
+  /// 非空 ack → 原生立即 POST；不经 MethodChannel / Dart。
+  private static func handleContentAck(_ state: BabyLiveActivityAttributes.ContentState) {
+    let ack = state.ack.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !ack.isEmpty else { return }
+    LiveActivityNativeRegister.ackIfPossible(ack)
   }
 
   private static func deliver(_ args: [String: Any]) {
