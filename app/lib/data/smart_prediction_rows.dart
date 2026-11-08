@@ -14,6 +14,7 @@ class SmartPredictionRow {
     required this.prediction,
     required this.chartPoints,
     this.lastAt,
+    this.lastRemark = '',
   });
 
   final String eventId;
@@ -27,6 +28,9 @@ class SmartPredictionRow {
 
   /// 该 root 最近一次发生时刻（与 [occurrenceInstant] 一致，含进行中）。
   final DateTime? lastAt;
+
+  /// 最新真 history 的 remark（展示用；空表示无）。
+  final String lastRemark;
 }
 
 /// root 下历史记录的最近发生时刻。
@@ -38,6 +42,23 @@ DateTime? latestOccurrenceAtForRecords(List<HistoryRecord> records) {
     if (latest == null || t.isAfter(latest)) latest = t;
   }
   return latest;
+}
+
+/// 窗口内最新真记录的 remark（跳过回忆种子）；空串表示无。
+String latestRealRemarkForRecords(List<HistoryRecord> records) {
+  HistoryRecord? best;
+  DateTime? bestAt;
+  for (final r in records) {
+    if (isPredictionRecallSeedRecord(r)) continue;
+    final t = occurrenceInstant(r, includeActive: true);
+    if (t == null) continue;
+    if (bestAt == null || t.isAfter(bestAt)) {
+      bestAt = t;
+      best = r;
+    }
+  }
+  if (best == null) return '';
+  return (best.rawPayload['remark'] as String?) ?? '';
 }
 
 /// 是否为回忆种子伪记录（不得进喂养编辑 Sheet）。
@@ -315,6 +336,8 @@ List<SmartPredictionRow> buildSmartPredictionRows({
     // 窗口最新 ?? 本机 tip 缓存
     final lastAt =
         latestOccurrenceAtForRecords(records) ?? cachedTipFor(key);
+    // 最新真 history 备注（展示「上次」行）
+    final lastRemark = latestRealRemarkForRecords(records);
     final pred = enabled ? predById[key] : null;
     List<DateTime> points = const [];
     if (enabled && pred != null && records.isNotEmpty) {
@@ -333,6 +356,7 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         prediction: pred,
         chartPoints: points,
         lastAt: lastAt,
+        lastRemark: lastRemark,
       ),
     );
   }
@@ -368,6 +392,7 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         chartPoints: points,
         lastAt: latestOccurrenceAtForRecords(entry.value) ??
             cachedTipFor(key),
+        lastRemark: latestRealRemarkForRecords(entry.value),
       ),
     );
   }

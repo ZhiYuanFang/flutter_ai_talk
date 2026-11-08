@@ -58,6 +58,28 @@ List<EventDefinition> childrenOf(List<EventDefinition> catalog, String parentId)
       .toList();
 }
 
+/// 根 + 全部子孙 id（含根自身；保持 BFS 顺序，供 filter eventIds）。
+List<String> catalogSubtreeEventIds(
+  List<EventDefinition> catalog,
+  String rootEventId,
+) {
+  final root = rootEventId.trim();
+  if (root.isEmpty) return const [];
+  final out = <String>[root];
+  final queue = <String>[root];
+  while (queue.isNotEmpty) {
+    final pid = queue.removeAt(0);
+    for (final c in childrenOf(catalog, pid)) {
+      final id = c.id.trim();
+      if (id.isEmpty) continue;
+      if (out.any((e) => catalogIdsEqual(e, id))) continue;
+      out.add(id);
+      queue.add(id);
+    }
+  }
+  return out;
+}
+
 /// 无子节点的事件；可选要求合法 [eventType]。
 List<EventDefinition> leafEvents(
   List<EventDefinition> catalog, {

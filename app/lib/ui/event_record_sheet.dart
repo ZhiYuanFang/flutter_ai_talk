@@ -352,7 +352,8 @@ class _EventRecordCreateSheetState extends ConsumerState<_EventRecordCreateSheet
               onPressed: _confirm,
               style: FilledButton.styleFrom(
                 backgroundColor: accent,
-                foregroundColor: Colors.white,
+                // 相对 accent 成对，不用主题 primary 的 onPrimary
+                foregroundColor: AppColor.onFill(context, accent),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                 shape: const StadiumBorder(),

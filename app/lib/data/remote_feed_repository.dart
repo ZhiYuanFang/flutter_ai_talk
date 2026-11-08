@@ -309,6 +309,7 @@ class RemoteFeedRepository implements FeedRepository {
     int endTime = 0,
     int limit = kHistoryFilterMaxLimit,
     String eventIds = '',
+    bool ignoreTimeRange = false,
   }) async {
     final dn = _deviceNoGetter();
     // 无 deviceNo：失败（null），不得当成成功空列表以免 range ready 锁死
@@ -319,8 +320,13 @@ class RemoteFeedRepository implements FeedRepository {
         'eventIds': eventIds,
         'limit': '$limit',
       };
-      if (startTime > 0) query['startTime'] = '$startTime';
-      if (endTime > 0) query['endTime'] = '$endTime';
+      // 非 ignore 时才传时间窗；ignore 时强制告诉服务端忽略
+      if (!ignoreTimeRange) {
+        if (startTime > 0) query['startTime'] = '$startTime';
+        if (endTime > 0) query['endTime'] = '$endTime';
+      } else {
+        query['ignoreTimeRange'] = 'true';
+      }
       final data = await _api.getEnvelope(
         '/device/history/api/filter',
         query: query,

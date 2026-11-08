@@ -177,7 +177,8 @@ Future<bool?> showGlassConfirmDialog(
                 onPressed: () => Navigator.pop(ctx, true),
                 style: FilledButton.styleFrom(
                   backgroundColor: accent,
-                  foregroundColor: scheme.onPrimary,
+                  // 相对 accent 成对字色
+                  foregroundColor: AppColor.onFill(ctx, accent),
                   padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                   shape: const StadiumBorder(),
                 ),

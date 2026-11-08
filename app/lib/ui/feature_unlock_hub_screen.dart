@@ -14,6 +14,7 @@ import '../providers/cash_vip_provider.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../providers/prediction_care_alert_provider.dart';
+import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/data/ucg_feature_flags.dart';
 import 'ai_analysis_unlock.dart';
@@ -602,8 +603,9 @@ Future<bool?> _showFeaturePayConfirmDialog(
       final glassText = historyEditGlassTextColor(ctx);
       final glassLabel = historyEditGlassLabelColor(ctx);
       final scheme = Theme.of(ctx).colorScheme;
-      final onPrimary = scheme.onPrimary;
       final accent = eventAccent ?? scheme.primary;
+      // accent 底：相对 accent 成对，勿用主题 onPrimary
+      final onAccent = AppColor.onFill(ctx, accent);
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -650,7 +652,7 @@ Future<bool?> _showFeaturePayConfirmDialog(
                 style: FilledButton.styleFrom(
                   // 确认钮跟已解析功能色（与 logo / 玻璃边一致）。
                   backgroundColor: accent,
-                  foregroundColor: onPrimary,
+                  foregroundColor: onAccent,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   shape: const StadiumBorder(),
@@ -664,7 +666,7 @@ Future<bool?> _showFeaturePayConfirmDialog(
                       style: TextStyle(
                         fontSize: 11,
                         height: 1.2,
-                        color: onPrimary.withValues(alpha: 0.75),
+                        color: onAccent.withValues(alpha: 0.75),
                       ),
                     ),
                   ],

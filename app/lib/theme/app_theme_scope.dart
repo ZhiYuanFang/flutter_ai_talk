@@ -109,12 +109,21 @@ ThemeData buildAppThemeFromBundle(VisualBundle bundle, BabySex sex) {
   final schemeSeed = _resolveSchemeSeed(bundle, sex);
   final primaryColor = _resolveThemePrimary(bundle, sex);
 
+  // 壳亮度：深色壳用 dark，否则 light
+  final shellBrightness =
+      tokens.isDarkShell ? Brightness.dark : Brightness.light;
+  // 覆盖 primary 时用 Material 成对 onPrimary（禁止 estimate→纯白/纯黑）
+  final onPrimaryColor = ColorScheme.fromSeed(
+    seedColor: primaryColor,
+    brightness: shellBrightness,
+  ).onPrimary;
   final scheme = ColorScheme.fromSeed(
     seedColor: schemeSeed,
-    brightness: tokens.isDarkShell ? Brightness.dark : Brightness.light,
+    brightness: shellBrightness,
   ).copyWith(
     surface: tokens.surfaceColor,
     primary: primaryColor,
+    onPrimary: onPrimaryColor,
   );
 
   final shell = ThemeData(

@@ -53,8 +53,10 @@ Future<bool?> showHomeHistoryEditSheet(
     wrapInGlassPanel: false,
     scrollable: false,
     respectKeyboardInset: true,
+    // 传入完整种子：近窗无 id 时仍可起表（预约不限窗上次等）
     bodyBuilder: (ctx) => _HomeHistoryEditSheetBody(
       recordId: record.id,
+      seedRecord: record,
       eventCatalog: eventCatalog,
       history: history,
     ),
@@ -64,11 +66,14 @@ Future<bool?> showHomeHistoryEditSheet(
 class _HomeHistoryEditSheetBody extends ConsumerStatefulWidget {
   const _HomeHistoryEditSheetBody({
     required this.recordId,
+    required this.seedRecord,
     required this.eventCatalog,
     required this.history,
   });
 
   final String recordId;
+  /// 调用方传入的完整记录；近窗未命中时用作起表种子。
+  final HistoryRecord seedRecord;
   final List<EventDefinition> eventCatalog;
   final HomeHistoryNotifier history;
 
@@ -134,18 +139,26 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   void _resolveRecord() {
     final items = ref.read(homeHistoryProvider).items;
     final idx = items.indexWhere((e) => e.id == widget.recordId);
-    if (idx < 0) {
+    HistoryRecord? r;
+    if (idx >= 0) {
+      // 近窗命中：以列表行为准（可能比种子更新）
+      r = items[idx];
+    } else if (widget.seedRecord.id == widget.recordId) {
+      // 近窗未命中：用匹配种子起表（窗外预约上次等）
+      r = widget.seedRecord;
+    }
+    if (r == null) {
       showAppToast('记录不存在', tone: AppToastTone.error);
       if (mounted) Navigator.pop(context);
       return;
     }
-    final r = items[idx];
+    final resolved = r;
     setState(() {
-      _record = r;
-      _applyRecordToForm(r);
+      _record = resolved;
+      _applyRecordToForm(resolved);
     });
-    unawaited(_loadMediaAndSyncPref(r));
-    unawaited(_loadAppointmentNext(r));
+    unawaited(_loadMediaAndSyncPref(resolved));
+    unawaited(_loadAppointmentNext(resolved));
   }
 
   Future<void> _loadAppointmentNext(HistoryRecord r) async {
@@ -189,10 +202,12 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
         rootEventId: root,
         displayEvent: def,
         initialNextAt: appointmentNextAtFromSec(_appointmentNextAtSec ?? 0),
+        // 备注由 sheet 从缓存/GET 回填
       );
       if (!mounted) return;
       if (ok) {
-        final sec = ref.read(appointmentNextCacheProvider)[root] ?? 0;
+        final sec =
+            ref.read(appointmentNextCacheProvider)[root]?.nextAtSec ?? 0;
         setState(() => _appointmentNextAtSec = sec);
       }
     } finally {

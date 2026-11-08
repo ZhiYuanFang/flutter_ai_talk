@@ -38,12 +38,14 @@ abstract class FeedRepository {
   });
 
   /// `GET /device/history/api/filter`；失败或无 deviceNo 返回 `null`（不 Toast）。
-  /// [listDesc] 为服务端倒序（新→旧）。无 deviceNo **不得** 返回成功空列表。
+  /// [listDesc] 为服务端倒序（新→旧 / id DESC）。无 deviceNo **不得** 返回成功空列表。
+  /// [ignoreTimeRange] 为真时服务端完全忽略 start/end（即使非 0）。
   Future<List<HistoryRecord>?> tryLoadHistoryFilter({
     int startTime = 0,
     int endTime = 0,
     int limit = kHistoryFilterMaxLimit,
     String eventIds = '',
+    bool ignoreTimeRange = false,
   });
 
   /// `GET /device/history/api/v2/list`；失败或无 deviceNo 返回 `null`（不 Toast）。

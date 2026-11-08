@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../api/app_debug_log.dart';
+import '../data/appointment_next_repository.dart';
 import '../data/baby_age.dart';
 import '../data/event_definition.dart';
 import '../data/event_next_predictor.dart';
@@ -252,8 +253,11 @@ Future<void> syncHomeWidgetFromRef(dynamic ref, {
   final activeEventKeys = inputs.activeEventKeys;
   final recallIntervalsByRoot = inputs.recallIntervalsByRoot;
   final lastAtCacheByRoot = inputs.lastAtCacheByRoot;
-  final appointmentNextAtSecByRoot =
-      (ref.read(appointmentNextCacheProvider) as Map<String, int>);
+  final appointmentNextCache = ref.read(appointmentNextCacheProvider)
+      as Map<String, AppointmentNextValue>;
+  final appointmentNextAtSecByRoot = {
+    for (final e in appointmentNextCache.entries) e.key: e.value.nextAtSec,
+  };
 
   BabyProfile? baby;
   try {

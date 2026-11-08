@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_color.dart';
 import '../home_history_edit_glass_panel.dart';
 import '../widgets/app_glass_overlay.dart';
 import '../widgets/feature_logo.dart';
@@ -150,7 +151,8 @@ class _InviteCodeDialogBodyState extends State<_InviteCodeDialogBody> {
               ),
               style: FilledButton.styleFrom(
                 backgroundColor: accent,
-                foregroundColor: scheme.onPrimary,
+                // 相对 accent 成对字色
+                foregroundColor: AppColor.onFill(context, accent),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                 shape: const StadiumBorder(),

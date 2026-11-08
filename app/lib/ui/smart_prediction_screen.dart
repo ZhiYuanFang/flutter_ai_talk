@@ -28,6 +28,7 @@ import '../data/smart_prediction_rows.dart';
 import '../data/trend_predict_accuracy.dart';
 import '../providers/settings_baby.dart';
 import '../api/api_exceptions.dart';
+import '../providers/appointment_last_occurrence_provider.dart';
 import '../providers/appointment_next_provider.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/device_no_notifier.dart';
@@ -270,6 +271,8 @@ class SmartPredictionScreen extends ConsumerWidget {
     final catalog = ref.watch(eventCatalogProvider).items;
     // 挂载预测页时预取预约 nextAt（catalog 变化会重跑）
     ref.watch(appointmentNextPrefetchProvider);
+    // 预约根不限窗「上一次」预取
+    ref.watch(appointmentLastPrefetchProvider);
     final layout = ref.watch(predictionCardsLayoutProvider).asData?.value ??
         PredictionCardsLayout.grid;
     final now =
@@ -615,8 +618,7 @@ class SmartPredictionScreen extends ConsumerWidget {
               context: context,
               ref: ref,
               event: def,
-              // 补充不套确认框；普通新增非量仍确认
-              confirmDirectLeafBeforeAdd: !isSupplement,
+              // add/supplement 均统一记录 sheet（无确认框、无即时 now）
               intent: isSupplement
                   ? EventRecordIntent.supplement
                   : EventRecordIntent.add,
@@ -625,9 +627,33 @@ class SmartPredictionScreen extends ConsumerWidget {
         };
       }
 
-      // 「上一次」文案：仅真喂养记录可进编辑 Sheet
+      // 「上一次」点按：预约再 filter 开编辑；非预约仅近窗有真记录可点
       VoidCallback? editLastTapFor(SmartPredictionRow row) {
         if (useDemoSkeleton) return null;
+        final isAppt = catalogRootIsAppointment(row.eventId, catalog);
+        if (isAppt) {
+          // 有展示上次行即可点；点按再拉，不依赖近窗
+          return () {
+            unawaited(() async {
+              final rec = await fetchAppointmentLastHistoryRecord(
+                ref,
+                row.eventId,
+                catalogOverride: catalog,
+              );
+              if (!context.mounted) return;
+              if (rec == null) {
+                showAppToast('暂无法打开编辑，请稍后重试', tone: AppToastTone.error);
+                return;
+              }
+              await showHomeHistoryEditSheet(
+                context,
+                record: rec,
+                eventCatalog: catalog,
+                history: ref.read(homeHistoryProvider.notifier),
+              );
+            }());
+          };
+        }
         final record = latestRealHistoryRecordForRootFromSources(
           rootEventId: row.eventId,
           catalog: catalog,
@@ -730,14 +756,19 @@ class SmartPredictionScreen extends ConsumerWidget {
         }
         return buildGrid();
       }
+      // 竖列表：过滤全部预约根（补充下次仅瀑布）
+      final listRows = [
+        for (final r in rows)
+          if (!catalogRootIsAppointment(r.eventId, catalog)) r,
+      ];
       return wrapCardsRefresh(
         ListView.separated(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(16, 0, 16, cardsBottomPad),
-          itemCount: rows.length,
+          itemCount: listRows.length,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (context, i) {
-            final row = rows[i];
+            final row = listRows[i];
             final activeTiming = useDemoSkeleton
                 ? null
                 : findLatestActiveTimingForRoot(
@@ -1817,6 +1848,7 @@ class _LandscapeColumnDensitySideRail extends StatelessWidget {
           color: color.withValues(alpha: 0.55),
           height: 1.15,
         );
+    // 矮屏时竖排提示易撑破 Column；Flexible+FittedBox 可收缩，轨仍占主高
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -1843,9 +1875,17 @@ class _LandscapeColumnDensitySideRail extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        _landscapeVerticalCharColumn('拖动调整大小', hintStyle),
-        const SizedBox(height: 8),
+        Flexible(
+          fit: FlexFit.loose,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topCenter,
+            child: _landscapeVerticalCharColumn('拖动调整大小', hintStyle),
+          ),
+        ),
+        const SizedBox(height: 4),
         Expanded(
+          flex: 2,
           child: LayoutBuilder(
             builder: (context, constraints) {
               return _LandscapeColumnDensityTrack(
@@ -2373,14 +2413,16 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     if (def == null) return;
     setState(() => _appointmentBusy = true);
     try {
-      final sec = await ensureAppointmentNextAt(ref, rootId);
+      // 拉取 nextAt+remark，改约默认回填上次预约备注
+      final value = await ensureAppointmentNext(ref, rootId);
       if (!mounted) return;
       await showAppointmentNextSheetAndSave(
         context,
         ref: ref,
         rootEventId: rootId,
         displayEvent: def,
-        initialNextAt: appointmentNextAtFromSec(sec),
+        initialNextAt: appointmentNextAtFromSec(value.nextAtSec),
+        initialRemark: value.remark,
       );
     } finally {
       if (mounted) setState(() => _appointmentBusy = false);
@@ -2476,6 +2518,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     /// 逾期或剩余 &gt;6h：只显示预估时刻。
     bool showEstimatedClock = false,
     PredictionEstimatedClockParts? clockParts,
+    /// 下次预约备注（非空时追加在标题后）。
+    String nextRemark = '',
   }) {
     // 预约根不展示钟点软标
     final showSoft = !isAppointment && todConfidenceLow;
@@ -2491,12 +2535,18 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
       captionFontSize: captionFontSize,
       accent: accent,
     );
-    // 时刻态改「预计…时刻」，倒计时态保持原标题；时刻态软标同行
+    // 预约用「预约」语义；非预约保持「预计/倒计时」
     final baseCaption = showEstimatedClock
-        ? '预计$titleName时刻'
-        : '距离下次$titleName倒计时';
+        ? (isAppointment ? '预约$titleName时刻' : '预计$titleName时刻')
+        : (isAppointment
+            ? '距离下次$titleName预约'
+            : '距离下次$titleName倒计时');
+    // 下次预约备注：非空原样追加（不 Trim 内容，空串不展示）
+    final withRemark = (isAppointment && nextRemark.isNotEmpty)
+        ? '$baseCaption · $nextRemark'
+        : baseCaption;
     final countdownCaption =
-        softInlineInCaption ? '此刻把握不足 · $baseCaption' : baseCaption;
+        softInlineInCaption ? '此刻把握不足 · $withRemark' : withRemark;
     final digits = showEstimatedClock && clockParts != null
         ? _buildEstimatedClockDigits(
             parts: clockParts,
@@ -2684,17 +2734,48 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     final heroGap = m?.heroGap ?? 8.0;
     final cardBorderRadius = m?.cardBorderRadius ??
         PredictionLandscapeCardMetrics.baselineCardBorderRadius;
-    final toggleCaption = '${enabled ? "关闭" : "开启"}$titleName预测';
+    // 预约根：开关文案用「预约」
+    final isAppointment =
+        catalogRootIsAppointment(widget.row.eventId, catalog);
+    final toggleCaption = isAppointment
+        ? '${enabled ? "关闭" : "开启"}$titleName预约'
+        : '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
+    // 预约：不限窗 filter 上次；非预约：窗内/tip lastAt
+    DateTime? displayLastAt = row.lastAt;
+    var displayLastRemark = row.lastRemark;
+    if (isAppointment) {
+      final lastCache = ref.watch(appointmentLastCacheProvider);
+      final unbounded = lastCache[row.eventId];
+      if (unbounded == null) {
+        // 尚未解析：触发拉取；展示先回退窗内时间，备注不造假（暂空）
+        unawaited(ensureAppointmentLastOccurrence(ref, row.eventId));
+        displayLastRemark = '';
+      } else {
+        displayLastAt = unbounded.at ?? row.lastAt;
+        displayLastRemark = unbounded.remark;
+      }
+    }
     // 热态卡有 lastAt 才展示「上一次」行；对照卡隐藏。
     // 「补充上一次」仍由 showAddLastOccurrence 在 lastAt==null 时给出。
     final showLastOccurrence = !accuracyOnlyChrome &&
         !showActiveTiming &&
         widget.onToggle != null &&
-        row.lastAt != null;
+        displayLastAt != null;
+    // 上次发生：预约省「上一次{名}」前缀；非预约保留
     final lastOccurrenceLabel = showLastOccurrence
-        ? formatPredictionLastOccurrenceLabel(titleName, row.lastAt, now)
+        ? formatPredictionLastOccurrenceLabel(
+            titleName,
+            displayLastAt,
+            now,
+            remark: displayLastRemark,
+            includeEventNamePrefix: !isAppointment,
+          )
         : null;
+    // 下次预约备注（缓存）
+    final nextAppointmentRemark = isAppointment
+        ? (ref.watch(appointmentNextCacheProvider)[row.eventId]?.remark ?? '')
+        : '';
     // 卡上 expect：duration（下次用时）永不展示；amount（下次用量）仅倒计时超时展示。
     // 计时中预计结束走 activeEtaLabel，不经此门闩。横屏紧凑省略叶子名。
     String? expectLabel;
@@ -2729,8 +2810,9 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             now.difference(activeTimingStartAt(widget.activeTiming!)),
           )
         : null;
-    // 大 logo：仅普通 compact 且非后列侧 logo
+    // 大 logo：仅普通 compact 且非后列侧 logo；预约卡固定标题侧 logo
     final showHeroLogo = compact &&
+        !isAppointment &&
         !showActiveTiming &&
         !widget.titleInlineLogo &&
         enabled &&
@@ -2738,8 +2820,6 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         countdown != null;
     // 补齐 CTA 由入参派生（热态 onToggle!=null）；关推演 / 计时中 / 已有 pred 皆无
     final hotCard = widget.onToggle != null;
-    final isAppointment =
-        catalogRootIsAppointment(widget.row.eventId, catalog);
     final showAddLastOccurrence = !accuracyOnlyChrome &&
         enabled &&
         !showActiveTiming &&
@@ -3012,6 +3092,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 todConfidenceLow: pred.todConfidenceLow,
                 showEstimatedClock: showEstimatedClock,
                 clockParts: clockParts,
+                nextRemark: nextAppointmentRemark,
               ),
             ],
             // 非对照卡：预约竖卡可改约 countdown；对照卡只留准确率图
@@ -3034,6 +3115,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 expectLabel: expectLabel,
                 showEstimatedClock: showEstimatedClock,
                 clockParts: clockParts,
+                nextRemark: nextAppointmentRemark,
               ),
             ],
             if (enabled && pred != null && !compact) ...[
@@ -3060,6 +3142,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                         pastDaysBeforeToday: widget.pastDaysBeforeToday,
                         oneShot: definition?.parsedEventType ==
                             EventCatalogEventType.one,
+                        onLongPressLayout: widget.onLongPressLayout,
                       ),
               ),
             ],
@@ -3112,6 +3195,7 @@ class _PredictAccuracyChartPane extends StatefulWidget {
     required this.accent,
     required this.pastDaysBeforeToday,
     this.oneShot = false,
+    this.onLongPressLayout,
   });
 
   final String eventId;
@@ -3123,6 +3207,9 @@ class _PredictAccuracyChartPane extends StatefulWidget {
 
   /// 一次性事件：示例细节不含量段
   final bool oneShot;
+
+  /// 显式长按切 list↔瀑布（与整卡同回调）
+  final VoidCallback? onLongPressLayout;
 
   @override
   State<_PredictAccuracyChartPane> createState() =>
@@ -3205,9 +3292,15 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
       });
     }
 
-    // 阻断冒泡到整卡 InkWell，避免点柱误触发加事件
+    // 阻断冒泡到整卡 InkWell；小结整区单击回柱图；显式长按切布局
     return GestureDetector(
-      onTap: () {},
+      onTap: _summaryDay == null
+          ? () {}
+          : () => setState(() {
+                _summaryDay = null;
+                _summaryIsSample = false;
+              }),
+      onLongPress: widget.onLongPressLayout,
       behavior: HitTestBehavior.opaque,
       child: _summaryDay == null
           ? _buildBars(

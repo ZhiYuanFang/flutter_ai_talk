@@ -128,14 +128,28 @@ String formatWidgetActiveSubtitle(DateTime startAt, DateTime now) {
   return '进行中 · ${formatWidgetActiveElapsed(now.difference(startAt))}';
 }
 
-/// 预测卡片：「上一次{事件名}：{时间}」。
+/// 预测卡片上次行文案。
+///
+/// [includeEventNamePrefix] 为真：`上一次{事件名}：{时间}[ · 备注]`（非预约）。
+/// 为假：`{时间}[ · 备注]`（预约，省横向前缀）。
 String formatPredictionLastOccurrenceLabel(
   String eventName,
   DateTime? lastAt,
-  DateTime now,
-) {
-  final name = eventName.trim().isEmpty ? '未知事件' : eventName.trim();
-  return '上一次$name：${formatWidgetLastAt(lastAt, now)}';
+  DateTime now, {
+  String remark = '',
+  bool includeEventNamePrefix = true,
+}) {
+  final time = formatWidgetLastAt(lastAt, now);
+  final String base;
+  if (includeEventNamePrefix) {
+    final name = eventName.trim().isEmpty ? '未知事件' : eventName.trim();
+    base = '上一次$name：$time';
+  } else {
+    base = time;
+  }
+  final rm = remark.trim();
+  if (rm.isEmpty) return base;
+  return '$base · $rm';
 }
 
 /// 上次记录时间（native 与 App 预览对齐）。

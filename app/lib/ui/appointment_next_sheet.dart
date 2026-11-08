@@ -1,8 +1,10 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/appointment_event.dart';
+import '../data/appointment_next_repository.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../providers/appointment_next_provider.dart';
@@ -12,25 +14,41 @@ import 'glass_single_wheel_picker_sheet.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/keyboard_lift.dart';
 
-/// 专用「下一次预约」sheet：确认返回所选本地时间；关闭返回 null。无清空。
-Future<DateTime?> showAppointmentNextSheet(
+/// 专用 sheet 确认结果：下次时间 + 备注（不 Trim）。
+class AppointmentNextSheetResult {
+  const AppointmentNextSheetResult({
+    required this.nextAt,
+    required this.remark,
+  });
+
+  final DateTime nextAt;
+  final String remark;
+}
+
+/// 专用「下一次预约」sheet：确认返回所选本地时间+备注；关闭返回 null。无清空。
+Future<AppointmentNextSheetResult?> showAppointmentNextSheet(
   BuildContext context, {
   required EventDefinition event,
   DateTime? initialNextAt,
+  String initialRemark = '',
 }) {
   final accent = resolveEventColor(context, event);
-  // 横屏可用高度紧，抬高占比避免四列滚轮被裁切
+  // 横屏抬高占比；整窗可滚，矮约束/键盘下可滚到备注与确认
   final landscape =
       MediaQuery.orientationOf(context) == Orientation.landscape;
-  return showGlassAdaptiveBottomSheet<DateTime>(
+  return showGlassAdaptiveBottomSheet<AppointmentNextSheetResult>(
     context: context,
     eventAccent: accent,
-    scrollable: false,
-    maxHeightFraction: landscape ? 0.92 : 0.62,
+    scrollable: true,
+    // 与新增事件 sheet 同族：键盘升起时垫高，避免备注被盖
+    respectKeyboardInset: true,
+    maxHeightFraction: landscape ? 0.95 : 0.72,
     bodyBuilder: (ctx) => _AppointmentNextSheetBody(
       event: event,
       initialNextAt: initialNextAt,
+      initialRemark: initialRemark,
     ),
   );
 }
@@ -42,17 +60,32 @@ Future<bool> showAppointmentNextSheetAndSave(
   required String rootEventId,
   required EventDefinition displayEvent,
   DateTime? initialNextAt,
+  String? initialRemark,
 }) async {
+  // 优先用入参备注；否则从缓存/GET 回填
+  var remark = initialRemark;
+  if (remark == null) {
+    final cached = ref.read(appointmentNextCacheProvider)[rootEventId.trim()];
+    if (cached != null) {
+      remark = cached.remark;
+    } else {
+      final v = await ensureAppointmentNext(ref, rootEventId);
+      remark = v.remark;
+    }
+  }
+  if (!context.mounted) return false;
   final picked = await showAppointmentNextSheet(
     context,
     event: displayEvent,
     initialNextAt: initialNextAt,
+    initialRemark: remark,
   );
   if (picked == null || !context.mounted) return false;
-  final ok = await putAppointmentNextAt(
+  final ok = await putAppointmentNext(
     ref: ref,
     rootEventId: rootEventId,
-    nextAtSec: appointmentNextAtToSec(picked),
+    nextAtSec: appointmentNextAtToSec(picked.nextAt),
+    remark: picked.remark,
   );
   if (!ok && context.mounted) {
     showAppToast('保存预约时间失败', tone: AppToastTone.error);
@@ -70,16 +103,19 @@ Future<void> maybePromptAppointmentNextAfterWrite({
   if (!eventIsAppointment(event, catalog)) return;
   final rootId = appointmentRootEventId(event.id, catalog);
   final rootDef = lookupEventById(catalog, rootId) ?? event;
-  final sec = await ensureAppointmentNextAt(ref, rootId);
+  final value = await ensureAppointmentNext(ref, rootId);
   if (!context.mounted) return;
-  if (!appointmentNextAtEmptyOrOverdue(sec, DateTime.now())) return;
-  final initial = appointmentNextAtFromSec(sec);
+  if (!appointmentNextAtEmptyOrOverdue(value.nextAtSec, DateTime.now())) {
+    return;
+  }
+  final initial = appointmentNextAtFromSec(value.nextAtSec);
   await showAppointmentNextSheetAndSave(
     context,
     ref: ref,
     rootEventId: rootId,
     displayEvent: rootDef,
     initialNextAt: initial,
+    initialRemark: value.remark,
   );
 }
 
@@ -105,6 +141,7 @@ Future<void> clearThenPromptAppointmentNextAfterAdd({
     rootEventId: rootId,
     displayEvent: rootDef,
     initialNextAt: null,
+    initialRemark: '',
   );
 }
 
@@ -117,10 +154,12 @@ class _AppointmentNextSheetBody extends StatefulWidget {
   const _AppointmentNextSheetBody({
     required this.event,
     this.initialNextAt,
+    this.initialRemark = '',
   });
 
   final EventDefinition event;
   final DateTime? initialNextAt;
+  final String initialRemark;
 
   @override
   State<_AppointmentNextSheetBody> createState() =>
@@ -141,6 +180,14 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
   late FixedExtentScrollController _dayCtrl;
   late FixedExtentScrollController _hourCtrl;
   late FixedExtentScrollController _minuteCtrl;
+
+  /// 备注由 State 持有并 dispose（禁止弹层返回后 dispose）。
+  late final TextEditingController _remarkCtrl;
+  late final FocusNode _remarkFocus;
+  final _remarkAnchorKey = GlobalKey();
+
+  /// 备注获焦时收起滚轮（与键盘 inset 配合）。
+  var _remarkFocused = false;
 
   @override
   void initState() {
@@ -166,6 +213,16 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
     _dayCtrl = FixedExtentScrollController(initialItem: _day - 1);
     _hourCtrl = FixedExtentScrollController(initialItem: _hour);
     _minuteCtrl = FixedExtentScrollController(initialItem: _minute);
+    // 回填上次预约备注（不 Trim）
+    _remarkCtrl = TextEditingController(text: widget.initialRemark);
+    _remarkFocus = FocusNode();
+    _remarkFocus.addListener(_onRemarkFocusChange);
+  }
+
+  void _onRemarkFocusChange() {
+    final focused = _remarkFocus.hasFocus;
+    if (focused == _remarkFocused) return;
+    setState(() => _remarkFocused = focused);
   }
 
   DateTime _clampToRange(DateTime t) {
@@ -208,7 +265,16 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
     });
   }
 
-  void _confirm() => Navigator.pop(context, _selected);
+  void _confirm() {
+    Navigator.pop(
+      context,
+      AppointmentNextSheetResult(
+        nextAt: _selected,
+        // 原样提交，不 Trim
+        remark: clampAppointmentRemark(_remarkCtrl.text),
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -216,6 +282,9 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
     _dayCtrl.dispose();
     _hourCtrl.dispose();
     _minuteCtrl.dispose();
+    _remarkFocus.removeListener(_onRemarkFocusChange);
+    _remarkFocus.dispose();
+    _remarkCtrl.dispose();
     super.dispose();
   }
 
@@ -262,22 +331,22 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
         ? '事件'
         : widget.event.name.trim();
     final dayCount = _daysInMonth(_year, _month);
+    // 备注获焦或键盘可见：收起四列滚轮腾出高度
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final collapseWheels = _remarkFocused || keyboardVisible;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final bounded = constraints.hasBoundedHeight &&
-              constraints.maxHeight.isFinite &&
-              constraints.maxHeight > 0;
-          // 横屏等矮约束：压缩间距与按钮，滚轮用 Expanded 吃剩余
-          final tight = bounded && constraints.maxHeight < 280;
-          final gapAfterTitle = tight ? 4.0 : 10.0;
-          final gapAfterYear = tight ? 4.0 : 8.0;
-          final gapBeforeBtn = tight ? 6.0 : 12.0;
-          final btnH = tight ? 36.0 : 44.0;
+    // 整窗可滚：内容用固有高度；滚轮固定高，不依赖 Expanded
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final tight = landscape;
+    final gapAfterTitle = tight ? 4.0 : 10.0;
+    final gapAfterYear = tight ? 4.0 : 8.0;
+    final gapBeforeRemark = tight ? 4.0 : 8.0;
+    final gapBeforeBtn = tight ? 6.0 : 12.0;
+    final btnH = tight ? 36.0 : 44.0;
+    final wheelsH = tight ? 160.0 : 200.0;
 
-          final wheels = CupertinoTheme(
+    final wheels = CupertinoTheme(
             data: CupertinoThemeData(
               primaryColor: scheme.primary,
               brightness: Theme.of(context).brightness,
@@ -396,7 +465,55 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
             SizedBox(height: gapAfterYear),
           ];
 
+          // 预约备注输入（与 nextAt 一并 PUT）；keyboardLift 锚点
+          final remarkField = Padding(
+            padding: EdgeInsets.only(top: gapBeforeRemark),
+            child: keyboardLiftTarget(
+              focusNode: _remarkFocus,
+              anchorKey: _remarkAnchorKey,
+              child: TextField(
+                controller: _remarkCtrl,
+                focusNode: _remarkFocus,
+                maxLines: 1,
+                style: TextStyle(fontSize: tight ? 13 : 14, color: glassText),
+                cursorColor: scheme.primary,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(kAppointmentRemarkMaxLen),
+                ],
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: '备注（可选）',
+                  hintStyle: TextStyle(
+                    color: glassText.withValues(alpha: 0.45),
+                    fontSize: tight ? 13 : 14,
+                  ),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: tight ? 8 : 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: scheme.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: scheme.primary.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: scheme.primary),
+                  ),
+                ),
+              ),
+            ),
+          );
+
           final footer = <Widget>[
+            remarkField,
             SizedBox(height: gapBeforeBtn),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -411,31 +528,19 @@ class _AppointmentNextSheetBodyState extends State<_AppointmentNextSheetBody> {
             ),
           ];
 
-          if (!bounded) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ...header,
-                SizedBox(height: 200, child: wheels),
-                ...footer,
-              ],
-            );
-          }
+    // 收起滚轮：仅标题+年份+备注+确认；否则固定高滚轮，整窗由外壳滚动
+    final bodyChildren = <Widget>[
+      ...header,
+      if (!collapseWheels) SizedBox(height: wheelsH, child: wheels),
+      ...footer,
+    ];
 
-          // 填满可用高度，滚轮 Expanded，避免固定 200 在横屏溢出
-          return SizedBox(
-            height: constraints.maxHeight,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ...header,
-                Expanded(child: wheels),
-                ...footer,
-              ],
-            ),
-          );
-        },
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: bodyChildren,
       ),
     );
   }

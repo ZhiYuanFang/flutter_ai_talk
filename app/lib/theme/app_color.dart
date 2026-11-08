@@ -77,6 +77,15 @@ abstract final class AppColor {
   /// 压在 primary 实心底上的字/图标（确认钮文字）。
   static Color onPrimary(BuildContext context) => _scheme(context).onPrimary;
 
+  /// 压在任意实心填充色上的字色：Material fromSeed 成对，非二元黑白。
+  /// 用于事件 accent 等非 theme.primary 的 FilledButton 底。
+  static Color onFill(BuildContext context, Color fill) {
+    return ColorScheme.fromSeed(
+      seedColor: fill,
+      brightness: Theme.of(context).brightness,
+    ).onPrimary;
+  }
+
   /// 表单错误字：提交失败等行内提示，跟主题 error。
   static Color error(BuildContext context) => _scheme(context).error;
 

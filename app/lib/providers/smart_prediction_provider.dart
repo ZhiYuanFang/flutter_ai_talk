@@ -55,7 +55,9 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
     disabledForecastIds: disabled,
     activeEventKeys: activeKeys,
     recallIntervalsByRoot: recallIntervals,
-    appointmentNextAtSecByRoot: appointmentNext,
+    appointmentNextAtSecByRoot: {
+      for (final e in appointmentNext.entries) e.key: e.value.nextAtSec,
+    },
     lastAtCacheByRoot: lastAtCache,
   );
 });

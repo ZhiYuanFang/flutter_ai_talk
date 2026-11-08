@@ -178,22 +178,20 @@ Future<EventAddSubmitResult?> submitEventAdd({
 
 /// 喂养事件格 / 预测网格卡共用：父→子选择后按类型添加或补充。
 ///
-/// [intent]：`supplement` 开统一 Sheet；`add` 非量直接 now，number 开 Sheet。
-/// [confirmDirectLeafBeforeAdd]：仅 `add` + 预测直点叶子 + 非 number 时先确认。
+/// [intent]：`supplement` / `add` 均开统一 Sheet（`time`/`one`/`number`）；无「确认添加」、无即时 now。
 Future<void> handleEventGridTap({
   required BuildContext context,
   required WidgetRef ref,
   required EventDefinition event,
   Map<String, int>? usageCounts,
   FutureOr<void> Function(EventAddSubmitResult result)? onAdded,
-  bool confirmDirectLeafBeforeAdd = false,
   EventRecordIntent intent = EventRecordIntent.add,
 }) async {
   assert(intent != EventRecordIntent.edit);
   final catalog = ref.read(eventCatalogProvider).items;
   var target = event;
   if (hasChildren(catalog, event.id)) {
-    // picker 选叶子后不再确认
+    // 多级选叶后仍走统一 sheet（由 _onEventButtonTap 收口）
     if (!context.mounted) return;
     final leaf = await showEventCatalogPickerSheet(
       context,
@@ -204,20 +202,6 @@ Future<void> handleEventGridTap({
     );
     if (leaf == null || !context.mounted) return;
     target = leaf;
-  } else if (intent == EventRecordIntent.add && confirmDirectLeafBeforeAdd) {
-    // 直点叶子：仅普通新增的 time/one 确认；补充走 Sheet；number 已有 sheet
-    final type = target.parsedEventType;
-    if (type != null && type != EventCatalogEventType.number) {
-      if (!context.mounted) return;
-      final ok = await showGlassConfirmDialog(
-            context,
-            title: '确认添加',
-            message: '是否添加「${target.name}」？',
-            confirmLabel: '添加',
-          ) ??
-          false;
-      if (!ok || !context.mounted) return;
-    }
   }
   await _onEventButtonTap(
     context: context,
@@ -243,74 +227,52 @@ Future<void> _onEventButtonTap({
   final type = event.parsedEventType!;
   EventAddSubmitResult? submitted;
 
-  if (intent == EventRecordIntent.supplement) {
-    // 补充：任意类型开统一 Sheet
-    if (type == EventCatalogEventType.time &&
-        _hasActiveTimingForEvent(ref, event)) {
-      ref.showApiToast('${event.name}已在计时中');
-      return;
-    }
-    if (_eventAddInFlight) return;
-    final result = await showEventRecordCreateSheet(
-      context,
-      intent: EventRecordIntent.supplement,
-      event: event,
-    );
-    if (result == null || !context.mounted || _eventAddInFlight) return;
-    final end = result.endTime ??
-        (type == EventCatalogEventType.time
-            ? DateTime.fromMillisecondsSinceEpoch(0)
-            : result.startTime);
-    submitted = await submitEventAdd(
-      ref: ref,
-      event: event,
-      eventNumber: result.eventNumber,
-      startTime: result.startTime,
-      endTime: end,
-      remark: result.remark,
-    );
-  } else {
-    // 普通新增
-    switch (type) {
-      case EventCatalogEventType.time:
-        if (_hasActiveTimingForEvent(ref, event)) {
-          ref.showApiToast('${event.name}已在计时中');
-          return;
-        }
-        final now = DateTime.now();
-        submitted = await submitEventAdd(
-          ref: ref,
-          event: event,
-          eventNumber: 0,
-          startTime: now,
-          endTime: DateTime.fromMillisecondsSinceEpoch(0),
-        );
-      case EventCatalogEventType.one:
-        final now = DateTime.now();
-        submitted = await submitEventAdd(
-          ref: ref,
-          event: event,
-          eventNumber: 1,
-          startTime: now,
-          endTime: now,
-        );
-      case EventCatalogEventType.number:
-        if (_eventAddInFlight) return;
-        final result = await showEventRecordCreateSheet(
-          context,
-          intent: EventRecordIntent.add,
-          event: event,
-        );
-        if (result == null || !context.mounted || _eventAddInFlight) return;
-        submitted = await submitEventAdd(
-          ref: ref,
-          event: event,
-          eventNumber: result.eventNumber,
-          startTime: result.startTime,
-          endTime: result.startTime,
-          remark: result.remark,
-        );
-    }
+  // time：已在计时则 toast，add/supplement 均不重复开 sheet
+  if (type == EventCatalogEventType.time &&
+      _hasActiveTimingForEvent(ref, event)) {
+    ref.showApiToast('${event.name}已在计时中');
+    return;
+  }
+
+  if (_eventAddInFlight) return;
+  // add / supplement：统一记录 sheet（取消不落库）
+  final result = await showEventRecordCreateSheet(
+    context,
+    intent: intent,
+    event: event,
+  );
+  if (result == null || !context.mounted || _eventAddInFlight) return;
+
+  switch (type) {
+    case EventCatalogEventType.time:
+      final end = result.endTime ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      submitted = await submitEventAdd(
+        ref: ref,
+        event: event,
+        eventNumber: result.eventNumber,
+        startTime: result.startTime,
+        endTime: end,
+        remark: result.remark,
+      );
+    case EventCatalogEventType.one:
+      submitted = await submitEventAdd(
+        ref: ref,
+        event: event,
+        eventNumber: result.eventNumber,
+        startTime: result.startTime,
+        endTime: result.endTime ?? result.startTime,
+        remark: result.remark,
+      );
+    case EventCatalogEventType.number:
+      submitted = await submitEventAdd(
+        ref: ref,
+        event: event,
+        eventNumber: result.eventNumber,
+        startTime: result.startTime,
+        endTime: result.startTime,
+        remark: result.remark,
+      );
   }
   if (submitted != null && onAdded != null) {
     await onAdded(submitted);
