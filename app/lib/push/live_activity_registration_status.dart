@@ -27,31 +27,25 @@ enum LiveActivityErrorCategory {
   /// 已见 token 但 live-activity/register HTTP/业务失败。
   registerHttpFailed,
 
-  /// 仅一类 attributes 成功（至少一类 seen 或一类 registerOk）。
-  partialAttributes,
-
   /// 原生已 invoke 到 Dart 通道，但本轮未见 PTS 事件。
   nativeDeliverDartMiss,
 
-  /// 两类此前已成功，本轮超时未收到新事件。
+  /// 此前已成功，本轮超时未收到新事件。
   timeoutKeptPriorSuccess,
 
   /// 其它/未知。
   unknown,
 }
 
-/// 锁屏 Live Activity 注册显态（不含 token 明文）。
+/// 锁屏 Live Activity 注册显态（不含 token 明文；统一单轨）。
 class LiveActivityRegistrationStatus {
   const LiveActivityRegistrationStatus({
     required this.listening,
     required this.pushToStartSupported,
     required this.systemAuth,
-    required this.imminentPushToStartOk,
-    required this.timingPushToStartOk,
-    this.imminentPtsEventSeen = false,
-    this.timingPtsEventSeen = false,
-    this.imminentLastSuccessAt,
-    this.timingLastSuccessAt,
+    required this.pushToStartOk,
+    this.ptsEventSeen = false,
+    this.lastSuccessAt,
     this.pushToStartDeliverCount = 0,
     this.iosVersionLabel = '',
     this.lastError,
@@ -59,43 +53,34 @@ class LiveActivityRegistrationStatus {
     this.retrying = false,
   });
 
-  /// 初始未知态（加载中）。
   factory LiveActivityRegistrationStatus.initial() =>
       const LiveActivityRegistrationStatus(
         listening: false,
         pushToStartSupported: false,
         systemAuth: LiveActivitySystemAuth.unsupported,
-        imminentPushToStartOk: false,
-        timingPushToStartOk: false,
+        pushToStartOk: false,
       );
 
   final bool listening;
   final bool pushToStartSupported;
   final LiveActivitySystemAuth systemAuth;
-  final bool imminentPushToStartOk;
-  final bool timingPushToStartOk;
-  /// 本进程是否见过 imminent 的 push_to_start 事件（不论 HTTP）。
-  final bool imminentPtsEventSeen;
-  /// 本进程是否见过 timing 的 push_to_start 事件。
-  final bool timingPtsEventSeen;
-  final DateTime? imminentLastSuccessAt;
-  final DateTime? timingLastSuccessAt;
-  /// 原生 Bridge 本进程 deliver 的 push_to_start 次数。
+  /// 统一轨 Push-to-Start register 曾成功。
+  final bool pushToStartOk;
+  /// 本进程是否见过 push_to_start 事件（不论 HTTP）。
+  final bool ptsEventSeen;
+  final DateTime? lastSuccessAt;
   final int pushToStartDeliverCount;
-  /// 如 `18.2`，供诊断摘要。
   final String iosVersionLabel;
   final String? lastError;
   final LiveActivityErrorCategory errorCategory;
   final bool retrying;
 
-  /// 已开通：系统支持且允许，且两类 Push-to-Start 均成功上报过。
+  /// 已开通：系统支持且允许，且统一轨 Push-to-Start 已成功上报。
   bool get isFullyEnabled =>
       pushToStartSupported &&
       systemAuth == LiveActivitySystemAuth.enabled &&
-      imminentPushToStartOk &&
-      timingPushToStartOk;
+      pushToStartOk;
 
-  /// 错误类别短码（写入可复制摘要）。
   String get errorCategoryCode {
     switch (errorCategory) {
       case LiveActivityErrorCategory.none:
@@ -108,8 +93,6 @@ class LiveActivityRegistrationStatus {
         return 'no_system_token';
       case LiveActivityErrorCategory.registerHttpFailed:
         return 'register_http_failed';
-      case LiveActivityErrorCategory.partialAttributes:
-        return 'partial_attributes';
       case LiveActivityErrorCategory.nativeDeliverDartMiss:
         return 'native_deliver_dart_miss';
       case LiveActivityErrorCategory.timeoutKeptPriorSuccess:
@@ -124,10 +107,8 @@ class LiveActivityRegistrationStatus {
     final ios = iosVersionLabel.isEmpty ? '?' : iosVersionLabel;
     return 'ios=$ios listening=${listening ? 1 : 0} '
         'ptsDeliver=$pushToStartDeliverCount '
-        'immSeen=${imminentPtsEventSeen ? 1 : 0} '
-        'immOk=${imminentPushToStartOk ? 1 : 0} '
-        'timSeen=${timingPtsEventSeen ? 1 : 0} '
-        'timOk=${timingPushToStartOk ? 1 : 0} '
+        'ptsSeen=${ptsEventSeen ? 1 : 0} '
+        'ptsOk=${pushToStartOk ? 1 : 0} '
         'err=$errorCategoryCode';
   }
 
@@ -135,12 +116,9 @@ class LiveActivityRegistrationStatus {
     bool? listening,
     bool? pushToStartSupported,
     LiveActivitySystemAuth? systemAuth,
-    bool? imminentPushToStartOk,
-    bool? timingPushToStartOk,
-    bool? imminentPtsEventSeen,
-    bool? timingPtsEventSeen,
-    DateTime? imminentLastSuccessAt,
-    DateTime? timingLastSuccessAt,
+    bool? pushToStartOk,
+    bool? ptsEventSeen,
+    DateTime? lastSuccessAt,
     int? pushToStartDeliverCount,
     String? iosVersionLabel,
     String? lastError,
@@ -153,14 +131,9 @@ class LiveActivityRegistrationStatus {
       listening: listening ?? this.listening,
       pushToStartSupported: pushToStartSupported ?? this.pushToStartSupported,
       systemAuth: systemAuth ?? this.systemAuth,
-      imminentPushToStartOk:
-          imminentPushToStartOk ?? this.imminentPushToStartOk,
-      timingPushToStartOk: timingPushToStartOk ?? this.timingPushToStartOk,
-      imminentPtsEventSeen: imminentPtsEventSeen ?? this.imminentPtsEventSeen,
-      timingPtsEventSeen: timingPtsEventSeen ?? this.timingPtsEventSeen,
-      imminentLastSuccessAt:
-          imminentLastSuccessAt ?? this.imminentLastSuccessAt,
-      timingLastSuccessAt: timingLastSuccessAt ?? this.timingLastSuccessAt,
+      pushToStartOk: pushToStartOk ?? this.pushToStartOk,
+      ptsEventSeen: ptsEventSeen ?? this.ptsEventSeen,
+      lastSuccessAt: lastSuccessAt ?? this.lastSuccessAt,
       pushToStartDeliverCount:
           pushToStartDeliverCount ?? this.pushToStartDeliverCount,
       iosVersionLabel: iosVersionLabel ?? this.iosVersionLabel,
@@ -173,7 +146,7 @@ class LiveActivityRegistrationStatus {
   }
 }
 
-/// 错误类别对应人话短句（客服可复述）。
+/// 错误类别对应人话短句。
 String liveActivityErrorCategoryMessage(LiveActivityErrorCategory c) {
   switch (c) {
     case LiveActivityErrorCategory.none:
@@ -186,8 +159,6 @@ String liveActivityErrorCategoryMessage(LiveActivityErrorCategory c) {
       return '未收到系统 Push-to-Start token（系统未下发或本机未接到）';
     case LiveActivityErrorCategory.registerHttpFailed:
       return '已收到系统 token，但上报 live-activity/register 失败';
-    case LiveActivityErrorCategory.partialAttributes:
-      return '仅部分类型开通成功（即将发生 / 计时中未齐）';
     case LiveActivityErrorCategory.nativeDeliverDartMiss:
       return '原生已投递 token，但应用未收到（通道异常）';
     case LiveActivityErrorCategory.timeoutKeptPriorSuccess:

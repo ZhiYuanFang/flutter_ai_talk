@@ -24,7 +24,7 @@ class LiveActivityNative {
     return _controller!.stream;
   }
 
-  /// 通知原生：确保观察 + Dart 可收 + flush inbox（禁止本地 Activity.request）。
+  /// 通知原生：确保观察 + Dart 可收 + flush inbox。
   static Future<void> startListening() async {
     if (!_supported) return;
     _ensureHandler();
@@ -36,7 +36,7 @@ class LiveActivityNative {
     }
   }
 
-  /// 强制重启原生 Push-to-Start / activity 观察（手动重试用）。
+  /// 强制重启原生观察（手动重试用）。
   static Future<void> restartListening() async {
     if (!_supported) return;
     _ensureHandler();
@@ -48,7 +48,7 @@ class LiveActivityNative {
     }
   }
 
-  /// 登出 / stop：暂停 Native→Dart 投递；原生观察与 inbox 继续。
+  /// 登出 / stop：暂停 Native→Dart 投递。
   static Future<void> pauseDartListening() async {
     if (!_supported) return;
     try {
@@ -59,7 +59,7 @@ class LiveActivityNative {
     }
   }
 
-  /// 登录后写入原生可读 register 上下文（唤醒窗免鉴权 POST 用）。
+  /// 登录后写入原生可读 register 上下文。
   static Future<void> setRegisterContext({
     required int wxId,
     required String deviceKey,
@@ -84,7 +84,7 @@ class LiveActivityNative {
     }
   }
 
-  /// 登出：清除原生 wxId/deviceKey/apiBase，避免旧账号继续上报。
+  /// 登出：清除原生上下文。
   static Future<void> clearRegisterContext() async {
     if (!_supported) return;
     try {
@@ -95,7 +95,7 @@ class LiveActivityNative {
     }
   }
 
-  /// 探测系统是否允许 Live Activities / 是否支持 Push-to-Start / PTS deliver 计数。
+  /// 探测系统是否允许 Live Activities / Push-to-Start / deliver 计数。
   static Future<LiveActivitySystemInfo> getSystemStatus() async {
     if (!_supported) {
       return const LiveActivitySystemInfo(
@@ -153,17 +153,12 @@ class LiveActivityNative {
       final map = Map<String, dynamic>.from(raw);
       final token = map['token']?.toString().trim() ?? '';
       final tokenKind = map['tokenKind']?.toString().trim() ?? '';
-      final attributesKind = map['attributesKind']?.toString().trim() ?? '';
-      if (token.isEmpty || tokenKind.isEmpty || attributesKind.isEmpty) return;
-      final activityId = map['activityId']?.toString().trim();
+      // 统一轨：不再要求 attributesKind
+      if (token.isEmpty || tokenKind.isEmpty) return;
       _controller!.add(
         LiveActivityTokenEvent(
           tokenKind: tokenKind,
-          attributesKind: attributesKind,
           token: token,
-          activityId: (activityId == null || activityId.isEmpty)
-              ? null
-              : activityId,
         ),
       );
     });
@@ -183,23 +178,17 @@ class LiveActivitySystemInfo {
   final bool supported;
   final bool areActivitiesEnabled;
   final bool pushToStartSupported;
-  /// Bridge 本进程已 deliver 的 push_to_start 次数。
   final int pushToStartDeliverCount;
-  /// 如 `18.2`。
   final String iosVersion;
 }
 
-/// 单次 LA token 上报载荷。
+/// 单次 LA token 上报载荷（统一轨，无 attributesKind/activityId）。
 class LiveActivityTokenEvent {
   const LiveActivityTokenEvent({
     required this.tokenKind,
-    required this.attributesKind,
     required this.token,
-    this.activityId,
   });
 
   final String tokenKind;
-  final String attributesKind;
   final String token;
-  final String? activityId;
 }

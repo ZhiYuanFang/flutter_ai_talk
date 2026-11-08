@@ -1,175 +1,141 @@
 import ActivityKit
 import Foundation
 
-/// 与 Go `PUSH_LA_ATTR_IMMINENT` 默认名 `PredictImminentAttributes` 对齐。
-struct PredictImminentAttributes: ActivityAttributes {
+/// 与 Go `PUSH_LA_ATTR_TYPE` 默认名 `BabyLiveActivityAttributes` 对齐（统一单条列表态）。
+struct BabyLiveActivityAttributes: ActivityAttributes {
+  /// ContentState：phase + 有序 items（预测升序 + 进行中倒序，由 Go 排好）。
   public struct ContentState: Codable, Hashable {
-    var title: String
     var phase: String
-    var nextAt: Int64
-    /// duration | amount；旧推送缺省空
-    var expectKind: String
-    /// duration 维；秒；缺省 0
-    var expectDurationSec: Int64
-    /// amount 维；浮点；缺省 0
-    var expectAmount: Double
-    /// amount 单位；缺省空
-    var expectUnit: String
+    var items: [BabyLiveActivityItem]
 
-    init(
-      title: String = "",
-      phase: String = "",
-      nextAt: Int64 = 0,
-      expectKind: String = "",
-      expectDurationSec: Int64 = 0,
-      expectAmount: Double = 0,
-      expectUnit: String = ""
-    ) {
-      self.title = title
+    init(phase: String = "", items: [BabyLiveActivityItem] = []) {
       self.phase = phase
-      self.nextAt = nextAt
-      self.expectKind = expectKind
-      self.expectDurationSec = expectDurationSec
-      self.expectAmount = expectAmount
-      self.expectUnit = expectUnit
+      self.items = items
     }
 
     enum CodingKeys: String, CodingKey {
-      case title, phase, nextAt
-      case expectKind, expectDurationSec, expectAmount, expectUnit
+      case phase, items
     }
 
     init(from decoder: Decoder) throws {
       let c = try decoder.container(keyedBy: CodingKeys.self)
-      // end/clear 载荷可能只带 phase，缺省兜底避免解码失败
-      title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+      // end/clear 可能只带 phase
       phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? ""
-      nextAt = try c.decodeIfPresent(Int64.self, forKey: .nextAt) ?? 0
-      expectKind = try c.decodeIfPresent(String.self, forKey: .expectKind) ?? ""
-      expectDurationSec = try c.decodeIfPresent(Int64.self, forKey: .expectDurationSec) ?? 0
-      // amount：优先 Double；整型 JSON 亦兼容
-      if let d = try c.decodeIfPresent(Double.self, forKey: .expectAmount) {
-        expectAmount = d
-      } else if let i = try c.decodeIfPresent(Int64.self, forKey: .expectAmount) {
-        expectAmount = Double(i)
-      } else {
-        expectAmount = 0
-      }
-      expectUnit = try c.decodeIfPresent(String.self, forKey: .expectUnit) ?? ""
+      items = try c.decodeIfPresent([BabyLiveActivityItem].self, forKey: .items) ?? []
     }
   }
 
+  /// 固定 Attributes；Push-to-Start / start 由 Go 下发。
   var activityId: String
   var deviceNo: String
-  var eventId: Int64
-  var nextAt: Int64
-  /// 锁屏标题；Push-to-Start 常不套用 ContentState.title，由此回退。旧推送缺省空串。
-  var title: String
 
   enum CodingKeys: String, CodingKey {
-    case activityId, deviceNo, eventId, nextAt, title
+    case activityId, deviceNo
+  }
+
+  init(activityId: String = "", deviceNo: String = "") {
+    self.activityId = activityId
+    self.deviceNo = deviceNo
   }
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     activityId = try c.decodeIfPresent(String.self, forKey: .activityId) ?? ""
     deviceNo = try c.decodeIfPresent(String.self, forKey: .deviceNo) ?? ""
-    eventId = try c.decodeIfPresent(Int64.self, forKey: .eventId) ?? 0
-    nextAt = try c.decodeIfPresent(Int64.self, forKey: .nextAt) ?? 0
-    title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
   }
 
   func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(activityId, forKey: .activityId)
     try c.encode(deviceNo, forKey: .deviceNo)
-    try c.encode(eventId, forKey: .eventId)
-    try c.encode(nextAt, forKey: .nextAt)
-    try c.encode(title, forKey: .title)
   }
 }
 
-/// 与 Go `PUSH_LA_ATTR_TIMING` 默认名 `PredictTimingAttributes` 对齐。
-struct PredictTimingAttributes: ActivityAttributes {
-  public struct ContentState: Codable, Hashable {
-    var eventName: String
-    var startTime: Int64
-    var phase: String
-    /// 预计结束 unix 秒；缺省 0 表示不画副行
-    var expectEndAt: Int64
+/// 列表项：`kind=imminent|timing` + 各态展示字段；缺键兜底。
+struct BabyLiveActivityItem: Codable, Hashable, Identifiable {
+  var kind: String
+  var eventId: Int64
+  var title: String
+  var nextAt: Int64
+  var expectKind: String
+  var expectDurationSec: Int64
+  var expectAmount: Double
+  var expectUnit: String
+  var historyId: Int64
+  var eventName: String
+  var startTime: Int64
+  var expectEndAt: Int64
 
-    init(
-      eventName: String = "",
-      startTime: Int64 = 0,
-      phase: String = "",
-      expectEndAt: Int64 = 0
-    ) {
-      self.eventName = eventName
-      self.startTime = startTime
-      self.phase = phase
-      self.expectEndAt = expectEndAt
+  /// ForEach 稳定键：kind + 业务 id。
+  var id: String {
+    let k = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if k == "timing" {
+      return "timing:\(historyId):\(eventId):\(startTime)"
     }
-
-    enum CodingKeys: String, CodingKey {
-      case eventName, startTime, phase, expectEndAt
-    }
-
-    init(from decoder: Decoder) throws {
-      let c = try decoder.container(keyedBy: CodingKeys.self)
-      eventName = try c.decodeIfPresent(String.self, forKey: .eventName) ?? ""
-      startTime = try c.decodeIfPresent(Int64.self, forKey: .startTime) ?? 0
-      phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? ""
-      expectEndAt = try c.decodeIfPresent(Int64.self, forKey: .expectEndAt) ?? 0
-    }
+    return "imminent:\(eventId):\(nextAt)"
   }
 
-  var activityId: String
-  var deviceNo: String
-  var historyId: Int64
-  /// 事件目录 id；旧推送可能缺省，解码兜底 0（UI 走无图）。
-  var eventId: Int64
-  /// 锁屏标题回退；Push-to-Start 常不套用 ContentState。
-  var eventName: String
-  /// unix 秒；ContentState.startTime 为空时锁屏计时回退。
-  var startTime: Int64
+  var isImminent: Bool {
+    kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "imminent"
+  }
 
-  enum CodingKeys: String, CodingKey {
-    case activityId, deviceNo, historyId, eventId, eventName, startTime
+  var isTiming: Bool {
+    kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "timing"
   }
 
   init(
-    activityId: String,
-    deviceNo: String,
-    historyId: Int64,
+    kind: String = "",
     eventId: Int64 = 0,
+    title: String = "",
+    nextAt: Int64 = 0,
+    expectKind: String = "",
+    expectDurationSec: Int64 = 0,
+    expectAmount: Double = 0,
+    expectUnit: String = "",
+    historyId: Int64 = 0,
     eventName: String = "",
-    startTime: Int64 = 0
+    startTime: Int64 = 0,
+    expectEndAt: Int64 = 0
   ) {
-    self.activityId = activityId
-    self.deviceNo = deviceNo
-    self.historyId = historyId
+    self.kind = kind
     self.eventId = eventId
+    self.title = title
+    self.nextAt = nextAt
+    self.expectKind = expectKind
+    self.expectDurationSec = expectDurationSec
+    self.expectAmount = expectAmount
+    self.expectUnit = expectUnit
+    self.historyId = historyId
     self.eventName = eventName
     self.startTime = startTime
+    self.expectEndAt = expectEndAt
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case kind, eventId, title, nextAt
+    case expectKind, expectDurationSec, expectAmount, expectUnit
+    case historyId, eventName, startTime, expectEndAt
   }
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    activityId = try c.decodeIfPresent(String.self, forKey: .activityId) ?? ""
-    deviceNo = try c.decodeIfPresent(String.self, forKey: .deviceNo) ?? ""
-    historyId = try c.decodeIfPresent(Int64.self, forKey: .historyId) ?? 0
+    kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
     eventId = try c.decodeIfPresent(Int64.self, forKey: .eventId) ?? 0
+    title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+    nextAt = try c.decodeIfPresent(Int64.self, forKey: .nextAt) ?? 0
+    expectKind = try c.decodeIfPresent(String.self, forKey: .expectKind) ?? ""
+    expectDurationSec = try c.decodeIfPresent(Int64.self, forKey: .expectDurationSec) ?? 0
+    if let d = try c.decodeIfPresent(Double.self, forKey: .expectAmount) {
+      expectAmount = d
+    } else if let i = try c.decodeIfPresent(Int64.self, forKey: .expectAmount) {
+      expectAmount = Double(i)
+    } else {
+      expectAmount = 0
+    }
+    expectUnit = try c.decodeIfPresent(String.self, forKey: .expectUnit) ?? ""
+    historyId = try c.decodeIfPresent(Int64.self, forKey: .historyId) ?? 0
     eventName = try c.decodeIfPresent(String.self, forKey: .eventName) ?? ""
     startTime = try c.decodeIfPresent(Int64.self, forKey: .startTime) ?? 0
-  }
-
-  func encode(to encoder: Encoder) throws {
-    var c = encoder.container(keyedBy: CodingKeys.self)
-    try c.encode(activityId, forKey: .activityId)
-    try c.encode(deviceNo, forKey: .deviceNo)
-    try c.encode(historyId, forKey: .historyId)
-    try c.encode(eventId, forKey: .eventId)
-    try c.encode(eventName, forKey: .eventName)
-    try c.encode(startTime, forKey: .startTime)
+    expectEndAt = try c.decodeIfPresent(Int64.self, forKey: .expectEndAt) ?? 0
   }
 }

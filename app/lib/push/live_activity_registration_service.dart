@@ -14,7 +14,7 @@ import 'live_activity_event_visuals.dart';
 import 'live_activity_native.dart';
 import 'live_activity_registration_status.dart';
 
-/// iOS Live Activity token → `POST /app/api/push/live-activity/register`。
+/// iOS Live Activity token → `POST /app/api/push/live-activity/register`（统一单轨）。
 /// Dart 为可选补传；唤醒窗主路径在原生免鉴权 POST。MUST NOT 走 `/app/api/push/register`。
 class LiveActivityRegistrationService {
   LiveActivityRegistrationService({
@@ -22,7 +22,6 @@ class LiveActivityRegistrationService {
     required UcgPushRegistrationService pushRegistration,
   })  : _api = api,
         _pushRegistration = pushRegistration {
-    // 异步灌入持久化成功时间与系统态
     unawaited(_hydrateStatus());
   }
 
@@ -30,24 +29,20 @@ class LiveActivityRegistrationService {
   final UcgPushRegistrationService _pushRegistration;
   StreamSubscription<LiveActivityTokenEvent>? _sub;
   var _started = false;
-  Completer<void>? _imminentPtsCompleter;
-  Completer<void>? _timingPtsCompleter;
+  Completer<void>? _ptsCompleter;
 
   /// 成功 register 身份缓存（副作用 HTTP 去重；登出清）。
   final Set<String> _registeredIdentities = <String>{};
 
-  /// 本轮手动重试：是否见过 PTS / 是否已记 HTTP 失败（防超时覆盖）。
-  var _attemptImminentSeen = false;
-  var _attemptTimingSeen = false;
+  /// 本轮手动重试证据。
+  var _attemptPtsSeen = false;
   var _attemptHttpFailed = false;
   String? _attemptHttpError;
 
-  /// UI 可监听的注册显态（无 token）。
   final ValueNotifier<LiveActivityRegistrationStatus> status =
       ValueNotifier(LiveActivityRegistrationStatus.initial());
 
-  /// 已登录时启动原生监听并做 Dart 侧补传 HTTP（与消息通知偏好无关）。
-  /// 唤醒窗主路径不依赖本方法；此处不新增 resume 自动 restartListening。
+  /// 已登录时启动原生监听并做 Dart 侧补传 HTTP。
   Future<void> startIfEligible({required bool isLoggedIn}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     if (!isLoggedIn) {
@@ -56,7 +51,6 @@ class LiveActivityRegistrationService {
     }
     if (_started) return;
     _started = true;
-    // 先订阅再通知原生，避免 broadcast 丢首包（Dart 补传）
     await _sub?.cancel();
     _sub = LiveActivityNative.tokenStream.listen((ev) {
       unawaited(_register(ev));
@@ -64,7 +58,6 @@ class LiveActivityRegistrationService {
     await LiveActivityNative.startListening();
     await refreshSystemStatus();
     _patchStatus(listening: true);
-    // 预热 App Group 视觉索引，供锁屏 Extension 按 eventId 取图/色
     unawaited(_syncEventVisuals());
     AppDebugLog.liveActivity('registration service started (dart supplemental)');
   }
@@ -82,9 +75,7 @@ class LiveActivityRegistrationService {
     await _sub?.cancel();
     _sub = null;
     _started = false;
-    _imminentPtsCompleter = null;
-    _timingPtsCompleter = null;
-    // 停投递但保留原生观察；token 入 inbox 待下次登录 flush
+    _ptsCompleter = null;
     await LiveActivityNative.pauseDartListening();
     _registeredIdentities.clear();
     _patchStatus(listening: false, retrying: false);
@@ -95,7 +86,6 @@ class LiveActivityRegistrationService {
     status.dispose();
   }
 
-  /// 刷新系统 Live Activities 允许态、Push-to-Start 能力与原生 deliver 计数。
   Future<void> refreshSystemStatus() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       _patchStatus(
@@ -119,7 +109,7 @@ class LiveActivityRegistrationService {
     );
   }
 
-  /// 手动重试：强制重启监听并等待两类 push_to_start 上报。
+  /// 手动重试：强制重启监听并等待统一轨 push_to_start 上报。
   Future<void> forceRetryPushToStart({
     Duration timeout = const Duration(seconds: 15),
   }) async {
@@ -130,8 +120,7 @@ class LiveActivityRegistrationService {
       );
       return;
     }
-    _attemptImminentSeen = false;
-    _attemptTimingSeen = false;
+    _attemptPtsSeen = false;
     _attemptHttpFailed = false;
     _attemptHttpError = null;
     _patchStatus(
@@ -162,13 +151,10 @@ class LiveActivityRegistrationService {
       return;
     }
 
-    final imminentDone = Completer<void>();
-    final timingDone = Completer<void>();
-    _imminentPtsCompleter = imminentDone;
-    _timingPtsCompleter = timingDone;
+    final ptsDone = Completer<void>();
+    _ptsCompleter = ptsDone;
 
     try {
-      // 允许再次 start：清 Dart 门闩并重启原生观察
       await _sub?.cancel();
       _sub = null;
       _started = false;
@@ -181,24 +167,20 @@ class LiveActivityRegistrationService {
       await refreshSystemStatus();
       unawaited(_syncEventVisuals());
 
-      await Future.wait<void>([
-        imminentDone.future,
-        timingDone.future,
-      ]).timeout(timeout);
+      await ptsDone.future.timeout(timeout);
 
       _patchStatus(
         retrying: false,
         clearLastError: true,
         clearErrorCategory: true,
       );
-      AppDebugLog.liveActivity('forceRetry ok both push_to_start');
+      AppDebugLog.liveActivity('forceRetry ok push_to_start');
     } on TimeoutException {
       await refreshSystemStatus();
       _applyTimeoutDiagnosis();
       AppDebugLog.liveActivity(
         'forceRetry timeout cat=${status.value.errorCategoryCode} '
-        'attImm=$_attemptImminentSeen attTim=$_attemptTimingSeen '
-        'httpFail=$_attemptHttpFailed',
+        'attSeen=$_attemptPtsSeen httpFail=$_attemptHttpFailed',
       );
     } catch (e) {
       _patchStatus(
@@ -208,16 +190,12 @@ class LiveActivityRegistrationService {
       );
       AppDebugLog.liveActivity('forceRetry err=$e');
     } finally {
-      if (identical(_imminentPtsCompleter, imminentDone)) {
-        _imminentPtsCompleter = null;
-      }
-      if (identical(_timingPtsCompleter, timingDone)) {
-        _timingPtsCompleter = null;
+      if (identical(_ptsCompleter, ptsDone)) {
+        _ptsCompleter = null;
       }
     }
   }
 
-  /// 超时后按本轮证据分类，禁止用「无 token」盖住 HTTP 错。
   void _applyTimeoutDiagnosis() {
     final after = status.value;
     if (_attemptHttpFailed) {
@@ -231,9 +209,7 @@ class LiveActivityRegistrationService {
       );
       return;
     }
-    final bothOk =
-        after.imminentPushToStartOk && after.timingPushToStartOk;
-    if (bothOk) {
+    if (after.pushToStartOk) {
       _patchStatus(
         retrying: false,
         errorCategory: LiveActivityErrorCategory.timeoutKeptPriorSuccess,
@@ -243,10 +219,8 @@ class LiveActivityRegistrationService {
       );
       return;
     }
-    final anySeen = _attemptImminentSeen || _attemptTimingSeen;
     final deliver = after.pushToStartDeliverCount;
-    // 原生已 invoke 但 Dart 未见事件（通道异常）；成功开通后不应再出现 deliver>0 && seen=0
-    if (!anySeen && deliver > 0) {
+    if (!_attemptPtsSeen && deliver > 0) {
       _patchStatus(
         retrying: false,
         errorCategory: LiveActivityErrorCategory.nativeDeliverDartMiss,
@@ -256,66 +230,35 @@ class LiveActivityRegistrationService {
       );
       return;
     }
-    if (!anySeen && deliver <= 0) {
-      _patchStatus(
-        retrying: false,
-        errorCategory: LiveActivityErrorCategory.noSystemToken,
-        lastError: liveActivityErrorCategoryMessage(
-          LiveActivityErrorCategory.noSystemToken,
-        ),
-      );
-      return;
-    }
-    // 本轮至少见过一类事件，但两类未齐成功
     _patchStatus(
       retrying: false,
-      errorCategory: LiveActivityErrorCategory.partialAttributes,
+      errorCategory: LiveActivityErrorCategory.noSystemToken,
       lastError: liveActivityErrorCategoryMessage(
-        LiveActivityErrorCategory.partialAttributes,
+        LiveActivityErrorCategory.noSystemToken,
       ),
     );
   }
 
   Future<void> _hydrateStatus() async {
-    final imminentAt = await LiveActivityRegistrationStore.loadImminentOkAt();
-    final timingAt = await LiveActivityRegistrationStore.loadTimingOkAt();
+    final at = await LiveActivityRegistrationStore.loadPushToStartOkAt();
     _patchStatus(
-      imminentPushToStartOk: imminentAt != null,
-      timingPushToStartOk: timingAt != null,
-      imminentLastSuccessAt: imminentAt,
-      timingLastSuccessAt: timingAt,
+      pushToStartOk: at != null,
+      lastSuccessAt: at,
     );
     await refreshSystemStatus();
   }
 
   Future<void> _register(LiveActivityTokenEvent ev) async {
     final kind = ev.tokenKind.trim().toLowerCase();
-    final attr = ev.attributesKind.trim().toLowerCase();
     if (kind != 'push_to_start' && kind != 'activity') {
       AppDebugLog.liveActivity('skip bad tokenKind=$kind');
       return;
     }
-    if (attr != 'imminent' && attr != 'timing') {
-      AppDebugLog.liveActivity('skip bad attributesKind=$attr');
-      return;
-    }
-    if (kind == 'activity' &&
-        (ev.activityId == null || ev.activityId!.trim().isEmpty)) {
-      AppDebugLog.liveActivity('skip activity without activityId');
-      return;
-    }
     if (kind == 'push_to_start') {
-      // 先标记「已见事件」，与 HTTP 成败分离
-      if (attr == 'imminent') {
-        _attemptImminentSeen = true;
-        _patchStatus(imminentPtsEventSeen: true);
-      } else {
-        _attemptTimingSeen = true;
-        _patchStatus(timingPtsEventSeen: true);
-      }
+      _attemptPtsSeen = true;
+      _patchStatus(ptsEventSeen: true);
     }
     try {
-      // 与原生免鉴权契约对齐：body 必含非零 wxId（服务端不依赖 Bearer）
       final wxRaw = readJwtWxId(_api.accessTokenProvider());
       final wxId = int.tryParse(wxRaw?.trim() ?? '') ?? 0;
       if (wxId <= 0) {
@@ -323,20 +266,12 @@ class LiveActivityRegistrationService {
         return;
       }
       final deviceKey = await _pushRegistration.deviceKey();
-      final activityId =
-          kind == 'activity' ? ev.activityId!.trim() : '';
-      // 成功身份：含 wxId，与原生去重键对齐
-      final identity =
-          '$wxId|$deviceKey|$kind|$attr|$activityId|${ev.token}';
+      // 成功身份：无 attributesKind / activityId
+      final identity = '$wxId|$deviceKey|$kind|${ev.token}';
       if (_registeredIdentities.contains(identity)) {
-        AppDebugLog.liveActivity(
-          'register skip cached kind=$kind attr=$attr '
-          'activityIdLen=${activityId.length}',
-        );
+        AppDebugLog.liveActivity('register skip cached kind=$kind');
         if (kind == 'push_to_start') {
-          _completeIfPending(
-            attr == 'imminent' ? _imminentPtsCompleter : _timingPtsCompleter,
-          );
+          _completeIfPending(_ptsCompleter);
         }
         return;
       }
@@ -344,42 +279,24 @@ class LiveActivityRegistrationService {
         'wxId': wxId,
         'deviceKey': deviceKey,
         'tokenKind': kind,
-        'attributesKind': attr,
         'token': ev.token,
       };
-      if (kind == 'activity') {
-        body['activityId'] = activityId;
-      }
-      // 专用 LA 路径；可附带 Bearer（服务端忽略），禁止复用 device push register
       await _api.postJsonEnvelope(
         '/app/api/push/live-activity/register',
         body,
       );
       _registeredIdentities.add(identity);
-      AppDebugLog.liveActivity(
-        'register ok kind=$kind attr=$attr activityIdLen=${activityId.length}',
-      );
+      AppDebugLog.liveActivity('register ok kind=$kind');
       if (kind == 'push_to_start') {
         final now = DateTime.now();
-        if (attr == 'imminent') {
-          await LiveActivityRegistrationStore.saveImminentOkAt(now);
-          _patchStatus(
-            imminentPushToStartOk: true,
-            imminentLastSuccessAt: now,
-            clearLastError: true,
-            clearErrorCategory: true,
-          );
-          _completeIfPending(_imminentPtsCompleter);
-        } else {
-          await LiveActivityRegistrationStore.saveTimingOkAt(now);
-          _patchStatus(
-            timingPushToStartOk: true,
-            timingLastSuccessAt: now,
-            clearLastError: true,
-            clearErrorCategory: true,
-          );
-          _completeIfPending(_timingPtsCompleter);
-        }
+        await LiveActivityRegistrationStore.savePushToStartOkAt(now);
+        _patchStatus(
+          pushToStartOk: true,
+          lastSuccessAt: now,
+          clearLastError: true,
+          clearErrorCategory: true,
+        );
+        _completeIfPending(_ptsCompleter);
       }
     } catch (e) {
       final msg = _userFacingError(e);
@@ -389,7 +306,6 @@ class LiveActivityRegistrationService {
         lastError: msg,
         errorCategory: LiveActivityErrorCategory.registerHttpFailed,
       );
-      // 勿把完整异常串（可能含 token）打满；截断已在 _userFacingError
       AppDebugLog.liveActivity('register err=$msg');
     }
   }
@@ -411,7 +327,6 @@ class LiveActivityRegistrationService {
       return '网络/HTTP 失败（${e.statusCode}）${short.isEmpty ? '' : '：$short'}';
     }
     final raw = e.toString();
-    // 避免异常串里夹带超长 hex token
     if (raw.length > 180) {
       return '注册失败：${raw.substring(0, 180)}…';
     }
@@ -422,12 +337,9 @@ class LiveActivityRegistrationService {
     bool? listening,
     bool? pushToStartSupported,
     LiveActivitySystemAuth? systemAuth,
-    bool? imminentPushToStartOk,
-    bool? timingPushToStartOk,
-    bool? imminentPtsEventSeen,
-    bool? timingPtsEventSeen,
-    DateTime? imminentLastSuccessAt,
-    DateTime? timingLastSuccessAt,
+    bool? pushToStartOk,
+    bool? ptsEventSeen,
+    DateTime? lastSuccessAt,
     int? pushToStartDeliverCount,
     String? iosVersionLabel,
     String? lastError,
@@ -440,12 +352,9 @@ class LiveActivityRegistrationService {
       listening: listening,
       pushToStartSupported: pushToStartSupported,
       systemAuth: systemAuth,
-      imminentPushToStartOk: imminentPushToStartOk,
-      timingPushToStartOk: timingPushToStartOk,
-      imminentPtsEventSeen: imminentPtsEventSeen,
-      timingPtsEventSeen: timingPtsEventSeen,
-      imminentLastSuccessAt: imminentLastSuccessAt,
-      timingLastSuccessAt: timingLastSuccessAt,
+      pushToStartOk: pushToStartOk,
+      ptsEventSeen: ptsEventSeen,
+      lastSuccessAt: lastSuccessAt,
       pushToStartDeliverCount: pushToStartDeliverCount,
       iosVersionLabel: iosVersionLabel,
       lastError: lastError,

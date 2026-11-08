@@ -47,21 +47,8 @@ class _LiveActivitySettingsScreenState
       return '系统未允许锁屏实况';
     }
     if (s.isFullyEnabled) return '已开通';
-    if (s.imminentPushToStartOk || s.timingPushToStartOk) {
-      return '部分开通';
-    }
     if (s.listening) return '等待系统 token / 未完成上报';
     return '未开通';
-  }
-
-  String _kindLine({
-    required String label,
-    required bool seen,
-    required bool ok,
-  }) {
-    final seenText = seen ? '已见事件' : '未见事件';
-    final okText = ok ? '已上报' : '未上报';
-    return '$label：$seenText / $okText';
   }
 
   String _subtitle(LiveActivityRegistrationStatus s) {
@@ -73,20 +60,11 @@ class _LiveActivitySettingsScreenState
       return '请在系统设置中允许本 App 的实时活动';
     }
     if (s.isFullyEnabled) {
-      return '即将发生与计时中的锁屏 token 均已上报';
+      return '锁屏实时活动 token 已上报（统一列表态）';
     }
-    return [
-      _kindLine(
-        label: '即将发生',
-        seen: s.imminentPtsEventSeen,
-        ok: s.imminentPushToStartOk,
-      ),
-      _kindLine(
-        label: '计时中',
-        seen: s.timingPtsEventSeen,
-        ok: s.timingPushToStartOk,
-      ),
-    ].join('\n');
+    final seenText = s.ptsEventSeen ? '已见事件' : '未见事件';
+    final okText = s.pushToStartOk ? '已上报' : '未上报';
+    return 'Push-to-Start：$seenText / $okText';
   }
 
   String? _formatAt(DateTime? at) {
@@ -180,8 +158,7 @@ class _LiveActivitySettingsScreenState
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '· 事件即将发生时的锁屏提醒\n'
-                          '· 事件计时进行中的锁屏展示\n\n'
+                          '· 预测即将发生与进行中计时，同条锁屏纵向列表展示\n\n'
                           '「开通」表示本机已向服务端上报锁屏推送 token；'
                           '锁屏是否出现内容仍依赖服务端推送，与消息通知开关相互独立。\n'
                           '「已见事件」= 系统已下发 Push-to-Start；「已上报」= register 成功。',
@@ -191,16 +168,10 @@ class _LiveActivitySettingsScreenState
                             color: AppColor.textSecondary(context),
                           ),
                         ),
-                        if (s.imminentLastSuccessAt != null ||
-                            s.timingLastSuccessAt != null) ...[
+                        if (s.lastSuccessAt != null) ...[
                           const SizedBox(height: 12),
                           Text(
-                            [
-                              if (s.imminentLastSuccessAt != null)
-                                '即将发生上次成功：${_formatAt(s.imminentLastSuccessAt)}',
-                              if (s.timingLastSuccessAt != null)
-                                '计时中上次成功：${_formatAt(s.timingLastSuccessAt)}',
-                            ].join('\n'),
+                            '上次成功：${_formatAt(s.lastSuccessAt)}',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppColor.textSecondary(context),

@@ -7,6 +7,13 @@ enum WidgetVisualHelpers {
   static let appGroupId = "group.com.fzy.pangbao.widget"
   static let laEventVisualsKey = "laEventVisuals"
   static let defaultColorHex = "#5BA3E8"
+  /// 产品主题主色（锁屏「胖宝」顶栏；非事件 accent）。
+  static let themePrimaryHex = "#5BA3E8"
+
+  /// LA 顶栏品牌色：主题主色 + 深底提亮。
+  static var laThemeBrandColor: Color {
+    laAccentColor(themePrimaryHex)
+  }
 
   /// 解析 `#RRGGBB` / `#AARRGGBB` 为 Color。
   static func parseColor(_ raw: String?) -> Color {

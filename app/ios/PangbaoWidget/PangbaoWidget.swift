@@ -441,8 +441,8 @@ struct PangbaoWidgetBundle: WidgetBundle {
     var body: some Widget {
         PangbaoWidgetMain()
         if #available(iOSApplicationExtension 16.1, *) {
-            PredictImminentLiveActivity()
-            PredictTimingLiveActivity()
+            // 统一列表态单条 Live Activity（对齐 Go BabyLiveActivityAttributes）
+            BabyLiveActivityWidget()
         }
     }
 }

@@ -2,14 +2,12 @@ import Foundation
 import Security
 
 /// Live Activity 免鉴权 register：缓存 wxId/deviceKey/apiBase，并在唤醒窗 URLSession POST。
-/// 不存 accessToken；身份仅 body.wxId（对齐 go twin live-activity-register-no-auth-go）。
+/// 不存 accessToken；身份仅 body.wxId；统一契约无 attributesKind/activityId。
 enum LiveActivityNativeRegister {
-  /// App Group：与小组件同源，后台唤醒可读。
   private static let appGroupId = "group.com.fzy.pangbao.widget"
   private static let kWxId = "la.register.wxId"
   private static let kDeviceKey = "la.register.deviceKey"
   private static let kApiBase = "la.register.apiBaseUrl"
-  /// Keychain 备份 wxId（AfterFirstUnlock，兼顾锁屏后唤醒）。
   private static let keychainService = "com.fzy.pangbao.live_activity"
   private static let keychainWxAccount = "wxId"
 
@@ -35,7 +33,6 @@ enum LiveActivityNativeRegister {
     NSLog("[live_activity] setContext wxId=%lld deviceKeyLen=%d baseLen=%d", wxId, dk.count, base.count)
   }
 
-  /// 登出：清 App Group + Keychain，避免旧 wxId 继续上报。
   static func clearContext() {
     if let defaults = UserDefaults(suiteName: appGroupId) {
       defaults.removeObject(forKey: kWxId)
@@ -52,18 +49,9 @@ enum LiveActivityNativeRegister {
   /// token 到手后立即尝试原生 POST；不依赖 Dart / Bearer。
   static func registerIfPossible(_ args: [String: Any]) {
     let kind = ((args["tokenKind"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let attr = ((args["attributesKind"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let token = ((args["token"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    var activityId = ((args["activityId"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     guard kind == "push_to_start" || kind == "activity" else { return }
-    guard attr == "imminent" || attr == "timing" else { return }
     guard !token.isEmpty else { return }
-    if kind == "push_to_start" {
-      activityId = ""
-    } else if activityId.isEmpty {
-      NSLog("[live_activity] nativeRegister skip activity without activityId")
-      return
-    }
 
     guard let wxId = readWxId(), wxId > 0 else {
       NSLog("[live_activity] nativeRegister skip no_wxId kind=%@", kind)
@@ -78,12 +66,13 @@ enum LiveActivityNativeRegister {
       return
     }
 
-    let identity = "\(wxId)|\(deviceKey)|\(kind)|\(attr)|\(activityId)|\(token)"
+    // 成功身份：无 attributesKind / activityId
+    let identity = "\(wxId)|\(deviceKey)|\(kind)|\(token)"
     successLock.lock()
     let already = successIdentities.contains(identity)
     successLock.unlock()
     if already {
-      NSLog("[live_activity] nativeRegister skip cached kind=%@ attr=%@", kind, attr)
+      NSLog("[live_activity] nativeRegister skip cached kind=%@", kind)
       return
     }
 
@@ -91,16 +80,12 @@ enum LiveActivityNativeRegister {
       NSLog("[live_activity] nativeRegister bad url")
       return
     }
-    var body: [String: Any] = [
+    let body: [String: Any] = [
       "wxId": wxId,
       "deviceKey": deviceKey,
       "tokenKind": kind,
-      "attributesKind": attr,
       "token": token,
     ]
-    if kind == "activity" {
-      body["activityId"] = activityId
-    }
     guard let json = try? JSONSerialization.data(withJSONObject: body) else {
       NSLog("[live_activity] nativeRegister json fail")
       return
@@ -109,7 +94,6 @@ enum LiveActivityNativeRegister {
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    // 免鉴权：故意不附 Authorization
     req.httpBody = json
     req.timeoutInterval = 15
 
@@ -126,13 +110,7 @@ enum LiveActivityNativeRegister {
         }
         successIdentities.insert(identity)
         successLock.unlock()
-        NSLog(
-          "[live_activity] nativeRegister ok kind=%@ attr=%@ activityIdLen=%d http=%d",
-          kind,
-          attr,
-          activityId.count,
-          code
-        )
+        NSLog("[live_activity] nativeRegister ok kind=%@ http=%d", kind, code)
       } else {
         NSLog("[live_activity] nativeRegister http=%d kind=%@", code, kind)
       }
