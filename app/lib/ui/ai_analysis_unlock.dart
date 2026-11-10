@@ -10,6 +10,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 
+import '../theme/app_color.dart';
 /// 合格未开通：功能介绍 + 标价支付；其它方式进开通中心（无邀请输入框）。
 Future<void> openCareAlertInviteUnlockDialog({
   required BuildContext context,
@@ -98,7 +99,7 @@ Future<void> _openFeatureIntroPayDialog({
               FilledButton(
                 style: FilledButton.styleFrom(
                   backgroundColor: btnAccent,
-                  foregroundColor: scheme.onPrimary,
+                  foregroundColor: AppColor.onFill(context, scheme.primary),
                 ),
                 onPressed: product == null || !feature!.supportsPayment
                     ? null

@@ -18,6 +18,7 @@ import '../../theme/app_visual_tokens.dart';
 import '../../ui/history_event_media_picker.dart';
 import 'widgets/ucg_media_viewer.dart';
 
+import '../../theme/app_color.dart';
 /// 相册查询过滤：放宽尺寸约束并固定排序，减轻部分 Android 机型 MediaStore 查询失败。
 FilterOptionGroup _ucgAlbumFilterOption() => FilterOptionGroup(
       imageOption: const FilterOption(
@@ -394,7 +395,7 @@ class _UcgAlbumPickerScreenState extends State<UcgAlbumPickerScreen> {
                         onPressed: enabled ? _complete : null,
                         style: FilledButton.styleFrom(
                           backgroundColor: scheme.primary,
-                          foregroundColor: scheme.onPrimary,
+                          foregroundColor: AppColor.onFill(context, scheme.primary),
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                           shape: const StadiumBorder(),
                           disabledBackgroundColor: scheme.primary.withValues(alpha: 0.35),

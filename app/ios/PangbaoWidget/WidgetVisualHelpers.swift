@@ -38,9 +38,9 @@ enum WidgetVisualHelpers {
     )
   }
 
-  /// 从 App Group 索引取某 eventId 的色与 logo 相对路径。
-  static func visual(forEventId eventId: Int64) -> (color: String?, logoFile: String?) {
-    guard eventId != 0 else { return (nil, nil) }
+  /// 从 App Group 索引取某 eventId 的色、logo 相对路径与可选本地事件名。
+  static func visual(forEventId eventId: Int64) -> (color: String?, logoFile: String?, name: String?) {
+    guard eventId != 0 else { return (nil, nil, nil) }
     let key = String(eventId)
     guard let defaults = UserDefaults(suiteName: appGroupId),
           let json = defaults.string(forKey: laEventVisualsKey),
@@ -48,11 +48,15 @@ enum WidgetVisualHelpers {
           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let entry = root[key] as? [String: Any]
     else {
-      return (nil, nil)
+      return (nil, nil, nil)
     }
     let color = entry["color"] as? String
     let logo = entry["logoFile"] as? String
-    return (color, logo)
+    // 缺 name 键视为空，兼容旧 JSON
+    let rawName = entry["name"] as? String
+    let name = rawName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedName = (name?.isEmpty == false) ? name : nil
+    return (color, logo, trimmedName)
   }
 
   static func loadLogoImage(path: String?) -> UIImage? {

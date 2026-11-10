@@ -47,6 +47,43 @@ bool hasChildren(List<EventDefinition> catalog, String id) {
   return false;
 }
 
+/// 目录项向上走到一级根 id（无父或父不在目录则停）。
+String catalogRootIdFor(List<EventDefinition> catalog, String eventId) {
+  var cur = eventId.trim();
+  if (cur.isEmpty) return cur;
+  final seen = <String>{};
+  while (true) {
+    if (seen.contains(cur)) return cur;
+    seen.add(cur);
+    EventDefinition? def;
+    for (final e in catalog) {
+      if (catalogIdsEqual(e.id, cur)) {
+        def = e;
+        break;
+      }
+    }
+    final p = def?.parentId?.trim();
+    if (p == null || p.isEmpty) return cur;
+    cur = p;
+  }
+}
+
+/// 根是否按合并预测：`mergePredict=true` 且目录确有直接子；叶子上的 true 不得单独发明并桶。
+bool catalogRootMergePredict(String rootEventId, List<EventDefinition> catalog) {
+  final root = rootEventId.trim();
+  if (root.isEmpty) return false;
+  EventDefinition? def;
+  for (final e in catalog) {
+    if (catalogIdsEqual(e.id, root)) {
+      def = e;
+      break;
+    }
+  }
+  if (def == null || !def.mergePredict) return false;
+  if (def.parentId != null) return false;
+  return hasChildren(catalog, root);
+}
+
 /// API 顺序的根节点。
 List<EventDefinition> rootEvents(List<EventDefinition> catalog) {
   return catalog.where(isRootEvent).toList();

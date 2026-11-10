@@ -11,6 +11,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_modal_glass_panel.dart';
 
+import '../theme/app_color.dart';
 typedef ActiveTimingStopCallback = Future<bool> Function(HistoryRecord record);
 
 /// 查询记录是否仍在计时（用于 stop 回调与列表状态对账）。
@@ -300,7 +301,7 @@ class _ActiveTimingReminderDialogState extends State<_ActiveTimingReminderDialog
               onPressed: canConfirm ? _confirmStop : null,
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
+                foregroundColor: AppColor.onFill(context, scheme.primary),
                 padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                 shape: const StadiumBorder(),
               ),

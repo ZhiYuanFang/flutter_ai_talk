@@ -16,6 +16,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'home_history_edit_sheet.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
+import 'widgets/event_remark_collapsed_row.dart';
 import 'widgets/event_remark_quick_tags.dart';
 import 'widgets/keyboard_dismiss_scope.dart';
 import 'widgets/keyboard_input_bridge.dart';
@@ -123,6 +124,8 @@ class _EventRecordCreateSheetState extends ConsumerState<_EventRecordCreateSheet
   final _remarkCtrl = TextEditingController();
   final _remarkFocusNode = FocusNode();
   final _remarkAnchorKey = GlobalKey();
+  // 备注默认折叠；点「编辑备注」展开输入框
+  var _remarkExpanded = false;
 
   EventCatalogEventType get _type => widget.event.parsedEventType!;
 
@@ -179,6 +182,19 @@ class _EventRecordCreateSheetState extends ConsumerState<_EventRecordCreateSheet
   void _onRemarkTagSelected(String text) {
     _remarkCtrl.text = text;
     keyboardInputBridgeController.updateDraft(text);
+    setState(() {});
+  }
+
+  void _expandRemarkEditor() {
+    setState(() => _remarkExpanded = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _remarkFocusNode.requestFocus();
+    });
+  }
+
+  void _onRemarkChanged(String value) {
+    keyboardInputBridgeController.updateDraft(value);
     setState(() {});
   }
 
@@ -321,33 +337,43 @@ class _EventRecordCreateSheetState extends ConsumerState<_EventRecordCreateSheet
             ),
           ],
           const SizedBox(height: 14),
-          keyboardLiftTarget(
-            focusNode: _remarkFocusNode,
-            anchorKey: _remarkAnchorKey,
-            child: TextField(
-              controller: _remarkCtrl,
+          if (_remarkExpanded)
+            keyboardLiftTarget(
               focusNode: _remarkFocusNode,
-              style: TextStyle(color: glassText, fontSize: 15),
-              cursorColor: accent,
-              decoration: historyEditGlassInputDecoration(
-                context,
-                labelText: '备注（可选）',
+              anchorKey: _remarkAnchorKey,
+              child: TextField(
+                controller: _remarkCtrl,
+                focusNode: _remarkFocusNode,
+                style: TextStyle(color: glassText, fontSize: 15),
+                cursorColor: accent,
+                decoration: historyEditGlassInputDecoration(
+                  context,
+                  labelText: '备注（可选）',
+                ),
+                textInputAction: TextInputAction.done,
+                maxLines: 2,
+                onChanged: _onRemarkChanged,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
               ),
-              textInputAction: TextInputAction.done,
-              maxLines: 2,
-              onChanged: keyboardInputBridgeController.updateDraft,
-              onSubmitted: (_) => FocusScope.of(context).unfocus(),
+            )
+          else
+            EventRemarkCollapsedRow(
+              remarkText: _remarkCtrl.text,
+              onEdit: _expandRemarkEditor,
+              textColor: glassText,
+              accentColor: accent,
             ),
-          ),
           KeyboardDismissExclude(
             child: EventRemarkQuickTags(
               eventId: widget.event.id,
+              selectedRemark: _remarkCtrl.text.trim(),
               onSelect: _onRemarkTagSelected,
             ),
           ),
           const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
+          // 主确认横向全宽，便于左手点按
+          SizedBox(
+            width: double.infinity,
             child: FilledButton(
               onPressed: _confirm,
               style: FilledButton.styleFrom(
@@ -355,7 +381,7 @@ class _EventRecordCreateSheetState extends ConsumerState<_EventRecordCreateSheet
                 // 相对 accent 成对，不用主题 primary 的 onPrimary
                 foregroundColor: AppColor.onFill(context, accent),
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                 shape: const StadiumBorder(),
               ),
               child: Text(_confirmLabel),

@@ -120,6 +120,7 @@ Future<void> maybePromptAppointmentNextAfterWrite({
 }
 
 /// 正常新增成功后：先清空 nextAt，成功再弹专用 sheet；清空失败不弹。
+/// 清空前快照约定备注（clear 会清本地 remark），弹 sheet 时预填。
 Future<void> clearThenPromptAppointmentNextAfterAdd({
   required BuildContext context,
   required WidgetRef ref,
@@ -129,6 +130,10 @@ Future<void> clearThenPromptAppointmentNextAfterAdd({
   if (!eventIsAppointment(event, catalog)) return;
   final rootId = appointmentRootEventId(event.id, catalog);
   final rootDef = lookupEventById(catalog, rootId) ?? event;
+  // 必须在 clear 之前读备注：clearAppointmentNextAt 会把缓存 remark 置空
+  final prior = await ensureAppointmentNext(ref, rootId);
+  final remarkSnapshot = prior.remark;
+  if (!context.mounted) return;
   final cleared = await clearAppointmentNextAt(ref: ref, rootEventId: rootId);
   if (!context.mounted) return;
   if (!cleared) {
@@ -141,7 +146,7 @@ Future<void> clearThenPromptAppointmentNextAfterAdd({
     rootEventId: rootId,
     displayEvent: rootDef,
     initialNextAt: null,
-    initialRemark: '',
+    initialRemark: remarkSnapshot,
   );
 }
 

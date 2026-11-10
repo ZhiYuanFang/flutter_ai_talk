@@ -132,6 +132,18 @@ abstract final class AppDebugLog {
     debugPrint('[AppointmentNext] ${_ts()} $message');
   }
 
+  /// 批量最近发生 latest-by-event。
+  static void historyLatest(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[HistoryLatest] ${_ts()} $message');
+  }
+
+  /// 历史突变后静默调度（锚点链 expect-batch / resume）。
+  static void predictPostMutation(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[PredictPostMutation] ${_ts()} $message');
+  }
+
   /// 主壳满意度问卷 GET/POST（GET 失败静默）。
   static void survey(String message) {
     if (!kDebugMode) return;

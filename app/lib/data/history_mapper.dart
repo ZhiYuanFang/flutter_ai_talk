@@ -30,6 +30,7 @@ HistoryRecord historyRecordFromServerMap(Map<String, dynamic> j) {
 }
 
 /// 详情页等展示用时间字符串（`yyyy-MM-dd HH:mm:ss`，本地日历）。
+/// absolute calendar identity — not relative day label
 String formatHistoryApiDateTime(DateTime d) {
   String p2(int x) => x.toString().padLeft(2, '0');
   return '${d.year}-${p2(d.month)}-${p2(d.day)} ${p2(d.hour)}:${p2(d.minute)}:${p2(d.second)}';

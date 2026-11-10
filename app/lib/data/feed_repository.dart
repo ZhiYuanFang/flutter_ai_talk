@@ -83,6 +83,13 @@ abstract class FeedRepository {
   /// update POST；业务失败已 Toast。
   Future<HistoryUpdatePostOutcome> postHistoryUpdateBody(Map<String, dynamic> body);
 
+  /// `POST /device/history/api/event/expect-batch`；成功认 `{ok:true}`；失败返回 false（不 Toast）。
+  /// [items] 须非空且每项含 number `id`；调用方负责切批与空列表跳过。
+  Future<bool> postHistoryExpectBatch({
+    required String deviceNo,
+    required List<Map<String, dynamic>> items,
+  });
+
   /// 提交自然语言指令，SSE 流式返回 thinking/answer 事件。
   ///
   /// 调用方订阅 Stream 后，先收到 type=thinking 的事件，

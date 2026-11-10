@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import '../../data/relative_calendar_day.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
@@ -176,8 +175,6 @@ class _UcgInteractionInboxScreenState extends ConsumerState<UcgInteractionInboxS
     final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
-    final fmt = DateFormat('MM-dd HH:mm');
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('互动消息'),
@@ -257,7 +254,11 @@ class _UcgInteractionInboxScreenState extends ConsumerState<UcgInteractionInboxS
                                         ],
                                         const SizedBox(height: 6),
                                         Text(
-                                          fmt.format(n.createdAt.toLocal()),
+                                          formatRelativeCalendarDayAndTime(
+                                            n.createdAt,
+                                            DateTime.now(),
+                                            omitDayWhenToday: true,
+                                          ),
                                           style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.45)),
                                         ),
                                       ],

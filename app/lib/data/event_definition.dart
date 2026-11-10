@@ -34,6 +34,7 @@ class EventDefinition {
     this.extraNames,
     this.parentId,
     this.isAppointment = false,
+    this.mergePredict = false,
   });
 
   final String id;
@@ -50,6 +51,8 @@ class EventDefinition {
   final String? parentId;
   /// options `isAppointment`；缺省非预约（与 eventType 正交）。
   final bool isAppointment;
+  /// options `mergePredict`；缺省非合并（子历史不并入根预测桶）。
+  final bool mergePredict;
 
   Color? get parsedColor => tryParseEventColor(colorRaw);
 
@@ -67,6 +70,7 @@ class EventDefinition {
     String? extraNames,
     String? parentId,
     bool? isAppointment,
+    bool? mergePredict,
     bool clearLocalLogoPath = false,
     bool clearParentId = false,
   }) {
@@ -81,6 +85,7 @@ class EventDefinition {
       extraNames: extraNames ?? this.extraNames,
       parentId: clearParentId ? null : (parentId ?? this.parentId),
       isAppointment: isAppointment ?? this.isAppointment,
+      mergePredict: mergePredict ?? this.mergePredict,
     );
   }
 
@@ -95,6 +100,7 @@ class EventDefinition {
         if (extraNames != null) 'extraNames': extraNames,
         if (parentId != null) 'parentId': parentId,
         'isAppointment': isAppointment ? 1 : 0,
+        'mergePredict': mergePredict ? 1 : 0,
       };
 
   static EventDefinition fromJson(Map<String, dynamic> j) {
@@ -111,10 +117,15 @@ class EventDefinition {
       isAppointment: parseIsAppointmentFlag(
         _readOptionsField(j, 'isAppointment', 'is_appointment'),
       ),
+      // 与 isAppointment 同形：缺省 false
+      mergePredict: parseIsAppointmentFlag(
+        _readOptionsField(j, 'mergePredict', 'merge_predict'),
+      ),
     );
   }
 
-  /// 解析 options / 缓存中的 `isAppointment`（0/1、bool、文案）；缺省 false。
+  /// 解析 options / 缓存中的 0/1、bool、文案标志；缺省 false。
+  /// 用于 `isAppointment` / `mergePredict`。
   static bool parseIsAppointmentFlag(Object? raw) {
     if (raw == null) return false;
     if (raw is bool) return raw;
@@ -154,6 +165,9 @@ class EventDefinition {
       parentId: _normalizeParentId(_readOptionsField(j, 'parentId', 'parent_id')),
       isAppointment: parseIsAppointmentFlag(
         _readOptionsField(j, 'isAppointment', 'is_appointment'),
+      ),
+      mergePredict: parseIsAppointmentFlag(
+        _readOptionsField(j, 'mergePredict', 'merge_predict'),
       ),
     );
   }

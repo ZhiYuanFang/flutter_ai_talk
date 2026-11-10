@@ -75,7 +75,7 @@ class UcgPostAuditBadge extends StatelessWidget {
       post.status == UcgPostStatus.pendingAudit || post.status == UcgPostStatus.rejected;
 }
 
-/// 广场 Feed 帖子 meta：`MM-dd HH:mm · 属地 · 距离`（缺项省略）。
+/// 广场 Feed 帖子 meta：`相对自然日+时分 · 属地 · 距离`（缺项省略；[time] 由权威核格式化）。
 String ucgPostFeedMetaLine(UcgPost post, String time, {String? currentUserId}) {
   final loc = post.ipLocationDisplay;
   final dist = post.shouldShowDistance(currentUserId) ? post.distanceDisplay : '';

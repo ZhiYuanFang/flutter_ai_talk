@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
-
 import '../config/trends_date_range_store.dart';
 import '../config/trends_selected_event_store.dart';
 import '../data/client_usage_events.dart';
@@ -13,6 +11,7 @@ import '../data/event_catalog_tree.dart';
 import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/models.dart';
+import '../data/relative_calendar_day.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/repositories.dart';
@@ -34,7 +33,6 @@ class TrendsScreen extends ConsumerStatefulWidget {
 }
 
 class _TrendsScreenState extends ConsumerState<TrendsScreen> {
-  static final _dayTitleFmt = DateFormat('MM-dd');
   static const _chromeLogoSize = 28.0;
 
   TrendsRangePreset _preset = TrendsRangePreset.days7;
@@ -403,7 +401,7 @@ class _TrendsScreenState extends ConsumerState<TrendsScreen> {
     final day = _selectedDay ?? TrendsDateRangeLogic.dateOnly(DateTime.now());
     final nDayTitle =
         '${selectedEvent?.name ?? ''}近${_preset.dayCount}日总量趋势图';
-    final dayMain = _dayTitleFmt.format(day);
+    final dayMain = formatRelativeCalendarDay(day, DateTime.now());
     final daySub = '${selectedEvent?.name ?? ''}24小时内趋势图';
     final rawDay = _rawForSelectedDay();
 

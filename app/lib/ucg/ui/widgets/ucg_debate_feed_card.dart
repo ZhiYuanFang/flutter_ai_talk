@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
+import '../../../data/relative_calendar_day.dart';
 import '../../data/ucg_models.dart';
 import 'ucg_debate_arguments_block.dart';
 import 'ucg_debate_vs_bar.dart';
@@ -38,7 +38,11 @@ class UcgDebateFeedCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final fg = ucgFeedFakeGlassTextColor(context);
     final primary = Theme.of(context).colorScheme.primary;
-    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
+    final time = formatRelativeCalendarDayAndTime(
+      post.displayAt,
+      DateTime.now(),
+      omitDayWhenToday: true,
+    );
     final meta = ucgPostFeedMetaLine(post, time, currentUserId: currentUserId);
     final bio = post.authorBio.trim();
 

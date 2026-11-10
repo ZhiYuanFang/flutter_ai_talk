@@ -140,6 +140,7 @@ class EventNextPrediction {
     this.expectAmount,
     this.expectUnit,
     this.expectLeafTitle,
+    this.parentEventName,
   }) : _todConfidenceLow = todConfidenceLow;
 
   final String eventId;
@@ -160,7 +161,10 @@ class EventNextPrediction {
   final int? expectDurationSec;
   final double? expectAmount;
   final String? expectUnit;
+  /// 本地展示遗留；pending 线不再上送 Go。
   final String? expectLeafTitle;
+  /// 有父时的根目录权威 name；根级预测为 null（不上送）。
+  final String? parentEventName;
 
   bool isOverdue(DateTime now) => nextAt.isBefore(now);
 
@@ -188,6 +192,7 @@ class EventNextPrediction {
     Object? expectAmount = _expectUnset,
     Object? expectUnit = _expectUnset,
     Object? expectLeafTitle = _expectUnset,
+    Object? parentEventName = _expectUnset,
   }) {
     return EventNextPrediction(
       eventId: eventId ?? this.eventId,
@@ -212,6 +217,9 @@ class EventNextPrediction {
       expectLeafTitle: identical(expectLeafTitle, _expectUnset)
           ? this.expectLeafTitle
           : expectLeafTitle as String?,
+      parentEventName: identical(parentEventName, _expectUnset)
+          ? this.parentEventName
+          : parentEventName as String?,
     );
   }
 }
@@ -576,18 +584,20 @@ String? formatPredictionExpectCardLabel(
   return null;
 }
 
-/// pending / 指纹用的 expect 身份串。
+/// pending / 指纹用的 expect 身份串（不含已废弃的 expectLeafTitle）。
 String expectFingerprintToken(EventNextPrediction p) {
-  if (!p.hasExpect) return 'none';
+  final parent = p.parentEventName?.trim() ?? '';
+  final parentTok = parent.isEmpty ? '-' : parent;
+  if (!p.hasExpect) return 'none:$parentTok';
   final kind = p.expectKind!.trim();
   if (kind == kExpectKindDuration) {
-    return 'duration:${p.expectDurationSec}';
+    return 'duration:${p.expectDurationSec}:$parentTok';
   }
   final amt = p.expectAmount;
   final amtStr = amt == null
       ? '0'
       : (amt == amt.roundToDouble() ? '${amt.toInt()}' : amt.toString());
-  return 'amount:$amtStr:${p.expectUnit ?? ''}:${p.expectLeafTitle ?? ''}';
+  return 'amount:$amtStr:${p.expectUnit ?? ''}:$parentTok';
 }
 
 /// 亲和加权后的间隔票（保留起终点供跨日回退）。
@@ -870,6 +880,18 @@ String colorHexFromEvent(EventDefinition? def) {
   return '#5BA3E8';
 }
 
+/// 预测分组键：合并根→根 id；非合并→叶子 id；无父→自身。
+String predictionBucketKeyForEventId({
+  required String eventId,
+  required List<EventDefinition> catalog,
+}) {
+  final id = eventId.trim();
+  if (id.isEmpty) return id;
+  final root = catalogRootIdFor(catalog, id);
+  if (catalogRootMergePredict(root, catalog)) return root;
+  return id;
+}
+
 List<EventNextPrediction> predictAllUpcoming({
   required List<HistoryRecord> history,
   required List<EventDefinition> catalog,
@@ -880,29 +902,10 @@ List<EventNextPrediction> predictAllUpcoming({
   Map<String, Duration> recallIntervalsByRoot = const {},
   /// 根 eventId → 已缓存的预约 nextAt 秒（含 0）；预约根忽略间隔与种子。
   Map<String, int> appointmentNextAtSecByRoot = const {},
-  /// 根 eventId → 本机曾见真发生 tip（窗口未命中时作 lastAt 回退）。
+  /// 根/叶子 eventId → 本机曾见真发生 tip（窗口未命中时作 lastAt 回退）。
   Map<String, DateTime> lastAtCacheByRoot = const {},
 }) {
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
-  // Build a quick lookup for catalog by id
-  final idToDef = <String, EventDefinition>{};
-  for (final d in catalog) {
-    if (d.id.isNotEmpty) idToDef[d.id] = d;
-  }
-
-  String rootIdFor(String id) {
-    var cur = id.trim();
-    if (cur.isEmpty) return cur;
-    final seen = <String>{};
-    while (true) {
-      if (seen.contains(cur)) return cur;
-      seen.add(cur);
-      final def = idToDef[cur];
-      final p = def?.parentId?.trim();
-      if (p == null || p.isEmpty) return cur;
-      cur = p;
-    }
-  }
 
   Duration? recallForRoot(String rootKey) {
     final direct = recallIntervalsByRoot[rootKey];
@@ -922,13 +925,24 @@ List<EventNextPrediction> predictAllUpcoming({
     return null;
   }
 
-  DateTime? cachedLastAtForRoot(String rootKey) {
-    final direct = lastAtCacheByRoot[rootKey];
+  DateTime? cachedLastAtForKey(String key) {
+    final direct = lastAtCacheByRoot[key];
     if (direct != null) return direct;
     for (final e in lastAtCacheByRoot.entries) {
-      if (catalogIdsEqual(e.key, rootKey)) return e.value;
+      if (catalogIdsEqual(e.key, key)) return e.value;
     }
     return null;
+  }
+
+  /// 预测事件若有父，取根权威 name；否则 null。
+  String? parentNameForPredictionKey(String key) {
+    final def = lookupEventById(catalog, key);
+    final pid = def?.parentId?.trim();
+    if (pid == null || pid.isEmpty) return null;
+    final root = catalogRootIdFor(catalog, key);
+    final rootDef = lookupEventById(catalog, root);
+    final n = rootDef?.name.trim() ?? '';
+    return n.isEmpty ? null : n;
   }
 
   final byKey = <String, List<HistoryRecord>>{};
@@ -936,13 +950,11 @@ List<EventNextPrediction> predictAllUpcoming({
     final id = historyRecordEventId(r);
     String key;
     if (id.isNotEmpty) {
-      key = rootIdFor(id);
+      key = predictionBucketKeyForEventId(eventId: id, catalog: catalog);
     } else {
-      // no id on record: try to resolve by name to a catalog entry then to its root,
-      // otherwise fall back to the record's eventName (name-based grouping).
       final def = lookupEventForRecord(catalog, r);
       if (def != null && def.id.isNotEmpty) {
-        key = rootIdFor(def.id);
+        key = predictionBucketKeyForEventId(eventId: def.id, catalog: catalog);
       } else {
         key = historyRecordEventKey(r);
       }
@@ -961,8 +973,10 @@ List<EventNextPrediction> predictAllUpcoming({
         : (entry.value.last.eventName.trim().isEmpty
             ? '未知事件'
             : entry.value.last.eventName.trim());
-    // 预约根：不走间隔/种子；有正 nextAt 则用约定时间
-    if (catalogRootIsAppointment(entry.key, catalog)) {
+    final parentName = parentNameForPredictionKey(entry.key);
+    // 预约：仅根级；子桶不走预约约定
+    if (catalogRootIsAppointment(entry.key, catalog) &&
+        (def == null || def.parentId == null)) {
       coveredAppointment.add(entry.key);
       final sec = appointmentSecForRoot(entry.key);
       if (sec == null || sec < 1) continue;
@@ -981,6 +995,14 @@ List<EventNextPrediction> predictAllUpcoming({
       );
       continue;
     }
+    // 预约根下的子桶：不单独出预约预测
+    final rootOfKey = catalogRootIdFor(catalog, entry.key);
+    if (catalogRootIsAppointment(rootOfKey, catalog) &&
+        !catalogIdsEqual(entry.key, rootOfKey)) {
+      continue;
+    }
+    final isMergeBucket = catalogRootMergePredict(entry.key, catalog);
+    final recallKey = isMergeBucket ? entry.key : rootOfKey;
     final p = predictNextForEventKey(
       eventKey: entry.key,
       eventName: name,
@@ -989,21 +1011,35 @@ List<EventNextPrediction> predictAllUpcoming({
       halfLifeDays: halfLife,
       colorHex: colorHexFromEvent(def),
       includeActive: true,
-      recallIntervalFallback: recallForRoot(entry.key),
-      cachedLastAt: cachedLastAtForRoot(entry.key),
+      recallIntervalFallback: recallForRoot(recallKey),
+      cachedLastAt: cachedLastAtForKey(entry.key) ??
+          (isMergeBucket ? null : cachedLastAtForKey(rootOfKey)),
     );
-    if (p != null) {
-      // 非预约根：挂上胜出用量/用时 expect
+    if (p == null) continue;
+    final withParent = p.copyWith(parentEventName: parentName);
+    if (isMergeBucket) {
+      // 合并根：仅 nextAt，不挂 expect
       out.add(
-        attachWinningExpect(
-          prediction: p,
-          records: entry.value,
-          catalog: catalog,
-          now: now,
-          halfLifeDays: halfLife,
+        withParent.copyWith(
+          expectKind: null,
+          expectDurationSec: null,
+          expectAmount: null,
+          expectUnit: null,
+          expectLeafTitle: null,
         ),
       );
+      continue;
     }
+    // 非合并：挂本桶 expect（子预测 title 已是子名，leafTitle 可有可无）
+    out.add(
+      attachWinningExpect(
+        prediction: withParent,
+        records: entry.value,
+        catalog: catalog,
+        now: now,
+        halfLifeDays: halfLife,
+      ),
+    );
   }
 
   final coveredPredict = <String>{
@@ -1032,28 +1068,59 @@ List<EventNextPrediction> predictAllUpcoming({
     coveredPredict.add(key);
   }
 
-  // 窗口无该根记录，但缓存 tip + 种子间隔可旁路
+  // 窗口无记录：合并根 / 无子根用 tip+种子；非合并子逐叶子 tip（若有）
   for (final root in rootEvents(catalog)) {
     final key = root.id.trim();
     if (key.isEmpty) continue;
     if (catalogRootIsAppointment(key, catalog)) continue;
-    if (coveredPredict.any((c) => catalogIdsEqual(c, key))) continue;
-    if (byKey.keys.any((k) => catalogIdsEqual(k, key))) continue;
-    final cached = cachedLastAtForRoot(key);
-    if (cached == null) continue;
-    final p = predictNextForEventKey(
-      eventKey: key,
-      eventName: root.name.trim().isNotEmpty ? root.name.trim() : '未命名事件',
-      records: const [],
-      now: now,
-      halfLifeDays: halfLife,
-      colorHex: colorHexFromEvent(root),
-      includeActive: true,
-      recallIntervalFallback: recallForRoot(key),
-      cachedLastAt: cached,
-    );
-    // 窗口无记录时无量样本，expect 自然为空
-    if (p != null) out.add(p);
+    if (catalogRootMergePredict(key, catalog) || !hasChildren(catalog, key)) {
+      if (coveredPredict.any((c) => catalogIdsEqual(c, key))) continue;
+      if (byKey.keys.any((k) => catalogIdsEqual(k, key))) continue;
+      final cached = cachedLastAtForKey(key);
+      if (cached == null) continue;
+      final p = predictNextForEventKey(
+        eventKey: key,
+        eventName: root.name.trim().isNotEmpty ? root.name.trim() : '未命名事件',
+        records: const [],
+        now: now,
+        halfLifeDays: halfLife,
+        colorHex: colorHexFromEvent(root),
+        includeActive: true,
+        recallIntervalFallback: recallForRoot(key),
+        cachedLastAt: cached,
+      );
+      if (p != null) out.add(p);
+      continue;
+    }
+    // 非合并根：对每个直接子尝试 tip 旁路
+    for (final child in childrenOf(catalog, key)) {
+      final ck = child.id.trim();
+      if (ck.isEmpty) continue;
+      if (coveredPredict.any((c) => catalogIdsEqual(c, ck))) continue;
+      if (byKey.keys.any((k) => catalogIdsEqual(k, ck))) continue;
+      final cached = cachedLastAtForKey(ck) ?? cachedLastAtForKey(key);
+      if (cached == null) continue;
+      final parentName = root.name.trim();
+      final p = predictNextForEventKey(
+        eventKey: ck,
+        eventName:
+            child.name.trim().isNotEmpty ? child.name.trim() : '未命名事件',
+        records: const [],
+        now: now,
+        halfLifeDays: halfLife,
+        colorHex: colorHexFromEvent(child),
+        includeActive: true,
+        recallIntervalFallback: recallForRoot(key),
+        cachedLastAt: cached,
+      );
+      if (p != null) {
+        out.add(
+          p.copyWith(
+            parentEventName: parentName.isEmpty ? null : parentName,
+          ),
+        );
+      }
+    }
   }
 
   out.sort((a, b) => a.nextAt.compareTo(b.nextAt));

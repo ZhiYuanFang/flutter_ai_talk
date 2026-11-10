@@ -3,14 +3,14 @@ import SwiftUI
 import UIKit
 import WidgetKit
 
-/// 统一列表态 Live Activity：锁屏按 items 纵向堆叠既有 Imminent/Timing 行；Island 仅首条。
+/// 统一列表态 Live Activity：锁屏按 items 纵向堆叠；Island 优先首条 timing，否则 items.first。
 /// 仅依赖服务端推送起停；本文件不得调用 Activity.request。
 @available(iOS 16.1, *)
 struct BabyLiveActivityWidget: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: BabyLiveActivityAttributes.self) { context in
       let items = context.state.items
-      // 锁屏：仅按 items 纵向堆叠（无 App 名顶栏，减高度占位）
+      // 锁屏：仅按 items 纵向堆叠（无 App 名顶栏，减高度占位；不重排）
       VStack(alignment: .leading, spacing: 10) {
         ForEach(items) { item in
           if item.isTiming {
@@ -26,13 +26,14 @@ struct BabyLiveActivityWidget: Widget {
       .activitySystemActionForegroundColor(.white)
       .widgetURL(URL(string: "pangbao://live-activity"))
     } dynamicIsland: { context in
-      let first = context.state.items.first
-      // Island 仅首条；无首条则 minimal 空态
-      if let first, first.isTiming {
-        return timingIsland(item: first)
+      let items = context.state.items
+      // 优先进行中（数组中第一条 timing）；无则按序 items.first；不重排
+      let selected = items.first(where: { $0.isTiming }) ?? items.first
+      if let selected, selected.isTiming {
+        return timingIsland(item: selected)
       }
-      if let first, first.isImminent {
-        return imminentIsland(item: first)
+      if let selected, selected.isImminent {
+        return imminentIsland(item: selected)
       }
       return DynamicIsland {
         DynamicIslandExpandedRegion(.center) {
@@ -50,19 +51,21 @@ struct BabyLiveActivityWidget: Widget {
   }
 }
 
-// MARK: - Island（首条）
+// MARK: - Island（选中项）
 
 @available(iOS 16.1, *)
 private func imminentIsland(item: BabyLiveActivityItem) -> DynamicIsland {
   let visual = WidgetVisualHelpers.visual(forEventId: item.eventId)
   let accent = WidgetVisualHelpers.laAccentColor(visual.color)
-  let compactName = compactIslandName(state: item.title, fallback: "")
+  // Island 只用本地目录名；禁止回退推送 title
+  let localName = compactIslandLocalName(visual.name)
   return DynamicIsland {
     DynamicIslandExpandedRegion(.leading) {
       WidgetVisualHelpers.eventLogo(path: visual.logoFile, color: visual.color, size: 24)
     }
     DynamicIslandExpandedRegion(.center) {
-      Text(lockTitle(state: item.title, fallback: "", empty: "即将发生"))
+      // 本地名为空时用短状态词，仍不吃推送长 title
+      Text(localName.isEmpty ? "即将发生" : localName)
         .font(.caption.weight(.semibold))
         .foregroundStyle(accent)
     }
@@ -74,7 +77,7 @@ private func imminentIsland(item: BabyLiveActivityItem) -> DynamicIsland {
     CompactIslandLeading(
       logoFile: visual.logoFile,
       color: visual.color,
-      name: compactName,
+      name: localName,
       accent: accent
     )
   } compactTrailing: {
@@ -90,13 +93,14 @@ private func timingIsland(item: BabyLiveActivityItem) -> DynamicIsland {
   let visual = WidgetVisualHelpers.visual(forEventId: item.eventId)
   let accent = WidgetVisualHelpers.laAccentColor(visual.color)
   let startUnix = max(0, item.startTime)
-  let compactName = compactIslandName(state: item.eventName, fallback: "")
+  // Island 只用本地目录名；禁止回退推送 eventName
+  let localName = compactIslandLocalName(visual.name)
   return DynamicIsland {
     DynamicIslandExpandedRegion(.leading) {
       WidgetVisualHelpers.eventLogo(path: visual.logoFile, color: visual.color, size: 24)
     }
     DynamicIslandExpandedRegion(.center) {
-      Text(timingIslandTitle(state: item.eventName, fallback: ""))
+      Text(localName.isEmpty ? "计时中" : localName)
         .font(.caption.weight(.semibold))
         .foregroundStyle(accent)
     }
@@ -109,7 +113,7 @@ private func timingIsland(item: BabyLiveActivityItem) -> DynamicIsland {
     CompactIslandLeading(
       logoFile: visual.logoFile,
       color: visual.color,
-      name: compactName,
+      name: localName,
       accent: accent
     )
   } compactTrailing: {
@@ -279,17 +283,9 @@ private func timingLockTitle(state: String, fallback: String) -> String {
   return name.isEmpty ? "事件" : name
 }
 
-private func timingIslandTitle(state: String, fallback: String) -> String {
-  let name = state.isEmpty ? fallback : state
-  return name.isEmpty ? "计时中" : name
-}
-
-private func compactIslandName(state: String, fallback: String) -> String {
-  let trimmedState = state.trimmingCharacters(in: .whitespacesAndNewlines)
-  let raw = trimmedState.isEmpty
-    ? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-    : trimmedState
-  return raw
+/// Island compact/expanded 用的本地事件名；空串表示仅 logo。
+private func compactIslandLocalName(_ raw: String?) -> String {
+  raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 }
 
 @available(iOS 16.1, *)
@@ -300,6 +296,7 @@ private struct CompactIslandLeading: View {
   let accent: Color
 
   var body: some View {
+    // 固有宽 hug：避免吃满系统提案宽导致切口旁大片空白
     HStack(spacing: 3) {
       WidgetVisualHelpers.eventLogo(path: logoFile, color: color, size: 18)
       if !name.isEmpty {
@@ -309,6 +306,7 @@ private struct CompactIslandLeading: View {
           .lineLimit(1)
       }
     }
+    .fixedSize(horizontal: true, vertical: false)
   }
 }
 
@@ -321,6 +319,7 @@ private struct CompactIslandTimeSlot<Content: View>: View {
   }
 
   var body: some View {
+    // 短固有宽占位防 timer 测爆；外层 hug 避免再被系统拉宽
     Text("00:00:00")
       .hidden()
       .overlay(alignment: .trailing) {
@@ -328,5 +327,6 @@ private struct CompactIslandTimeSlot<Content: View>: View {
           .lineLimit(1)
           .minimumScaleFactor(0.6)
       }
+      .fixedSize(horizontal: true, vertical: false)
   }
 }

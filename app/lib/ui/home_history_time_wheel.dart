@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../data/history_line_format.dart';
+import '../data/relative_calendar_day.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 
@@ -1045,7 +1046,8 @@ class _HomeHistoryDateTimeToggleSheetBodyState
     final max = homeHistoryDateOnly(widget.maximumDate);
     final title = widget.title;
     final hm = HomeHistoryTimeField.formatHm(_combined());
-    final dayLabel = '${_day.month}月${_day.day}日';
+    // 日模式走权威相对自然日（今天显示「今天」）
+    final dayLabel = formatRelativeCalendarDay(_day, DateTime.now());
     // 左上角展示当前模式的值：时分或日期。
     final toggleLabel = _mode == _DateTimeToggleMode.time ? hm : dayLabel;
 

@@ -11,7 +11,7 @@ import '../data/event_next_predictor.dart';
 import '../home_widget/home_widget_constants.dart';
 import '../home_widget/widget_logo_cache.dart';
 
-/// 将事件目录色与 App Group logo 写入 `laEventVisuals`，供 Live Activity Extension 按 eventId 查找。
+/// 将事件目录色、可选本地名与 App Group logo 写入 `laEventVisuals`，供 Live Activity Extension 按 eventId 查找。
 Future<void> syncLiveActivityEventVisuals(
   List<EventDefinition> catalog,
 ) async {
@@ -25,8 +25,11 @@ Future<void> syncLiveActivityEventVisuals(
       if (id.isEmpty) continue;
       final absLogo = await widgetLogoFileForEvent(def);
       final rel = _logoRelPath(absLogo);
+      // Island 用本地短名；锁屏仍吃推送 title/eventName
+      final localName = def.name.trim();
       map[id] = {
         'color': colorHexFromEvent(def),
+        if (localName.isNotEmpty) 'name': localName,
         if (rel != null) 'logoFile': rel,
       };
     }

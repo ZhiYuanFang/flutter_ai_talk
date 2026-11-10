@@ -7,6 +7,7 @@ import '../data/remote_settings_repository.dart';
 import '../providers/baby_avatar_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_last_at_provider.dart';
+import '../providers/history_event_fly_provider.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/prediction_range_history_provider.dart';
 import '../providers/repositories.dart';
@@ -38,6 +39,8 @@ Future<void> wipeAccountLocalState(ProviderContainer container) async {
   await container.read(feedRepositoryProvider).clearCache();
   HomeHistoryMemoryCache.clear();
   container.read(homeHistoryProvider.notifier).clearForSignOut();
+  // 切号清空待飞入登记，避免跨会话误飞
+  container.read(historyEventFlyAwaitingProvider).clear();
   container.read(predictionRangeHistoryProvider.notifier).clear();
 
   if (dn.isNotEmpty) {

@@ -1,9 +1,9 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../data/event_definition.dart';
 import '../data/models.dart';
+import '../data/relative_calendar_day.dart';
 import 'chart_axis_granularity.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'trend_metric_format.dart';
@@ -32,8 +32,6 @@ class TrendNDayBarChart extends StatefulWidget {
   final ValueChanged<DateTime>? onSelectDay;
   final int barAnimationToken;
   final bool holdAtZeroBeforeAnimation;
-
-  static final _dateFmt = DateFormat('MM-dd');
 
   @override
   State<TrendNDayBarChart> createState() => _TrendNDayBarChartState();
@@ -204,7 +202,10 @@ class _TrendNDayBarChartState extends State<TrendNDayBarChart> {
               showAtIndices: showAt,
               labelForIndex: (i) {
                 if (i < 0 || i >= pts.length) return '';
-                return TrendNDayBarChart._dateFmt.format(pts[i].t.toLocal());
+                return formatRelativeCalendarDay(
+                  pts[i].t.toLocal(),
+                  DateTime.now(),
+                );
               },
             ),
           ),

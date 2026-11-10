@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
+import '../../../data/relative_calendar_day.dart';
 import '../../../theme/app_color.dart';
 import '../../data/ucg_models.dart';
 import 'ucg_feed_moments_widgets.dart';
@@ -29,7 +29,11 @@ class UcgMasonryFeedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final fg = AppColor.textOnPanelGlass(context);
     final primary = AppColor.primary(context);
-    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
+    final time = formatRelativeCalendarDayAndTime(
+      post.displayAt,
+      DateTime.now(),
+      omitDayWhenToday: true,
+    );
     final meta = ucgPostFeedMetaLine(post, time, currentUserId: currentUserId);
     final metaStyle = TextStyle(fontSize: 10, color: fg.withValues(alpha: 0.42));
     final bio = post.authorBio.trim();

@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
-
 import '../data/client_usage_events.dart';
 import '../data/feedback_models.dart';
+import '../data/relative_calendar_day.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/feedback_provider.dart';
 import '../providers/toast_bus.dart';
@@ -53,7 +52,11 @@ class _FeedbackListScreenState extends ConsumerState<FeedbackListScreen> {
   String _formatTime(int unixSec) {
     if (unixSec <= 0) return '';
     final dt = DateTime.fromMillisecondsSinceEpoch(unixSec * 1000);
-    return DateFormat('yyyy-MM-dd HH:mm').format(dt);
+    return formatRelativeCalendarDayAndTime(
+      dt,
+      DateTime.now(),
+      omitDayWhenToday: true,
+    );
   }
 
   @override

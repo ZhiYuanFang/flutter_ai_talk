@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import '../../data/relative_calendar_day.dart';
 import '../../network/ws_connection_phase.dart';
 import '../../providers/session_provider.dart';
 import '../../theme/app_visual_tokens.dart';
@@ -306,7 +305,6 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
     final fg = Theme.of(context).extension<AppVisualTokens>()?.onShell ??
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
-    final fmt = DateFormat('MM-dd HH:mm');
     ref.listen<AsyncValue<UcgPagedCommentNotifications>>(ucgCommentNotificationsProvider, (_, next) {
       final count = next.valueOrNull?.unreadCount;
       if (count != null) {
@@ -362,7 +360,6 @@ class _UcgMessagesTabState extends ConsumerState<UcgMessagesTab> {
                 conversation: _conversations[i],
                 fg: fg,
                 primary: primary,
-                fmt: fmt,
                 peerDisplayName: _peerDisplayName(_conversations[i]),
                 onTap: () async {
                   await Navigator.of(context).push<void>(
@@ -473,7 +470,6 @@ class _ConversationTile extends StatelessWidget {
     required this.conversation,
     required this.fg,
     required this.primary,
-    required this.fmt,
     required this.peerDisplayName,
     required this.onTap,
     required this.onPin,
@@ -483,7 +479,6 @@ class _ConversationTile extends StatelessWidget {
   final UcgConversation conversation;
   final Color fg;
   final Color primary;
-  final DateFormat fmt;
   final String peerDisplayName;
   final VoidCallback onTap;
   final Future<void> Function(bool pinned) onPin;
@@ -553,7 +548,11 @@ class _ConversationTile extends StatelessWidget {
                       ),
                       if (c.lastMessageAt != null)
                         Text(
-                          fmt.format(c.lastMessageAt!.toLocal()),
+                          formatRelativeCalendarDayAndTime(
+                            c.lastMessageAt!,
+                            DateTime.now(),
+                            omitDayWhenToday: true,
+                          ),
                           style: TextStyle(fontSize: 11, color: fg.withValues(alpha: 0.45)),
                         ),
                     ],

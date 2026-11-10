@@ -33,6 +33,7 @@ import 'widgets/ucg_compose_video_preview_layout.dart';
 import 'widgets/ucg_media_viewer.dart';
 import 'widgets/ucg_visual_widgets.dart';
 
+import '../../theme/app_color.dart';
 /// compose 关闭结果：新帖发表成功时 shell 切「我的」。
 class UcgComposePopResult {
   const UcgComposePopResult({this.publishedNewPost = false});
@@ -633,7 +634,7 @@ class _UcgComposeScreenState extends ConsumerState<UcgComposeScreen> {
                             onPressed: _busy ? null : _publish,
                             style: FilledButton.styleFrom(
                               backgroundColor: scheme.primary,
-                              foregroundColor: scheme.onPrimary,
+                              foregroundColor: AppColor.onFill(context, scheme.primary),
                               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
                               shape: const StadiumBorder(),
                             ),

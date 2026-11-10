@@ -44,15 +44,18 @@
 ## 客户端视觉（App Group）
 
 - Group：`group.com.fzy.pangbao.widget`
-- 索引键：`laEventVisuals` → JSON `{ "<eventId>": { "color": "#RRGGBB", "logoFile": "…" } }`
-- Extension 按 item.`eventId` 查找；缺失则品牌/色球兜底
+- 索引键：`laEventVisuals` → JSON `{ "<eventId>": { "color": "#RRGGBB", "logoFile": "…", "name": "本地目录显示名" } }`
+- Extension 按 item.`eventId` 查找；缺失则品牌/色球兜底；缺 `name` 时空名（兼容旧 JSON）
+- `name` 由本机事件目录同步写入，**不**依赖 Go 为 Island 下发名字
 
 ## 锁屏 / 灵动岛
 
-- **锁屏**：内容区 **不**画 App 名「胖宝」顶栏；按 `items` **动态纵向**堆叠：
-  - imminent 行：logo + title + 可选 expect 短版右槽（`.title−5pt`）；**不**画 nextAt 倒计时
-  - timing 行：logo + 事件名 + 可选「预计 HH:mm 结束」+ 右侧系统已计时
-- **Dynamic Island**：仅 `items.first`；按该条 kind 沿用既有 Island 样式（imminent 无时间右槽；timing 带已计时）
+- **锁屏**：内容区 **不**画 App 名「胖宝」顶栏；按 `items` **动态纵向**堆叠（文案仍用**推送**字段）：
+  - imminent 行：logo + 推送 `title` + 可选 expect 短版右槽（`.title−5pt`）；**不**画 nextAt 倒计时
+  - timing 行：logo + 推送 `eventName` + 可选「预计 HH:mm 结束」+ 右侧系统已计时
+- **Dynamic Island**：选条 = 数组中**第一条 `kind=timing`**（进行中优先）；无 timing 则 **`items.first`**。客户端 **不**重排，沿用服务端顺序。按选中项 kind 走既有 Island 样式（imminent 无时间右槽；timing 带已计时）
+  - 展示名取 App Group **本地 `name`**（非推送 `title`/`eventName`）；空则 compact 仅 logo
+  - compact leading/trailing **固有宽 snug**（短名时不得虚高岛宽、切口旁不大片空白）
 
 ## Token register
 

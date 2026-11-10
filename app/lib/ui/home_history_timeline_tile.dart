@@ -20,6 +20,8 @@ class HomeHistoryTimelineTile extends StatelessWidget {
     this.hideLogoDuringFly = false,
     this.showRelativeAgo = false,
     this.relativeAgoLabel,
+    this.showRedTimeMissBadge = false,
+    this.redTimeMissLabel,
   });
 
   final HistoryHomeRowDisplay display;
@@ -34,6 +36,9 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   final bool hideLogoDuringFly;
   final bool showRelativeAgo;
   final String? relativeAgoLabel;
+  /// 全局最新且开始时刻红档时的学习提示条。
+  final bool showRedTimeMissBadge;
+  final String? redTimeMissLabel;
 
   static const double rowHeight = 40;
   static const double timelineTimeColumnWidth = 44;
@@ -69,10 +74,21 @@ class HomeHistoryTimelineTile extends StatelessWidget {
   /// Badge 区域占用高度（行下方，不含 [rowHeight]）。
   static const double timelineBadgeBottomPadding = 4;
   static const double timelineBadgeSlotHeight = 28;
+  /// 学习条多行预留高度（与时间轴连杆对齐；58 覆盖 3 行文案+内边距，避免叠 ago 时 1px overflow）。
+  static const double timelineLearningBadgeSlotHeight = 58;
+  /// 准确率红档色（与预测日小结红绿灯一致）。
+  static const Color _redTimeMissBadgeColor = Color(0xFFE45B5B);
 
   /// 列表中该 tile 占用的竖向槽位（含 badge 时不与下一行重叠）。
-  static double slotHeightFor({required bool showRelativeAgo}) =>
-      showRelativeAgo ? rowHeight + timelineBadgeSlotHeight : rowHeight;
+  static double slotHeightFor({
+    required bool showRelativeAgo,
+    bool showRedTimeMissBadge = false,
+  }) {
+    var h = rowHeight;
+    if (showRelativeAgo) h += timelineBadgeSlotHeight;
+    if (showRedTimeMissBadge) h += timelineLearningBadgeSlotHeight;
+    return h;
+  }
 
   static const Color _relativeAgoBadgeTextRedTarget = Color(0xFFE53935);
   static const double _relativeAgoBadgeTextRedLerp = 0.15;
@@ -273,7 +289,10 @@ class HomeHistoryTimelineTile extends StatelessWidget {
       );
     }
 
-    if (!showRelativeAgo || relativeAgoLabel == null) {
+    final showAgo = showRelativeAgo && relativeAgoLabel != null;
+    final missLabel = redTimeMissLabel?.trim() ?? '';
+    final showMiss = showRedTimeMissBadge && missLabel.isNotEmpty;
+    if (!showAgo && !showMiss) {
       return SizedBox(
         height: rowHeight,
         child: tappableTile(
@@ -283,37 +302,79 @@ class HomeHistoryTimelineTile extends StatelessWidget {
     }
 
     final badgeFontSize = fontSize - 1;
-    final themePrimary = Theme.of(context).colorScheme.primary;
-    final badgeBg = themePrimary.withValues(alpha: 0.1);
-    final badgeTextColor = _relativeAgoBadgeTextColor(accent);
+    final below = <Widget>[
+      SizedBox(height: rowHeight, child: rowBody),
+    ];
 
-    final badge = Padding(
-      padding: EdgeInsets.only(
-        left: timelineBadgeLeftInset,
-        bottom: timelineBadgeBottomPadding,
-      ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: badgeBg,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Text(
-            '[$relativeAgoLabel]',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: badgeFontSize,
-              height: 1.2,
-              color: badgeTextColor,
+    if (showAgo) {
+      final themePrimary = Theme.of(context).colorScheme.primary;
+      final badgeBg = themePrimary.withValues(alpha: 0.1);
+      final badgeTextColor = _relativeAgoBadgeTextColor(accent);
+      below.add(
+        Padding(
+          padding: EdgeInsets.only(
+            left: timelineBadgeLeftInset,
+            bottom: timelineBadgeBottomPadding,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: badgeBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              child: Text(
+                '[$relativeAgoLabel]',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: badgeFontSize,
+                  height: 1.2,
+                  color: badgeTextColor,
+                ),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
+    }
 
-    final slotHeight = slotHeightFor(showRelativeAgo: true);
+    if (showMiss) {
+      // 全局最新开始时刻红档：浅红透底 + 白字学习条
+      below.add(
+        Padding(
+          padding: EdgeInsets.only(
+            left: timelineBadgeLeftInset,
+            bottom: timelineBadgeBottomPadding,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: _redTimeMissBadgeColor.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Text(
+                missLabel,
+                softWrap: true,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: badgeFontSize,
+                  height: 1.25,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final slotHeight = slotHeightFor(
+      showRelativeAgo: showAgo,
+      showRedTimeMissBadge: showMiss,
+    );
 
     return SizedBox(
       height: slotHeight,
@@ -321,10 +382,7 @@ class HomeHistoryTimelineTile extends StatelessWidget {
         Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(height: rowHeight, child: rowBody),
-            badge,
-          ],
+          children: below,
         ),
       ),
     );

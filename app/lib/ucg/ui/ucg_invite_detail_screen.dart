@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import '../../data/relative_calendar_day.dart';
 import '../../providers/invite_provider.dart';
 import '../../theme/app_visual_tokens.dart';
 import 'widgets/ucg_visual_widgets.dart';
@@ -49,8 +48,6 @@ class _UcgInviteDetailScreenState extends ConsumerState<UcgInviteDetailScreen> {
     final primary = Theme.of(context).colorScheme.primary;
     final mineAsync = ref.watch(inviteMineProvider);
     final inviteesAsync = ref.watch(inviteInviteesProvider);
-    final fmt = DateFormat('yyyy-MM-dd HH:mm');
-
     return UcgScaffold(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -202,10 +199,12 @@ class _UcgInviteDetailScreenState extends ConsumerState<UcgInviteDetailScreen> {
                                   ),
                                   Text(
                                     item.redeemedAt > 0
-                                        ? fmt.format(
+                                        ? formatRelativeCalendarDayAndTime(
                                             DateTime.fromMillisecondsSinceEpoch(
                                               item.redeemedAt * 1000,
-                                            ).toLocal(),
+                                            ),
+                                            DateTime.now(),
+                                            omitDayWhenToday: true,
                                           )
                                         : '—',
                                     style: TextStyle(

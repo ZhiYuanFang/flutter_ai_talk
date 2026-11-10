@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import '../../data/relative_calendar_day.dart';
 import '../../providers/client_usage_provider.dart';
 import '../../data/client_usage_events.dart';
 import '../../providers/feature_unlock_provider.dart';
@@ -741,7 +740,11 @@ class UcgFeedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final fg = AppColor.textPrimary(context);
-    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
+    final time = formatRelativeCalendarDayAndTime(
+      post.displayAt,
+      DateTime.now(),
+      omitDayWhenToday: true,
+    );
     final ipLoc = post.ipLocationDisplay;
     final bio = post.authorBio.trim();
 

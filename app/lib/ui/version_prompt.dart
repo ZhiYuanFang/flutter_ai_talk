@@ -11,6 +11,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
 
+import '../theme/app_color.dart';
 Future<void> maybeShowVersionPrompt({
   required BuildContext context,
   required VersionRepository repo,
@@ -83,7 +84,7 @@ Future<void> maybeShowVersionPrompt({
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
+                    foregroundColor: AppColor.onFill(context, scheme.primary),
                     shape: const StadiumBorder(),
                   ),
                   child: const Text('前往 App Store'),
@@ -115,7 +116,7 @@ Future<void> maybeShowVersionPrompt({
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
+                    foregroundColor: AppColor.onFill(context, scheme.primary),
                     shape: const StadiumBorder(),
                   ),
                   child: const Text('下载并安装'),

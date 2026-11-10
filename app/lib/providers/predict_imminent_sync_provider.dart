@@ -62,11 +62,11 @@ Future<void> _syncPredictImminentPendingOnce(dynamic ref) async {
         '';
     if (dn.isEmpty) return;
 
-    // 先读预测以强制按最新 home/间隔同步重算，再上报
+    // pending 用全量子/根预测（非卡上胜出子集）
     final predictions =
-        ref.read(smartPredictionsProvider) as List<EventNextPrediction>;
+        ref.read(smartPendingPredictionsProvider) as List<EventNextPrediction>;
 
-    // 指纹：含 expect，避免仅用量/用时变化时跳过 PUT；空列表也上报以清空
+    // 指纹：含 expect / parentEventName；空列表也上报以清空
     final fp = predictions.isEmpty
         ? 'empty'
         : predictions

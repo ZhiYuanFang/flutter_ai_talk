@@ -20,6 +20,7 @@ import '../data/event_branding.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
 import '../data/models.dart';
+import '../data/relative_calendar_day.dart';
 import '../data/prediction_demo_skeleton.dart';
 import '../data/prediction_recall_seed.dart';
 import '../data/event_next_predictor.dart';
@@ -30,6 +31,7 @@ import '../providers/settings_baby.dart';
 import '../api/api_exceptions.dart';
 import '../providers/appointment_last_occurrence_provider.dart';
 import '../providers/appointment_next_provider.dart';
+import '../providers/history_latest_by_event_provider.dart';
 import '../providers/cash_vip_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_catalog_notifier.dart';
@@ -148,7 +150,7 @@ Future<void> _showSwipeGuideTeachDialog(
             onPressed: () => Navigator.pop(ctx),
             style: FilledButton.styleFrom(
               backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
+              foregroundColor: AppColor.onFill(context, scheme.primary),
               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
               shape: const StadiumBorder(),
             ),
@@ -271,8 +273,8 @@ class SmartPredictionScreen extends ConsumerWidget {
     final catalog = ref.watch(eventCatalogProvider).items;
     // 挂载预测页时预取预约 nextAt（catalog 变化会重跑）
     ref.watch(appointmentNextPrefetchProvider);
-    // 预约根不限窗「上一次」预取
-    ref.watch(appointmentLastPrefetchProvider);
+    // 批量最近发生（预测卡 / 预约「上一次」主源）
+    ref.watch(historyLatestByEventPrefetchProvider);
     final layout = ref.watch(predictionCardsLayoutProvider).asData?.value ??
         PredictionCardsLayout.grid;
     final now =
@@ -654,12 +656,20 @@ class SmartPredictionScreen extends ConsumerWidget {
             }());
           };
         }
-        final record = latestRealHistoryRecordForRootFromSources(
-          rootEventId: row.eventId,
-          catalog: catalog,
-          homeItems: historyItems,
-          rangeItems: rangeHistoryItems,
-        );
+        // 有 pred：同桶最新；无 pred：根下最新
+        final record = row.prediction != null
+            ? latestRealHistoryRecordForPredictionBucketFromSources(
+                bucketEventId: row.prediction!.eventId,
+                catalog: catalog,
+                homeItems: historyItems,
+                rangeItems: rangeHistoryItems,
+              )
+            : latestRealHistoryRecordForRootFromSources(
+                rootEventId: row.eventId,
+                catalog: catalog,
+                homeItems: historyItems,
+                rangeItems: rangeHistoryItems,
+              );
         if (record == null) return null;
         return () {
           unawaited(
@@ -708,9 +718,11 @@ class SmartPredictionScreen extends ConsumerWidget {
                         catalog: catalog,
                       );
                 final titleInlineLogo = phoneLandscape && rowIndexInColumn > 0;
+                // 非合并胜出子：logo/色跟 prediction.eventId；标题用根 row.eventName
+                final brandId = row.prediction?.eventId ?? row.eventId;
                 return _PredictionEventCard(
                   row: row,
-                  definition: lookupEventById(catalog, row.eventId),
+                  definition: lookupEventById(catalog, brandId),
                   logoAnchorKey: logoAnchors.keyFor(row.eventId),
                   now: now,
                   chartLoading: useDemoSkeleton ? false : chartsLoading,
@@ -776,9 +788,11 @@ class SmartPredictionScreen extends ConsumerWidget {
                     rootEventId: row.eventId,
                     catalog: catalog,
                   );
+            // logo/色跟胜出子 prediction；标题用根 row.eventName
+            final brandId = row.prediction?.eventId ?? row.eventId;
             return _PredictionEventCard(
               row: row,
-              definition: lookupEventById(catalog, row.eventId),
+              definition: lookupEventById(catalog, brandId),
               logoAnchorKey: logoAnchors.keyFor(row.eventId),
               now: now,
               chartLoading: useDemoSkeleton ? false : chartsLoading,
@@ -2470,15 +2484,17 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     );
   }
 
-  /// 时刻态大数字：日期前缀更小，HH:mm 保持倒计时字号。
+  /// 时刻态：约 caption 级，不放大；日期前缀略小于 HH:mm。
   Widget _buildEstimatedClockDigits({
     required PredictionEstimatedClockParts parts,
-    required double countdownFontSize,
+    required double captionFontSize,
     required Color accent,
   }) {
+    // 时刻点不用倒计时大号；略高于说明字以保可扫读
+    final hmSize = captionFontSize + 4;
     final hmStyle = TextStyle(
-      fontSize: countdownFontSize,
-      fontWeight: FontWeight.w700,
+      fontSize: hmSize,
+      fontWeight: FontWeight.w600,
       color: accent,
       fontFeatures: const [FontFeature.tabularFigures()],
       letterSpacing: 0.5,
@@ -2488,7 +2504,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
       return Text(parts.hm, style: hmStyle);
     }
     final dateStyle = TextStyle(
-      fontSize: countdownFontSize * 0.58,
+      fontSize: captionFontSize,
       fontWeight: FontWeight.w500,
       color: accent.withValues(alpha: 0.85),
     );
@@ -2515,7 +2531,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
     required EventDefinition? definition,
     String? expectLabel,
     bool todConfidenceLow = false,
-    /// 逾期或剩余 &gt;6h：只显示预估时刻。
+    /// 逾期或剩余 &gt;10m：只显示预估时刻。
     bool showEstimatedClock = false,
     PredictionEstimatedClockParts? clockParts,
     /// 下次预约备注（非空时追加在标题后）。
@@ -2547,10 +2563,11 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         : baseCaption;
     final countdownCaption =
         softInlineInCaption ? '此刻把握不足 · $withRemark' : withRemark;
+    // 倒计时保持大号；时刻态走 caption 级（不放大）
     final digits = showEstimatedClock && clockParts != null
         ? _buildEstimatedClockDigits(
             parts: clockParts,
-            countdownFontSize: countdownFontSize,
+            captionFontSize: captionFontSize,
             accent: accent,
           )
         : Text(
@@ -2691,13 +2708,17 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             widget.activeExpectEndAt != null)
         ? formatActiveTimingEtaLabel(widget.activeExpectEndAt!, now)
         : null;
-    // 计时中：叶子图/名/色；对照卡强制根身份，不跟叶子计时态
+    // 计时中热态：叶子图/名/色；对照卡：强制根 logo/色；其它热态：父层 definition（可胜出子）
     final catalog = ref.watch(eventCatalogProvider).items;
+    final rootDef = lookupEventById(catalog, row.eventId);
     final leafDef = showActiveTiming
         ? lookupEventForRecord(catalog, widget.activeTiming!)
         : null;
     final useTimingTitle = showActiveTiming && !accuracyOnlyChrome;
-    final titleDef = useTimingTitle ? (leafDef ?? definition) : definition;
+    // 对照卡 logo 跟根；计时中跟叶子；瀑布流等跟父层 brandId（胜出子）
+    final titleDef = accuracyOnlyChrome
+        ? (rootDef ?? definition)
+        : (useTimingTitle ? (leafDef ?? definition) : definition);
     final titleName = useTimingTitle
         ? ((leafDef?.name.trim().isNotEmpty ?? false)
             ? leafDef!.name.trim()
@@ -2705,12 +2726,14 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                 ? widget.activeTiming!.eventName.trim()
                 : row.eventName))
         : row.eventName;
-    // 叶子可解析用叶子色；对照卡 / 非计时用根色
-    final accent = useTimingTitle
-        ? (leafDef != null
-            ? resolveEventColor(context, leafDef)
-            : _rootAccent(context))
-        : _rootAccent(context);
+    // 对照卡 accent 跟根色（勿读可能为子色的 row.colorHex）；计时中跟叶子；热态读 row.colorHex（可胜出子）
+    final accent = accuracyOnlyChrome
+        ? resolveEventColor(context, rootDef)
+        : (useTimingTitle
+            ? (leafDef != null
+                ? resolveEventColor(context, leafDef)
+                : _rootAccent(context))
+            : _rootAccent(context));
     // 列表 / 计时中 / 手机横屏后列：标题旁小 logo；首列瀑布流仍用倒计时上方大图
     final m = widget.landscapeMetrics;
     final titleLogoSize = m?.titleLogoSize ?? 28.0;
@@ -2741,31 +2764,22 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         ? '${enabled ? "关闭" : "开启"}$titleName预约'
         : '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
-    // 预约：不限窗 filter 上次；非预约：窗内/tip lastAt
-    DateTime? displayLastAt = row.lastAt;
-    var displayLastRemark = row.lastRemark;
-    if (isAppointment) {
-      final lastCache = ref.watch(appointmentLastCacheProvider);
-      final unbounded = lastCache[row.eventId];
-      if (unbounded == null) {
-        // 尚未解析：触发拉取；展示先回退窗内时间，备注不造假（暂空）
-        unawaited(ensureAppointmentLastOccurrence(ref, row.eventId));
-        displayLastRemark = '';
-      } else {
-        displayLastAt = unbounded.at ?? row.lastAt;
-        displayLastRemark = unbounded.remark;
-      }
-    }
+    // 上一次：行内已优先 latest-by-event（预约用根 id；不读 appointment_next）
+    final displayLastAt = row.lastAt;
+    final displayLastRemark = row.lastRemark;
     // 热态卡有 lastAt 才展示「上一次」行；对照卡隐藏。
     // 「补充上一次」仍由 showAddLastOccurrence 在 lastAt==null 时给出。
     final showLastOccurrence = !accuracyOnlyChrome &&
         !showActiveTiming &&
         widget.onToggle != null &&
         displayLastAt != null;
-    // 上次发生：预约省「上一次{名}」前缀；非预约保留
+    // 上次发生：前缀跟同桶 lastLabel（有 pred 为胜出子名）；预约省前缀
+    final lastLabelName = row.lastLabelEventName.trim().isNotEmpty
+        ? row.lastLabelEventName.trim()
+        : titleName;
     final lastOccurrenceLabel = showLastOccurrence
         ? formatPredictionLastOccurrenceLabel(
-            titleName,
+            lastLabelName,
             displayLastAt,
             now,
             remark: displayLastRemark,
@@ -2791,7 +2805,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         );
       }
     }
-    // 时刻态：逾期或剩余 >6h；否则 H:MM:SS
+    // 时刻态：逾期或剩余 >10m；否则 H:MM:SS
     final showEstimatedClock = pred != null &&
         !showActiveTiming &&
         predictionShowsEstimatedClock(
@@ -3140,7 +3154,8 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                         now: now,
                         accent: accent,
                         pastDaysBeforeToday: widget.pastDaysBeforeToday,
-                        oneShot: definition?.parsedEventType ==
+                        // 对照卡示例柱 oneShot 跟根类型（与根聚合准确率一致）
+                        oneShot: (rootDef ?? definition)?.parsedEventType ==
                             EventCatalogEventType.one,
                         onLongPressLayout: widget.onLongPressLayout,
                       ),
@@ -3226,15 +3241,8 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
   /// Down 时缓存柱索引（TapUp 时 spot 可能已空）
   int? _pendingBarIndex;
 
-  static String _xAxisDayLabel(DateTime day, DateTime today) {
-    final d = predictAccuracyDayKey(day);
-    final t = predictAccuracyDayKey(today);
-    final diff = t.difference(d).inDays;
-    if (diff == 0) return '今天';
-    if (diff == 1) return '昨天';
-    if (diff == 2) return '前天';
-    return '${d.month}/${d.day}';
-  }
+  static String _xAxisDayLabel(DateTime day, DateTime today) =>
+      formatRelativeCalendarDay(predictAccuracyDayKey(day), today);
 
   static String _fmtHm(DateTime t) {
     final l = t.toLocal();

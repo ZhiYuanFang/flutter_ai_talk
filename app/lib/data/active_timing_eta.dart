@@ -15,7 +15,7 @@ class ActiveTimingEtaItem {
     required this.leafEventId,
     required this.title,
     required this.startAt,
-    required this.expectEndAt,
+    this.expectEndAt,
     this.historyId,
   });
 
@@ -23,27 +23,33 @@ class ActiveTimingEtaItem {
   final int leafEventId;
   final String title;
   final DateTime startAt;
-  final DateTime expectEndAt;
+  /// 合并根可空；非合并有把握时为正结束。
+  final DateTime? expectEndAt;
   final String? historyId;
 
   Map<String, dynamic> toJson() {
     final startSec = startAt.toUtc().millisecondsSinceEpoch ~/ 1000;
-    final endSec = expectEndAt.toUtc().millisecondsSinceEpoch ~/ 1000;
+    final end = expectEndAt;
+    final endSec =
+        end == null ? null : end.toUtc().millisecondsSinceEpoch ~/ 1000;
     return {
       'rootEventId': rootEventId,
       'leafEventId': leafEventId,
       'title': title,
       'startAt': startSec,
-      'expectEndAt': endSec,
+      // 无正结束则 omit（勿写 0）
+      if (endSec != null && endSec > 0) 'expectEndAt': endSec,
       if (historyId != null && historyId!.trim().isNotEmpty)
         'historyId': historyId!.trim(),
     };
   }
 
-  /// 指纹片段（含秒级起止）。
+  /// 指纹片段（含秒级起止；无结束用 0）。
   String fingerprintToken() {
     final startSec = startAt.toUtc().millisecondsSinceEpoch ~/ 1000;
-    final endSec = expectEndAt.toUtc().millisecondsSinceEpoch ~/ 1000;
+    final end = expectEndAt;
+    final endSec =
+        end == null ? 0 : end.toUtc().millisecondsSinceEpoch ~/ 1000;
     return '$rootEventId:$leafEventId:${historyId ?? ''}:$startSec:$endSec';
   }
 }
@@ -60,7 +66,8 @@ String formatActiveTimingEtaLabel(DateTime expectEndAt, DateTime now) {
   return base;
 }
 
-/// 单条进行中 + 根历史 → ETA；duration 无把握则 null。
+/// 单条进行中 + 根历史 → ETA。
+/// 合并根：可无正 expectEndAt 仍上报；非合并：duration 无把握则 null。
 ActiveTimingEtaItem? buildActiveTimingEtaItem({
   required HistoryRecord active,
   required String rootEventId,
@@ -80,6 +87,7 @@ ActiveTimingEtaItem? buildActiveTimingEtaItem({
   }
   final startAt = activeTimingStartAt(active);
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
+  final mergeRoot = catalogRootMergePredict(rootEventId, catalog);
   final durationSec = confidentDurationExpectSec(
     records: rootRecords,
     catalog: catalog,
@@ -87,9 +95,15 @@ ActiveTimingEtaItem? buildActiveTimingEtaItem({
     halfLifeDays: halfLife,
     anchorAt: startAt,
   );
-  if (durationSec == null || durationSec < 1) return null;
-  final expectEndAt = startAt.add(Duration(seconds: durationSec));
-  if (!expectEndAt.isAfter(startAt) && expectEndAt != startAt) return null;
+  DateTime? expectEndAt;
+  if (durationSec != null && durationSec >= 1) {
+    final end = startAt.add(Duration(seconds: durationSec));
+    if (end.isAfter(startAt) || end == startAt) {
+      expectEndAt = end;
+    }
+  }
+  // 非合并：无正结束则不上报
+  if (!mergeRoot && expectEndAt == null) return null;
 
   final leafDef = lookupEventForRecord(catalog, active);
   final title = (rootTitle ?? leafDef?.name ?? active.eventName).trim();
@@ -180,7 +194,16 @@ List<ActiveTimingEtaItem> buildActiveTimingEtaItems({
     );
     if (item != null) out.add(item);
   }
-  out.sort((a, b) => a.expectEndAt.compareTo(b.expectEndAt));
+  out.sort((a, b) {
+    final ae = a.expectEndAt;
+    final be = b.expectEndAt;
+    if (ae == null && be == null) {
+      return a.startAt.compareTo(b.startAt);
+    }
+    if (ae == null) return 1;
+    if (be == null) return -1;
+    return ae.compareTo(be);
+  });
   return out;
 }
 

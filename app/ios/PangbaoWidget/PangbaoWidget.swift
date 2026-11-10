@@ -414,6 +414,7 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
         return "约稍后"
     }
 
+    /// 对齐 Dart `formatRelativeCalendarDayAndTime(..., omitDayWhenToday: true)`。
     private func lastAtSubtitle(for row: WidgetRow) -> String {
         guard let raw = row.lastAt, let d = ISO8601DateFormatter.pangbao.date(from: raw) else {
             return "暂无"
@@ -422,11 +423,30 @@ private func heroSkipButtonIOS17(hero: WidgetRow) -> some View {
         let h = cal.component(.hour, from: d)
         let m = cal.component(.minute, from: d)
         let hm = String(format: "%02d:%02d", h, m)
-        if cal.isDateInToday(d) { return hm }
-        if cal.isDateInYesterday(d) { return "昨天 \(hm)" }
-        let month = cal.component(.month, from: d)
-        let day = cal.component(.day, from: d)
-        return "\(month)月\(day)日"
+        let dayStart = cal.startOfDay(for: d)
+        let todayStart = cal.startOfDay(for: Date())
+        let offset = cal.dateComponents([.day], from: todayStart, to: dayStart).day ?? 0
+        switch offset {
+        case 0:
+            return hm
+        case -2:
+            return "前天 \(hm)"
+        case -1:
+            return "昨天 \(hm)"
+        case 1:
+            return "明天 \(hm)"
+        case 2:
+            return "后天 \(hm)"
+        default:
+            let y = cal.component(.year, from: d)
+            let month = cal.component(.month, from: d)
+            let day = cal.component(.day, from: d)
+            let todayY = cal.component(.year, from: Date())
+            if y == todayY {
+                return "\(month)月\(day)日 \(hm)"
+            }
+            return "\(y)年\(month)月\(day)日 \(hm)"
+        }
     }
 
     private func formatHeader(_ header: WidgetHeader) -> String {

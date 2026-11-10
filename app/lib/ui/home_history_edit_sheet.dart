@@ -15,8 +15,7 @@ import '../data/history_mapper.dart';
 import '../data/models.dart';
 import '../providers/appointment_next_provider.dart';
 import '../providers/home_history_notifier.dart';
-import '../providers/predict_active_eta_sync_provider.dart';
-import '../providers/predict_imminent_sync_provider.dart';
+import '../providers/predict_post_mutation_scheduler.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../theme/app_color.dart';
@@ -33,6 +32,7 @@ import 'home_history_edit_glass_panel.dart';
 import 'home_history_time_wheel.dart';
 import 'widgets/app_glass_overlay.dart';
 import 'widgets/app_toast.dart';
+import 'widgets/event_remark_collapsed_row.dart';
 import 'widgets/event_remark_quick_tags.dart';
 import 'widgets/history_event_media_strip.dart';
 import 'widgets/keyboard_dismiss_scope.dart';
@@ -86,6 +86,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   final _remarkFocusNode = FocusNode();
   final _remarkAnchorKey = GlobalKey();
   late FixedExtentScrollController _usagePickerCtrl;
+  // 备注默认折叠；点「编辑备注」展开
+  var _remarkExpanded = false;
 
   HistoryRecord? _record;
   DateTime _startEdit = DateTime.now();
@@ -121,6 +123,19 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
   void _onRemarkTagSelected(String text) {
     _remarkCtrl.text = text;
     keyboardInputBridgeController.updateDraft(text);
+    setState(() {});
+  }
+
+  void _expandRemarkEditor() {
+    setState(() => _remarkExpanded = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _remarkFocusNode.requestFocus();
+    });
+  }
+
+  void _onRemarkChanged(String value) {
+    keyboardInputBridgeController.updateDraft(value);
     setState(() {});
   }
 
@@ -548,9 +563,10 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     unawaited(EventRemarkMemoryStore.save(historyRecordEventId(r), remark));
     unawaited(EventSquareSyncPreferenceStore.save(r.id, _effectiveSyncToSquare));
     widget.history.replaceRecord(updated);
-    // 本机编辑喂养记录后同步预测临近 pending 与进行中 ETA
-    unawaited(requestPredictImminentPendingSync(ref));
-    unawaited(requestPredictActiveEtaPendingSync(ref));
+    // 本机编辑后入队统一静默调度
+    unawaited(
+      schedulePredictPostHistoryMutation(ref, anchorHistoryId: updated.id),
+    );
     showAppToast('已保存', tone: AppToastTone.success);
     Navigator.pop(context, true);
   }
@@ -619,9 +635,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
     setState(() => _deleting = false);
     if (!ok) return;
     widget.history.removeRecord(r.id);
-    // 本机删除喂养记录后同步预测临近 pending 与进行中 ETA
-    unawaited(requestPredictImminentPendingSync(ref));
-    unawaited(requestPredictActiveEtaPendingSync(ref));
+    // 删除后重算后续 expect / pending（无 resume 锚点）
+    unawaited(schedulePredictPostHistoryMutation(ref));
     showAppToast('已删除', tone: AppToastTone.success);
     Navigator.pop(context, true);
   }
@@ -821,41 +836,58 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                       ),
                     ],
                     const SizedBox(height: 14),
-                    KeyboardDismissExclude(
-                      child: EventRemarkQuickTags(
-                        eventId: historyRecordEventId(r),
-                        onSelect: _onRemarkTagSelected,
-                        padding: const EdgeInsets.only(bottom: 8),
-                      ),
-                    ),
-                    keyboardLiftTarget(
-                      focusNode: _remarkFocusNode,
-                      anchorKey: _remarkAnchorKey,
-                      child: TextField(
-                        controller: _remarkCtrl,
+                    // 只读：直接展示输入框；可编辑：默认折叠，点「编辑备注」展开
+                    if (readOnly || _remarkExpanded)
+                      keyboardLiftTarget(
                         focusNode: _remarkFocusNode,
-                        readOnly: readOnly,
-                        style: TextStyle(color: glassText, fontSize: 15),
-                        cursorColor: scheme.primary,
-                        decoration: historyEditGlassInputDecoration(context, labelText: '备注').copyWith(
-                          suffixIcon: !readOnly && _canAddMedia
-                              ? IconButton(
-                                  onPressed: _saving ? null : () => unawaited(_pickMedia()),
-                                  icon: Icon(
-                                    Icons.add_circle_outline,
-                                    size: 20,
-                                    color: glassLabel,
-                                  ),
-                                  tooltip: '添加图片或视频',
-                                )
-                              : null,
+                        anchorKey: _remarkAnchorKey,
+                        child: TextField(
+                          controller: _remarkCtrl,
+                          focusNode: _remarkFocusNode,
+                          readOnly: readOnly,
+                          style: TextStyle(color: glassText, fontSize: 15),
+                          cursorColor: scheme.primary,
+                          decoration:
+                              historyEditGlassInputDecoration(context, labelText: '备注')
+                                  .copyWith(
+                            suffixIcon: !readOnly && _canAddMedia
+                                ? IconButton(
+                                    onPressed: _saving
+                                        ? null
+                                        : () => unawaited(_pickMedia()),
+                                    icon: Icon(
+                                      Icons.add_circle_outline,
+                                      size: 20,
+                                      color: glassLabel,
+                                    ),
+                                    tooltip: '添加图片或视频',
+                                  )
+                                : null,
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onChanged: readOnly ? null : _onRemarkChanged,
+                          onSubmitted: readOnly
+                              ? null
+                              : (_) => FocusScope.of(context).unfocus(),
+                          maxLines: 1,
                         ),
-                        textInputAction: TextInputAction.done,
-                        onChanged: readOnly ? null : keyboardInputBridgeController.updateDraft,
-                        onSubmitted: readOnly ? null : (_) => FocusScope.of(context).unfocus(),
-                        maxLines: 1,
+                      )
+                    else
+                      EventRemarkCollapsedRow(
+                        remarkText: _remarkCtrl.text,
+                        onEdit: _expandRemarkEditor,
+                        textColor: glassText,
+                        accentColor: scheme.primary,
                       ),
-                    ),
+                    if (!readOnly)
+                      KeyboardDismissExclude(
+                        child: EventRemarkQuickTags(
+                          eventId: historyRecordEventId(r),
+                          selectedRemark: _remarkCtrl.text.trim(),
+                          onSelect: _onRemarkTagSelected,
+                          padding: const EdgeInsets.only(top: 8),
+                        ),
+                      ),
                     if (_loadingMedia)
                       const Padding(
                         padding: EdgeInsets.only(top: 10),
@@ -928,7 +960,7 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                       onPressed: _saving ? null : _save,
                       style: FilledButton.styleFrom(
                         backgroundColor: scheme.primary,
-                        foregroundColor: scheme.onPrimary,
+                        foregroundColor: AppColor.onFill(context, scheme.primary),
                         padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                         shape: const StadiumBorder(),
                       ),

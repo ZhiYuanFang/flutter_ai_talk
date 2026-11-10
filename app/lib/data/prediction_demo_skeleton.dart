@@ -44,6 +44,7 @@ List<SmartPredictionRow> buildPredictionDemoSkeletonRows({
           confidence: 0.5,
         ),
         chartPoints: const [],
+        lastLabelEventName: name,
       ),
     );
   }

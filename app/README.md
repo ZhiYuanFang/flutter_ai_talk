@@ -44,6 +44,8 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[LiveActivity]` | iOS Live Activity token 上报 / App 打开 activity clear |
 | `[PredictActiveEta]` | 进行中计时预计结束同步 |
 | `[AppointmentNext]` | 预约下次约定 GET/PUT |
+| `[HistoryLatest]` | 批量最近发生 latest-by-event |
+| `[PredictPostMutation]` | 历史突变后静默调度（锚点链 expect-batch / resume） |
 | `[Survey]` | 主壳满意度问卷 current/submit（GET 失败静默） |
 | `[XiaozhiGuide]` | 小智音箱引导视频清单拉取 / 播放失败 |
 | `[UcgShare]` | 辩论帖微信分享截图上传/分享失败（`upload fail` / `share fail`） |

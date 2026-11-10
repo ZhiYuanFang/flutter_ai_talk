@@ -11,6 +11,7 @@ import '../data/history_line_format.dart';
 import '../data/history_record_metric.dart';
 import '../data/home_history_list_entries.dart';
 import '../data/models.dart';
+import '../data/trend_predict_accuracy.dart';
 import 'home_day_summary_chips.dart';
 import 'home_history_date_header.dart';
 import 'home_history_day_timeline_links.dart';
@@ -554,6 +555,9 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     final event = lookupEventForRecord(widget.eventCatalog, record);
     final hideLogo = widget.flyingRecordId == record.id;
     final showRelativeAgo = _showRelativeAgoForRecord(record, newestIdByKey);
+    // 仅整表最底一条：开始时刻红档学习条（进行中不排除）
+    final showRedTimeMiss =
+        fromBottom == 0 && historyRecordStartTimeMissIsRed(record);
     final displayInstant = historyHomeDisplayInstant(record);
 
     HomeHistoryTimelineTile tileFor(DateTime now) {
@@ -571,13 +575,17 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
         relativeAgoLabel: showRelativeAgo
             ? formatHistoryRelativeAgo(displayInstant, now)
             : null,
+        showRedTimeMissBadge: showRedTimeMiss,
+        redTimeMissLabel: showRedTimeMiss
+            ? formatHistoryRedTimeMissLearningLabel(record, now)
+            : null,
         activeElapsedLabel: display.isActiveTiming
             ? formatActiveTimerElapsed(now.difference(activeTimingStartAt(record)))
             : null,
       );
     }
 
-    if (!display.isActiveTiming && !showRelativeAgo) {
+    if (!display.isActiveTiming && !showRelativeAgo && !showRedTimeMiss) {
       return tileFor(DateTime.now());
     }
 
@@ -609,10 +617,15 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
       final display = historyHomeRowDisplay(record);
       final event = lookupEventForRecord(widget.eventCatalog, record);
       final showRelativeAgo = _showRelativeAgoForRecord(record, newestIdByKey);
+      final showRedTimeMiss =
+          fromBottom == 0 && historyRecordStartTimeMissIsRed(record);
       dotColors.add(resolveEventColor(context, event));
       dotRadii.add(HomeHistoryTimelineTile.dotRadiusForFromBottom(fromBottom));
       rowSlotHeights.add(
-        HomeHistoryTimelineTile.slotHeightFor(showRelativeAgo: showRelativeAgo),
+        HomeHistoryTimelineTile.slotHeightFor(
+          showRelativeAgo: showRelativeAgo,
+          showRedTimeMissBadge: showRedTimeMiss,
+        ),
       );
       tiles.add(
         _buildRecordTile(

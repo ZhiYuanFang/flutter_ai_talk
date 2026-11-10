@@ -79,11 +79,16 @@ abstract final class AppColor {
 
   /// 压在任意实心填充色上的字色：Material fromSeed 成对，非二元黑白。
   /// 用于事件 accent 等非 theme.primary 的 FilledButton 底。
+  // static Color onFill(BuildContext context, Color fill) {
+  //   return ColorScheme.fromSeed(
+  //     seedColor: fill,
+  //     brightness: Brightness.light, // 强制亮色，按钮上的文字成黑色的话，看不清
+  //   ).onPrimary;
+  // }
   static Color onFill(BuildContext context, Color fill) {
-    return ColorScheme.fromSeed(
-      seedColor: fill,
-      brightness: Theme.of(context).brightness,
-    ).onPrimary;
+    return fill.computeLuminance() > 0.5
+      ? Colors.black
+      : Colors.white;
   }
 
   /// 表单错误字：提交失败等行内提示，跟主题 error。

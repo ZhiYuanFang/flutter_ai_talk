@@ -504,6 +504,37 @@ class RemoteFeedRepository implements FeedRepository {
   }
 
   @override
+  Future<bool> postHistoryExpectBatch({
+    required String deviceNo,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    // 空 items 由调用方跳过；此处再挡一层避免 400
+    if (items.isEmpty) return false;
+    final dn = deviceNo.trim();
+    if (dn.isEmpty) return false;
+    try {
+      final data = await _api.postJsonEnvelope(
+        '/device/history/api/event/expect-batch',
+        {
+          'deviceNo': dn,
+          'items': items,
+        },
+      );
+      if (data == null) return false;
+      // 成功认 { ok: true }
+      return data['ok'] == true;
+    } on ApiBusinessException catch (e) {
+      AppDebugLog.predictPostMutation(
+        'expect-batch business err=${e.code} ${e.message}',
+      );
+      return false;
+    } catch (e) {
+      AppDebugLog.predictPostMutation('expect-batch transport err=$e');
+      return false;
+    }
+  }
+
+  @override
   Future<bool> deleteHistoryRecord(String id) async {
     final dn = _deviceNoGetter();
     if (dn == null || dn.isEmpty) {

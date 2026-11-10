@@ -9,6 +9,7 @@ import 'appointment_next_provider.dart';
 import 'event_catalog_notifier.dart';
 import 'event_last_at_provider.dart';
 import 'forecast_toggle_provider.dart';
+import 'history_latest_by_event_provider.dart';
 import 'home_history_notifier.dart';
 import 'prediction_range_history_provider.dart';
 import 'prediction_recall_provider.dart';
@@ -21,8 +22,9 @@ final predictionClockProvider = StreamProvider<DateTime>((ref) {
       .map((_) => DateTime.now());
 });
 
-/// 智能预测页行列表：home∪range 真历史 + 间隔旁路种子；尊重推演关闭集合。
-final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
+/// 预测页行 + pending 全量（一次构建）。
+final smartPredictionBundleProvider =
+    Provider<SmartPredictionBuildResult>((ref) {
   ref.watch(predictionRangeEnsureProvider);
   final history = ref.watch(predictionRealHistoryProvider);
   final rangeItems = ref.watch(predictionRangeHistoryProvider).items;
@@ -38,6 +40,7 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
   final lastAtCache =
       ref.watch(eventLastAtCacheProvider).asData?.value ??
           const <String, DateTime>{};
+  final latestByEvent = ref.watch(historyLatestByEventCacheProvider);
   final now = DateTime.now();
   final birth = babyAsync.asData?.value.birthDate ?? DateTime(now.year, 1, 1);
   // active 仅来自真历史
@@ -47,7 +50,7 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
     ...collectActiveTimingRows(homeItems, catalog: catalog)
         .map((e) => e.eventId),
   }.where((e) => e.isNotEmpty).toSet();
-  return buildSmartPredictionRows(
+  return buildSmartPredictionBundle(
     history: history,
     catalog: catalog,
     now: now,
@@ -59,16 +62,28 @@ final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
       for (final e in appointmentNext.entries) e.key: e.value.nextAtSec,
     },
     lastAtCacheByRoot: lastAtCache,
+    latestByEventId: latestByEvent,
   );
 });
 
-/// 全部可预测结果（未滤 skip；已滤推演关闭）。
+/// 智能预测页行列表：home∪range 真历史 + 间隔旁路种子；尊重推演关闭集合。
+final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
+  return ref.watch(smartPredictionBundleProvider).rows;
+});
+
+/// 卡上展示的预测（每根胜出一条；用于 tip / 小组件 hero 近邻）。
 final smartPredictionsProvider = Provider<List<EventNextPrediction>>((ref) {
   final rows = ref.watch(smartPredictionRowsProvider);
   return [
     for (final r in rows)
       if (r.prediction != null) r.prediction!,
   ];
+});
+
+/// imminent pending：非合并含全部子预测（与卡一对一根不同）。
+final smartPendingPredictionsProvider =
+    Provider<List<EventNextPrediction>>((ref) {
+  return ref.watch(smartPredictionBundleProvider).pendingPredictions;
 });
 
 /// 喂养顶栏：最近下一步（滤 skip + 推演关）。

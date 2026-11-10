@@ -611,6 +611,7 @@ object PangbaoWidgetRenderer {
         }
     }
 
+    /** 对齐 Dart `formatRelativeCalendarDayAndTime(..., omitDayWhenToday: true)`。 */
     private fun formatLastAt(lastAtRaw: String): String {
         val instant = parseInstant(lastAtRaw) ?: return "暂无"
         val zone = ZoneId.systemDefault()
@@ -619,10 +620,19 @@ object PangbaoWidgetRenderer {
         val day = local.toLocalDate()
         val h = local.hour.toString().padStart(2, '0')
         val m = local.minute.toString().padStart(2, '0')
-        return when {
-            day == today -> "$h:$m"
-            day == today.minusDays(1) -> "昨天 $h:$m"
-            else -> "${day.monthValue}月${day.dayOfMonth}日"
+        val hm = "$h:$m"
+        val offset = java.time.temporal.ChronoUnit.DAYS.between(today, day).toInt()
+        return when (offset) {
+            0 -> hm
+            -2 -> "前天 $hm"
+            -1 -> "昨天 $hm"
+            1 -> "明天 $hm"
+            2 -> "后天 $hm"
+            else -> if (day.year == today.year) {
+                "${day.monthValue}月${day.dayOfMonth}日 $hm"
+            } else {
+                "${day.year}年${day.monthValue}月${day.dayOfMonth}日 $hm"
+            }
         }
     }
 

@@ -3,11 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
-
 import '../api/api_exceptions.dart';
 import '../data/cash_vip_models.dart';
 import '../data/client_usage_events.dart';
+import '../data/relative_calendar_day.dart';
 import '../data/xiaozhi_mcp_models.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
@@ -237,7 +236,7 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
     if (v.isPermanent) return '已永久开通';
     if (v.isTrialActive) {
       final end = DateTime.fromMillisecondsSinceEpoch(v.expiresAt * 1000);
-      return '体验中 · 至 ${DateFormat('MM/dd HH:mm').format(end)}';
+      return '体验中 · 至 ${formatRelativeCalendarDayAndTime(end, DateTime.now())}';
     }
     if (v.trialAvailable) return '可免费体验 24 小时';
     return '体验已用完';

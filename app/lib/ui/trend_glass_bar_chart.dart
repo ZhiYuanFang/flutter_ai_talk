@@ -1,8 +1,8 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../data/models.dart';
+import '../data/relative_calendar_day.dart';
 import '../data/trend_series_bucket.dart';
 import 'chart_axis_granularity.dart';
 import 'home_history_edit_glass_panel.dart';
@@ -45,8 +45,6 @@ class TrendGlassBarChart extends StatelessWidget {
     if (name == null || name.isEmpty) return '趋势图';
     return '$name趋势图';
   }
-
-  static final _dateFmt = DateFormat('MM-dd');
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +174,7 @@ class _BarChartBody extends StatelessWidget {
       if (index == 23) return ChartAxisGranularity.hourLabel(24);
       return ChartAxisGranularity.hourLabel(d.hour);
     }
-    return TrendGlassBarChart._dateFmt.format(d);
+    return formatRelativeCalendarDay(d, DateTime.now());
   }
 
   String _tooltipValue(double value) {

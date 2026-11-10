@@ -6,6 +6,7 @@ import '../data/notify_banner_repository.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_glass_overlay.dart';
 
+import '../theme/app_color.dart';
 /// 主页进入后拉取 notify banner；维护强阻断优先于版本弹窗。
 Future<void> maybeShowNotifyBannerPrompt({
   required BuildContext context,
@@ -111,7 +112,7 @@ class _DismissibleBannerBodyState extends State<_DismissibleBannerBody> {
               onPressed: () => widget.onClose(_neverAgain),
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
+                foregroundColor: AppColor.onFill(context, scheme.primary),
                 shape: const StadiumBorder(),
               ),
               child: const Text('知道了'),
@@ -154,7 +155,7 @@ class _BlockingBannerBody extends StatelessWidget {
             onPressed: SystemNavigator.pop,
             style: FilledButton.styleFrom(
               backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
+              foregroundColor: AppColor.onFill(context, scheme.primary),
               shape: const StadiumBorder(),
             ),
             child: const Text('退出'),

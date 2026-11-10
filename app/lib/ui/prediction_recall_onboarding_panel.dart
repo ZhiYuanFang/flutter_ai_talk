@@ -2,12 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
 import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
 import '../data/event_next_predictor.dart';
 import '../data/prediction_recall_seed.dart';
+import '../data/relative_calendar_day.dart';
 import '../providers/forecast_toggle_provider.dart';
 import '../providers/prediction_recall_provider.dart';
 import '../theme/app_color.dart';
@@ -66,8 +65,6 @@ bool _sameMinute(DateTime a, DateTime b) =>
 
 class _PredictionRecallOnboardingPanelState
     extends ConsumerState<PredictionRecallOnboardingPanel> {
-  static final _timeFmt = DateFormat('M月d日 HH:mm');
-
   late List<EventDefinition> _queue;
   late final PageController _pageController;
   var _pageIndex = 0;
@@ -227,7 +224,7 @@ class _PredictionRecallOnboardingPanelState
     final isTime = root.parsedEventType == EventCatalogEventType.time;
     final whenLabel = isTime ? '上次结束' : '上次发生';
     _thinkingFull =
-        '好的，我记下了「${root.name}」：$whenLabel在 ${_timeFmt.format(draft.lastAt)}，'
+        '好的，我记下了「${root.name}」：$whenLabel在 ${formatRelativeCalendarDayAndTime(draft.lastAt, DateTime.now())}，'
         '大概每 ${_formatInterval(draft.intervalMinutes)} 一次。'
         '正在按你的节奏合成推演样本，为「${root.name}」量身定做智能预测…';
     _thinkingVisible = 0;
@@ -513,7 +510,10 @@ class _PredictionRecallOnboardingPanelState
           const SizedBox(height: 16),
           _SelectTile(
             label: isTime ? '上次结束时间' : '上次发生时间',
-            value: _timeFmt.format(interactive ? _lastAt : DateTime.now()),
+            value: formatRelativeCalendarDayAndTime(
+              interactive ? _lastAt : DateTime.now(),
+              DateTime.now(),
+            ),
             onTap: interactive ? () => unawaited(_pickLastAt()) : () {},
           ),
           const SizedBox(height: 10),

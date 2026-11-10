@@ -202,7 +202,8 @@ bool catalogSnapshotsEqual(List<EventDefinition> a, List<EventDefinition> b) {
         e.eventType != o.eventType ||
         e.extraNames != o.extraNames ||
         e.parentId != o.parentId ||
-        e.isAppointment != o.isAppointment) {
+        e.isAppointment != o.isAppointment ||
+        e.mergePredict != o.mergePredict) {
       return false;
     }
   }
@@ -226,6 +227,7 @@ List<EventDefinition> parseEventOptionsList(List<dynamic> list) {
       extraNames: def.extraNames,
       parentId: def.parentId,
       isAppointment: def.isAppointment,
+      mergePredict: def.mergePredict,
     ));
   }
   return out;

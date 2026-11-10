@@ -41,6 +41,7 @@ class _BabyProfileEditorState extends ConsumerState<BabyProfileEditor> {
   late BabySex _sex;
   late DateTime _birth;
 
+  // absolute calendar identity — not relative day label
   static final _birthFmt = DateFormat('yyyy-MM-dd');
   static final DateTime _firstBirth = DateTime(2000);
 

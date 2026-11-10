@@ -57,6 +57,7 @@ import '../providers/event_catalog_notifier.dart';
 import '../providers/history_event_fly_provider.dart';
 import '../providers/home_history_notifier.dart';
 import '../providers/home_pager.dart';
+import '../providers/predict_post_mutation_scheduler.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/baby_display_provider.dart';
@@ -104,6 +105,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   var _gaveUpSnackbarShown = false;
   var _voiceAsrReady = false;
   var _voiceAsrConnecting = false;
+
+  /// 本帧喂养页列表就绪后只尝试一次 expect resume。
+  var _expectResumeAttempted = false;
 
   /// 语音球按下期间为 true；松手递增 [_voiceHoldSeq] 以取消进行中的连接/开录。
   var _voiceHoldActive = false;
@@ -365,6 +369,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ref: ref,
         event: event,
         usageCounts: _eventUsageCounts,
+        // 仅喂养页：time 新增直落库开计时
+        directTimingAddOnHome: true,
         onAdded: (result) {
           if (!mounted) return;
           _historyScrollKey.currentState?.scrollToBottom(force: true);
@@ -1091,9 +1097,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         unawaited(_retryEventCatalogIfEmpty());
       });
     });
+    // 列表加载完成后尝试 expect 静默 resume（杀进程 / batch 失败游标）
+    ref.listen<HomeHistoryState>(homeHistoryProvider, (prev, next) {
+      if (!next.initialLoadDone) {
+        _expectResumeAttempted = false;
+        return;
+      }
+      if (_expectResumeAttempted) return;
+      if (prev != null && prev.initialLoadDone) return;
+      _expectResumeAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(maybeResumePredictPostHistoryMutation(ref));
+      });
+    });
     final homeHistory = ref.watch(homeHistoryProvider);
     final historyItems = homeHistory.items;
     final historyInitialLoadDone = homeHistory.initialLoadDone;
+    // 首帧已 ready 时 listen 可能不触发 prev→next，补一次
+    if (historyInitialLoadDone && !_expectResumeAttempted) {
+      _expectResumeAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(maybeResumePredictPostHistoryMutation(ref));
+      });
+    }
     final catalogState = ref.watch(eventCatalogProvider);
     final eventCatalogItems = catalogState.items;
     // 仅当已登录且本地未缓存 deviceNo 时提示绑定；游客见下方登录引导空态。

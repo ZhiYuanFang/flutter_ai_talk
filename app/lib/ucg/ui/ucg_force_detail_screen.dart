@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import '../../data/relative_calendar_day.dart';
 import '../../providers/ucg_force_provider.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_force_models.dart';
@@ -48,7 +47,6 @@ class _UcgForceDetailScreenState extends ConsumerState<UcgForceDetailScreen> {
         Theme.of(context).colorScheme.onSurface;
     final primary = Theme.of(context).colorScheme.primary;
     final ledgerAsync = ref.watch(ucgForceLedgerProvider);
-    final fmt = DateFormat('MM-dd HH:mm');
 
     final forceValue = ledgerAsync.maybeWhen(
       data: (page) => page.forceValue,
@@ -196,7 +194,7 @@ class _UcgForceDetailScreenState extends ConsumerState<UcgForceDetailScreen> {
                         style: TextStyle(color: fg.withValues(alpha: 0.65)),
                       ),
                     ),
-                    data: (page) => _LedgerList(page: page, fmt: fmt, fg: fg),
+                    data: (page) => _LedgerList(page: page, fg: fg),
                   ),
                 ],
               ),
@@ -259,12 +257,10 @@ class _EarnMethodRow extends StatelessWidget {
 class _LedgerList extends StatelessWidget {
   const _LedgerList({
     required this.page,
-    required this.fmt,
     required this.fg,
   });
 
   final UcgForceLedgerPage page;
-  final DateFormat fmt;
   final Color fg;
 
   @override
@@ -297,10 +293,12 @@ class _LedgerList extends StatelessWidget {
                       ),
                       if (item.createdAt > 0)
                         Text(
-                          fmt.format(
+                          formatRelativeCalendarDayAndTime(
                             DateTime.fromMillisecondsSinceEpoch(
                               item.createdAt * 1000,
-                            ).toLocal(),
+                            ),
+                            DateTime.now(),
+                            omitDayWhenToday: true,
                           ),
                           style: TextStyle(
                             fontSize: 12,

@@ -281,7 +281,7 @@ class _ComposeExitDialogBodyState extends State<_ComposeExitDialogBody> {
               onPressed: _saving ? null : _save,
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
+                foregroundColor: AppColor.onFill(context, scheme.primary),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 shape: const StadiumBorder(),
               ),
@@ -442,7 +442,7 @@ class _GlassTextConfirmDialogBodyState extends State<_GlassTextConfirmDialogBody
               onPressed: _canConfirm ? () => Navigator.pop(context, true) : null,
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
+                foregroundColor: AppColor.onFill(context, scheme.primary),
                 padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                 shape: const StadiumBorder(),
                 disabledBackgroundColor: scheme.primary.withValues(alpha: 0.3),

@@ -1,3 +1,4 @@
+import 'appointment_event.dart';
 import 'event_branding.dart';
 import 'event_catalog_tree.dart';
 import 'event_definition.dart';
@@ -15,9 +16,11 @@ class SmartPredictionRow {
     required this.chartPoints,
     this.lastAt,
     this.lastRemark = '',
+    this.lastLabelEventName = '',
   });
 
   final String eventId;
+  /// 左上角标题名（根权威名）。
   final String eventName;
   final String colorHex;
   final bool forecastEnabled;
@@ -26,11 +29,14 @@ class SmartPredictionRow {
   /// 每日至多一点，按日升序；用于解释推算 TOD。
   final List<DateTime> chartPoints;
 
-  /// 该 root 最近一次发生时刻（与 [occurrenceInstant] 一致，含进行中）。
+  /// 与展示桶同 scope 的最近发生（有 pred 时跟 pred.eventId）。
   final DateTime? lastAt;
 
   /// 最新真 history 的 remark（展示用；空表示无）。
   final String lastRemark;
+
+  /// 「上一次{名}」前缀；空则 UI 回退 [eventName]。
+  final String lastLabelEventName;
 }
 
 /// root 下历史记录的最近发生时刻。
@@ -125,6 +131,86 @@ HistoryRecord? latestRealHistoryRecordForRootFromSources({
     realHistory: [...byId.values, ...noId],
     catalog: catalog,
   );
+}
+
+/// 记录是否属于预测桶 [bucketEventId]（与 [predictAllUpcoming] 分桶一致）。
+bool historyRecordInPredictionBucket({
+  required HistoryRecord record,
+  required String bucketEventId,
+  required List<EventDefinition> catalog,
+}) {
+  final bucket = bucketEventId.trim();
+  if (bucket.isEmpty) return false;
+  final id = historyRecordEventId(record);
+  String key;
+  if (id.isNotEmpty) {
+    key = predictionBucketKeyForEventId(eventId: id, catalog: catalog);
+  } else {
+    final def = lookupEventForRecord(catalog, record);
+    if (def != null && def.id.isNotEmpty) {
+      key = predictionBucketKeyForEventId(eventId: def.id, catalog: catalog);
+    } else {
+      key = historyRecordEventKey(record);
+    }
+  }
+  return catalogIdsEqual(key, bucket);
+}
+
+/// 根窗记录中筛出某预测桶（胜出子 / 合并根）。
+List<HistoryRecord> filterRecordsForPredictionBucket({
+  required List<HistoryRecord> records,
+  required String bucketEventId,
+  required List<EventDefinition> catalog,
+}) {
+  return [
+    for (final r in records)
+      if (historyRecordInPredictionBucket(
+        record: r,
+        bucketEventId: bucketEventId,
+        catalog: catalog,
+      ))
+        r,
+  ];
+}
+
+/// 合并多源后取预测桶最新真记录（有 pred 时跟 pred.eventId）。
+HistoryRecord? latestRealHistoryRecordForPredictionBucketFromSources({
+  required String bucketEventId,
+  required List<EventDefinition> catalog,
+  required List<HistoryRecord> homeItems,
+  required List<HistoryRecord> rangeItems,
+}) {
+  final bucket = bucketEventId.trim();
+  if (bucket.isEmpty) return null;
+  final byId = <String, HistoryRecord>{};
+  final noId = <HistoryRecord>[];
+  for (final r in [...rangeItems, ...homeItems]) {
+    if (isPredictionRecallSeedRecord(r)) continue;
+    if (!historyRecordInPredictionBucket(
+      record: r,
+      bucketEventId: bucket,
+      catalog: catalog,
+    )) {
+      continue;
+    }
+    final id = r.id.trim();
+    if (id.isEmpty) {
+      noId.add(r);
+    } else {
+      byId[id] = r;
+    }
+  }
+  HistoryRecord? best;
+  DateTime? bestAt;
+  for (final r in [...byId.values, ...noId]) {
+    final t = occurrenceInstant(r, includeActive: true);
+    if (t == null) continue;
+    if (bestAt == null || t.isAfter(bestAt)) {
+      bestAt = t;
+      best = r;
+    }
+  }
+  return best;
 }
 
 /// 按根 eventId 聚合历史（与 [predictAllUpcoming] 分组一致）。
@@ -250,9 +336,32 @@ List<HistoryRecord> mergeRealHistoryById({
   return [...byId.values, ...noId];
 }
 
-/// 构建预测页行：目录非子根全集（含无历史 / 关推演）；排序优先可预测的 nextAt。
+/// 预测页构建结果：卡行 + pending 全量（非合并含子分别预测）。
+class SmartPredictionBuildResult {
+  const SmartPredictionBuildResult({
+    required this.rows,
+    required this.pendingPredictions,
+  });
+
+  final List<SmartPredictionRow> rows;
+  final List<EventNextPrediction> pendingPredictions;
+}
+
+/// 单事件「上一次」摘要（latest-by-event / 窗内回退）。
+class PredictionLastOccurrenceRef {
+  const PredictionLastOccurrenceRef({
+    this.at,
+    this.remark = '',
+  });
+
+  final DateTime? at;
+  final String remark;
+}
+
+/// 构建预测页行 + pending 列表。
 /// [history] 必须为真喂养（不得含回忆种子伪记录）；[recallIntervalsByRoot] 仅作间隔旁路。
-List<SmartPredictionRow> buildSmartPredictionRows({
+/// [latestByEventId] 为服务端批量最近发生；展示主源；缺省时回退窗内/tip。
+SmartPredictionBuildResult buildSmartPredictionBundle({
   required List<HistoryRecord> history,
   required List<EventDefinition> catalog,
   required DateTime now,
@@ -261,19 +370,33 @@ List<SmartPredictionRow> buildSmartPredictionRows({
   Set<String> activeEventKeys = const {},
   Map<String, Duration> recallIntervalsByRoot = const {},
   Map<String, int> appointmentNextAtSecByRoot = const {},
-  /// 根 → 本机曾见真发生 tip；窗口未命中时回退 lastAt。
+  /// 根 → 本机曾见真发生 tip；窗口未命中时回退 lastAt（非展示主源）。
   Map<String, DateTime> lastAtCacheByRoot = const {},
+  Map<String, PredictionLastOccurrenceRef> latestByEventId = const {},
 }) {
   final byKey = groupHistoryByRootEvent(history: history, catalog: catalog);
   final roots = rootEvents(catalog);
-  // 无根目录时无法出卡（加载中由 UI 处理）；不再因无历史直接空列表。
-  if (roots.isEmpty) return const [];
+  if (roots.isEmpty) {
+    return const SmartPredictionBuildResult(
+      rows: [],
+      pendingPredictions: [],
+    );
+  }
 
   DateTime? cachedTipFor(String rootId) {
     final direct = lastAtCacheByRoot[rootId];
     if (direct != null) return direct;
     for (final e in lastAtCacheByRoot.entries) {
       if (catalogIdsEqual(e.key, rootId)) return e.value;
+    }
+    return null;
+  }
+
+  PredictionLastOccurrenceRef? latestRefFor(String eventId) {
+    final direct = latestByEventId[eventId];
+    if (direct != null) return direct;
+    for (final e in latestByEventId.entries) {
+      if (catalogIdsEqual(e.key, eventId)) return e.value;
     }
     return null;
   }
@@ -317,6 +440,18 @@ List<SmartPredictionRow> buildSmartPredictionRows({
     return const [];
   }
 
+  /// 非合并根：该根下子预测中 nextAt 最早者。
+  EventNextPrediction? soonestChildPrediction(String rootId) {
+    EventNextPrediction? best;
+    for (final p in predictions) {
+      final root = catalogRootIdFor(catalog, p.eventId);
+      if (!catalogIdsEqual(root, rootId)) continue;
+      if (catalogIdsEqual(p.eventId, rootId)) continue;
+      if (best == null || p.nextAt.isBefore(best.nextAt)) best = p;
+    }
+    return best;
+  }
+
   final rows = <SmartPredictionRow>[];
   final coveredKeys = <String>{};
   for (final root in roots) {
@@ -327,18 +462,57 @@ List<SmartPredictionRow> buildSmartPredictionRows({
       if (catalogIdsEqual(e.key, key)) coveredKeys.add(e.key);
     }
     coveredKeys.add(key);
-    final name = root.name.trim().isNotEmpty
+    final rootName = root.name.trim().isNotEmpty
         ? root.name.trim()
         : (records.isNotEmpty && records.last.eventName.trim().isNotEmpty
             ? records.last.eventName.trim()
             : '未命名事件');
     final enabled = !disabledForecastIds.contains(key);
-    // 窗口最新 ?? 本机 tip 缓存
-    final lastAt =
-        latestOccurrenceAtForRecords(records) ?? cachedTipFor(key);
-    // 最新真 history 备注（展示「上次」行）
-    final lastRemark = latestRealRemarkForRecords(records);
-    final pred = enabled ? predById[key] : null;
+    final merge = catalogRootMergePredict(key, catalog);
+    final hasKids = hasChildren(catalog, key);
+    // 卡展示：合并/无子/预约用根预测；非合并用胜出子 nextAt/色，标题仍根名
+    EventNextPrediction? pred;
+    var displayName = rootName;
+    var displayColor = colorHexFromEvent(root);
+    if (enabled) {
+      if (merge || !hasKids || catalogRootIsAppointment(key, catalog)) {
+        pred = predById[key];
+      } else {
+        // 非合并：nextAt/色跟胜出子；标题仍用根权威名
+        pred = soonestChildPrediction(key);
+        if (pred != null) {
+          displayColor = pred.colorHex;
+        }
+      }
+    }
+    // 上一次：有 pred 仅同桶；无 pred 用根（可含全窗子窗）
+    final lastBucketId = pred?.eventId ?? key;
+    final remoteLast = latestRefFor(lastBucketId);
+    final lastWindowRecords = pred != null
+        ? filterRecordsForPredictionBucket(
+            records: records,
+            bucketEventId: lastBucketId,
+            catalog: catalog,
+          )
+        : records;
+    final windowLast = latestOccurrenceAtForRecords(lastWindowRecords);
+    final tipLast = cachedTipFor(lastBucketId);
+    final lastAt = remoteLast?.at ?? windowLast ?? tipLast;
+    final lastRemark = (remoteLast != null && remoteLast.at != null)
+        ? remoteLast.remark
+        : latestRealRemarkForRecords(lastWindowRecords);
+    // 「上一次{名}」：有 pred 用桶名；无 pred 用根名
+    final String lastLabelEventName;
+    if (pred != null) {
+      final bucketDef = lookupEventById(catalog, pred.eventId);
+      final fromCat = bucketDef?.name.trim() ?? '';
+      final fromPred = pred.eventName.trim();
+      lastLabelEventName = fromCat.isNotEmpty
+          ? fromCat
+          : (fromPred.isNotEmpty ? fromPred : rootName);
+    } else {
+      lastLabelEventName = rootName;
+    }
     List<DateTime> points = const [];
     if (enabled && pred != null && records.isNotEmpty) {
       points = dailyPointsNearAnchorTod(
@@ -350,13 +524,14 @@ List<SmartPredictionRow> buildSmartPredictionRows({
     rows.add(
       SmartPredictionRow(
         eventId: key,
-        eventName: name,
-        colorHex: colorHexFromEvent(root),
+        eventName: displayName,
+        colorHex: displayColor,
         forecastEnabled: enabled,
         prediction: pred,
         chartPoints: points,
         lastAt: lastAt,
         lastRemark: lastRemark,
+        lastLabelEventName: lastLabelEventName,
       ),
     );
   }
@@ -382,6 +557,7 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         anchorTod: pred.nextAt,
       );
     }
+    final remoteLast = latestRefFor(key);
     rows.add(
       SmartPredictionRow(
         eventId: key,
@@ -390,9 +566,13 @@ List<SmartPredictionRow> buildSmartPredictionRows({
         forecastEnabled: enabled,
         prediction: pred,
         chartPoints: points,
-        lastAt: latestOccurrenceAtForRecords(entry.value) ??
+        lastAt: remoteLast?.at ??
+            latestOccurrenceAtForRecords(entry.value) ??
             cachedTipFor(key),
-        lastRemark: latestRealRemarkForRecords(entry.value),
+        lastRemark: (remoteLast != null && remoteLast.at != null)
+            ? remoteLast.remark
+            : latestRealRemarkForRecords(entry.value),
+        lastLabelEventName: name,
       ),
     );
   }
@@ -412,7 +592,37 @@ List<SmartPredictionRow> buildSmartPredictionRows({
     }
     return a.eventName.compareTo(b.eventName);
   });
-  return rows;
+  return SmartPredictionBuildResult(
+    rows: rows,
+    pendingPredictions: predictions,
+  );
+}
+
+/// 构建预测页行（兼容旧调用；不含 pending 拆分）。
+List<SmartPredictionRow> buildSmartPredictionRows({
+  required List<HistoryRecord> history,
+  required List<EventDefinition> catalog,
+  required DateTime now,
+  required DateTime birthDate,
+  required Set<String> disabledForecastIds,
+  Set<String> activeEventKeys = const {},
+  Map<String, Duration> recallIntervalsByRoot = const {},
+  Map<String, int> appointmentNextAtSecByRoot = const {},
+  Map<String, DateTime> lastAtCacheByRoot = const {},
+  Map<String, PredictionLastOccurrenceRef> latestByEventId = const {},
+}) {
+  return buildSmartPredictionBundle(
+    history: history,
+    catalog: catalog,
+    now: now,
+    birthDate: birthDate,
+    disabledForecastIds: disabledForecastIds,
+    activeEventKeys: activeEventKeys,
+    recallIntervalsByRoot: recallIntervalsByRoot,
+    appointmentNextAtSecByRoot: appointmentNextAtSecByRoot,
+    lastAtCacheByRoot: lastAtCacheByRoot,
+    latestByEventId: latestByEventId,
+  ).rows;
 }
 
 /// 顶栏「最近下一步」：推演开、未 skip、有预测，取 nextAt 最早。

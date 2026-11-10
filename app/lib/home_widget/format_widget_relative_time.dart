@@ -1,3 +1,5 @@
+import '../data/relative_calendar_day.dart';
+
 /// 进行中计时 elapsed（与 [formatActiveTimerElapsed] 语义对齐的纯 Duration 版）。
 String formatWidgetActiveElapsed(Duration elapsed) {
   var d = elapsed;
@@ -39,7 +41,7 @@ String formatWidgetPredictSubtitle(DateTime nextAt, DateTime now, {required bool
 }
 
 /// 远距改显预估时刻的阈值（严格大于）。
-const kPredictionFarCountdownThreshold = Duration(hours: 6);
+const kPredictionFarCountdownThreshold = Duration(minutes: 10);
 
 /// 预估时刻拆分：日期前缀可空（今天无前缀、不加「今天」）。
 class PredictionEstimatedClockParts {
@@ -53,24 +55,21 @@ class PredictionEstimatedClockParts {
       datePrefix == null ? hm : '$datePrefix $hm';
 }
 
-/// 预估 `nextAt` 本地钟点 parts。
+/// 预估 `nextAt` 本地钟点 parts（日前缀走权威相对自然日核；今日无前缀）。
 PredictionEstimatedClockParts predictionEstimatedClockParts(
   DateTime nextAt,
   DateTime now,
 ) {
   final local = nextAt.toLocal();
-  final today = DateTime(now.year, now.month, now.day);
-  final day = DateTime(local.year, local.month, local.day);
   final hm =
       '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  final today = relativeCalendarDateOnly(now.toLocal());
+  final day = relativeCalendarDateOnly(local);
   if (day == today) {
     return PredictionEstimatedClockParts(hm: hm);
   }
-  if (day == today.subtract(const Duration(days: 1))) {
-    return PredictionEstimatedClockParts(datePrefix: '昨天', hm: hm);
-  }
   return PredictionEstimatedClockParts(
-    datePrefix: '${local.month}月${local.day}日',
+    datePrefix: formatRelativeCalendarDay(day, now),
     hm: hm,
   );
 }
@@ -80,7 +79,7 @@ String formatPredictionEstimatedClock(DateTime nextAt, DateTime now) {
   return predictionEstimatedClockParts(nextAt, now).combined;
 }
 
-/// 是否进入「只显示预估时刻」态：逾期，或剩余严格大于 6 小时。
+/// 是否进入「只显示预估时刻」态：逾期，或剩余严格大于 10 分钟。
 bool predictionShowsEstimatedClock(
   DateTime nextAt,
   DateTime now, {
@@ -90,7 +89,7 @@ bool predictionShowsEstimatedClock(
   return nextAt.difference(now) > kPredictionFarCountdownThreshold;
 }
 
-/// 网格倒计时：短距 `H:MM:SS`；时刻态（逾期或 &gt;6h）为预估本地时刻串。
+/// 网格倒计时：短距 `H:MM:SS`；时刻态（逾期或 &gt;10m）为预估本地时刻串。
 String formatPredictionCountdownHms(DateTime nextAt, DateTime now,
     {required bool overdue}) {
   if (predictionShowsEstimatedClock(nextAt, now, overdue: overdue)) {
@@ -152,15 +151,12 @@ String formatPredictionLastOccurrenceLabel(
   return '$base · $rm';
 }
 
-/// 上次记录时间（native 与 App 预览对齐）。
+/// 上次记录时间（native 与 App 预览对齐）；今日仅时分，跨日为「日词 HH:mm」。
 String formatWidgetLastAt(DateTime? lastAt, DateTime now) {
   if (lastAt == null) return '暂无';
-  final local = lastAt.toLocal();
-  final today = DateTime(now.year, now.month, now.day);
-  final day = DateTime(local.year, local.month, local.day);
-  final h = local.hour.toString().padLeft(2, '0');
-  final m = local.minute.toString().padLeft(2, '0');
-  if (day == today) return '$h:$m';
-  if (day == today.subtract(const Duration(days: 1))) return '昨天 $h:$m';
-  return '${local.month}月${local.day}日';
+  return formatRelativeCalendarDayAndTime(
+    lastAt,
+    now,
+    omitDayWhenToday: true,
+  );
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'models.dart';
+import 'relative_calendar_day.dart';
 
 int historyPayloadInt(Map<String, Object?> p, String key) {
   final v = p[key];
@@ -52,17 +53,9 @@ DateTime? parseHistoryInstant(Object? raw) {
 
 String _two(int v) => v.toString().padLeft(2, '0');
 
-/// 主页历史日期分块行（不含时分）。
-String formatHistoryDaySectionLabel(DateTime t, DateTime nowLocal) {
-  final a = DateTime(t.year, t.month, t.day);
-  final today = DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
-  final yest = today.subtract(const Duration(days: 1));
-
-  if (a == today) return '今天';
-  if (a == yest) return '昨天';
-  if (t.year == nowLocal.year) return '${t.month}月${t.day}日';
-  return '${t.year}年${t.month}月${t.day}日';
-}
+/// 主页历史日期分块行（不含时分）；薄封装权威相对自然日核。
+String formatHistoryDaySectionLabel(DateTime t, DateTime nowLocal) =>
+    formatRelativeCalendarDay(t, nowLocal);
 
 /// 主页历史记录行左列：仅 `HH:mm`。
 String formatHistoryTimeHm(DateTime t) => '${_two(t.hour)}:${_two(t.minute)}';
@@ -110,18 +103,9 @@ DateTime historyHomeDayKeyInstant(HistoryRecord record) {
 DateTime historyHomeClockInstant(HistoryRecord record) =>
     historyHomeDayKeyInstant(record);
 
-/// 相对「当前」的列表用时间短串（本地自然日 / 年）。
-String formatHistoryInstant(DateTime t, DateTime nowLocal) {
-  final a = DateTime(t.year, t.month, t.day);
-  final today = DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
-  final yest = today.subtract(const Duration(days: 1));
-  final hm = '${_two(t.hour)}:${_two(t.minute)}';
-
-  if (a == today) return hm;
-  if (a == yest) return '昨天$hm';
-  if (t.year == nowLocal.year) return '${t.month}月${t.day}日 $hm';
-  return '${t.year}年${t.month}月${t.day}日 $hm';
-}
+/// 相对「当前」的列表用时间短串；今日省略日词，其余走权威核（日词 + 空格 + 时分）。
+String formatHistoryInstant(DateTime t, DateTime nowLocal) =>
+    formatRelativeCalendarDayAndTime(t, nowLocal, omitDayWhenToday: true);
 
 /// `eventNumber == 0` 且 [endTime] 未设置。
 bool isActiveTimingRecord(HistoryRecord record) {

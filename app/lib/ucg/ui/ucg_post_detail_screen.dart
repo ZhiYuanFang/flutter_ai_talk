@@ -4,8 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-
+import '../../data/relative_calendar_day.dart';
 import '../../theme/app_visual_tokens.dart';
 import '../data/ucg_models.dart';
 import '../providers/ucg_providers.dart';
@@ -501,7 +500,11 @@ class _UcgPostDetailScreenState extends ConsumerState<UcgPostDetailScreen> {
     final backdropUrl = post.imageThumbnailUrls.isNotEmpty
         ? post.imageThumbnailUrls.first
         : post.authorAvatarThumbnailUrl;
-    final time = DateFormat('MM-dd HH:mm').format(post.displayAt.toLocal());
+    final time = formatRelativeCalendarDayAndTime(
+      post.displayAt,
+      DateTime.now(),
+      omitDayWhenToday: true,
+    );
     final bio = post.authorBio.trim();
 
     return Scaffold(

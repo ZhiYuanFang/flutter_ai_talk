@@ -24,6 +24,7 @@ import '../data/client_usage_events.dart';
 import '../providers/client_usage_provider.dart';
 import '../config/speech_engine_store.dart';
 import '../data/feed_repository.dart';
+import '../data/relative_calendar_day.dart';
 import '../home_widget/widget_tip_cache.dart';
 import '../providers/care_alert_follow_up_provider.dart';
 import '../providers/clinic_ws_provider.dart';
@@ -103,21 +104,13 @@ class _ChatItem {
   String? errorMessage;
 }
 
-/// 同日 HH:mm；跨日 M月d日 HH:mm；跨年带 yyyy年。
-String formatCompanionMessageTime(DateTime at, {DateTime? now}) {
-  final local = at.toLocal();
-  final n = (now ?? DateTime.now()).toLocal();
-  final hh = local.hour.toString().padLeft(2, '0');
-  final mm = local.minute.toString().padLeft(2, '0');
-  final tod = '$hh:$mm';
-  if (local.year == n.year && local.month == n.month && local.day == n.day) {
-    return tod;
-  }
-  if (local.year == n.year) {
-    return '${local.month}月${local.day}日 $tod';
-  }
-  return '${local.year}年${local.month}月${local.day}日 $tod';
-}
+/// 陪伴消息时间：今日仅时分，跨日走权威相对自然日核。
+String formatCompanionMessageTime(DateTime at, {DateTime? now}) =>
+    formatRelativeCalendarDayAndTime(
+      at,
+      now ?? DateTime.now(),
+      omitDayWhenToday: true,
+    );
 
 class _PangbaoAiScreenState extends ConsumerState<PangbaoAiScreen>
     with WidgetsBindingObserver {

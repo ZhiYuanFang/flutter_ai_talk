@@ -20,8 +20,13 @@ class PredictActiveEtaRepository {
     for (final it in items) {
       if (it.rootEventId < 1 || it.leafEventId < 1) continue;
       final startSec = it.startAt.toUtc().millisecondsSinceEpoch ~/ 1000;
-      final endSec = it.expectEndAt.toUtc().millisecondsSinceEpoch ~/ 1000;
-      if (startSec < 1 || endSec < 1 || endSec < startSec) continue;
+      if (startSec < 1) continue;
+      final end = it.expectEndAt;
+      if (end != null) {
+        final endSec = end.toUtc().millisecondsSinceEpoch ~/ 1000;
+        // 有结束时须为正且不早于 start
+        if (endSec < 1 || endSec < startSec) continue;
+      }
       bodyItems.add(it.toJson());
     }
 
