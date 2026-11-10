@@ -95,6 +95,20 @@ class LiveActivityNative {
     }
   }
 
+  /// 本机是否仍有可展示的统一 `BabyLiveActivityAttributes` Live Activity。
+  /// 非 iOS 返回 `false`；查询失败返回 `null`（调用方不得据此 clear）。
+  static Future<bool?> hasActiveUnifiedLiveActivity() async {
+    if (!_supported) return false;
+    try {
+      final raw =
+          await _channel.invokeMethod<dynamic>('hasActiveUnifiedLiveActivity');
+      return raw == true;
+    } catch (e) {
+      AppDebugLog.liveActivity('hasActiveUnifiedLiveActivity err=$e');
+      return null;
+    }
+  }
+
   /// 探测系统是否允许 Live Activities / Push-to-Start / deliver 计数。
   static Future<LiveActivitySystemInfo> getSystemStatus() async {
     if (!_supported) {

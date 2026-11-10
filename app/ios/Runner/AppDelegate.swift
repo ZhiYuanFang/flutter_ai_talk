@@ -239,6 +239,9 @@ final class UcgNotificationCenterProxy: NSObject, UNUserNotificationCenterDelega
         result(nil)
       case "getSystemStatus":
         result(PredictLiveActivityBridge.systemStatus())
+      case "hasActiveUnifiedLiveActivity":
+        // Dart：本机无统一 LA 时鉴权 clear 服务端 activity token
+        result(PredictLiveActivityBridge.hasActiveUnifiedLiveActivity())
       case "setRegisterContext":
         // Dart 登录后写入 wxId/deviceKey/apiBase，供唤醒窗原生 register
         let map = call.arguments as? [String: Any] ?? [:]

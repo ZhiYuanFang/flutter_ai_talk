@@ -1,8 +1,9 @@
 import Foundation
 import Security
 
-/// Live Activity 免鉴权 register / update-ack：缓存 wxId/deviceKey/apiBase，唤醒窗 URLSession POST。
+/// Live Activity 免鉴权 register：缓存 wxId/deviceKey/apiBase，唤醒窗 URLSession POST。
 /// 不存 accessToken；身份仅 body.wxId；统一契约无 attributesKind/activityId。
+/// 不再发 update ack；服务端 activity token 清理改由 Dart 鉴权 clear。
 enum LiveActivityNativeRegister {
   private static let appGroupId = "group.com.fzy.pangbao.widget"
   private static let kWxId = "la.register.wxId"
@@ -14,9 +15,6 @@ enum LiveActivityNativeRegister {
   private static let successLock = NSLock()
   private static var successIdentities = Set<String>()
   private static let maxSuccessIdentities = 64
-  /// 进程内已成功发出的 ContentState.ack（防 contentUpdates 抖动重复 POST）。
-  private static var ackedValues = Set<String>()
-  private static let maxAckedValues = 64
 
   /// Dart 登录/刷新后写入上下文；登出清空。
   static func setContext(wxId: Int64, deviceKey: String, apiBaseUrl: String) {
@@ -45,76 +43,8 @@ enum LiveActivityNativeRegister {
     keychainDeleteWxId()
     successLock.lock()
     successIdentities.removeAll()
-    ackedValues.removeAll()
     successLock.unlock()
     NSLog("[live_activity] clearContext")
-  }
-
-  /// ContentState.`ack` 非空时立即免鉴权回执；不依赖 Dart / Bearer。
-  static func ackIfPossible(_ ackRaw: String) {
-    let ack = ackRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !ack.isEmpty, ack.count <= 64 else { return }
-
-    successLock.lock()
-    let already = ackedValues.contains(ack)
-    successLock.unlock()
-    if already {
-      NSLog("[live_activity] nativeAck skip cached")
-      return
-    }
-
-    guard let wxId = readWxId(), wxId > 0 else {
-      NSLog("[live_activity] nativeAck skip no_wxId")
-      return
-    }
-    guard let deviceKey = readDeviceKey(), !deviceKey.isEmpty else {
-      NSLog("[live_activity] nativeAck skip no_deviceKey")
-      return
-    }
-    guard let apiBase = readApiBase(), !apiBase.isEmpty else {
-      NSLog("[live_activity] nativeAck skip no_apiBase")
-      return
-    }
-
-    guard let url = URL(string: "\(apiBase)/app/api/push/live-activity/ack") else {
-      NSLog("[live_activity] nativeAck bad url")
-      return
-    }
-    let body: [String: Any] = [
-      "wxId": wxId,
-      "deviceKey": deviceKey,
-      "ack": ack,
-    ]
-    guard let json = try? JSONSerialization.data(withJSONObject: body) else {
-      NSLog("[live_activity] nativeAck json fail")
-      return
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = json
-    // 服务端默认 3s 等回执；尽快发出，超时略宽于窗口即可
-    req.timeoutInterval = 8
-
-    URLSession.shared.dataTask(with: req) { _, response, error in
-      if let error = error {
-        NSLog("[live_activity] nativeAck err=%@", error.localizedDescription)
-        return
-      }
-      let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-      if code >= 200 && code < 300 {
-        successLock.lock()
-        if ackedValues.count >= maxAckedValues {
-          ackedValues.removeAll()
-        }
-        ackedValues.insert(ack)
-        successLock.unlock()
-        NSLog("[live_activity] nativeAck ok http=%d", code)
-      } else {
-        NSLog("[live_activity] nativeAck http=%d", code)
-      }
-    }.resume()
   }
 
   /// token 到手后立即尝试原生 POST；不依赖 Dart / Bearer。

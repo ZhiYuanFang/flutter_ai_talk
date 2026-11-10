@@ -3,10 +3,10 @@ import Foundation
 import Flutter
 import UIKit
 
-/// 主 App 侧 Live Activity：尽早监听统一 Attributes 的 Push-to-Start / activity token，
-/// 以及 ContentState.`ack`（update 送达回执，仅原生 POST，无 Dart 补传）。
+/// 主 App 侧 Live Activity：尽早监听统一 Attributes 的 Push-to-Start / activity token。
 /// 唤醒窗内由原生免鉴权 register；token 另经 MethodChannel 可选投递 Dart 补传。
 /// MUST NOT 在此调用 Activity.request（仅等服务端推送起停）。
+/// MUST NOT 再为 update 做 ContentState ack 回执（改由 App 打开时鉴权 clear）。
 enum PredictLiveActivityBridge {
   static let channelName = "com.fzy.pangbao/live_activity"
   /// 强引用：Native→Dart invoke 依赖实例；weak + 局部 let 会被 ARC 回收。
@@ -16,9 +16,9 @@ enum PredictLiveActivityBridge {
   private static var started = false
   /// 本进程经 channel 成功投递的 push_to_start 次数（排障用）。
   private static var pushToStartDeliverCount: Int = 0
-  /// 已为某 activity 挂上 pushTokenUpdates / contentUpdates 的稳定键。
+  /// 已为某 activity 挂上 pushTokenUpdates 的稳定键。
   private static var observedActivityKeys = Set<String>()
-  /// channel / Dart 未就绪时的进程内 pending（仅 token；ack 不进 Dart）。
+  /// channel / Dart 未就绪时的进程内 pending（仅 token）。
   private static var pending: [[String: Any]] = []
   private static let pendingLock = NSLock()
   private static let maxPending = 32
@@ -78,6 +78,21 @@ enum PredictLiveActivityBridge {
     ]
   }
 
+  /// 本机是否仍有可展示的统一列表 Live Activity（供 Dart 决定是否 clear 服务端 activity token）。
+  static func hasActiveUnifiedLiveActivity() -> Bool {
+    if #available(iOS 16.2, *) {
+      return Activity<BabyLiveActivityAttributes>.activities.contains { activity in
+        switch activity.activityState {
+        case .active, .stale:
+          return true
+        default:
+          return false
+        }
+      }
+    }
+    return false
+  }
+
   private static func beginObserving() {
     // 统一单 Attributes；不再分 imminent/timing 双轨观察
     if #available(iOS 17.2, *) {
@@ -124,9 +139,6 @@ enum PredictLiveActivityBridge {
     }
     observedActivityKeys.insert(key)
 
-    // 当前帧可能已带 update ack（避免只赶上后续 contentUpdates）
-    handleContentAck(activity.content.state)
-
     Task {
       for await tokenData in activity.pushTokenUpdates {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
@@ -136,18 +148,6 @@ enum PredictLiveActivityBridge {
         ])
       }
     }
-    Task {
-      for await content in activity.contentUpdates {
-        handleContentAck(content.state)
-      }
-    }
-  }
-
-  /// 非空 ack → 原生立即 POST；不经 MethodChannel / Dart。
-  private static func handleContentAck(_ state: BabyLiveActivityAttributes.ContentState) {
-    let ack = state.ack.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !ack.isEmpty else { return }
-    LiveActivityNativeRegister.ackIfPossible(ack)
   }
 
   private static func deliver(_ args: [String: Any]) {

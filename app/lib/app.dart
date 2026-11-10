@@ -23,6 +23,7 @@ import 'scaffold_messenger_key.dart';
 import 'ui/widgets/app_toast.dart';
 import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
+import 'push/live_activity_activity_clear.dart';
 import 'push/push_click_inbox.dart';
 import 'ucg/push/ucg_push_native.dart';
 import 'theme/app_theme_schedule.dart';
@@ -70,6 +71,8 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
       refreshScheduledTheme(ref);
       if (ref.read(sessionProvider).isLoggedIn) {
         unawaited(syncHomeWidgetFromRef(ref));
+        // 本机无统一 LA 时鉴权 clear 服务端 activity token（取代 update ack）。
+        unawaited(maybeClearServerActivityTokenIfNoLocalLiveActivity(ref));
       }
       // 从系统设置返回时刷新通知授权并按需 register。
       unawaited(onAppResumeNotificationSync(ref));
@@ -122,6 +125,10 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
     ref.read(goRouterProvider).go(result.route);
     setState(() => _showStartupOverlay = false);
     _openHomeForPushClick();
+    // 冷启动就绪：已登录则检查本机 LA，无则 clear 服务端 activity token。
+    if (ref.read(sessionProvider).isLoggedIn) {
+      unawaited(maybeClearServerActivityTokenIfNoLocalLiveActivity(ref));
+    }
     // 已登录 bootstrap 由 HomeScreen GatewayBootstrapGate 单飞负责，避免与 gate 双跑占满 iOS 连接槽。
     if (!ref.read(sessionProvider).isLoggedIn) {
       unawaited(
@@ -161,6 +168,8 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
       (previous, isLoggedIn) {
         if (isLoggedIn) {
           unawaited(ensureWidgetReadyFromRef(ref));
+          // 登录成功补跑：覆盖「先打开后登录」未能 clear 的窗口。
+          unawaited(maybeClearServerActivityTokenIfNoLocalLiveActivity(ref));
         } else if (previous == true) {
           unawaited(onLogoutClearHomeWidget());
           ref.read(homeHistoryProvider.notifier).resetLoadMoreCircuit();

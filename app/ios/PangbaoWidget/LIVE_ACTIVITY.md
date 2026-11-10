@@ -1,4 +1,4 @@
-# iOS Live Activity（与 Go `unify-live-activity-list` 对齐）
+# iOS Live Activity（与 Go `unify-live-activity-list` / clear-on-app-open 对齐）
 
 ## Attributes 名
 
@@ -19,12 +19,11 @@
 ```json
 {
   "phase": "active" | "cleared",
-  "items": [ /* 见下 */ ],
-  "ack": "可选；仅 APNs event=update 注入的临时回执序号"
+  "items": [ /* 见下 */ ]
 }
 ```
 
-- **`ack`**：与 `phase` / `items` **同包**下发（Go `live-activity-update-ack-timeout`）；`start` / `end` 通常无此字段。锁屏/Island **忽略**；主 App Runner 非空则立即原生回执（见下「Update ack」）。缺键解码为空串。
+- 仅 `phase` / `items` 参与解码与展示。历史 payload 若仍带 `ack` 等未知键，客户端忽略，**不得**再发 ack HTTP。
 
 ### items[] 排序（Go Refresh）
 
@@ -55,7 +54,7 @@
   - timing 行：logo + 事件名 + 可选「预计 HH:mm 结束」+ 右侧系统已计时
 - **Dynamic Island**：仅 `items.first`；按该条 kind 沿用既有 Island 样式（imminent 无时间右槽；timing 带已计时）
 
-## Token
+## Token register
 
 `POST /app/api/push/live-activity/register`  
 Body：**非零 `wxId`**、`deviceKey`、`tokenKind`=`push_to_start`|`activity`、`token`。  
@@ -65,16 +64,21 @@ Body：**非零 `wxId`**、`deviceKey`、`tokenKind`=`push_to_start`|`activity`�
 - 客户端主路径：Push-to-Start 唤醒窗内 **原生 URLSession** 直报。
 - Dart：可选补传（同契约）。
 
-主 App Bridge：仅观察 `BabyLiveActivityAttributes`；early observe + inbox flush 不变。**禁止** `Activity.request`。
+主 App Bridge：仅观察 `BabyLiveActivityAttributes` 的 push token；early observe + inbox flush 不变。**禁止** `Activity.request`。**禁止** update ack HTTP。
 
-## Update ack
+## Activity clear（App 打开自愈）
 
-`POST /app/api/push/live-activity/ack`  
-Body：**非零 `wxId`**、`deviceKey`、`ack`（与最近一次 update ContentState.`ack` 一致，≤64）。
+`POST /app/api/push/live-activity/activity/clear`  
+Body：`deviceKey`（本机推送/LA device key）。  
+鉴权：**Bearer**（须登录；不得免鉴权、不得原生 URLSession 冒充）。
 
-- 对端：gateway 免 Bearer（对齐 register）；仅 `ack == last_sent_ack` 时写 `last_acked_ack`；超时未 ack 则删 activity 并用同机 `push_to_start` restart（`LIVE_ACTIVITY_ACK_TIMEOUT_MS`，默认 3000）。
-- 客户端主路径：ActivityKit `content.state` / `contentUpdates` 见到非空 `ack` 后，**原生 URLSession** 直报（复用 register 缓存的 wxId/deviceKey/apiBase）。
-- **不得** Dart / MethodChannel 补传；**不得**在 Widget Extension 内发 ack。
+- 对端：仅删该鉴权用户下、该 `deviceKey` 的 `token_kind=activity`；**不**同拍本地/远端 start。
+- 客户端触发：登录态冷启动就绪或 `AppLifecycleState.resumed`（及登录成功补跑）；经 MethodChannel 查询本机是否仍有 `BabyLiveActivityAttributes` 活动中 LA：
+  - **无** → 调 clear
+  - **有** → 不调
+  - **未登录** → 跳过，登录后再查
+- 副作用 HTTP：single-flight、短窗合并；失败打 `[LiveActivity]` / `[ApiHttp]`；**不得**因此 `Activity.request`。
+- 用户划掉 LA 到打开 App 之间允许空窗；不再依赖 ContentState.`ack` / `…/live-activity/ack`。
 
 ## 深链
 
