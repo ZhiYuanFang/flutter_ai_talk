@@ -74,6 +74,7 @@ import 'ucg_square_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
+import 'widgets/prediction_go_record_fab.dart';
 
 /// 投屏入口：锁定横屏（与 [_exitLandscapeToPortrait] 对称）。
 Future<void> _lockPredictionLandscapeCast() async {
@@ -519,12 +520,13 @@ class SmartPredictionScreen extends ConsumerWidget {
     final immersiveActive = !kIsWeb && isLandscape && predictionPageVisible;
 
     // 广场资格开通后：预测竖屏贴边入口球（横屏/喂养不挂）
-    // 桌面小组件入口已上移主壳 EdgeDock，本页不再垫 FAB 底
+    // 桌面小组件仍在主壳 EdgeDock；本页竖屏挂「去记录」pill，需加大列表底垫
     final showUcgSquareBall = kUcgHomePagerEnabled &&
         !isLandscape &&
         predictionPageVisible &&
         ref.watch(ucgEligibilityStateProvider).isQualified;
-    const cardsBottomPad = 24.0;
+    final showGoRecordFab = !isLandscape;
+    final cardsBottomPad = showGoRecordFab ? 96.0 : 24.0;
 
     // 横屏 chip 仍在本页；竖屏球已上移主壳，此处不再因竖屏 flag watch
     final landscapeVoice = (isLandscape && kPredictionLandscapeVoiceEnabled)
@@ -1168,7 +1170,15 @@ class SmartPredictionScreen extends ConsumerWidget {
             ],
           ),
 
-          // 竖屏语音/小组件球已上移 UcgHomeShell；本页仅保留广场贴边球
+          // 竖屏「去记录」pill（样式对齐旧桌面小组件底栏 FAB）
+          if (showGoRecordFab)
+            const Positioned(
+              left: 16,
+              right: 16,
+              bottom: 12,
+              child: Center(child: PredictionGoRecordFab()),
+            ),
+          // 竖屏语音/小组件球已上移 UcgHomeShell；本页另挂广场贴边球
           // 竖屏广场入口贴边球（资格开通后）
           if (showUcgSquareBall)
             Positioned.fill(

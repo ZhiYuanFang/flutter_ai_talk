@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -203,16 +201,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   subtitle: '临近提醒与推送开关',
                   onTap: () => context.push('/settings/notifications'),
                 ),
-                if (!kIsWeb && Platform.isIOS) ...[
-                  const SizedBox(height: 12),
-                  _buildGlassTile(
-                    context,
-                    leading: Icons.lock_clock_outlined,
-                    title: '锁屏通知',
-                    subtitle: '实时活动注册状态与重试',
-                    onTap: () => context.push('/settings/live-activity'),
-                  ),
-                ],
+                // 锁屏通知诊断页仍保留路由 /settings/live-activity，不再从设置中心露出。
               ],
               const SizedBox(height: 12),
               // 语音识别模块已隐藏；陪伴页仍可读持久化/默认引擎

@@ -21,6 +21,7 @@ import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import '../voice/voice_asr_ws_client.dart';
 import 'ai_analysis_unlock.dart';
+import 'widgets/ai_generated_content_mark.dart';
 import 'widgets/ai_thinking_pane.dart';
 import 'widgets/analysis_wait_callout.dart';
 import 'widgets/app_toast.dart';
@@ -801,8 +802,12 @@ class _GrowthTrajectoryScreenState
         ],
       );
     } else if (gt.hasResult) {
+      // 展示前 append「（AI 生成）」；不写回 gt.resultMarkdown 源。
       body = ClinicAnswerBody(
-        text: gt.resultMarkdown,
+        text: appendAiGeneratedMark(
+          gt.resultMarkdown,
+          asMarkdownBlock: true,
+        ),
         streaming: false,
         scrollable: false,
         selectable: true,

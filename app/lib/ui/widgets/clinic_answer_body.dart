@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 
+import 'ai_generated_content_mark.dart';
+
 /// 胖宝诊疗助手答案：流式阶段纯文本，完成后 Markdown 格式化。
 class ClinicAnswerBody extends StatelessWidget {
   const ClinicAnswerBody({
@@ -25,9 +27,8 @@ class ClinicAnswerBody extends StatelessWidget {
       return Text(text, style: _bodyStyle(context));
     }
     if (text.trim().isEmpty) return const SizedBox.shrink();
-    final generator = MarkdownGenerator(
-      linesMargin: const EdgeInsets.symmetric(vertical: 4),
-    );
+    // 支持展示源末尾「（AI 生成）」红小字
+    final generator = aiGeneratedMarkdownGenerator();
     final config = _markdownConfig(context);
     // 气泡内用 Column（MarkdownBlock），避免 MarkdownWidget 内层 ListView 与外层列表抢拖动手势
     if (!scrollable) {

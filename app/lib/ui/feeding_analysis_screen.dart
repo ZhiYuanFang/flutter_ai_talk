@@ -15,6 +15,7 @@ import '../providers/toast_bus.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import 'ai_analysis_unlock.dart';
+import 'widgets/ai_generated_content_mark.dart';
 import 'widgets/ai_thinking_pane.dart';
 import 'widgets/analysis_wait_callout.dart';
 import 'widgets/app_toast.dart';
@@ -196,6 +197,7 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
       if (items.isEmpty) {
         body = _muted(context, '点击下方「AI智能分析」生成今日值得留意', deep);
       } else {
+        // 终态结果：每条摘要末尾红小字「（AI 生成）」。
         body = Column(
           children: [
             for (var i = 0; i < items.length; i++) ...[
@@ -203,8 +205,9 @@ class _FeedingAnalysisScreenState extends ConsumerState<FeedingAnalysisScreen> {
                 Divider(height: 1, color: AppColor.divider(context)),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(
-                  items[i].summaryLine,
+                // 摘要末尾红小字「（AI 生成）」
+                title: aiGeneratedMarkedPlainText(
+                  text: items[i].summaryLine,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

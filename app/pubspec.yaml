@@ -54,6 +54,7 @@ dependencies:
   # 0.9+ ?? iOS SPM?Extension ??? FlutterGeneratedPluginSwiftPackage import home_widget
   home_widget: ^0.9.3
   flex_color_picker: ^3.8.0
+  markdown: ^7.3.0
   markdown_widget: ^2.3.2+8
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1

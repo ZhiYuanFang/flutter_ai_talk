@@ -11,6 +11,7 @@ import '../data/prediction_care_alert.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/feature_unlock_provider.dart';
 import '../theme/app_visual_tokens.dart';
+import 'widgets/ai_generated_content_mark.dart';
 
 /// 护理留意详情：展示该事件全部原因（功能色；忽略/追问暂隐）。
 class PredictionCareAlertScreen extends ConsumerWidget {
@@ -50,6 +51,7 @@ class PredictionCareAlertScreen extends ConsumerWidget {
             onPressed: () => context.pop(),
           ),
         ),
+        // 摘要 rich 尾标；原因 Markdown 流末尾只 append 一次「（AI 生成）」。
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
@@ -66,8 +68,8 @@ class PredictionCareAlertScreen extends ConsumerWidget {
                         ),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    item.summaryLine,
+                  aiGeneratedMarkedPlainText(
+                    text: item.summaryLine,
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -86,42 +88,81 @@ class PredictionCareAlertScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            for (final reason in item.reasons) ...[
-              const SizedBox(height: 14),
-              _GlassPanel(
-                accent: accent,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      reason.typeLabel,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: deep,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    _kv(onShell, '类型', reason.typeLabel),
-                    if (reason.ageMonths != null)
-                      _kv(onShell, '月龄', '${reason.ageMonths} 个月')
-                    else
-                      _kv(onShell, '月龄', '未使用（生日不可用）'),
-                    for (final line in reason.detailLines)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: MarkdownWidget(
-                          data: line,
-                          shrinkWrap: true,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            ..._reasonPanels(
+              context: context,
+              item: item,
+              onShell: onShell,
+              deep: deep,
+              accent: accent,
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// 原因块；仅在整份详情最后一条 Markdown 源末 append 合规尾标。
+  List<Widget> _reasonPanels({
+    required BuildContext context,
+    required CareAlertEventItem item,
+    required Color onShell,
+    required Color deep,
+    required Color accent,
+  }) {
+    // 定位最后一条有 detail 的 (reason, line)
+    var lastRi = -1;
+    var lastLi = -1;
+    for (var ri = 0; ri < item.reasons.length; ri++) {
+      final lines = item.reasons[ri].detailLines;
+      if (lines.isNotEmpty) {
+        lastRi = ri;
+        lastLi = lines.length - 1;
+      }
+    }
+    final mdGen = aiGeneratedMarkdownGenerator();
+    final out = <Widget>[];
+    for (var ri = 0; ri < item.reasons.length; ri++) {
+      final reason = item.reasons[ri];
+      out.add(const SizedBox(height: 14));
+      out.add(
+        _GlassPanel(
+          accent: accent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                reason.typeLabel,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: deep,
+                    ),
+              ),
+              const SizedBox(height: 10),
+              _kv(onShell, '类型', reason.typeLabel),
+              if (reason.ageMonths != null)
+                _kv(onShell, '月龄', '${reason.ageMonths} 个月')
+              else
+                _kv(onShell, '月龄', '未使用（生日不可用）'),
+              for (var li = 0; li < reason.detailLines.length; li++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: MarkdownWidget(
+                    data: (ri == lastRi && li == lastLi)
+                        ? appendAiGeneratedMark(
+                            reason.detailLines[li],
+                            asMarkdownBlock: true,
+                          )
+                        : reason.detailLines[li],
+                    shrinkWrap: true,
+                    markdownGenerator: mdGen,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    return out;
   }
 
   Widget _kv(Color onShell, String k, String v) {
