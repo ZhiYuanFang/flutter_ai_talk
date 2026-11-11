@@ -20,14 +20,14 @@ final predictActiveEtaRepositoryProvider =
 Future<void>? _predictActiveEtaSyncInFlight;
 var _predictActiveEtaFailCount = 0;
 DateTime? _predictActiveEtaCooldownUntil;
-String? _lastPredictActiveEtaFingerprint;
 
 const _kPredictActiveEtaFailThreshold = 3;
 const _kPredictActiveEtaCooldown = Duration(seconds: 60);
 
 /// 本机开始/停止计时或影响 duration 的变更后同步进行中 ETA。
 ///
-/// [ref] 为 `Ref` 或 `WidgetRef`；延迟到下一 turn，避免 notifier 写入栈内读依赖断言。
+/// [ref] 为 `Ref`、`WidgetRef` 或 [ProviderContainer]；延迟到下一 turn，避免 notifier 写入栈内读依赖断言。
+/// 不做内容指纹跳过：合格进入且非熔断时每次都 PUT（允许 body 与上次相同）。
 Future<void> requestPredictActiveEtaPendingSync(dynamic ref) {
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
   return Future<void>(() => _requestPredictActiveEtaPendingSyncNow(ref));
@@ -81,15 +81,9 @@ Future<void> _syncPredictActiveEtaPendingOnce(dynamic ref) async {
       birthDate: birth,
     );
 
-    final fp = items.isEmpty
-        ? 'empty'
-        : items.map((e) => e.fingerprintToken()).join('|');
-    if (fp == _lastPredictActiveEtaFingerprint) return;
-
     await (ref.read(predictActiveEtaRepositoryProvider)
             as PredictActiveEtaRepository)
         .syncPending(deviceNo: dn, items: items);
-    _lastPredictActiveEtaFingerprint = fp;
     _predictActiveEtaFailCount = 0;
     _predictActiveEtaCooldownUntil = null;
   } catch (e) {

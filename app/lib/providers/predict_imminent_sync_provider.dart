@@ -16,15 +16,15 @@ final predictImminentRepositoryProvider =
 Future<void>? _predictImminentSyncInFlight;
 var _predictImminentFailCount = 0;
 DateTime? _predictImminentCooldownUntil;
-String? _lastPredictImminentFingerprint;
 
 const _kPredictImminentFailThreshold = 3;
 const _kPredictImminentCooldown = Duration(seconds: 60);
 
 /// 本机喂养记录 / 间隔变更后显式请求 pending 同步（先重算再 PUT）。
 ///
-/// [ref] 为 `Ref` 或 `WidgetRef`。须延迟到下一 event-loop turn：
+/// [ref] 为 `Ref`、`WidgetRef` 或 [ProviderContainer]。须延迟到下一 event-loop turn：
 /// notifier 写入栈内 `ref.read` 同源依赖图会断言失败（同 [scheduleHomeWidgetSync]）。
+/// 不做内容指纹跳过：合格进入且非熔断时每次都 PUT（允许 body 与上次相同）。
 Future<void> requestPredictImminentPendingSync(dynamic ref) {
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
   return Future<void>(() => _requestPredictImminentPendingSyncNow(ref));
@@ -62,18 +62,9 @@ Future<void> _syncPredictImminentPendingOnce(dynamic ref) async {
         '';
     if (dn.isEmpty) return;
 
-    // pending 用全量子/根预测（非卡上胜出子集）
+    // pending 用全量子/根预测（非卡上胜出子集）；空列表也上报以清空
     final predictions =
         ref.read(smartPendingPredictionsProvider) as List<EventNextPrediction>;
-
-    // 指纹：含 expect / parentEventName；空列表也上报以清空
-    final fp = predictions.isEmpty
-        ? 'empty'
-        : predictions
-            .map((p) =>
-                '${p.eventId}:${p.nextAt.toUtc().millisecondsSinceEpoch ~/ 1000}:${expectFingerprintToken(p)}')
-            .join('|');
-    if (fp == _lastPredictImminentFingerprint) return;
 
     // dynamic 上读 Provider 亦先收成仓库类型再调 syncPending
     await (ref.read(predictImminentRepositoryProvider)
@@ -82,7 +73,6 @@ Future<void> _syncPredictImminentPendingOnce(dynamic ref) async {
       deviceNo: dn,
       predictions: predictions,
     );
-    _lastPredictImminentFingerprint = fp;
     _predictImminentFailCount = 0;
     _predictImminentCooldownUntil = null;
   } catch (e) {

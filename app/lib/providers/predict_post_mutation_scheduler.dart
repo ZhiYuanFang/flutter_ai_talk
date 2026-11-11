@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
@@ -39,15 +40,33 @@ DateTime? _expectBatchCooldownUntil;
 /// 最近一次成功发出的 expect 指纹（WS 自回声跳过置脏）。
 final Set<String> _lastExpectBatchFingerprints = <String>{};
 
+/// 入队当拍解析耐久容器，避免编辑 sheet pop 后延迟泵持有已 dispose 的 [WidgetRef]。
+///
+/// 同 [home_widget_sync]：`ProviderContainer` / [Ref] / [BuildContext]（含 WidgetRef）。
+ProviderContainer _predictPostMutationContainer(dynamic ref) {
+  if (ref is ProviderContainer) return ref;
+  if (ref is Ref) return ref.container;
+  if (ref is BuildContext) {
+    return ProviderScope.containerOf(ref, listen: false);
+  }
+  throw ArgumentError(
+    'predict post-mutation 需要 ProviderContainer、Ref 或 WidgetRef(BuildContext)，'
+    '实际为 ${ref.runtimeType}',
+  );
+}
+
 /// 历史突变成功后入队统一静默管线（不 await 网络于 CRUD 热路径）。
 ///
 /// [anchorHistoryId]：本趟起点行 id（非 pending）；用于 resume 游标。
+/// 入队同步捕获 [ProviderContainer]，延迟泵可在 ephemeral UI 关闭后继续。
 Future<void> schedulePredictPostHistoryMutation(
   dynamic ref, {
   String? anchorHistoryId,
   bool resetCircuit = true,
 }) {
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
+  // 须在调用方仍 mounted 时解析（如编辑 sheet schedule 后立即 pop）
+  final container = _predictPostMutationContainer(ref);
   final raw = anchorHistoryId?.trim();
   if (raw != null &&
       raw.isNotEmpty &&
@@ -62,13 +81,16 @@ Future<void> schedulePredictPostHistoryMutation(
   _schedulerDirty = true;
   _schedulerEpoch++;
   // 延迟到下一 turn，避免 notifier 写栈内读同源图断言
-  return Future<void>(() => _pumpPredictPostHistoryMutation(ref));
+  return Future<void>(() => _pumpPredictPostHistoryMutation(container));
 }
 
 /// 喂养页列表就绪后：有 resume 游标则续跑。
 Future<void> maybeResumePredictPostHistoryMutation(dynamic ref) {
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
-  return Future<void>(() => _maybeResumePredictPostHistoryMutationNow(ref));
+  final container = _predictPostMutationContainer(ref);
+  return Future<void>(
+    () => _maybeResumePredictPostHistoryMutationNow(container),
+  );
 }
 
 /// WS upsert 后调用：指纹命中则视为 expect-batch 自回声（仍已 upsert）。
