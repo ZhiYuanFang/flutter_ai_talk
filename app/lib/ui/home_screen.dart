@@ -378,18 +378,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  /// 最近预测玻璃卡 CTA：A/B 同按钮直开；C 强制 sheet 且开始=预测时刻。
+  /// 最近预测玻璃卡 CTA：A/B 同按钮直开；C 强制 sheet，开始时刻默认当下。
   Future<void> _onNextPredictGlassCta({
     required EventDefinition event,
     required EventNextPrediction prediction,
     required HomeNextPredictPromptState state,
   }) async {
     final isC = state == HomeNextPredictPromptState.overdueBackfill;
+    // prediction 保留以匹配 onCta 签名；C 不再预填 nextAt，sheet 缺省为当下。
     await _runHomeEventAdd(
       event: event,
       directTimingAddOnHome: !isC,
       forceRecordSheet: isC,
-      initialStartTime: isC ? prediction.nextAt : null,
     );
   }
 
