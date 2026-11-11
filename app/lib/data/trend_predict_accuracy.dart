@@ -4,7 +4,6 @@ import 'event_next_predictor.dart' show formatExpectDurationFromSec;
 import 'history_line_format.dart';
 import 'history_mapper.dart';
 import 'models.dart';
-import 'relative_calendar_day.dart';
 
 /// 开始时刻满分窗：|实际 − 预计| ≤ 30 分钟 → S_time=100。
 const kPredictAccuracyHitWindowSec = 1800;
@@ -78,46 +77,6 @@ PredictAccuracyTraffic predictAccuracyTrafficForScore(double score) {
     return PredictAccuracyTraffic.yellow;
   }
   return PredictAccuracyTraffic.red;
-}
-
-/// 历史行预计开始（本地）；无可用 expectStartTime → null。
-DateTime? historyRecordExpectStartAt(HistoryRecord r) {
-  final expectSec = expectStartTimeSecFromPayload(r.rawPayload);
-  if (expectSec == null) return null;
-  return DateTime.fromMillisecondsSinceEpoch(expectSec * 1000, isUtc: true)
-      .toLocal();
-}
-
-/// 仅开始时刻红档（忽略量/合成分）；无 expect / 回忆种子 → false。
-bool historyRecordStartTimeMissIsRed(HistoryRecord r) {
-  if (r.rawPayload['_predictionRecallSeed'] == true) return false;
-  final expectSec = expectStartTimeSecFromPayload(r.rawPayload);
-  if (expectSec == null) return false;
-  final actualAt =
-      parseHistoryInstant(r.rawPayload['startTime']) ?? r.createdAt;
-  final actualSec = historyDateTimeToUnixSeconds(actualAt);
-  if (actualSec <= 0) return false;
-  final timeScore = predictAccuracyTimeScore(
-    absDiffSec: (actualSec - expectSec).abs(),
-  );
-  return predictAccuracyTrafficForScore(timeScore) ==
-      PredictAccuracyTraffic.red;
-}
-
-/// 喂养页学习条全文；非红档或无预计 → null。
-String? formatHistoryRedTimeMissLearningLabel(
-  HistoryRecord r,
-  DateTime now,
-) {
-  if (!historyRecordStartTimeMissIsRed(r)) return null;
-  final expectAt = historyRecordExpectStartAt(r);
-  if (expectAt == null) return null;
-  final xx = formatRelativeCalendarDayAndTime(
-    expectAt,
-    now,
-    omitDayWhenToday: true,
-  );
-  return '预计${xx}发生，本次记录偏差过大，正按照宝宝的喂养节奏，个性化学习中';
 }
 
 /// S_time：≤30min→100；≥120min→0；中间线性。

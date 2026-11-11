@@ -149,6 +149,7 @@ Future<EventAddSubmitResult?> submitEventAdd({
 ///
 /// [directTimingAddOnHome]：仅喂养页传 true；`add`+`time` 跳过 sheet 直落库。
 /// 预测页保持默认 false，仍开统一 Sheet。
+/// [forceRecordSheet]：强制走统一 sheet（忽略直开）；可配 [initialStartTime]。
 Future<void> handleEventGridTap({
   required BuildContext context,
   required WidgetRef ref,
@@ -157,6 +158,8 @@ Future<void> handleEventGridTap({
   FutureOr<void> Function(EventAddSubmitResult result)? onAdded,
   EventRecordIntent intent = EventRecordIntent.add,
   bool directTimingAddOnHome = false,
+  bool forceRecordSheet = false,
+  DateTime? initialStartTime,
 }) async {
   assert(intent != EventRecordIntent.edit);
   final catalog = ref.read(eventCatalogProvider).items;
@@ -181,6 +184,8 @@ Future<void> handleEventGridTap({
     onAdded: onAdded,
     intent: intent,
     directTimingAddOnHome: directTimingAddOnHome,
+    forceRecordSheet: forceRecordSheet,
+    initialStartTime: initialStartTime,
   );
 }
 
@@ -191,6 +196,8 @@ Future<void> _onEventButtonTap({
   FutureOr<void> Function(EventAddSubmitResult result)? onAdded,
   required EventRecordIntent intent,
   bool directTimingAddOnHome = false,
+  bool forceRecordSheet = false,
+  DateTime? initialStartTime,
 }) async {
   if (!event.hasValidEventType) return;
   if (_eventAddInFlight) return;
@@ -209,8 +216,9 @@ Future<void> _onEventButtonTap({
 
   if (_eventAddInFlight) return;
 
-  // 喂养页 add+time：跳过 sheet，直接开计时
-  if (directTimingAddOnHome &&
+  // 喂养页 add+time：跳过 sheet，直接开计时（强制 sheet / 预填预测时刻时不走）
+  if (!forceRecordSheet &&
+      directTimingAddOnHome &&
       intent == EventRecordIntent.add &&
       type == EventCatalogEventType.time) {
     final now = DateTime.now();
@@ -224,11 +232,12 @@ Future<void> _onEventButtonTap({
       remark: '',
     );
   } else {
-    // 其余：统一记录 sheet（取消不落库）
+    // 其余：统一记录 sheet（取消不落库）；可预填开始时刻
     final result = await showEventRecordCreateSheet(
       context,
       intent: intent,
       event: event,
+      initialStartTime: initialStartTime,
     );
     if (result == null || !context.mounted || _eventAddInFlight) return;
 

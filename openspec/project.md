@@ -22,9 +22,9 @@
 
 ### OpenSpec 基线参考约定（强制）
 
-- 后续 AI 发起任何新变更前，**必须**先读取并对照 **`openspec/specs/v2.1.8.md`**（v2.1.8 合并基线规格），再生成 proposal / design / tasks。
+- 后续 AI 发起任何新变更前，**必须**先读取并对照 **`openspec/specs/v2.2.1.md`**（v2.2.1 合并基线规格），再生成 proposal / design / tasks。
 - 若本次需求涉及已有 capability，必须在 proposal 中明确标注复用/变更了哪些已有 spec 边界；禁止脱离历史 spec 直接重写同类能力。
-- AI 在实现阶段（apply）必须以 v2.1.8 基线中的 Requirement / Scenario 作为验收约束；若实现与基线冲突，需先更新变更规格再改代码。
+- AI 在实现阶段（apply）必须以 v2.2.1 基线中的 Requirement / Scenario 作为验收约束；若实现与基线冲突，需先更新变更规格再改代码。
 - 若变更涉及**用户可见行为、对外 API/契约、兼容性或安全语义**的调整，须在 OpenSpec 制品中落到明确的 **`### Requirement`** 与 **`#### Scenario`**（含 `changes/<name>/specs/**` 内 ADDED/MODIFIED delta）；PR 说明、任务勾选理由或评审记录中应能一句话指回对应能力名与需求标题，禁止「只改代码、规格悬空」。
 
 ### 测试文件约定（强制）
@@ -65,6 +65,18 @@
 - `-dontwarn` **仅**用于可选/反射/厂商 ROM 专有类（如 HMS 的 EMUI `BuildEx`、HiAnalytics）；不得用 `-dontwarn` 掩盖本仓库实际依赖的缺失类（应 `-keep` 或补依赖）。
 - **禁止**：仅 `flutter run` debug 验证就合并 Android 原生改动。
 - **参考**：`app/android/app/proguard-rules.pro`、`app/android/build.gradle.kts`（子模块 `compileSdkVersion` 兜底）、`app/README.md`「打包与发布 → Android」。
+
+### 相对自然日展示（强制）
+
+凡产品 UI（含日期选择器日标签、图表日轴、UCG 帖/消息时间、趋势日标题、预测「上一次」/预估钟点日前缀、反馈列表出日时间、桌面 Widget lastAt 日词等）**需要展示「哪一天」**时：
+
+- **必须** 使用权威入口 `formatRelativeCalendarDay` / `formatRelativeCalendarDayAndTime`（`app/lib/data/relative_calendar_day.dart`），或**仅**转发到该核的薄封装（如 `formatHistoryDaySectionLabel`、`formatWidgetLastAt`）。
+- 词表 **必须** 为：前天 / 昨天 / 今天 / 明天 / 后天（相对今天 offset −2…+2）；更远同年 `M月d日`；跨年 `y年M月d日`。日+时 **必须** 为「日词 + 空格 + HH:mm」；今日可按调用方省略日词（仅 HH:mm）。
+- **必须保留**既有「不出日」设计：历史行左列仅 `HH:mm`、今日列表短串仅时分、纯倒计时/elapsed、「x 分钟后」等；**不得**强行加「今天」。
+- **禁止** 业务内联 `DateFormat('MM-dd')`、裸「昨天」分支、或其它平行日词算法作为日标签。
+- **例外**（须注释标明，如 `absolute calendar identity — not relative day label`）：生日等身份/表单存贮用的绝对公历（如编辑器 `yyyy-MM-dd`）。
+- iOS / Android 桌面 Widget 日词 **必须** 与上述契约对齐（镜像实现或 Flutter 预格式化下行）。
+- **参考**：`relative_calendar_day.dart`；OpenSpec capability `relative-calendar-day-label`（change `unify-relative-calendar-day-labels`）。
 
 ### 主题色约定（强制）
 
@@ -143,13 +155,13 @@
 - **默认删除** `openspec/changes/*` 下各 change 目录（跳过 `archive/` 若存在）；**不**创建 `openspec/changes/archive/` dated 目录。
 - 用户**显式**要求保留 change 目录时（如 `--keep-changes`、口头「不要删 change」），才省略 `--remove-changes`。
 - 合并前仍可用 `openspec list --json` 警告 in-progress change，**不阻塞**合并（除非用户要求仅合并 complete）。
-- 收版后 **必须**更新本文件「OpenSpec 基线参考约定」中的版本号（如 `v2.1.8` → 新版本）。
+- 收版后 **必须**更新本文件「OpenSpec 基线参考约定」中的版本号（如 `v2.2.1` → 新版本）。
 - 合并完成后摘要须说明：**Changes removed: yes**（删除数量）或 **no**（用户要求保留）。
 - 所有新增需求涉及代码，必须补全每行代码的中文注释，解释此代码的业务场景。
 
 ## 重要约束（评审检查项）
 
-- 是否引用并遵循 **`openspec/specs/v2.1.8.md`** 基线；行为变更是否可追溯到 Requirement / Scenario。
+- 是否引用并遵循 **`openspec/specs/v2.2.1.md`** 基线；行为变更是否可追溯到 Requirement / Scenario。
 - 是否存在「只改代码、规格悬空」。
 - **WebSocket**：新鉴权通道是否走 `ResilientWebSocketClient`；是否未经 OpenSpec 新增手写 WS 传输。
 - **Debug 日志**：是否引入裸 `debugPrint`/`print`；新 tag 是否三联改。

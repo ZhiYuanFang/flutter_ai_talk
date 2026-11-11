@@ -59,6 +59,7 @@ Future<Object?> showEventRecordSheet(
   List<EventDefinition>? eventCatalog,
   HomeHistoryNotifier? history,
   int? initialUsage,
+  DateTime? initialStartTime,
 }) {
   if (intent == EventRecordIntent.edit) {
     assert(record != null && eventCatalog != null && history != null);
@@ -80,6 +81,7 @@ Future<Object?> showEventRecordSheet(
       intent: intent,
       event: event!,
       initialUsage: initialUsage,
+      initialStartTime: initialStartTime,
     ),
   );
 }
@@ -90,6 +92,7 @@ Future<EventRecordCreateResult?> showEventRecordCreateSheet(
   required EventRecordIntent intent,
   required EventDefinition event,
   int? initialUsage,
+  DateTime? initialStartTime,
 }) async {
   assert(intent != EventRecordIntent.edit);
   final r = await showEventRecordSheet(
@@ -97,6 +100,7 @@ Future<EventRecordCreateResult?> showEventRecordCreateSheet(
     intent: intent,
     event: event,
     initialUsage: initialUsage,
+    initialStartTime: initialStartTime,
   );
   return r is EventRecordCreateResult ? r : null;
 }
@@ -106,11 +110,14 @@ class _EventRecordCreateSheet extends ConsumerStatefulWidget {
     required this.intent,
     required this.event,
     this.initialUsage,
+    this.initialStartTime,
   });
 
   final EventRecordIntent intent;
   final EventDefinition event;
   final int? initialUsage;
+  /// 可选初始开始时刻；缺省为今日·当下（分钟精度）。
+  final DateTime? initialStartTime;
 
   @override
   ConsumerState<_EventRecordCreateSheet> createState() =>
@@ -136,9 +143,16 @@ class _EventRecordCreateSheetState extends ConsumerState<_EventRecordCreateSheet
   @override
   void initState() {
     super.initState();
-    // 初值：今日 · 当下
-    final now = DateTime.now();
-    _start = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    // 初值：可选预填，否则今日 · 当下（分钟精度）
+    final seed = widget.initialStartTime ?? DateTime.now();
+    final local = seed.toLocal();
+    _start = DateTime(
+      local.year,
+      local.month,
+      local.day,
+      local.hour,
+      local.minute,
+    );
     _end = null;
     _usagePickerCtrl = FixedExtentScrollController();
     _remarkFocusNode.addListener(_onRemarkFocusChange);

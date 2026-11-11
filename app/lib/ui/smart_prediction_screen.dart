@@ -531,12 +531,17 @@ class SmartPredictionScreen extends ConsumerWidget {
         ? ref.watch(landscapeVoiceControllerProvider)
         : null;
 
-    // 下拉：home 第 1 页 + range force（清零熔断）；任一路失败 Toast
+    // 下拉：home 第 1 页 + range force + latest-by-event（手势清冷却）；
+    // Toast 仅看 home/range；指示器等三路 settle；不 clear latest 缓存
     Future<void> onCardsPullRefresh() async {
-      final results = await Future.wait<bool>([
-        ref.read(homeHistoryProvider.notifier).refreshFromRemote(),
-        ref.read(predictionRangeHistoryProvider.notifier).reloadForUserPull(),
-      ]);
+      resetHistoryLatestByEventCooldownForUserGesture();
+      final homeFut = ref.read(homeHistoryProvider.notifier).refreshFromRemote();
+      final rangeFut =
+          ref.read(predictionRangeHistoryProvider.notifier).reloadForUserPull();
+      // 与窗刷新并行；成败不单独 Toast
+      final latestFut = requestHistoryLatestByEventSync(ref);
+      final results = await Future.wait<bool>([homeFut, rangeFut]);
+      await latestFut;
       if (!results.every((ok) => ok)) {
         showAppToast('刷新失败，请稍后重试', tone: AppToastTone.error);
       }

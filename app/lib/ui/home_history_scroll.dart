@@ -11,7 +11,6 @@ import '../data/history_line_format.dart';
 import '../data/history_record_metric.dart';
 import '../data/home_history_list_entries.dart';
 import '../data/models.dart';
-import '../data/trend_predict_accuracy.dart';
 import 'home_day_summary_chips.dart';
 import 'home_history_date_header.dart';
 import 'home_history_day_timeline_links.dart';
@@ -83,6 +82,8 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
 
   double _bottomPullExtent = 0;
   bool _bottomRefreshing = false;
+  /// 底拉刷新进行中 / 收尾贴底前：抑制 didUpdateWidget 跟底，避免与收尾 jump 叠闪。
+  bool _suppressItemFollowScroll = false;
 
   /// 按日汇总：展开态与实测吸顶高度（dayLocal 键）。
   final Map<DateTime, bool> _daySummaryExpanded = {};
@@ -299,6 +300,7 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
 
   Future<void> _handleBottomPullRefresh() async {
     if (_bottomRefreshing || widget.onRefresh == null) return;
+    _suppressItemFollowScroll = true;
     setState(() {
       _bottomRefreshing = true;
       _bottomPullExtent = _bottomPullTriggerThreshold;
@@ -306,14 +308,37 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     try {
       await widget.onRefresh!();
     } finally {
-      if (mounted) {
-        setState(() {
-          _bottomRefreshing = false;
-          _bottomPullExtent = 0;
-        });
-        _pendingFollowScroll = true;
-        scrollToBottom(force: true);
+      if (!mounted) {
+        _suppressItemFollowScroll = false;
+        return;
       }
+      // 收起 footer 与贴底拆开：等本帧布局完成后再单次 jump，避免
+      // 「footer 消失改 extent」+「scrollToBottom 本帧/次帧」连闪。
+      setState(() {
+        _bottomRefreshing = false;
+        _bottomPullExtent = 0;
+      });
+      _pendingFollowScroll = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _jumpToBottomOnce(forceFollow: true);
+        _suppressItemFollowScroll = false;
+      });
+    }
+  }
+
+  /// 单次贴底（无次帧复跳）；底拉收尾专用。
+  void _jumpToBottomOnce({required bool forceFollow}) {
+    if (!_controller.hasClients) return;
+    final pos = _controller.position;
+    final target = pos.maxScrollExtent;
+    if (!target.isFinite) return;
+    if ((pos.pixels - target).abs() >= 1) {
+      _controller.jumpTo(target);
+    }
+    _pendingFollowScroll = false;
+    if (forceFollow) {
+      _setFollowLatest(true, itemCount: widget.itemsAsc.length);
     }
   }
 
@@ -356,7 +381,11 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
         oldWidget.itemsAsc.isNotEmpty &&
         widget.itemsAsc.last.id == oldWidget.itemsAsc.last.id &&
         widget.itemsAsc.first.id != oldWidget.itemsAsc.first.id;
-    if ((lenChanged || lastChanged) && _followLatest && !prepended) {
+    if ((lenChanged || lastChanged) &&
+        _followLatest &&
+        !prepended &&
+        !_suppressItemFollowScroll &&
+        !_bottomRefreshing) {
       _pendingFollowScroll = true;
       SchedulerBinding.instance.addPostFrameCallback((_) => scrollToBottom());
     }
@@ -555,9 +584,6 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
     final event = lookupEventForRecord(widget.eventCatalog, record);
     final hideLogo = widget.flyingRecordId == record.id;
     final showRelativeAgo = _showRelativeAgoForRecord(record, newestIdByKey);
-    // 仅整表最底一条：开始时刻红档学习条（进行中不排除）
-    final showRedTimeMiss =
-        fromBottom == 0 && historyRecordStartTimeMissIsRed(record);
     final displayInstant = historyHomeDisplayInstant(record);
 
     HomeHistoryTimelineTile tileFor(DateTime now) {
@@ -575,17 +601,13 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
         relativeAgoLabel: showRelativeAgo
             ? formatHistoryRelativeAgo(displayInstant, now)
             : null,
-        showRedTimeMissBadge: showRedTimeMiss,
-        redTimeMissLabel: showRedTimeMiss
-            ? formatHistoryRedTimeMissLearningLabel(record, now)
-            : null,
         activeElapsedLabel: display.isActiveTiming
             ? formatActiveTimerElapsed(now.difference(activeTimingStartAt(record)))
             : null,
       );
     }
 
-    if (!display.isActiveTiming && !showRelativeAgo && !showRedTimeMiss) {
+    if (!display.isActiveTiming && !showRelativeAgo) {
       return tileFor(DateTime.now());
     }
 
@@ -617,14 +639,11 @@ class HomeHistoryScrollState extends State<HomeHistoryScroll> {
       final display = historyHomeRowDisplay(record);
       final event = lookupEventForRecord(widget.eventCatalog, record);
       final showRelativeAgo = _showRelativeAgoForRecord(record, newestIdByKey);
-      final showRedTimeMiss =
-          fromBottom == 0 && historyRecordStartTimeMissIsRed(record);
       dotColors.add(resolveEventColor(context, event));
       dotRadii.add(HomeHistoryTimelineTile.dotRadiusForFromBottom(fromBottom));
       rowSlotHeights.add(
         HomeHistoryTimelineTile.slotHeightFor(
           showRelativeAgo: showRelativeAgo,
-          showRedTimeMissBadge: showRedTimeMiss,
         ),
       );
       tiles.add(

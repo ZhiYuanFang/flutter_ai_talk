@@ -25,10 +25,12 @@ import '../providers/app_push_registration_provider.dart';
 import '../data/event_catalog_state.dart';
 import '../data/event_catalog_usage_sort.dart';
 import '../data/event_definition.dart';
+import '../data/event_next_predictor.dart';
 import '../data/feed_repository.dart';
 import '../data/active_timing_stop.dart';
 import '../data/history_line_format.dart';
 import '../data/history_mapper.dart';
+import '../data/home_next_predict_prompt.dart';
 import '../data/client_usage_events.dart';
 import '../data/models.dart';
 import '../providers/client_usage_provider.dart';
@@ -47,7 +49,7 @@ import 'home_history_timeline_tile.dart';
 import 'home_input_channel.dart';
 import 'home_input_caption.dart';
 import 'home_reply_bottom_sheet.dart';
-import 'widgets/home_prediction_tip_bar.dart';
+import 'widgets/home_next_predict_glass_card.dart';
 import 'home_voice_level_bars.dart';
 import 'home_voice_message_strip.dart';
 import 'home_voice_recording_stats.dart';
@@ -347,6 +349,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
   }
 
+  /// 预测玻璃卡占位高度变化 → 历史视口变矮/变高，跟底时重锚（仅一帧，避免与刷新贴底叠闪）。
+  void _scheduleHistoryReanchorAfterPredictChromeChange() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _historyScrollKey.currentState
+          ?.reanchorAfterViewportChange(animate: false);
+    });
+  }
+
   /// 仅喂养可见页：承接共享飞入请求并冻列表。
   void _beginFeedingFly(HistoryEventFlyRequest req) {
     if (!mounted) return;
@@ -361,6 +372,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   /// 事件格点击：共享加事件 + 喂养页滚底 / 计时提醒（飞入仍由 WS 触发）。
   Future<void> _onEventGridTap(EventDefinition event) async {
+    await _runHomeEventAdd(
+      event: event,
+      directTimingAddOnHome: true,
+    );
+  }
+
+  /// 最近预测玻璃卡 CTA：A/B 同按钮直开；C 强制 sheet 且开始=预测时刻。
+  Future<void> _onNextPredictGlassCta({
+    required EventDefinition event,
+    required EventNextPrediction prediction,
+    required HomeNextPredictPromptState state,
+  }) async {
+    final isC = state == HomeNextPredictPromptState.overdueBackfill;
+    await _runHomeEventAdd(
+      event: event,
+      directTimingAddOnHome: !isC,
+      forceRecordSheet: isC,
+      initialStartTime: isC ? prediction.nextAt : null,
+    );
+  }
+
+  Future<void> _runHomeEventAdd({
+    required EventDefinition event,
+    required bool directTimingAddOnHome,
+    bool forceRecordSheet = false,
+    DateTime? initialStartTime,
+  }) async {
     if (_eventAddInFlight) return;
     setState(() => _eventAddInFlight = true);
     try {
@@ -369,8 +407,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ref: ref,
         event: event,
         usageCounts: _eventUsageCounts,
-        // 仅喂养页：time 新增直落库开计时
-        directTimingAddOnHome: true,
+        directTimingAddOnHome: directTimingAddOnHome,
+        forceRecordSheet: forceRecordSheet,
+        initialStartTime: initialStartTime,
         onAdded: (result) {
           if (!mounted) return;
           _historyScrollKey.currentState?.scrollToBottom(force: true);
@@ -1211,9 +1250,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ),
                       ),
+                    // 历史区硬裁切：不向底栏 chrome（玻璃卡/按钮）越界绘制
                     Expanded(
-                      child: Stack(
-                        children: [
+                      child: ClipRect(
+                        child: Stack(
+                          children: [
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -1326,8 +1367,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ],
                           ),
                         ],
+                        ),
                       ),
                     ),
+                    // 底栏 chrome：占位压缩上方 Expanded，不叠在历史上
                     HomeHistoryWsStatusBanner(
                       visible: showWsBanner,
                       message: kHomeHistoryWsGaveUpMessage,
@@ -1335,6 +1378,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       tapEnabled: true,
                       variant: HomeHistoryWsBannerVariant.error,
                       onReconnect: () => unawaited(_reconnectHistoryWs()),
+                    ),
+                    // 最近预测玻璃卡：Column 固有高占位；无预测时 shrink
+                    HomeNextPredictGlassCard(
+                      onCta: _onNextPredictGlassCta,
+                      onChromeHeightChanged:
+                          _scheduleHistoryReanchorAfterPredictChromeChange,
                     ),
                     _buildInputModuleTopShadow(context),
                     AnimatedContainer(

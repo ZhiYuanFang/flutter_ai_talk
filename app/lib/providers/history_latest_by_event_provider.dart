@@ -42,6 +42,14 @@ String? _lastHistoryLatestFingerprint;
 const _kHistoryLatestFailThreshold = 3;
 const _kHistoryLatestCooldown = Duration(seconds: 60);
 
+/// 用户下拉等显式手势：仅清失败计数与冷却，便于立即再试。
+/// 不得清展示缓存或 fingerprint；自动 prefetch / post-mutation 不得调用。
+void resetHistoryLatestByEventCooldownForUserGesture() {
+  _historyLatestFailCount = 0;
+  _historyLatestCooldownUntil = null;
+  AppDebugLog.historyLatest('user gesture cooldown reset');
+}
+
 /// 显式刷新批量最近发生（预测页 / 历史变更后）；single-flight + 失败熔断。
 Future<void> requestHistoryLatestByEventSync(dynamic ref) {
   if (!ref.read(sessionProvider).isLoggedIn) return Future.value();
