@@ -6,14 +6,14 @@ import 'package:flutter/material.dart';
 
 import 'event_definition.dart' show tryParseEventColor;
 
-/// 预测开通数量功能 ID（与服务端 FeatureIDPredictionUnlock 一致）。
+/// 预测开通数量功能 ID（与服务端 FeatureIDPredictionUnlock 一致；槽位已下线，仅过滤残留）。
 const kFeatureIdPredictionUnlock = 'prediction_unlock';
 
-/// 值得留意智能提醒功能 ID（与服务端 FeatureIDCareAlertSmartRemind 一致）。
-const kFeatureIdCareAlertSmartRemind = 'care_alert_smart_remind';
+/// 预测能力基础版（已下线；仅过滤 catalog 残留）。
+const kFeatureIdPredictCapabilityBasic = 'predict_capability_basic';
 
-/// 成长轨迹预测功能 ID（与服务端 FeatureIDGrowthTrajectoryPredict 一致）。
-const kFeatureIdGrowthTrajectoryPredict = 'growth_trajectory_predict';
+/// 预测能力 Pro（与服务端 FeatureIDPredictCapabilityPro 一致）。
+const kFeatureIdPredictCapabilityPro = 'predict_capability_pro';
 
 /// catalog 项内嵌可售 SKU。
 class FeatureCatalogProduct {
@@ -382,6 +382,25 @@ String featureRemainingDaysCopy(int expiresAt, {DateTime? now}) {
   if (days < 0) return '已过期';
   if (days == 0) return '不足 1 天';
   return '剩余 $days 天';
+}
+
+/// catalog 人权益是否未过期（不含 VIP 旁路；unlocked=false 恒假）。
+bool isCatalogFeatureTimeValid(FeatureCatalogItem? item, {DateTime? now}) {
+  if (item == null || !item.unlocked) return false;
+  if (item.expiresAt <= 0) return true;
+  final n = now ?? DateTime.now();
+  final end = DateTime.fromMillisecondsSinceEpoch(item.expiresAt * 1000);
+  return !end.isBefore(n);
+}
+
+/// 距到期剩余整天数（用于试用成功文案）；永久或无效返回 null。
+int? featureRemainingWholeDays(int expiresAt, {DateTime? now}) {
+  if (expiresAt <= 0) return null;
+  final n = now ?? DateTime.now();
+  final end = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+  final days = end.difference(n).inDays;
+  if (days < 0) return null;
+  return days == 0 ? 1 : days;
 }
 
 int _asInt(Object? v) {

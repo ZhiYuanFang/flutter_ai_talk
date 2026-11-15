@@ -12,7 +12,6 @@ import '../data/models.dart';
 import '../data/repositories.dart' show readPackageVersion;
 import '../home_widget/home_widget_payload.dart';
 import '../providers/baby_display_provider.dart' show isBabyProfileBoundPending;
-import '../providers/cash_vip_provider.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/feature_unlock_provider.dart';
@@ -45,7 +44,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _loadCurrentVersion();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
-      unawaited(ref.read(vipStatusProvider.notifier).refresh());
       unawaited(
         ref
             .read(clientUsageReporterProvider)
@@ -180,14 +178,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const SizedBox(height: 12),
                 _buildGlassTile(
                   context,
-                  leading: Icons.workspace_premium_outlined,
-                  title: '功能开通',
-                  subtitle: '智能分析、成长轨迹等',
-                  onTap: () => context.push('/features/unlock'),
-                ),
-                const SizedBox(height: 12),
-                _buildGlassTile(
-                  context,
                   leading: Icons.speaker_outlined,
                   title: '小智音箱',
                   subtitle: '绑定小智 MCP，语音录入喂养',
@@ -269,7 +259,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final go = await showGlassConfirmDialog(
           context,
           title: '清除历史媒体缓存？',
-          message: '将删除本机复制的历史事件图片与视频，不影响已同步到广场的内容。',
+          message: '将删除本机复制的历史事件图片。',
           confirmLabel: '清除',
         ) ??
         false;
@@ -373,7 +363,7 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 8),
-            // 资料区：进宝宝编辑（开通入口已移至宝宝卡下方独立「功能开通」卡）
+            // 资料区：进宝宝编辑（Pro 开通经预测页 3h 两档墙，设置无开通中心入口）
             InkWell(
               onTap: () => context.push('/settings/baby'),
               child: Column(

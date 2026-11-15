@@ -10,14 +10,12 @@ import '../data/event_next_predictor.dart';
 import '../data/history_expect_anchor_chain.dart';
 import '../data/history_mapper.dart';
 import '../data/models.dart';
-import '../data/smart_prediction_rows.dart';
 import 'device_no_notifier.dart';
 import 'event_catalog_notifier.dart';
 import 'history_latest_by_event_provider.dart';
 import 'home_history_notifier.dart';
 import 'predict_active_eta_sync_provider.dart';
 import 'predict_imminent_sync_provider.dart';
-import 'prediction_range_history_provider.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
 import 'settings_baby.dart';
@@ -111,12 +109,8 @@ Future<void> _maybeResumePredictPostHistoryMutationNow(dynamic ref) async {
     AppDebugLog.predictPostMutation('resume clear pending id');
     return;
   }
-  final home =
+  final snap =
       (ref.read(homeHistoryProvider) as HomeHistoryState).items;
-  final range =
-      (ref.read(predictionRangeHistoryProvider) as PredictionRangeHistoryState)
-          .items;
-  final snap = mergeRealHistoryById(rangeItems: range, homeItems: home);
   final found = snap.any((r) => r.id == stored);
   if (!found) {
     await HistoryExpectResumeStore.clear();
@@ -190,11 +184,8 @@ Future<bool> _runOnePredictPostHistoryMutation(
     await HistoryExpectResumeStore.save(anchor);
   }
 
-  final home =
+  final snap =
       (ref.read(homeHistoryProvider) as HomeHistoryState).items;
-  final range =
-      (ref.read(predictionRangeHistoryProvider) as PredictionRangeHistoryState)
-          .items;
   final catalog =
       (ref.read(eventCatalogProvider) as EventCatalogState).items;
   final babyAsync = ref.read(settingsBabyProvider) as AsyncValue<BabyProfile>;
@@ -202,8 +193,6 @@ Future<bool> _runOnePredictPostHistoryMutation(
   final birth =
       babyAsync.asData?.value.birthDate ?? DateTime(now.year, 1, 1);
   final halfLife = halfLifeDaysForBirthDate(birth, now);
-
-  final snap = mergeRealHistoryById(rangeItems: range, homeItems: home);
   final patches = buildHistoryExpectAnchorPatches(
     snapshot: snap,
     catalog: catalog,

@@ -5,11 +5,11 @@ import '../data/smart_prediction_rows.dart';
 import '../home_widget/widget_hero_skip_store.dart';
 import '../home_widget/widget_row_builder.dart';
 import '../home_widget/widget_tip_cache.dart';
+import 'appointment_last_occurrence_provider.dart';
 import 'appointment_next_provider.dart';
 import 'event_catalog_notifier.dart';
 import 'event_last_at_provider.dart';
 import 'forecast_toggle_provider.dart';
-import 'history_latest_by_event_provider.dart';
 import 'home_history_notifier.dart';
 import 'prediction_range_history_provider.dart';
 import 'prediction_recall_provider.dart';
@@ -27,28 +27,22 @@ final smartPredictionBundleProvider =
     Provider<SmartPredictionBuildResult>((ref) {
   ref.watch(predictionRangeEnsureProvider);
   final history = ref.watch(predictionRealHistoryProvider);
-  final rangeItems = ref.watch(predictionRangeHistoryProvider).items;
-  final homeItems = ref.watch(homeHistoryProvider).items;
   final catalog = ref.watch(eventCatalogProvider).items;
   // 真历史变化时 max 刷新 tip 缓存（与组行同帧调度）
   scheduleEventLastAtObserveFromHistory(ref, history, catalog);
   final babyAsync = ref.watch(settingsBabyProvider);
   final disabled =
       ref.watch(forecastDisabledIdsProvider).asData?.value ?? const <String>{};
-  final recallIntervals = ref.watch(predictionRecallIntervalsProvider);
   final appointmentNext = ref.watch(appointmentNextCacheProvider);
+  final appointmentLast = ref.watch(appointmentLastCacheProvider);
   final lastAtCache =
       ref.watch(eventLastAtCacheProvider).asData?.value ??
           const <String, DateTime>{};
-  final latestByEvent = ref.watch(historyLatestByEventCacheProvider);
   final now = DateTime.now();
   final birth = babyAsync.asData?.value.birthDate ?? DateTime(now.year, 1, 1);
-  // active 仅来自真历史
+  // active 仅来自统一池真历史
   final activeKeys = <String>{
-    ...collectActiveTimingRows(rangeItems, catalog: catalog)
-        .map((e) => e.eventId),
-    ...collectActiveTimingRows(homeItems, catalog: catalog)
-        .map((e) => e.eventId),
+    ...collectActiveTimingRows(history, catalog: catalog).map((e) => e.eventId),
   }.where((e) => e.isNotEmpty).toSet();
   return buildSmartPredictionBundle(
     history: history,
@@ -57,16 +51,20 @@ final smartPredictionBundleProvider =
     birthDate: birth,
     disabledForecastIds: disabled,
     activeEventKeys: activeKeys,
-    recallIntervalsByRoot: recallIntervals,
     appointmentNextAtSecByRoot: {
       for (final e in appointmentNext.entries) e.key: e.value.nextAtSec,
     },
     lastAtCacheByRoot: lastAtCache,
-    latestByEventId: latestByEvent,
+    appointmentLastAtByRoot: {
+      for (final e in appointmentLast.entries) e.key: e.value.at,
+    },
+    appointmentLastRemarkByRoot: {
+      for (final e in appointmentLast.entries) e.key: e.value.remark,
+    },
   );
 });
 
-/// 智能预测页行列表：home∪range 真历史 + 间隔旁路种子；尊重推演关闭集合。
+/// 智能预测页行列表：真历史亲和预测；尊重推演关闭集合。
 final smartPredictionRowsProvider = Provider<List<SmartPredictionRow>>((ref) {
   return ref.watch(smartPredictionBundleProvider).rows;
 });

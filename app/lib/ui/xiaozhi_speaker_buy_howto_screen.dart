@@ -9,7 +9,7 @@ import '../providers/feature_unlock_provider.dart';
 import '../theme/app_color.dart';
 import '../theme/app_visual_tokens.dart';
 import '../ucg/ui/widgets/ucg_media_viewer.dart';
-import 'feature_unlock/invite_code_howto_screen.dart';
+import 'feature_unlock/invite_group_qr_url.dart';
 import 'widgets/settings_glass_panel.dart';
 
 /// 「如何购买小智音箱」：自购说明 + 复用 catalog 群二维码进群咨询。

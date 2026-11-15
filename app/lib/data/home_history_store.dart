@@ -15,17 +15,21 @@ String safeHomeHistoryFileStem(String deviceNo) {
   return stem.isEmpty ? 'device' : stem;
 }
 
-/// 主页历史磁盘缓存快照（升序 items + 分页元数据）。
+/// 主页历史磁盘缓存快照（升序 items + 统一池元数据）。
 class HomeHistoryCacheSnapshot {
   const HomeHistoryCacheSnapshot({
     required this.items,
     required this.total,
     required this.highestPageLoaded,
+    this.hasMoreOlder = true,
   });
 
   final List<HistoryRecord> items;
   final int total;
+  /// 旧版 list 页深；统一池后仅兼容读盘，loadMore 以 [hasMoreOlder] 为准。
   final int highestPageLoaded;
+  /// 是否还可能有比池内更旧的记录（时间游标 loadMore）。
+  final bool hasMoreOlder;
 }
 
 /// 主页历史列表本地持久化（按 deviceNo 分文件；Web 不写盘）。
@@ -54,6 +58,7 @@ class HomeHistoryStore {
         items: [],
         total: 0,
         highestPageLoaded: 0,
+        hasMoreOlder: true,
       );
     }
     final file = await _historyFile(deviceNo);
@@ -62,6 +67,7 @@ class HomeHistoryStore {
         items: [],
         total: 0,
         highestPageLoaded: 0,
+        hasMoreOlder: true,
       );
     }
     if (!await file.exists()) {
@@ -69,6 +75,7 @@ class HomeHistoryStore {
         items: [],
         total: 0,
         highestPageLoaded: 0,
+        hasMoreOlder: true,
       );
     }
     try {
@@ -79,6 +86,7 @@ class HomeHistoryStore {
         items: [],
         total: 0,
         highestPageLoaded: 0,
+        hasMoreOlder: true,
       );
     }
   }
@@ -96,26 +104,34 @@ class HomeHistoryStore {
         items: out,
         total: out.length,
         highestPageLoaded: out.isEmpty ? 0 : 1,
+        hasMoreOlder: true,
       );
     }
     if (decoded is Map) {
       final map = Map<String, dynamic>.from(decoded);
       final itemsRaw = map['items'];
-      final items = itemsRaw is List ? _recordsFromJsonList(itemsRaw) : const <HistoryRecord>[];
+      final items =
+          itemsRaw is List ? _recordsFromJsonList(itemsRaw) : const <HistoryRecord>[];
       final totalRaw = map['total'];
       final total = totalRaw is num ? totalRaw.toInt() : items.length;
       final pageRaw = map['highestPageLoaded'];
-      final highestPageLoaded = pageRaw is num ? pageRaw.toInt() : (items.isEmpty ? 0 : 1);
+      final highestPageLoaded =
+          pageRaw is num ? pageRaw.toInt() : (items.isEmpty ? 0 : 1);
+      final moreRaw = map['hasMoreOlder'];
+      // 旧快照无字段：乐观为 true，由空页 loadMore 收口
+      final hasMoreOlder = moreRaw is bool ? moreRaw : true;
       return HomeHistoryCacheSnapshot(
         items: items,
         total: total,
         highestPageLoaded: highestPageLoaded,
+        hasMoreOlder: hasMoreOlder,
       );
     }
     return const HomeHistoryCacheSnapshot(
       items: [],
       total: 0,
       highestPageLoaded: 0,
+      hasMoreOlder: true,
     );
   }
 
@@ -149,6 +165,7 @@ class HomeHistoryStore {
         'items': snapshot.items.map((e) => e.toJson()).toList(),
         'total': snapshot.total,
         'highestPageLoaded': snapshot.highestPageLoaded,
+        'hasMoreOlder': snapshot.hasMoreOlder,
       });
       await file.writeAsString(encoded);
     } catch (_) {}

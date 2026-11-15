@@ -160,3 +160,20 @@ String formatWidgetLastAt(DateTime? lastAt, DateTime now) {
     omitDayWhenToday: true,
   );
 }
+
+/// 竖屏预测卡漏记 tip 只读行：`可能漏记：11:05 · 14:20`（跨日带相对日词）。
+/// 空列表返回空串（调用方勿占位）。
+String formatPredictionMissedTipsLabel(List<DateTime> tips, DateTime now) {
+  if (tips.isEmpty) return '';
+  final parts = <String>[];
+  for (final t in tips) {
+    parts.add(
+      formatRelativeCalendarDayAndTime(
+        t,
+        now,
+        omitDayWhenToday: true,
+      ),
+    );
+  }
+  return '可能漏记：${parts.join(' · ')}';
+}

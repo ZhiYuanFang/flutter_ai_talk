@@ -30,7 +30,7 @@ class _HomeWidgetSettingsSectionState
     }
 
     final babyAsync = ref.watch(settingsBabyProvider);
-    // 与预测页 / native sync 同源：真历史 ∪ 间隔旁路
+    // 与预测页 / native sync 同源：真历史
     final inputs = resolveWidgetPredictionInputs(ref);
 
     return babyAsync.when(
@@ -49,14 +49,6 @@ class _HomeWidgetSettingsSectionState
           now: now,
           birthDate: baby.birthDate,
           activeEventKeys: enabledActive,
-          recallIntervalsByRoot: {
-            for (final e in inputs.recallIntervalsByRoot.entries)
-              if (!disabled.contains(e.key)) e.key: e.value,
-          },
-          lastAtCacheByRoot: {
-            for (final e in inputs.lastAtCacheByRoot.entries)
-              if (!disabled.contains(e.key)) e.key: e.value,
-          },
         );
         final active = collectActiveTimingRows(history, catalog: catalog);
         final rows = buildWidgetRows(

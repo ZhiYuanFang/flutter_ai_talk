@@ -8,6 +8,9 @@ import 'models.dart';
 /// 预测/小组件共用的近 7 日窗：本地 today-6d 00:00 → now（含 7 个自然日）。
 const kPredictionRangeDaySpan = 7;
 
+/// resume / 预测下拉增量窗时长。
+const kHistoryRollingWindow = Duration(hours: 24);
+
 /// 返回 (startUnixSec, endUnixSec)。
 (int, int) predictionSevenDayUnixBounds([DateTime? now]) {
   final n = (now ?? DateTime.now()).toLocal();
@@ -19,9 +22,19 @@ const kPredictionRangeDaySpan = 7;
   );
 }
 
+/// 滚动 24h 窗：`now−24h` → `now`（非自然日 00:00）。
+(int, int) predictionRolling24hUnixBounds([DateTime? now]) {
+  final n = (now ?? DateTime.now()).toLocal();
+  final start = n.subtract(kHistoryRollingWindow);
+  return (
+    historyDateTimeToUnixSeconds(start),
+    historyDateTimeToUnixSeconds(n),
+  );
+}
+
 /// 拉取近 7 日全事件历史（升序）；失败返回 `null`。
 ///
-/// 先 `filter`（limit=500）；触顶后再用 `v2/list` 同窗分页补全。
+/// **仅一次** `filter`（limit=500）；触顶截断，不再 `v2/list` 补页。
 Future<List<HistoryRecord>?> fetchPredictionSevenDayHistory(
   FeedRepository feed, {
   DateTime? now,
@@ -36,53 +49,42 @@ Future<List<HistoryRecord>?> fetchPredictionSevenDayHistory(
     limit: kHistoryFilterMaxLimit,
   );
   if (filtered == null) {
-    AppDebugLog.homeWidget('range filter fail');
+    AppDebugLog.homeWidget('history seed filter fail');
     return null;
   }
 
-  if (filtered.length < kHistoryFilterMaxLimit) {
+  if (filtered.length >= kHistoryFilterMaxLimit) {
     AppDebugLog.homeWidget(
-      'range filter ok count=${filtered.length} start=$start end=$end',
+      'history seed truncated count=${filtered.length} start=$start end=$end',
     );
-    return historyListToHomeAsc(filtered);
-  }
-
-  AppDebugLog.homeWidget('range filter truncated=${filtered.length}, v2 pages');
-  final byId = <String, HistoryRecord>{
-    for (final r in filtered) r.id: r,
-  };
-  var page = 1;
-  const pageSize = 100;
-  var consecutiveFails = 0;
-
-  while (page <= 40) {
-    final chunk = await feed.tryLoadHistoryPageV2(
-      page: page,
-      pageSize: pageSize,
-      startTime: start,
-      endTime: end,
-    );
-    if (chunk == null) {
-      consecutiveFails += 1;
-      AppDebugLog.homeWidget(
-        'range v2 page=$page fail consecutive=$consecutiveFails',
-      );
-      if (consecutiveFails >= 3) break;
-      continue;
-    }
-    consecutiveFails = 0;
-    for (final r in chunk.listDesc) {
-      byId[r.id] = r;
-    }
+  } else {
     AppDebugLog.homeWidget(
-      'range v2 page=$page got=${chunk.listDesc.length} total=${chunk.total}',
+      'history seed ok count=${filtered.length} start=$start end=$end',
     );
-    if (!chunk.hasMore || chunk.listDesc.isEmpty) break;
-    page += 1;
   }
+  return historyListToHomeAsc(filtered);
+}
 
-  final merged = byId.values.toList()
-    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-  AppDebugLog.homeWidget('range ready merged=${merged.length}');
-  return merged;
+/// 拉取滚动 24h 全事件历史（升序）；失败返回 `null`。
+Future<List<HistoryRecord>?> fetchPredictionRolling24hHistory(
+  FeedRepository feed, {
+  DateTime? now,
+}) async {
+  final bounds = predictionRolling24hUnixBounds(now);
+  final start = bounds.$1;
+  final end = bounds.$2;
+
+  final filtered = await feed.tryLoadHistoryFilter(
+    startTime: start,
+    endTime: end,
+    limit: kHistoryFilterMaxLimit,
+  );
+  if (filtered == null) {
+    AppDebugLog.homeWidget('history rolling24h filter fail');
+    return null;
+  }
+  AppDebugLog.homeWidget(
+    'history rolling24h ok count=${filtered.length} start=$start end=$end',
+  );
+  return historyListToHomeAsc(filtered);
 }

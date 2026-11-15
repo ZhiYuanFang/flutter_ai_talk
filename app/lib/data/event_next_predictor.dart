@@ -28,6 +28,12 @@ const kTodHistMinOccurrences = 7;
 /// 相对峰值低于此则视为冷区。
 const kTodHistRelPeakMin = 0.2;
 
+/// live 漏记追赶：过期超过此时长才追赶（仅 now−nextAt）。
+const kMissedCycleOverdue = Duration(hours: 2);
+
+/// live 漏记追赶最多滚动步数。
+const kMissedCycleMaxRolls = 3;
+
 /// 半衰期（天）按月龄分段。
 int halfLifeDaysForBirthDate(DateTime birthDate, DateTime now) {
   if (!isUsableBabyBirthDate(birthDate, now)) return 14;
@@ -141,6 +147,7 @@ class EventNextPrediction {
     this.expectUnit,
     this.expectLeafTitle,
     this.parentEventName,
+    this.missedTips = const [],
   }) : _todConfidenceLow = todConfidenceLow;
 
   final String eventId;
@@ -165,6 +172,9 @@ class EventNextPrediction {
   final String? expectLeafTitle;
   /// 有父时的根目录权威 name；根级预测为 null（不上送）。
   final String? parentEventName;
+
+  /// live 漏记追赶滚过的虚拟 tip（不含终显 nextAt）；未追赶为空。
+  final List<DateTime> missedTips;
 
   bool isOverdue(DateTime now) => nextAt.isBefore(now);
 
@@ -193,6 +203,7 @@ class EventNextPrediction {
     Object? expectUnit = _expectUnset,
     Object? expectLeafTitle = _expectUnset,
     Object? parentEventName = _expectUnset,
+    List<DateTime>? missedTips,
   }) {
     return EventNextPrediction(
       eventId: eventId ?? this.eventId,
@@ -220,6 +231,7 @@ class EventNextPrediction {
       parentEventName: identical(parentEventName, _expectUnset)
           ? this.parentEventName
           : parentEventName as String?,
+      missedTips: missedTips ?? this.missedTips,
     );
   }
 }
@@ -706,6 +718,65 @@ bool _passesTodHistogramGuard({
   return ok;
 }
 
+/// live 漏记追赶：过期>2h 时以预测点为 tip 重采亲和再推；最多 [kMissedCycleMaxRolls] 步。
+/// 失败或仍过期 → null。展示用 [pred.lastAt] 仍为真 tip（调用方勿改）。
+/// 成功时 [EventNextPrediction.missedTips] 为滚过的 tip（不含终显 nextAt）。
+EventNextPrediction? applyMissedCycleChase({
+  required EventNextPrediction pred,
+  required List<DateTime> occurrenceTimes,
+  required DateTime now,
+  required int halfLifeDays,
+}) {
+  var nextAt = pred.nextAt;
+  // 未过期超过 2h：原样返回（tip 列表保持空）
+  if (!now.isAfter(nextAt.add(kMissedCycleOverdue))) {
+    return pred;
+  }
+  final times = List<DateTime>.from(occurrenceTimes)..sort();
+  final rolledTips = <DateTime>[];
+  for (var step = 1; step <= kMissedCycleMaxRolls; step++) {
+    final tip = nextAt;
+    // 本步虚拟 tip 记入漏记列表（终显 nextAt 不算 tip）
+    rolledTips.add(tip);
+    // 相对虚拟 tip 重采亲和（禁止复用真 lastAt 那轮 interval）
+    final samples = _collectAffinityIntervals(
+      times: times,
+      lastAt: tip,
+      halfLifeDays: halfLifeDays,
+      now: now,
+    );
+    if (samples.length < kMinSamplesForPrediction) {
+      AppDebugLog.predictInterval(
+        'missedChase fail step=$step nAff=${samples.length} '
+        'eventIdLen=${pred.eventId.length}',
+      );
+      return null;
+    }
+    final interval = _weightedMedianFromAffinity(samples);
+    if (interval == null) {
+      AppDebugLog.predictInterval(
+        'missedChase fail step=$step median=null eventIdLen=${pred.eventId.length}',
+      );
+      return null;
+    }
+    nextAt = tip.add(interval);
+    AppDebugLog.predictInterval(
+      'missedChase step=$step medianMin=${interval.inMinutes} '
+      'eventIdLen=${pred.eventId.length}',
+    );
+    if (!now.isAfter(nextAt.add(kMissedCycleOverdue))) {
+      return pred.copyWith(
+        nextAt: nextAt,
+        missedTips: List<DateTime>.unmodifiable(rolledTips),
+      );
+    }
+  }
+  AppDebugLog.predictInterval(
+    'missedChase exhaust eventIdLen=${pred.eventId.length}',
+  );
+  return null;
+}
+
 // 预测核心：亲和加权中位 + 钟点直方图护栏；皆冷后至多一次换锚
 EventNextPrediction? predictNextForEventKey({
   required String eventKey,
@@ -715,32 +786,16 @@ EventNextPrediction? predictNextForEventKey({
   required int halfLifeDays,
   String colorHex = '#5BA3E8',
   bool includeActive = false,
-  /// 真样本未达加权中位门槛时的间隔旁路（回忆种子）；不得单独提供 lastAt。
-  Duration? recallIntervalFallback,
-  /// 窗口无发生时的真 lastAt 回退（事件最近发生缓存）；不得用种子 lastAt。
-  DateTime? cachedLastAt,
+  /// live 表面启用漏记追赶；expect 锚点链必须保持 false。
+  bool missedCycleChase = false,
 }) {
   final times = <DateTime>[];
   for (final r in records) {
     final t = occurrenceInstant(r, includeActive: includeActive);
     if (t != null) times.add(t);
   }
-  final fallback = recallIntervalFallback;
-  // 窗口无真发生：仅缓存 tip + 有效种子间隔可旁路（不得用种子 lastAt）；种子无自动跳
-  if (times.isEmpty) {
-    if (cachedLastAt == null) return null;
-    if (fallback == null || fallback < kMinIntervalForPrediction) return null;
-    final nextAt = cachedLastAt.add(fallback);
-    // 无发生序列无法建直方图 → 护栏跳过
-    return EventNextPrediction(
-      eventId: eventKey,
-      eventName: eventName,
-      lastAt: cachedLastAt,
-      nextAt: nextAt,
-      colorHex: colorHex,
-      confidence: 0.3,
-    );
-  }
+  // 无真发生则无法估间隔
+  if (times.isEmpty) return null;
   times.sort();
   // 展示 / 真 tip；加法基始终为真 tip
   final lastAt = times.last;
@@ -754,26 +809,16 @@ EventNextPrediction? predictNextForEventKey({
         )
       : <_AffinityIntervalSample>[];
 
-  Duration? primaryMedian;
-  var confidence = 0.3;
-  if (affinitySamples.length >= kMinSamplesForPrediction) {
-    primaryMedian = _weightedMedianFromAffinity(affinitySamples);
-    if (primaryMedian != null) {
-      confidence = math.min(1.0, affinitySamples.length / 7.0);
-    }
-  }
-
-  final usedSeed = primaryMedian == null;
-  final interval = primaryMedian ??
-      (fallback != null && fallback >= kMinIntervalForPrediction
-          ? fallback
-          : null);
-  if (interval == null) return null;
+  // 样本不足：不旁路，直接无预测
+  if (affinitySamples.length < kMinSamplesForPrediction) return null;
+  final primaryMedian = _weightedMedianFromAffinity(affinitySamples);
+  if (primaryMedian == null) return null;
+  final confidence = math.min(1.0, affinitySamples.length / 7.0);
+  final interval = primaryMedian;
 
   AppDebugLog.predictInterval(
-    'vote nAff=${affinitySamples.length} medianMin=${primaryMedian?.inMinutes} '
-    'seed=${usedSeed ? 1 : 0} autoSkip=0 '
-    'eventIdLen=${eventKey.length}',
+    'vote nAff=${affinitySamples.length} medianMin=${interval.inMinutes} '
+    'autoSkip=0 eventIdLen=${eventKey.length}',
   );
 
   bool accept(DateTime candidate, String path) => _passesTodHistogramGuard(
@@ -783,7 +828,7 @@ EventNextPrediction? predictNextForEventKey({
         path: path,
       );
 
-  EventNextPrediction build(
+  EventNextPrediction buildRaw(
     DateTime nextAt, {
     required bool soft,
     required String path,
@@ -804,29 +849,34 @@ EventNextPrediction? predictNextForEventKey({
     );
   }
 
-  // 主候选（中位或种子）：热则直接用
-  final primaryPath = usedSeed ? 'seed' : 'primary';
-  final primaryNext = lastAt.add(interval);
-  if (accept(primaryNext, primaryPath)) {
-    return build(primaryNext, soft: false, path: primaryPath);
+  // TOD 护栏之后可选漏记追赶（live）
+  EventNextPrediction? finish(EventNextPrediction raw) {
+    if (!missedCycleChase) return raw;
+    return applyMissedCycleChase(
+      pred: raw,
+      occurrenceTimes: times,
+      now: now,
+      halfLifeDays: halfLifeDays,
+    );
   }
 
-  // 纯种子冷：软保留，不走 gePrimary/crossDay，不自动跳
-  final medianFloor = primaryMedian;
-  if (usedSeed || medianFloor == null) {
-    return build(primaryNext, soft: true, path: 'seedSoft');
+  // 主候选（加权中位）：热则直接用
+  const primaryPath = 'primary';
+  final primaryNext = lastAt.add(interval);
+  if (accept(primaryNext, primaryPath)) {
+    return finish(buildRaw(primaryNext, soft: false, path: primaryPath));
   }
 
   // 回退 1：时长 ≥ 主中位（仅热区采纳）
   final gePrimary = affinitySamples
-      .where((s) => s.interval >= medianFloor)
+      .where((s) => s.interval >= primaryMedian)
       .toList();
   if (gePrimary.length >= kMinSamplesForPrediction) {
     final iv = _weightedMedianFromAffinity(gePrimary);
     if (iv != null) {
       final nextAt = lastAt.add(iv);
       if (accept(nextAt, 'gePrimary')) {
-        return build(nextAt, soft: false, path: 'gePrimary');
+        return finish(buildRaw(nextAt, soft: false, path: 'gePrimary'));
       }
     }
   }
@@ -839,7 +889,7 @@ EventNextPrediction? predictNextForEventKey({
     if (iv != null) {
       final nextAt = lastAt.add(iv);
       if (accept(nextAt, 'crossDay')) {
-        return build(nextAt, soft: false, path: 'crossDay');
+        return finish(buildRaw(nextAt, soft: false, path: 'crossDay'));
       }
     }
   }
@@ -860,15 +910,19 @@ EventNextPrediction? predictNextForEventKey({
         'medianMin=${interval1.inMinutes} eventIdLen=${eventKey.length}',
       );
       if (accept(nextAt1, 'autoSkip')) {
-        return build(nextAt1, soft: false, path: 'autoSkip', autoSkip: 1);
+        return finish(
+          buildRaw(nextAt1, soft: false, path: 'autoSkip', autoSkip: 1),
+        );
       }
       // 仍冷：软留 nextAt₁，不再跳第二次
-      return build(nextAt1, soft: true, path: 'autoSkipSoft', autoSkip: 1);
+      return finish(
+        buildRaw(nextAt1, soft: true, path: 'autoSkipSoft', autoSkip: 1),
+      );
     }
   }
 
   // 换锚失败：退回主中位软标
-  return build(primaryNext, soft: true, path: 'primarySoft');
+  return finish(buildRaw(primaryNext, soft: true, path: 'primarySoft'));
 }
 
 String colorHexFromEvent(EventDefinition? def) {
@@ -892,44 +946,80 @@ String predictionBucketKeyForEventId({
   return id;
 }
 
+/// 亲和进度目标发生次数（2 个间隔样本 ⇒ 3 次有效发生）。
+int get kAffinityProgressTargetOccurrences => kMinSamplesForPrediction + 1;
+
+/// 桶内亲和样本进度（无 nextAt 时卡上横条用）。
+class AffinityOccurrenceProgress {
+  const AffinityOccurrenceProgress({
+    required this.count,
+    required this.target,
+  });
+
+  final int count;
+  final int target;
+
+  double get ratio {
+    if (target <= 0) return 0;
+    final c = count < 0 ? 0 : count;
+    return (c >= target ? target : c) / target;
+  }
+
+  /// 还差几条有效记录；已达标为 0。
+  int get remaining {
+    final r = target - count;
+    return r < 0 ? 0 : r;
+  }
+
+  bool get isComplete => count >= target && target > 0;
+}
+
+/// 按时间升序计有效发生：与上一计入点间隔 ≥ [kMinIntervalForPrediction] 才 +1。
+int countValidAffinityOccurrences(Iterable<DateTime> instants) {
+  final sorted = instants.toList()..sort();
+  if (sorted.isEmpty) return 0;
+  var count = 1;
+  var last = sorted.first;
+  for (var i = 1; i < sorted.length; i++) {
+    final t = sorted[i];
+    if (t.difference(last) >= kMinIntervalForPrediction) {
+      count++;
+      last = t;
+    }
+  }
+  return count;
+}
+
+/// 从记录列表算亲和进度（调用方已按预测桶过滤）。
+AffinityOccurrenceProgress affinityProgressFromOccurrenceTimes(
+  Iterable<DateTime> instants, {
+  int? target,
+}) {
+  final tgt = target ?? kAffinityProgressTargetOccurrences;
+  return AffinityOccurrenceProgress(
+    count: countValidAffinityOccurrences(instants),
+    target: tgt,
+  );
+}
+
 List<EventNextPrediction> predictAllUpcoming({
   required List<HistoryRecord> history,
   required List<EventDefinition> catalog,
   required DateTime now,
   required DateTime birthDate,
   Set<String> activeEventKeys = const {},
-  /// rootId → 回忆间隔旁路（仅真样本不足时使用）。
-  Map<String, Duration> recallIntervalsByRoot = const {},
-  /// 根 eventId → 已缓存的预约 nextAt 秒（含 0）；预约根忽略间隔与种子。
+  /// 根 eventId → 已缓存的预约 nextAt 秒（含 0）；预约根忽略间隔。
   Map<String, int> appointmentNextAtSecByRoot = const {},
-  /// 根/叶子 eventId → 本机曾见真发生 tip（窗口未命中时作 lastAt 回退）。
-  Map<String, DateTime> lastAtCacheByRoot = const {},
+  /// live 默认开启漏记追赶（Widget / 预测页同源）。
+  bool missedCycleChase = true,
 }) {
   final halfLife = halfLifeDaysForBirthDate(birthDate, now);
-
-  Duration? recallForRoot(String rootKey) {
-    final direct = recallIntervalsByRoot[rootKey];
-    if (direct != null) return direct;
-    for (final e in recallIntervalsByRoot.entries) {
-      if (catalogIdsEqual(e.key, rootKey)) return e.value;
-    }
-    return null;
-  }
 
   int? appointmentSecForRoot(String rootKey) {
     final direct = appointmentNextAtSecByRoot[rootKey];
     if (direct != null) return direct;
     for (final e in appointmentNextAtSecByRoot.entries) {
       if (catalogIdsEqual(e.key, rootKey)) return e.value;
-    }
-    return null;
-  }
-
-  DateTime? cachedLastAtForKey(String key) {
-    final direct = lastAtCacheByRoot[key];
-    if (direct != null) return direct;
-    for (final e in lastAtCacheByRoot.entries) {
-      if (catalogIdsEqual(e.key, key)) return e.value;
     }
     return null;
   }
@@ -1002,7 +1092,6 @@ List<EventNextPrediction> predictAllUpcoming({
       continue;
     }
     final isMergeBucket = catalogRootMergePredict(entry.key, catalog);
-    final recallKey = isMergeBucket ? entry.key : rootOfKey;
     final p = predictNextForEventKey(
       eventKey: entry.key,
       eventName: name,
@@ -1011,9 +1100,7 @@ List<EventNextPrediction> predictAllUpcoming({
       halfLifeDays: halfLife,
       colorHex: colorHexFromEvent(def),
       includeActive: true,
-      recallIntervalFallback: recallForRoot(recallKey),
-      cachedLastAt: cachedLastAtForKey(entry.key) ??
-          (isMergeBucket ? null : cachedLastAtForKey(rootOfKey)),
+      missedCycleChase: missedCycleChase,
     );
     if (p == null) continue;
     final withParent = p.copyWith(parentEventName: parentName);
@@ -1042,10 +1129,6 @@ List<EventNextPrediction> predictAllUpcoming({
     );
   }
 
-  final coveredPredict = <String>{
-    for (final p in out) p.eventId,
-  };
-
   // 无历史但已有约定的预约根：仍产出预测节点
   for (final root in rootEvents(catalog)) {
     final key = root.id.trim();
@@ -1065,62 +1148,6 @@ List<EventNextPrediction> predictAllUpcoming({
         confidence: 1.0,
       ),
     );
-    coveredPredict.add(key);
-  }
-
-  // 窗口无记录：合并根 / 无子根用 tip+种子；非合并子逐叶子 tip（若有）
-  for (final root in rootEvents(catalog)) {
-    final key = root.id.trim();
-    if (key.isEmpty) continue;
-    if (catalogRootIsAppointment(key, catalog)) continue;
-    if (catalogRootMergePredict(key, catalog) || !hasChildren(catalog, key)) {
-      if (coveredPredict.any((c) => catalogIdsEqual(c, key))) continue;
-      if (byKey.keys.any((k) => catalogIdsEqual(k, key))) continue;
-      final cached = cachedLastAtForKey(key);
-      if (cached == null) continue;
-      final p = predictNextForEventKey(
-        eventKey: key,
-        eventName: root.name.trim().isNotEmpty ? root.name.trim() : '未命名事件',
-        records: const [],
-        now: now,
-        halfLifeDays: halfLife,
-        colorHex: colorHexFromEvent(root),
-        includeActive: true,
-        recallIntervalFallback: recallForRoot(key),
-        cachedLastAt: cached,
-      );
-      if (p != null) out.add(p);
-      continue;
-    }
-    // 非合并根：对每个直接子尝试 tip 旁路
-    for (final child in childrenOf(catalog, key)) {
-      final ck = child.id.trim();
-      if (ck.isEmpty) continue;
-      if (coveredPredict.any((c) => catalogIdsEqual(c, ck))) continue;
-      if (byKey.keys.any((k) => catalogIdsEqual(k, ck))) continue;
-      final cached = cachedLastAtForKey(ck) ?? cachedLastAtForKey(key);
-      if (cached == null) continue;
-      final parentName = root.name.trim();
-      final p = predictNextForEventKey(
-        eventKey: ck,
-        eventName:
-            child.name.trim().isNotEmpty ? child.name.trim() : '未命名事件',
-        records: const [],
-        now: now,
-        halfLifeDays: halfLife,
-        colorHex: colorHexFromEvent(child),
-        includeActive: true,
-        recallIntervalFallback: recallForRoot(key),
-        cachedLastAt: cached,
-      );
-      if (p != null) {
-        out.add(
-          p.copyWith(
-            parentEventName: parentName.isEmpty ? null : parentName,
-          ),
-        );
-      }
-    }
   }
 
   out.sort((a, b) => a.nextAt.compareTo(b.nextAt));

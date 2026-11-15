@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../providers/clinic_ws_provider.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/repositories.dart';
 import '../providers/voice_asr_ws_provider.dart';
@@ -36,8 +35,6 @@ Future<void> releasePangbaoHomeTransports(dynamic ref) async {
     await ref.read(voiceAsrWsClientProvider).disconnect();
   }
   await deactivateUcgHomeSession(ref);
-  // 离开 Home 时断开陪伴 Clinic WS（滑页保持，离壳释放）
-  deactivateCompanionClinicWs(ref);
   GatewayBootstrapGate.reset();
   // 清历史 WS 静默自愈预算，避免跨登录会话残留
   HistoryWsSilentHeal.reset();

@@ -13,15 +13,17 @@ import '../../bootstrap/gateway_bootstrap_gate.dart';
 import '../../bootstrap/history_ws_home_bridge.dart';
 import '../../bootstrap/history_ws_silent_heal.dart';
 import '../../bootstrap/pangbao_transport_release.dart';
+import '../../config/home_pager_last_landing_store.dart';
 import '../../data/feed_repository.dart';
 import '../../data/models.dart';
+import '../../providers/appointment_last_occurrence_provider.dart';
+import '../../providers/appointment_next_provider.dart';
 import '../../providers/feature_unlock_provider.dart';
 import '../../providers/home_history_notifier.dart';
 import '../../providers/home_pager.dart';
 import '../../push/push_click_inbox.dart';
 import '../../providers/history_event_fly_provider.dart';
 import '../../providers/app_push_registration_provider.dart';
-import '../../providers/prediction_range_history_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
 import '../../providers/device_no_notifier.dart';
@@ -56,12 +58,15 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
   static const _exitConfirmWindow = Duration(seconds: 3);
   static const _iosHistoryWsConnectDelay = Duration(seconds: 2);
 
-  // 默认着陆智能预测主页（中间页）
+  /// 冷启着陆：记忆喂养/预测；无记忆回落预测（UCG 不记）。
+  late final int _landingPage =
+      HomePagerLastLandingStore.peek() ?? HomePagerPage.prediction;
   late final PageController _pageController =
-      PageController(initialPage: HomePagerPage.prediction);
-  var _pageIndex = HomePagerPage.prediction;
-  // 预测为默认着陆：冷启动即挂载
-  var _predictionEverMounted = true;
+      PageController(initialPage: _landingPage);
+  late var _pageIndex = _landingPage;
+  // 仅冷启落预测时预挂载；落喂养则滑入预测后再挂
+  late var _predictionEverMounted =
+      _landingPage == HomePagerPage.prediction;
   var _ucgEverMounted = false;
   var _blockPageScroll = false;
   DateTime? _lastExitBackPress;
@@ -92,23 +97,30 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     WidgetsBinding.instance.addObserver(this);
     // 主壳会话门闸：允许 history reconnect / UCG desired
     PangbaoHomeTransportGate.onHomeMounted();
-    // 首帧：冷启落在预测页时 onPageChanged 不会触发，须在此 ensure catalog。
+    // 首帧：冷启 initialPage 不触发 onPageChanged，须补 ensure / usage。
+    // 对齐 homePagerIndex / 进预测副作用须在帧后写 StateProvider（initState 同步写会踩 build 期断言）。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(homePagerIndexProvider.notifier).state = _pageIndex;
       if (_pageIndex == HomePagerPage.prediction) {
         _onEnterPredictionPage();
-        // 冷启落在预测：onPageChanged 不触发，补报展示。
         unawaited(
           ref
               .read(clientUsageReporterProvider)
               .reportEvent(ClientUsageEvents.predictionShow),
         );
+      } else if (_pageIndex == HomePagerPage.feeding) {
+        // 冷启落喂养：补报 feedingShow
+        unawaited(
+          ref
+              .read(clientUsageReporterProvider)
+              .reportEvent(ClientUsageEvents.feedingShow),
+        );
       }
       unawaited(_activateHistoryWsSessionIfNeeded());
       // UCG chat：与历史 WS 同级由主壳激活（不依赖喂养页）
       unawaited(_activateUcgHomeSessionIfNeeded());
-      // 启动级弹窗：与喂养页解耦，预测着陆即可弹
+      // 启动级弹窗：与喂养页解耦，记忆着陆亦可弹
       unawaited(_ensureHomeShellDialogBootstrap());
       _consumePushClick();
     });
@@ -187,7 +199,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
 
     // UCG 聊天 WS resume（不依赖喂养页 mount）
     ref.read(ucgRepositoryProvider).onAppLifecycleResumed();
-    // HTTP：历史 / range / 未读 —— 与下方 WS heal 解耦（值得留意改为 AI 分析页手动）
+    // HTTP：滚动 24h 历史 + 未读 —— 与下方 WS heal 解耦（ready 早退不得跳过）
     unawaited(_refreshHomeHttpOnResumeIfNeeded());
 
     final feed = ref.read(feedRepositoryProvider);
@@ -227,12 +239,12 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     _lastResumeHttpBundleAt = now;
     final flight = () async {
       try {
+        // 24h 历史 + unread + 预约 next/last 静默（不依赖预测页 mount）
         await Future.wait<void>([
-          ref.read(homeHistoryProvider.notifier).bootstrap(),
-          ref
-              .read(predictionRangeHistoryProvider.notifier)
-              .ensureLoaded(force: true),
+          ref.read(homeHistoryProvider.notifier).refreshRollingWindow(),
           ref.read(ucgUnreadSyncProvider)(),
+          refreshAllAppointmentNextSilent(ref),
+          refreshAllAppointmentLastSilent(ref),
         ]);
       } finally {
         _resumeHttpBundleInFlight = null;
@@ -355,6 +367,11 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     }
     setState(() => _pageIndex = index);
     ref.read(homePagerIndexProvider.notifier).state = index;
+    // 仅喂养/预测写 lastPage；UCG 不覆盖
+    if (index == HomePagerPage.feeding ||
+        index == HomePagerPage.prediction) {
+      unawaited(HomePagerLastLandingStore.save(index));
+    }
     unawaited(_reportHomePagerShow(index));
   }
 
@@ -388,6 +405,11 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     if (mounted) {
       setState(() => _pageIndex = target);
       ref.read(homePagerIndexProvider.notifier).state = target;
+      // onPageChanged 通常已写盘；同页无回调时补写喂养/预测
+      if (target == HomePagerPage.feeding ||
+          target == HomePagerPage.prediction) {
+        unawaited(HomePagerLastLandingStore.save(target));
+      }
     }
   }
 
@@ -438,18 +460,30 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     });
 
     ref.listen(pushClickInboxProvider, (previous, next) {
-      _consumePushClick();
+      // 帧后消费，避免 listen 嵌套触发切页时改写 StateProvider
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _consumePushClick();
+      });
     });
     ref.listen<bool>(pushClickRoutingReadyProvider, (previous, next) {
-      if (next) _consumePushClick();
+      if (!next) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _consumePushClick();
+      });
     });
 
     // 贴士 / 深链等请求切页
     ref.listen<int?>(homePagerRequestProvider, (prev, next) {
       if (next == null) return;
-      unawaited(_goToPage(next).whenComplete(() {
-        if (mounted) ref.read(homePagerRequestProvider.notifier).clear();
-      }));
+      final page = next;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_goToPage(page).whenComplete(() {
+          if (mounted) ref.read(homePagerRequestProvider.notifier).clear();
+        }));
+      });
     });
 
     final voiceHoldBlocksScroll = ref.watch(homePagerScrollBlockedProvider);

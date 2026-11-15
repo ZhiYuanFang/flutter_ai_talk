@@ -1,15 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/home_input_dock_store.dart';
 import '../data/edge_dock_geometry.dart';
 import '../data/edge_dock_occupancy.dart';
+import '../providers/predict_basic_feature_action_providers.dart';
 import '../theme/app_color.dart';
 import 'widgets/edge_dock_shell.dart';
 
 /// 竖屏预测语音监听贴边球：EdgeDockShell + 圆形 mic；peek 无文案，全圆/浮空短显 caption。
-class PredictionVoiceEdgeDock extends StatefulWidget {
+class PredictionVoiceEdgeDock extends ConsumerStatefulWidget {
   const PredictionVoiceEdgeDock({
     super.key,
     required this.statusCaption,
@@ -32,11 +34,12 @@ class PredictionVoiceEdgeDock extends StatefulWidget {
   final double bottomReserve;
 
   @override
-  State<PredictionVoiceEdgeDock> createState() =>
+  ConsumerState<PredictionVoiceEdgeDock> createState() =>
       _PredictionVoiceEdgeDockState();
 }
 
-class _PredictionVoiceEdgeDockState extends State<PredictionVoiceEdgeDock> {
+class _PredictionVoiceEdgeDockState
+    extends ConsumerState<PredictionVoiceEdgeDock> {
   final _dockController = EdgeDockController();
   EdgeDockPlacement? _placement;
   var _loaded = false;
@@ -216,6 +219,13 @@ class _PredictionVoiceEdgeDockState extends State<PredictionVoiceEdgeDock> {
 
   @override
   Widget build(BuildContext context) {
+    // 基础版墙：关墙后请求贴边 engage（floating 时 controller no-op）
+    ref.listen<int?>(predictionVoiceEngageRequestProvider, (prev, next) {
+      if (next == null) return;
+      _dockController.showEngaged();
+      ref.read(predictionVoiceEngageRequestProvider.notifier).clear();
+    });
+
     if (!_loaded || _placement == null) {
       return const SizedBox.expand();
     }

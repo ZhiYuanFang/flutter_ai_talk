@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/appointment_local_cache_store.dart';
 import '../config/baby_avatar_local_store.dart';
 import '../config/event_last_at_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/remote_settings_repository.dart';
+import '../providers/appointment_last_occurrence_provider.dart';
+import '../providers/appointment_next_provider.dart';
 import '../providers/baby_avatar_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_last_at_provider.dart';
@@ -14,12 +17,14 @@ import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_baby.dart';
 import '../providers/sign_in_channel_provider.dart';
+import '../providers/prediction_recall_provider.dart';
 import '../providers/user_profile_provider.dart';
 
 /// 切换账号 / 注销后的本地擦除（宝宝 + 喂养 + 会话侧缓存）。
 ///
 /// 接受 [ProviderContainer]，供 Sheet dispose 后安全调用。
 /// **不得**清除凭据历史 store（基线：切号保留登录建议列表）。
+/// **不得**清除主壳 lastPage（`HomePagerLastLandingStore`：本机 UI 习惯）。
 Future<void> wipeAccountLocalState(ProviderContainer container) async {
   // 清 deviceNo 前快照，便于删画像 prefs / 头像
   final dn =
@@ -27,11 +32,16 @@ Future<void> wipeAccountLocalState(ProviderContainer container) async {
   final baby = container.read(settingsBabyProvider).asData?.value;
   final babyId = baby?.id.trim() ?? '';
 
-  // 清 tip 缓存须在 clearLocal deviceNo 之前（按宝宝隔离）
+  // 清 tip / 预约缓存须在 clearLocal deviceNo 之前（按宝宝隔离）
   if (dn.isNotEmpty) {
     await EventLastAtStore.clearDevice(dn);
+    await AppointmentLocalCacheStore.clearDevice(dn);
   }
+  // 硬删栈遗留：回忆种子 prefs
+  await clearLegacyPredictionRecallSeedsPrefs();
   container.invalidate(eventLastAtCacheProvider);
+  container.read(appointmentNextCacheProvider.notifier).clearAll();
+  container.read(appointmentLastCacheProvider.notifier).clearAll();
 
   await container.read(sessionProvider).signOut();
   await container.read(signInChannelProvider.notifier).clear();

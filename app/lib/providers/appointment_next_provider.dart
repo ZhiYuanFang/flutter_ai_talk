@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../config/appointment_local_cache_store.dart';
 import '../data/appointment_event.dart';
 import '../data/appointment_next_repository.dart';
 import '../data/event_catalog_tree.dart';
@@ -24,15 +25,30 @@ class AppointmentNextCacheNotifier
   @override
   Map<String, AppointmentNextValue> build() => const {};
 
-  /// 本地写入缓存（不打 HTTP）。
-  void setLocal(String rootEventId, AppointmentNextValue value) {
+  /// 本地写入缓存（不打 HTTP）；可选落盘。
+  void setLocal(
+    String rootEventId,
+    AppointmentNextValue value, {
+    bool persist = true,
+  }) {
     final id = rootEventId.trim();
     if (id.isEmpty) return;
     final sec = value.nextAtSec < 0 ? 0 : value.nextAtSec;
-    state = {
-      ...state,
-      id: AppointmentNextValue(nextAtSec: sec, remark: value.remark),
-    };
+    final next = AppointmentNextValue(nextAtSec: sec, remark: value.remark);
+    state = {...state, id: next};
+    if (persist) {
+      unawaited(_persistAll());
+    }
+  }
+
+  /// 批量灌入（磁盘 hydrate）；不立即写回盘。
+  void hydrateAll(Map<String, AppointmentNextValue> map) {
+    if (map.isEmpty) return;
+    state = {...state, ...map};
+  }
+
+  void clearAll() {
+    state = const {};
   }
 
   AppointmentNextValue? peek(String rootEventId) {
@@ -42,6 +58,19 @@ class AppointmentNextCacheNotifier
   }
 
   bool isKnown(String rootEventId) => state.containsKey(rootEventId.trim());
+
+  Future<void> _persistAll() async {
+    final dn = _deviceNoOrEmpty(ref);
+    if (dn == null || dn.isEmpty) return;
+    final raw = <String, Map<String, Object?>>{
+      for (final e in state.entries)
+        e.key: {
+          'nextAtSec': e.value.nextAtSec,
+          'remark': e.value.remark,
+        },
+    };
+    await AppointmentLocalCacheStore.saveNextRaw(dn, raw);
+  }
 }
 
 final appointmentNextRepositoryProvider =
@@ -60,7 +89,65 @@ String? _deviceNoOrEmpty(dynamic ref) {
       '';
 }
 
-/// 确保缓存中有该根约定；已有则直接返回。
+/// 从磁盘 hydrate next 进内存（幂等合并）。
+Future<void> hydrateAppointmentNextFromDisk(dynamic ref) async {
+  final dn = _deviceNoOrEmpty(ref);
+  if (dn == null || dn.isEmpty) return;
+  final raw = await AppointmentLocalCacheStore.loadNextRaw(dn);
+  if (raw.isEmpty) return;
+  final map = <String, AppointmentNextValue>{};
+  for (final e in raw.entries) {
+    final secRaw = e.value['nextAtSec'];
+    final sec =
+        secRaw is num ? secRaw.toInt() : int.tryParse('$secRaw') ?? 0;
+    final remark = e.value['remark']?.toString() ?? '';
+    map[e.key] = AppointmentNextValue(
+      nextAtSec: sec < 0 ? 0 : sec,
+      remark: remark,
+    );
+  }
+  (ref.read(appointmentNextCacheProvider.notifier)
+          as AppointmentNextCacheNotifier)
+      .hydrateAll(map);
+  AppDebugLog.appointmentNext('hydrate next count=${map.length}');
+}
+
+/// 静默网络刷新（已知也打）；失败保留缓存。
+Future<AppointmentNextValue> refreshAppointmentNextSilent(
+  dynamic ref,
+  String rootEventId,
+) async {
+  final root = rootEventId.trim();
+  if (root.isEmpty) return AppointmentNextValue.empty;
+  final cache = ref.read(appointmentNextCacheProvider.notifier)
+      as AppointmentNextCacheNotifier;
+
+  final existing = _appointmentFetchInFlight[root];
+  if (existing != null) return existing;
+
+  final fut = () async {
+    final dn = _deviceNoOrEmpty(ref);
+    if (dn == null || dn.isEmpty) {
+      return cache.peek(root) ?? AppointmentNextValue.empty;
+    }
+    try {
+      final repo = ref.read(appointmentNextRepositoryProvider)
+          as AppointmentNextRepository;
+      final value = await repo.getNext(deviceNo: dn, eventId: root);
+      cache.setLocal(root, value);
+      return value;
+    } catch (e) {
+      AppDebugLog.appointmentNext('silent GET err=$e root=$root');
+      return cache.peek(root) ?? AppointmentNextValue.empty;
+    } finally {
+      _appointmentFetchInFlight.remove(root);
+    }
+  }();
+  _appointmentFetchInFlight[root] = fut;
+  return fut;
+}
+
+/// 确保缓存中有该根约定；已有则直接返回（编辑 sheet 热路径）。
 Future<AppointmentNextValue> ensureAppointmentNext(
   dynamic ref,
   String rootEventId,
@@ -72,28 +159,7 @@ Future<AppointmentNextValue> ensureAppointmentNext(
   if (cache.isKnown(root)) {
     return cache.peek(root) ?? AppointmentNextValue.empty;
   }
-
-  final existing = _appointmentFetchInFlight[root];
-  if (existing != null) return existing;
-
-  final fut = () async {
-    final dn = _deviceNoOrEmpty(ref);
-    if (dn == null || dn.isEmpty) return AppointmentNextValue.empty;
-    try {
-      final repo = ref.read(appointmentNextRepositoryProvider)
-          as AppointmentNextRepository;
-      final value = await repo.getNext(deviceNo: dn, eventId: root);
-      cache.setLocal(root, value);
-      return value;
-    } catch (e) {
-      AppDebugLog.appointmentNext('ensure GET err=$e root=$root');
-      return cache.peek(root) ?? AppointmentNextValue.empty;
-    } finally {
-      _appointmentFetchInFlight.remove(root);
-    }
-  }();
-  _appointmentFetchInFlight[root] = fut;
-  return fut;
+  return refreshAppointmentNextSilent(ref, root);
 }
 
 /// 兼容旧调用：仅取 nextAt 秒。
@@ -102,25 +168,47 @@ Future<int> ensureAppointmentNextAt(dynamic ref, String rootEventId) async {
   return v.nextAtSec;
 }
 
-/// 预取目录中全部预约根（预测页挂载时调用；single-flight per root）。
+/// 预取：先 hydrate，再对全部预约根静默刷新（已知也打）。
 Future<void> prefetchAppointmentNextForCatalog(dynamic ref) async {
+  await hydrateAppointmentNextFromDisk(ref);
   final catalog = ref.read(eventCatalogProvider).items as List<EventDefinition>;
   final roots = rootEvents(catalog);
   final futures = <Future<void>>[];
   for (final r in roots) {
     if (!catalogRootIsAppointment(r.id, catalog)) continue;
-    futures.add(ensureAppointmentNext(ref, r.id).then((_) {}));
+    futures.add(refreshAppointmentNextSilent(ref, r.id).then((_) {}));
   }
   if (futures.isEmpty) return;
   await Future.wait(futures);
 }
 
-/// 预测页 watch：catalog 就绪后预取预约约定（用户打开预测页才触发）。
+/// 预测页下拉：全部预约根静默刷新 next。
+Future<void> refreshAllAppointmentNextSilent(dynamic ref) async {
+  final catalog = ref.read(eventCatalogProvider).items as List<EventDefinition>;
+  final roots = rootEvents(catalog);
+  final futures = <Future<void>>[];
+  for (final r in roots) {
+    if (!catalogRootIsAppointment(r.id, catalog)) continue;
+    futures.add(refreshAppointmentNextSilent(ref, r.id).then((_) {}));
+  }
+  if (futures.isEmpty) return;
+  await Future.wait(futures);
+}
+
+/// 预测页 watch：catalog + deviceNo 就绪后预取（dn 空不标网刷完成）。
 final appointmentNextPrefetchProvider =
     FutureProvider.autoDispose<void>((ref) async {
   final items = ref.watch(eventCatalogProvider).items;
   if (items.isEmpty) return;
   if (!ref.read(sessionProvider).isLoggedIn) return;
+  // watch deviceNo：冷启 dn 后到时重跑，避免空 dn 早退后卡住
+  final dn =
+      ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
+  if (dn.isEmpty) {
+    // 仍可 hydrate 盘缓存供先展示；网络留给 dn 就绪后
+    await hydrateAppointmentNextFromDisk(ref);
+    return;
+  }
   await prefetchAppointmentNextForCatalog(ref);
 });
 

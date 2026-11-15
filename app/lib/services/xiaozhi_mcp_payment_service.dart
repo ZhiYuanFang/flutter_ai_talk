@@ -5,18 +5,18 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../api/api_exceptions.dart';
 import '../api/app_debug_log.dart';
-import '../data/cash_vip_repository.dart';
+import '../data/cash_apple_iap_repository.dart';
 import '../data/xiaozhi_mcp_models.dart';
 import '../data/xiaozhi_mcp_unlock_repository.dart';
+import 'payment_outcome.dart';
 import 'vip_alipay.dart';
-import 'vip_payment_service.dart';
 
-/// 小智 MCP 永久开通支付：建单走 MCP orders；验单/支付宝与 VIP 共用入口。
+/// 小智 MCP 永久开通支付：建单走 MCP orders；Apple 验单走历史 vip/apple/verify（履约非 VIP）。
 class XiaozhiMcpPaymentService {
-  XiaozhiMcpPaymentService(this._unlockRepo, this._vipRepo);
+  XiaozhiMcpPaymentService(this._unlockRepo, this._appleIap);
 
   final XiaozhiMcpUnlockRepository _unlockRepo;
-  final CashVipRepository _vipRepo;
+  final CashAppleIapRepository _appleIap;
 
   /// 购买永久 SKU；成功后由调用方刷新 unlock。
   Future<VipPaymentOutcome> purchase(XiaozhiMcpProduct product) async {
@@ -155,7 +155,7 @@ class XiaozhiMcpPaymentService {
           if (p.status == PurchaseStatus.purchased ||
               p.status == PurchaseStatus.restored) {
             try {
-              await _vipRepo.verifyApple(
+              await _appleIap.verifyApple(
                 transactionId: p.purchaseID ?? '',
                 productId: p.productID,
                 signedTransaction: p.verificationData.serverVerificationData,
@@ -168,7 +168,7 @@ class XiaozhiMcpPaymentService {
               }
             } on ApiBusinessException catch (e) {
               // 透传 cash 业务文案（如异号复用交易）；空则 fallback。
-              AppDebugLog.cashVip(
+              AppDebugLog.featureUnlock(
                 'xiaozhi apple verify biz err=${e.code} ${e.message}',
               );
               final msg = e.message.trim().isEmpty
@@ -180,7 +180,7 @@ class XiaozhiMcpPaymentService {
                 );
               }
             } catch (e) {
-              AppDebugLog.cashVip('xiaozhi apple verify err=$e');
+              AppDebugLog.featureUnlock('xiaozhi apple verify err=$e');
               if (!completer.isCompleted) {
                 completer.complete(
                   const VipPaymentOutcome(
@@ -216,14 +216,14 @@ class XiaozhiMcpPaymentService {
         ),
       );
     } on ApiBusinessException catch (e) {
-      AppDebugLog.cashVip(
+      AppDebugLog.featureUnlock(
         'xiaozhi apple business err=${e.code} ${e.message}',
       );
       final msg =
           e.message.trim().isEmpty ? '购买失败，请稍后重试' : e.message;
       return VipPaymentOutcome(success: false, message: msg);
     } catch (e) {
-      AppDebugLog.cashVip('xiaozhi apple err=$e');
+      AppDebugLog.featureUnlock('xiaozhi apple err=$e');
       return const VipPaymentOutcome(success: false, message: '购买失败，请稍后重试');
     } finally {
       await sub?.cancel();

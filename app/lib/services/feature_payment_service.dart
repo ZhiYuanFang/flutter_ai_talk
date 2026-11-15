@@ -5,18 +5,18 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../api/api_exceptions.dart';
 import '../api/app_debug_log.dart';
-import '../data/cash_vip_repository.dart';
+import '../data/cash_apple_iap_repository.dart';
 import '../data/feature_unlock_models.dart';
 import '../data/feature_unlock_repository.dart';
+import 'payment_outcome.dart';
 import 'vip_alipay.dart';
-import 'vip_payment_service.dart';
 
-/// 功能 SKU 支付：建单走 feature/orders；验单/支付宝与 VIP 共用服务端入口。
+/// 功能 SKU 支付：建单走 feature/orders；Apple 验单走历史 vip/apple/verify（履约非 VIP）。
 class FeaturePaymentService {
-  FeaturePaymentService(this._featureRepo, this._vipRepo);
+  FeaturePaymentService(this._featureRepo, this._appleIap);
 
   final FeatureUnlockRepository _featureRepo;
-  final CashVipRepository _vipRepo;
+  final CashAppleIapRepository _appleIap;
 
   /// 购买功能 SKU；成功后由调用方刷新 catalog。
   Future<VipPaymentOutcome> purchase(FeatureCatalogProduct product) async {
@@ -177,7 +177,7 @@ class FeaturePaymentService {
           if (p.status == PurchaseStatus.purchased ||
               p.status == PurchaseStatus.restored) {
             try {
-              await _vipRepo.verifyApple(
+              await _appleIap.verifyApple(
                 transactionId: p.purchaseID ?? '',
                 productId: p.productID,
                 signedTransaction: p.verificationData.serverVerificationData,

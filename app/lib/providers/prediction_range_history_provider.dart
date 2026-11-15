@@ -3,14 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../api/app_debug_log.dart';
 import '../data/models.dart';
-import '../data/prediction_range_history.dart';
 import '../home_widget/home_widget_sync.dart';
-import 'device_no_notifier.dart';
-import 'event_catalog_notifier.dart';
-import 'event_last_at_provider.dart';
-import 'repositories.dart';
+import 'home_history_notifier.dart';
 import 'session_provider.dart';
 
 @immutable
@@ -38,200 +33,62 @@ class PredictionRangeHistoryState {
   }
 }
 
-/// 近 7 日预测历史（与喂养 homeHistory 隔离）。
+/// 兼容壳：远端 ensure 已并入 [homeHistoryProvider] 统一池；不再独立 HTTP。
 class PredictionRangeHistoryNotifier
     extends StateNotifier<PredictionRangeHistoryState> {
   PredictionRangeHistoryNotifier(this._ref)
-      : super(const PredictionRangeHistoryState());
+      : super(const PredictionRangeHistoryState()) {
+    _ref.listen<HomeHistoryState>(homeHistoryProvider, (_, next) {
+      state = PredictionRangeHistoryState(
+        items: next.items,
+        loading: next.seeding,
+        ready: next.initialLoadDone,
+      );
+    }, fireImmediately: true);
+  }
 
   final Ref _ref;
-  Future<bool>? _inFlight;
-  var _consecutiveFailures = 0;
-  var _dirty = true;
-  Timer? _debounce;
 
-  bool get isCircuitOpen =>
-      _consecutiveFailures >= HomeWidgetConstants.maxConsecutivePageFailures;
-
-  String? _deviceNoOrNull() {
-    final v = _ref.read(deviceNoNotifierProvider).asData?.value?.trim();
-    if (v == null || v.isEmpty) return null;
-    return v;
-  }
-
-  /// Single-flight ensure；含 deviceNo 门控与 ready-空自愈。
+  /// 委托统一池近 7 日种子。
   Future<void> ensureLoaded({bool force = false}) async {
-    await _ensureLoadedCore(force: force);
-  }
-
-  /// 用户下拉显式重试：先清零熔断计数，再 force 拉取；成功返回 true。
-  Future<bool> reloadForUserPull() async {
-    _consecutiveFailures = 0;
-    AppDebugLog.homeWidget('range user pull reset circuit');
-    return _ensureLoadedCore(force: true);
-  }
-
-  Future<bool> _ensureLoadedCore({required bool force}) {
     if (!_ref.read(sessionProvider).isLoggedIn) {
-      state = const PredictionRangeHistoryState();
-      return Future.value(false);
+      state = const PredictionRangeHistoryState(ready: true);
+      return;
     }
-    final existing = _inFlight;
-    if (existing != null) {
-      // 进行中：非 force 复用；force 等当前结束后再拉一轮
-      if (!force) return existing;
-      return existing.then((_) async {
-        if (!_ref.read(sessionProvider).isLoggedIn) return false;
-        return _ensureLoadedCore(force: true);
-      });
-    }
-    return _inFlight = _ensureImpl(force: force).whenComplete(() {
-      _inFlight = null;
-    });
-  }
-
-  Future<bool> _ensureImpl({required bool force}) async {
-    // 已登录：dn 空则先灌本地缓存
-    var dn = _deviceNoOrNull();
-    if (dn == null) {
-      await _ref.read(deviceNoNotifierProvider.notifier).refresh();
-      dn = _deviceNoOrNull();
-    }
-
-    // 假成功空列表：dn 已可用则强制重拉
-    final healEmptyReady = state.ready &&
-        state.items.isEmpty &&
-        dn != null;
-    final effectiveForce = force || healEmptyReady;
-
-    if (!effectiveForce && state.ready && !_dirty && !state.loading) {
-      return true;
-    }
-    // 非 force 且已熔断：跳过（用户下拉经 reloadForUserPull 已清零）
-    if (isCircuitOpen && !effectiveForce) {
-      AppDebugLog.homeWidget('range ensure skipped circuit open');
-      return false;
-    }
-    if (dn == null) {
-      AppDebugLog.homeWidget('range ensure skipped no deviceNo');
-      // 解开无 dn 时留下的假 ready 空锁
-      if (state.ready && state.items.isEmpty) {
-        _dirty = true;
-        state = const PredictionRangeHistoryState();
-      } else {
-        state = state.copyWith(loading: false);
-      }
-      return false;
-    }
-
-    if (healEmptyReady) {
-      AppDebugLog.homeWidget('range ensure heal empty-ready');
-    }
-    return _loadImpl(force: effectiveForce);
-  }
-
-  Future<bool> _loadImpl({required bool force}) async {
-    state = state.copyWith(loading: true);
-    AppDebugLog.homeWidget('range load start force=$force');
-    try {
-      final feed = _ref.read(feedRepositoryProvider);
-      final list = await fetchPredictionSevenDayHistory(feed);
-      if (list == null) {
-        _consecutiveFailures += 1;
-        AppDebugLog.homeWidget(
-          'range load fail consecutive=$_consecutiveFailures',
+    await _ref.read(homeHistoryProvider.notifier).seedSevenDayHistory(
+          force: force,
+          preserveOlderOutsideWindow: true,
         );
-        return false;
-      }
-      _consecutiveFailures = 0;
-      _dirty = false;
-      state = PredictionRangeHistoryState(
-        items: list,
-        loading: false,
-        ready: true,
-      );
-      AppDebugLog.homeWidget('range load ok count=${list.length}');
-      await setWidgetHistoryDepthReady(true);
-      if (_ref.read(sessionProvider).isLoggedIn) {
-        unawaited(scheduleHomeWidgetSync(_ref));
-        // range 入内存 → max 刷新 tip（home 路径另有并集 observe）
-        final catalog = _ref.read(eventCatalogProvider).items;
-        scheduleEventLastAtObserveFromHistory(_ref, list, catalog);
-      }
-      return true;
-    } catch (e) {
-      _consecutiveFailures += 1;
-      AppDebugLog.homeWidget('range load err=$e');
-      return false;
-    } finally {
-      // 防止 filter/超时挂死后永久 loading
-      if (state.loading) {
-        state = state.copyWith(loading: false);
-      }
-    }
   }
 
-  /// 历史变更后短防抖失效重拉。
+  Future<bool> reloadForUserPull() async {
+    return _ref
+        .read(homeHistoryProvider.notifier)
+        .refreshFromRemote(preserveLoadedDepth: true);
+  }
+
+  /// 统一池变更已直接 sync widget；避免旧调用方再拉 HTTP。
   void scheduleInvalidation() {
     if (!_ref.read(sessionProvider).isLoggedIn) return;
-    _dirty = true;
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 280), () {
-      unawaited(ensureLoaded(force: true));
-    });
+    unawaited(scheduleHomeWidgetSync(_ref));
   }
 
-  /// home 删除后立即从内存快照去掉同 id（避免并集短暂命中已删记录）。
-  void removeItemById(String id) {
-    final trimmed = id.trim();
-    if (trimmed.isEmpty) return;
-    if (!state.items.any((e) => e.id == trimmed)) return;
-    state = state.copyWith(
-      items: [
-        for (final e in state.items)
-          if (e.id != trimmed) e,
-      ],
-    );
-  }
+  void removeItemById(String id) {}
 
   void clear() {
-    _debounce?.cancel();
-    _debounce = null;
-    _inFlight = null;
-    _consecutiveFailures = 0;
-    _dirty = true;
-    state = const PredictionRangeHistoryState();
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    super.dispose();
+    state = const PredictionRangeHistoryState(ready: true);
   }
 }
 
 final predictionRangeHistoryProvider = StateNotifierProvider<
     PredictionRangeHistoryNotifier, PredictionRangeHistoryState>((ref) {
-  final n = PredictionRangeHistoryNotifier(ref);
-  ref.listen(sessionProvider, (prev, next) {
-    if (!next.isLoggedIn) n.clear();
-  });
-  // deviceNo 变更：补拉 range（含空→有、换绑 A→B）
-  ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
-    final dn = next.asData?.value?.trim();
-    if (dn == null || dn.isEmpty) return;
-    final prevDn = prev?.asData?.value?.trim();
-    if (prevDn == dn) return;
-    if (!ref.read(sessionProvider).isLoggedIn) return;
-    if (prevDn != null && prevDn.isNotEmpty && prevDn != dn) {
-      n.clear();
-    }
-    unawaited(n.ensureLoaded(force: true));
-  });
-  return n;
+  return PredictionRangeHistoryNotifier(ref);
 });
 
-/// 供 UI / 小组件 await 的 ensure FutureProvider（内部 single-flight）。
+/// 预测页/tip：等待统一池种子（不再独立 range HTTP）。
 final predictionRangeEnsureProvider = FutureProvider<void>((ref) async {
-  await ref.read(predictionRangeHistoryProvider.notifier).ensureLoaded();
+  await ref.read(homeHistoryProvider.notifier).seedSevenDayHistory(
+        force: false,
+        preserveOlderOutsideWindow: true,
+      );
 });

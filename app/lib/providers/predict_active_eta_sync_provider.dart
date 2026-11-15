@@ -8,7 +8,6 @@ import 'authorized_api_client_provider.dart';
 import 'device_no_notifier.dart';
 import 'event_catalog_notifier.dart';
 import 'home_history_notifier.dart';
-import 'prediction_range_history_provider.dart';
 import 'session_provider.dart';
 import 'settings_baby.dart';
 
@@ -64,8 +63,7 @@ Future<void> _syncPredictActiveEtaPendingOnce(dynamic ref) async {
         '';
     if (dn.isEmpty) return;
 
-    final homeItems = ref.read(homeHistoryProvider).items;
-    final rangeItems = ref.read(predictionRangeHistoryProvider).items;
+    final poolItems = ref.read(homeHistoryProvider).items;
     final catalog = ref.read(eventCatalogProvider).items;
     final babyAsync =
         ref.read(settingsBabyProvider) as AsyncValue<BabyProfile>;
@@ -74,8 +72,8 @@ Future<void> _syncPredictActiveEtaPendingOnce(dynamic ref) async {
         babyAsync.asData?.value.birthDate ?? DateTime(now.year, 1, 1);
 
     final items = buildActiveTimingEtaItems(
-      homeItems: homeItems,
-      rangeItems: rangeItems,
+      homeItems: poolItems,
+      rangeItems: const [],
       catalog: catalog,
       now: now,
       birthDate: birth,

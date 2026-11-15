@@ -5,7 +5,6 @@ import 'event_definition.dart';
 import 'event_next_predictor.dart';
 import 'history_mapper.dart';
 import 'models.dart';
-import 'smart_prediction_rows.dart';
 import 'trend_predict_accuracy.dart';
 
 /// 单条 expect-batch 补丁（服务端 id 数字 + 可选 expect*）。
@@ -48,10 +47,9 @@ List<HistoryExpectPatch> buildHistoryExpectAnchorPatches({
   required DateTime now,
   required int halfLifeDays,
 }) {
-  // 按预测桶分组（跳过回忆种子 / pending / 无数字 id）
+  // 按预测桶分组（跳过 pending / 无数字 id）
   final byBucket = <String, List<HistoryRecord>>{};
   for (final r in snapshot) {
-    if (isPredictionRecallSeedRecord(r)) continue;
     if (isPendingHistoryId(r.id)) continue;
     final eventId = historyRecordEventId(r);
     if (eventId.isEmpty) continue;
@@ -91,7 +89,7 @@ List<HistoryExpectPatch> buildHistoryExpectAnchorPatches({
       final numericId = int.tryParse(target.id);
       if (numericId == null || numericId <= 0) continue;
 
-      // 仅用本条之前的发生序列作 tip 锚点
+      // 仅用本条之前的发生序列作 tip 锚点；禁止漏记追赶（墙钟 now 会污染历史 expect）
       final prior = rows.sublist(0, i);
       var pred = predictNextForEventKey(
         eventKey: bucketKey,
@@ -101,6 +99,7 @@ List<HistoryExpectPatch> buildHistoryExpectAnchorPatches({
         halfLifeDays: halfLifeDays,
         colorHex: colorHex,
         includeActive: true,
+        missedCycleChase: false,
       );
       if (pred == null) continue;
       pred = attachWinningExpect(

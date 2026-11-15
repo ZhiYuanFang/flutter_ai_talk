@@ -14,7 +14,7 @@ const kLandscapeMicRationaleMessage =
 /// 本会话是否已拒绝用途框或系统权限（避免反复硬弹）。
 bool landscapeMicDeniedThisSession = false;
 
-/// 检查是否已有麦克风权限（不弹系统框）。
+/// 检查是否已有麦克风权限（不弹系统框、不 request）。
 Future<bool> landscapeMicAlreadyGranted() async {
   if (kIsWeb) return false;
   final status = await Permission.microphone.status;
@@ -28,7 +28,13 @@ Future<bool> landscapeMicAlreadyGranted() async {
   }
 }
 
-/// 未授权时先玻璃用途框，确认后再系统申请；已授权跳过。
+/// 预测语音表面可见时的 soft-check：只探测是否已授权。
+///
+/// MUST NOT 弹用途框、MUST NOT 系统 request、MUST NOT 置 [landscapeMicDeniedThisSession]
+///（「尚未询问」≠「用户已拒绝」）。lifecycle / soft activate 注入此闭包。
+Future<bool> softCheckLandscapeMicGranted() => landscapeMicAlreadyGranted();
+
+/// 用户点按监听入口后的完整申请：未授权时先玻璃用途框，确认后再系统申请；已授权跳过。
 ///
 /// 返回 true 表示可开麦；取消/拒绝返回 false，并置 [landscapeMicDeniedThisSession]。
 Future<bool> ensureLandscapeMicPermission(BuildContext context) async {

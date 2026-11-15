@@ -78,6 +78,11 @@ class EdgeDockController extends ChangeNotifier {
   void showFloating(Offset center) {
     _client?._applyFloating(center);
   }
+
+  /// 贴边 peek → engaged 全圆；已 floating / 已 engaged 则 no-op；不触发 onPullBusiness。
+  void showEngaged() {
+    unawaited(_client?._engage(fromPull: false) ?? Future<void>.value());
+  }
 }
 
 class _EdgeDockShellState extends State<EdgeDockShell>

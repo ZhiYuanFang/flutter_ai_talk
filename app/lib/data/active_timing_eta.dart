@@ -133,7 +133,6 @@ List<ActiveTimingEtaItem> buildActiveTimingEtaItems({
   final byId = <String, HistoryRecord>{};
   final noId = <HistoryRecord>[];
   for (final r in [...rangeItems, ...homeItems]) {
-    if (isPredictionRecallSeedRecord(r)) continue;
     final id = r.id.trim();
     if (id.isEmpty) {
       noId.add(r);
@@ -218,10 +217,7 @@ DateTime? expectEndAtForActiveTiming({
   required DateTime birthDate,
 }) {
   final byRoot = groupHistoryByRootEvent(
-    history: [
-      for (final r in [...rangeItems, ...homeItems])
-        if (!isPredictionRecallSeedRecord(r)) r,
-    ],
+    history: [...rangeItems, ...homeItems],
     catalog: catalog,
   );
   List<HistoryRecord> bucket = byRoot[rootEventId] ?? const [];

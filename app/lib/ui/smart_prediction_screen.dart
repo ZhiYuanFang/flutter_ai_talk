@@ -17,22 +17,18 @@ import '../data/active_timing_eta.dart';
 import '../data/active_timing_stop.dart';
 import '../data/appointment_event.dart';
 import '../data/event_branding.dart';
+import '../data/event_catalog_tree.dart';
 import '../data/event_definition.dart';
 import '../data/history_line_format.dart';
 import '../data/models.dart';
 import '../data/relative_calendar_day.dart';
 import '../data/prediction_demo_skeleton.dart';
-import '../data/prediction_recall_seed.dart';
 import '../data/event_next_predictor.dart';
-import '../data/feature_unlock_models.dart';
 import '../data/smart_prediction_rows.dart';
 import '../data/trend_predict_accuracy.dart';
 import '../providers/settings_baby.dart';
-import '../api/api_exceptions.dart';
 import '../providers/appointment_last_occurrence_provider.dart';
 import '../providers/appointment_next_provider.dart';
-import '../providers/history_latest_by_event_provider.dart';
-import '../providers/cash_vip_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/feature_unlock_provider.dart';
@@ -51,6 +47,8 @@ import '../providers/baby_display_provider.dart';
 import '../providers/app_notification_preference_provider.dart';
 import '../providers/app_push_registration_provider.dart';
 import '../providers/landscape_voice_provider.dart';
+import '../providers/predict_basic_feature_action_providers.dart';
+import '../providers/predict_post_mutation_scheduler.dart';
 import '../providers/smart_prediction_provider.dart';
 import '../theme/app_color.dart';
 import '../theme/app_theme_schedule.dart';
@@ -65,7 +63,6 @@ import 'home_history_edit_sheet.dart';
 import 'home_history_edit_glass_panel.dart';
 import 'widgets/app_modal_glass_panel.dart';
 import 'event_logo.dart';
-import 'prediction_recall_interval_picker.dart';
 import '../config/prediction_landscape_column_store.dart';
 import 'prediction_landscape_card_metrics.dart';
 import 'landscape_voice_lifecycle_binder.dart';
@@ -74,7 +71,11 @@ import 'ucg_square_edge_dock.dart';
 import 'theme_palette_sheet.dart';
 import 'widgets/app_toast.dart';
 import 'widgets/baby_avatar.dart';
+import 'widgets/feature_logo.dart';
+import 'widgets/predict_capability_tier_wall.dart';
 import 'widgets/prediction_go_record_fab.dart';
+import '../data/feature_unlock_models.dart';
+import '../data/predict_capability_tier.dart';
 
 /// 投屏入口：锁定横屏（与 [_exitLandscapeToPortrait] 对称）。
 Future<void> _lockPredictionLandscapeCast() async {
@@ -83,6 +84,29 @@ Future<void> _lockPredictionLandscapeCast() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+}
+
+/// 投屏确认（预测页按钮 / 基础版墙 tap 共用）。
+Future<void> _promptPredictionLandscapeCast({
+  required BuildContext context,
+  required WidgetRef ref,
+}) async {
+  final go = await showGlassConfirmDialog(
+        context,
+        title: '进入投屏模式',
+        message:
+            '请将手机画面投屏到电视后继续。\n进入横屏后，可点击右侧栏顶部的返回竖屏图标退出，并恢复屏幕旋转。',
+        confirmLabel: '已投屏',
+      ) ??
+      false;
+  if (go && context.mounted) {
+    unawaited(
+      ref.read(clientUsageReporterProvider).reportEvent(
+            ClientUsageEvents.predictionLandscapeCast,
+          ),
+    );
+    unawaited(_lockPredictionLandscapeCast());
+  }
 }
 
 /// 右栏退出：先切竖屏，再恢复全方向旋转。
@@ -270,21 +294,21 @@ class SmartPredictionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final realRows = ref.watch(smartPredictionRowsProvider);
     final ensureAsync = ref.watch(predictionRangeEnsureProvider);
-    final rangeState = ref.watch(predictionRangeHistoryProvider);
+    final homeState = ref.watch(homeHistoryProvider);
     final catalog = ref.watch(eventCatalogProvider).items;
-    // 挂载预测页时预取预约 nextAt（catalog 变化会重跑）
+    // 挂载预测页：hydrate + 静默刷新预约 next/last
     ref.watch(appointmentNextPrefetchProvider);
-    // 批量最近发生（预测卡 / 预约「上一次」主源）
-    ref.watch(historyLatestByEventPrefetchProvider);
+    ref.watch(appointmentLastPrefetchProvider);
     final layout = ref.watch(predictionCardsLayoutProvider).asData?.value ??
         PredictionCardsLayout.grid;
     final now =
         ref.watch(predictionClockProvider).asData?.value ?? DateTime.now();
-    final chartsLoading =
-        ensureAsync.isLoading || ensureAsync.isRefreshing || rangeState.loading;
+    final chartsLoading = ensureAsync.isLoading ||
+        ensureAsync.isRefreshing ||
+        homeState.seeding;
     // 仅「未 ready 且仍在拉」算 pending；失败/跳过后不得永久「正在加载中」
     final rangePending =
-        !rangeState.ready && (rangeState.loading || chartsLoading);
+        !homeState.initialLoadDone && (homeState.seeding || chartsLoading);
     final babyDisplay = ref.watch(babyDisplayProvider);
     // 身份顶栏：经展示快照 Provider（L2）。
     final nickname = babyDisplay.nickname;
@@ -293,6 +317,7 @@ class SmartPredictionScreen extends ConsumerWidget {
     final deviceNo =
         ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
     final bound = loggedIn && deviceNo.isNotEmpty;
+    // catalog 预热改由 _PredictEntitlementWarmupHost（禁止 build 内写 StateNotifier）
     // 冷态骨架：仅未登录 / 未绑定；已绑定空历史走热态目录完备行
     final useDemoSkeleton = !loggedIn || !bound;
     final mountNonce = ref.watch(predictionDemoMountNonceProvider);
@@ -305,7 +330,6 @@ class SmartPredictionScreen extends ConsumerWidget {
           )
         : realRows;
     // 永久可开启条数；开关闸按「已开启计数」占用，非排序下标。
-    final featureCatalog = ref.watch(featureCatalogStateProvider);
     final enabledCount = rows.where((r) => r.forecastEnabled).length;
     // 槽位能力已删除：不再按 allowedCount 热态裁剪已开启项。
     Future<void> onForecastToggle(String eventId, bool enable) async {
@@ -354,18 +378,17 @@ class SmartPredictionScreen extends ConsumerWidget {
       gateKind = PredictionGateKind.none;
     }
 
-    // 残留量身定做会话：一律关闭（Dialog 已退役）
-    final recallSessionLingering =
-        ref.watch(predictionRecallSessionActiveProvider) ||
-            ref.watch(predictionRecallDialogVisibleProvider);
-    if (recallSessionLingering) {
+    // 基础版墙「横向投屏」：关墙后请求同源确认
+    ref.listen<int?>(predictionLandscapeCastRequestProvider, (prev, next) {
+      if (next == null) return;
+      ref.read(predictionLandscapeCastRequestProvider.notifier).clear();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(predictionRecallSessionActiveProvider.notifier).state = false;
-        ref.read(predictionRecallDialogVisibleProvider.notifier).state = false;
-        ref.read(predictionRecallSessionRootsProvider.notifier).state =
-            const [];
+        if (!context.mounted) return;
+        unawaited(
+          _promptPredictionLandscapeCast(context: context, ref: ref),
+        );
       });
-    }
+    });
 
     // 登录成功：停登录引导；绑定引导保持不自动弹（等骨架卡意图）
     ref.listen(sessionProvider, (prev, next) {
@@ -442,13 +465,12 @@ class SmartPredictionScreen extends ConsumerWidget {
     // Auth 冷态（未登录/未绑定）：滑动引导大卡，不展示3小时。
     final authGuestChrome = !loggedIn || !bound;
 
-    // 值得留意已迁至 AI 分析页；热态不再展示留意卡。
+    // 热态不展示留意卡；未登录/未绑定仅滑动引导。
     final Widget? careOrGuide =
         authGuestChrome ? const _PredictionSwipeGuideCard() : null;
 
-    // 网格计时中 chrome：从喂养历史匹配进行中记录
-    final historyItems = ref.watch(homeHistoryProvider).items;
-    final rangeHistoryItems = ref.watch(predictionRangeHistoryProvider).items;
+    // 网格计时中 chrome：统一池真历史
+    final historyItems = homeState.items;
     // 进行中 ETA：duration 样本用月龄半衰期
     final babyBirth = ref.watch(settingsBabyProvider).asData?.value.birthDate ??
         DateTime(now.year, 1, 1);
@@ -458,7 +480,7 @@ class SmartPredictionScreen extends ConsumerWidget {
         active: active,
         rootEventId: rootId,
         homeItems: historyItems,
-        rangeItems: rangeHistoryItems,
+        rangeItems: const [],
         catalog: catalog,
         now: now,
         birthDate: babyBirth,
@@ -533,20 +555,20 @@ class SmartPredictionScreen extends ConsumerWidget {
         ? ref.watch(landscapeVoiceControllerProvider)
         : null;
 
-    // 下拉：home 第 1 页 + range force + latest-by-event（手势清冷却）；
-    // Toast 仅看 home/range；指示器等三路 settle；不 clear latest 缓存
+    // 下拉：滚动 24h 历史合并 + 预约 next/last；成功后再调度 expect/准确率静默管线
     Future<void> onCardsPullRefresh() async {
-      resetHistoryLatestByEventCooldownForUserGesture();
-      final homeFut = ref.read(homeHistoryProvider.notifier).refreshFromRemote();
-      final rangeFut =
-          ref.read(predictionRangeHistoryProvider.notifier).reloadForUserPull();
-      // 与窗刷新并行；成败不单独 Toast
-      final latestFut = requestHistoryLatestByEventSync(ref);
-      final results = await Future.wait<bool>([homeFut, rangeFut]);
-      await latestFut;
-      if (!results.every((ok) => ok)) {
+      final homeFut =
+          ref.read(homeHistoryProvider.notifier).refreshRollingWindow();
+      final nextFut = refreshAllAppointmentNextSilent(ref);
+      final lastFut = refreshAllAppointmentLastSilent(ref);
+      final homeOk = await homeFut;
+      await Future.wait<void>([nextFut, lastFut]);
+      if (!homeOk) {
         showAppToast('刷新失败，请稍后重试', tone: AppToastTone.error);
+        return;
       }
+      // 不 await batch：入队即可，避免 RefreshIndicator 挂太久
+      unawaited(schedulePredictPostHistoryMutation(ref));
     }
 
     Widget wrapCardsRefresh(Widget child) {
@@ -580,28 +602,7 @@ class SmartPredictionScreen extends ConsumerWidget {
           ),
         );
       }
-      // 竖屏热态：整卡长按切换 list↔grid（与 AppBar 同源）；横屏 / 骨架不参与
-      final VoidCallback? onLongPressLayoutToggle =
-          (useDemoSkeleton || isLandscape)
-              ? null
-              : () {
-                  HapticFeedback.lightImpact();
-                  final next = layout == PredictionCardsLayout.grid
-                      ? PredictionCardsLayout.list
-                      : PredictionCardsLayout.grid;
-                  unawaited(
-                    ref
-                        .read(predictionCardsLayoutProvider.notifier)
-                        .setLayout(next)
-                        .then((_) {
-                      return ref.read(clientUsageReporterProvider).reportEvent(
-                            next == PredictionCardsLayout.list
-                                ? ClientUsageEvents.predictionLayoutToList()
-                                : ClientUsageEvents.predictionLayoutToGrid(),
-                          );
-                    }),
-                  );
-                };
+      // 布局切换仅标题栏图标（卡/准确率图区不再长按切 list↔瀑布）
 
       // 热态加事件：关推演永远 add；开推演无 lastAt 仍 supplement；计时中不可点
       VoidCallback? addEventTapFor(SmartPredictionRow row,
@@ -669,13 +670,13 @@ class SmartPredictionScreen extends ConsumerWidget {
                 bucketEventId: row.prediction!.eventId,
                 catalog: catalog,
                 homeItems: historyItems,
-                rangeItems: rangeHistoryItems,
+                rangeItems: const [],
               )
             : latestRealHistoryRecordForRootFromSources(
                 rootEventId: row.eventId,
                 catalog: catalog,
                 homeItems: historyItems,
-                rangeItems: rangeHistoryItems,
+                rangeItems: const [],
               );
         if (record == null) return null;
         return () {
@@ -690,14 +691,11 @@ class SmartPredictionScreen extends ConsumerWidget {
         };
       }
 
-      // 竖列表准确率：合并真历史按根聚合（不计回忆种子）
+      // 竖列表准确率：统一池真历史按根聚合（不计回忆种子）
       final accuracyByRoot = useDemoSkeleton
           ? const <String, List<HistoryRecord>>{}
           : groupHistoryByRootEvent(
-              history: mergeRealHistoryById(
-                rangeItems: rangeHistoryItems,
-                homeItems: historyItems,
-              ),
+              history: historyItems,
               catalog: catalog,
             );
 
@@ -751,7 +749,6 @@ class SmartPredictionScreen extends ConsumerWidget {
                           unawaited(onForecastToggle(row.eventId, v));
                         },
                   onCardTap: addEventTapFor(row, activeTiming: activeTiming),
-                  onLongPressLayout: onLongPressLayoutToggle,
                   onEditLastOccurrence: editLastTapFor(row),
                 );
               },
@@ -780,6 +777,29 @@ class SmartPredictionScreen extends ConsumerWidget {
         for (final r in rows)
           if (!catalogRootIsAppointment(r.eventId, catalog)) r,
       ];
+      // 页级真样本门闩：任一对照卡近窗有合格样本 → 其它零样本卡改空态（不出示例）
+      bool listRootHasRealAccuracy(String rootId) {
+        final records = accuracyByRoot[rootId] ?? const <HistoryRecord>[];
+        if (records.isEmpty) return false;
+        final days = predictAccuracyWindowDays(
+          now: now,
+          pastDaysBeforeToday: 6,
+        );
+        final samples = predictAccuracySamplesFromHistory(
+          records,
+          catalog: catalog,
+        );
+        final percents =
+            predictDailyAccuracyPercents(days: days, samples: samples);
+        return percents.any((e) => e != null);
+      }
+
+      final pageHasRealAccuracy = !useDemoSkeleton &&
+          listRows.any((r) {
+            // 与对照卡图区门闩一致：开推演且有 pred
+            if (!r.forecastEnabled || r.prediction == null) return false;
+            return listRootHasRealAccuracy(r.eventId);
+          });
       return wrapCardsRefresh(
         ListView.separated(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -810,6 +830,7 @@ class SmartPredictionScreen extends ConsumerWidget {
                   : row.chartPoints,
               // 该根近窗真历史，供准确率柱 / 小结
               accuracyRecords: accuracyByRoot[row.eventId] ?? const [],
+              pageHasRealAccuracy: pageHasRealAccuracy,
               pastDaysBeforeToday: 6,
               showYAxis: !useDemoSkeleton && activeTiming == null,
               relativeText: activeTiming != null
@@ -823,7 +844,6 @@ class SmartPredictionScreen extends ConsumerWidget {
                       unawaited(onForecastToggle(row.eventId, v));
                     },
               onCardTap: addEventTapFor(row, activeTiming: activeTiming),
-              onLongPressLayout: onLongPressLayoutToggle,
               onEditLastOccurrence: editLastTapFor(row),
             );
           },
@@ -1030,29 +1050,14 @@ class SmartPredictionScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    // icon button 点击弹出对话框，是否进入投屏模式（下方小字：请自行操作手机投屏到电视上）
+                    // icon button 点击弹出对话框，是否进入投屏模式
                     IconButton(
-                      onPressed: () async {
-                        final go = await showGlassConfirmDialog(
-                              context,
-                              title: '进入投屏模式',
-                              message:
-                                  '请将手机画面投屏到电视后继续。\n进入横屏后，可点击右侧栏顶部的返回竖屏图标退出，并恢复屏幕旋转。',
-                              confirmLabel: '已投屏',
-                            ) ??
-                            false;
-                        if (go && context.mounted) {
-                          // 习惯上报：投屏确认；不 await，不堵锁横屏。
-                          unawaited(
-                            ref
-                                .read(clientUsageReporterProvider)
-                                .reportEvent(
-                                  ClientUsageEvents.predictionLandscapeCast,
-                                ),
-                          );
-                          unawaited(_lockPredictionLandscapeCast());
-                        }
-                      },
+                      onPressed: () => unawaited(
+                        _promptPredictionLandscapeCast(
+                          context: context,
+                          ref: ref,
+                        ),
+                      ),
                       icon: const Icon(Icons.cast),
                     ),
 
@@ -1132,23 +1137,18 @@ class SmartPredictionScreen extends ConsumerWidget {
                                 },
                               ),
                             ),
-                          // Auth 冷态不展示接下来3小时；已绑定态空窗也常显（保 AI分析入口）。
+                          // Auth 冷态不展示接下来3小时；已绑定态空窗也常显。
                           if (!authGuestChrome)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                               child: _NextThreeHoursTimeline(
                                 body: timelineText ??
                                     kNextThreeHoursEmptyBodyCopy,
-                                onOpenFeeding: () {
-                                  ref
-                                      .read(homePagerRequestProvider.notifier)
-                                      .requestPage(HomePagerPage.feeding);
-                                },
-                                onOpenAiAnalysis: () {
-                                  context.push('/prediction/ai-analysis');
-                                },
                               ),
                             ),
+                          // catalog 预热宿主（无占位高度）
+                          if (!authGuestChrome)
+                            const _PredictEntitlementWarmupHost(),
                           // 与滑动引导大卡并存：凡骨架均在事件列表上方提示虚拟举例
                           if (useDemoSkeleton)
                             Padding(
@@ -1327,6 +1327,39 @@ class _LandscapeVoiceListenChip extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 已绑定后帧外预热 catalog / Pro eligibility（避免 build 期 StateNotifier.state=）。
+class _PredictEntitlementWarmupHost extends ConsumerStatefulWidget {
+  const _PredictEntitlementWarmupHost();
+
+  @override
+  ConsumerState<_PredictEntitlementWarmupHost> createState() =>
+      _PredictEntitlementWarmupHostState();
+}
+
+class _PredictEntitlementWarmupHostState
+    extends ConsumerState<_PredictEntitlementWarmupHost> {
+  /// 已为该 deviceNo 调度过预热；解绑清空以便再绑重拉。
+  String _armedDn = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final loggedIn = ref.watch(sessionProvider).isLoggedIn;
+    final dn =
+        ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
+    if (!loggedIn || dn.isEmpty) {
+      _armedDn = '';
+      return const SizedBox.shrink();
+    }
+    if (_armedDn == dn) return const SizedBox.shrink();
+    _armedDn = dn;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(ref.read(featureCatalogStateProvider.notifier).ensureLoaded());
+    });
+    return const SizedBox.shrink();
   }
 }
 
@@ -1692,92 +1725,150 @@ class _PredictionAuthGateCard extends StatelessWidget {
   }
 }
 
-/// 三小时窗无事项时的正文（卡常显，保 AI分析入口）。
+/// 三小时窗无事项时的正文（卡常显）。
 const kNextThreeHoursEmptyBodyCopy = '接下来 3 小时暂无事项，享受属于自己的时光吧。';
 
-/// 「接下来3小时」：全量正文；主区点进喂养；右侧「AI分析」进分析页。
-class _NextThreeHoursTimeline extends StatelessWidget {
+/// 「接下来3小时」：左档位 logo + 右文纵向居中；非 syncing 整卡开墙（无 upgrade 图标）。
+class _NextThreeHoursTimeline extends ConsumerWidget {
   const _NextThreeHoursTimeline({
     required this.body,
-    required this.onOpenFeeding,
-    required this.onOpenAiAnalysis,
   });
 
   final String body;
-  final VoidCallback onOpenFeeding;
-  final VoidCallback onOpenAiAnalysis;
+
+  static const double _logoSize = 40;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final bodyStyle = TextStyle(
       fontSize: 14,
       height: 1.35,
       color: scheme.onSurface.withValues(alpha: 0.92),
     );
+    final titleStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: scheme.primary,
+    );
+    // 档位后缀：syncing / 基础版 / Pro版
+    final phase = ref.watch(predictEntitlementSettlePhaseProvider);
+    final catalog = ref.watch(featureCatalogStateProvider);
+    final pair = predictCapabilityItems(catalog);
+    final labelKind = resolvePredictCapabilityTierLabel(
+      settleSyncing: phase == PredictEntitlementSettlePhase.syncing,
+      pro: pair.pro,
+    );
+    final suffix = predictCapabilityTierSuffixLabel(labelKind);
+    // 非 syncing 时可开墙（免费与 Pro 行为一致）
+    final canOpenWall =
+        labelKind != PredictCapabilityTierLabelKind.syncing;
+    final cardRadius = BorderRadius.circular(14);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onOpenFeeding,
+        borderRadius: cardRadius,
+        // syncing 时不可点；否则 force 功能包 + 整卡开两档墙（不阻塞开墙）
+        onTap: canOpenWall
+            ? () {
+                unawaited(
+                  ref
+                      .read(featureCatalogStateProvider.notifier)
+                      .refresh(),
+                );
+                final tier = PredictCapabilityTier.values[
+                    predictCapabilityTierCarouselIndex(labelKind)];
+                unawaited(
+                  showPredictCapabilityTierWall(
+                    context,
+                    initialTier: tier,
+                  ),
+                );
+              }
+            : null,
         child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: cardRadius,
             border: Border.all(
               color: scheme.outlineVariant.withValues(alpha: 0.55),
             ),
             color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            padding: const EdgeInsets.fromLTRB(12, 10, 10, 12),
+            // 左 logo、右标题+正文，纵向居中
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '接下来3小时',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                    // 独立控件：只进 AI 分析，不导航喂养
-                    Material(
-                      color: scheme.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: onOpenAiAnalysis,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          child: Text(
-                            'AI分析',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: scheme.primary,
+                _tierLeadingLogo(
+                  labelKind: labelKind,
+                  pro: pair.pro,
+                  accent: scheme.primary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '接下来3小时',
+                              style: titleStyle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ),
+                          Text(' · ', style: titleStyle),
+                          // 档位文案（粗体；整卡可点故不下划线）
+                          Text(
+                            suffix,
+                            style: titleStyle.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 6),
+                      Text(body, style: bodyStyle),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Text(body, style: bodyStyle),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// syncing/免费 → pre_basic；Pro → catalog 或定尺寸占位。
+  Widget _tierLeadingLogo({
+    required PredictCapabilityTierLabelKind labelKind,
+    required FeatureCatalogItem? pro,
+    required Color accent,
+  }) {
+    final useFreeAsset =
+        labelKind == PredictCapabilityTierLabelKind.syncing ||
+            labelKind == PredictCapabilityTierLabelKind.free;
+    if (useFreeAsset) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(_logoSize / 4),
+        child: Image.asset(
+          kPredictFreeTierLogoAsset,
+          width: _logoSize,
+          height: _logoSize,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    // Pro：有 URL 用 FeatureLogo；无 URL 仍走 FeatureLogo 空串占位（定尺寸）
+    return FeatureLogo(
+      logoUrl: pro?.logo.trim() ?? '',
+      size: _logoSize,
+      accent: accent,
     );
   }
 }
@@ -2368,13 +2459,13 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
     required this.showYAxis,
     required this.relativeText,
     this.accuracyRecords = const [],
+    this.pageHasRealAccuracy = false,
     this.titleInlineLogo = false,
     this.activeTiming,
     this.activeExpectEndAt,
     this.landscapeMetrics,
     this.onToggle,
     this.onCardTap,
-    this.onLongPressLayout,
     this.onEditLastOccurrence,
   });
 
@@ -2392,6 +2483,9 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 
   /// 该卡事件根真历史（竖列表准确率柱 / 小结）；瀑布不传。
   final List<HistoryRecord> accuracyRecords;
+
+  /// 页级门闩：竖列表已有任一张对照卡含真样本时，本卡零样本改空态占位。
+  final bool pageHasRealAccuracy;
   final int pastDaysBeforeToday;
   final bool showYAxis;
   final String? relativeText;
@@ -2414,9 +2508,6 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
   /// 仅网格态：整卡加事件；冷态引导登录/绑定。
   final VoidCallback? onCardTap;
 
-  /// 竖屏热态整卡长按切换布局；横屏 / 骨架为 null。
-  final VoidCallback? onLongPressLayout;
-
   /// 「上一次」文案：打开喂养同款编辑 Sheet；null 表示不可点。
   final VoidCallback? onEditLastOccurrence;
 
@@ -2427,7 +2518,6 @@ class _PredictionEventCard extends ConsumerStatefulWidget {
 
 class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   var _stopping = false;
-  var _recallBusy = false;
   var _appointmentBusy = false;
 
   /// 预约卡：补充/编辑下次触发时间（专用 sheet，无清空）。
@@ -2621,7 +2711,12 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         Center(
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: digits,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                digits,
+              ],
+            ),
           ),
         ),
       ],
@@ -2640,48 +2735,6 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         child: block,
       ),
     );
-  }
-
-  /// 热态单事件样本不足：仅间隔 Sheet 写回忆种子（不写喂养历史）；确认后同层思考。
-  Future<void> _onPickIntervalRecall({
-    required EventDefinition? definition,
-    required String eventName,
-  }) async {
-    final row = widget.row;
-    final lastAt = row.lastAt;
-    if (lastAt == null || _recallBusy) return;
-    setState(() => _recallBusy = true);
-    try {
-      final minutes = await pickRecallIntervalMinutes(
-        context,
-        definition: definition,
-        eventName: eventName,
-        lastAt: lastAt,
-        onCommit: (mins) async {
-          final interval = Duration(minutes: mins);
-          if (interval < kMinIntervalForPrediction) {
-            showAppToast('间隔至少 15 分钟', tone: AppToastTone.error);
-            return false;
-          }
-          final seed = PredictionRecallSeed(
-            rootEventId: row.eventId,
-            leafEventId: row.eventId,
-            lastAt: lastAt,
-            interval: interval,
-            occurrenceAts:
-                synthesizeOccurrenceAts(lastAt: lastAt, interval: interval),
-          );
-          await ref.read(predictionRecallSeedsProvider.notifier).upsertSeed(seed);
-          // 走父级 onToggle 闸（满额弹框）；无开关时不强制开启。
-          widget.onToggle?.call(true);
-          return true;
-        },
-      );
-      if (!mounted || minutes == null) return;
-      showAppToast('已记录大概间隔', tone: AppToastTone.success);
-    } finally {
-      if (mounted) setState(() => _recallBusy = false);
-    }
   }
 
   Color _rootAccent(BuildContext context) {
@@ -2779,7 +2832,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         ? '${enabled ? "关闭" : "开启"}$titleName预约'
         : '${enabled ? "关闭" : "开启"}$titleName预测';
     final overdue = pred != null && pred.isOverdue(now);
-    // 上一次：行内已优先 latest-by-event（预约用根 id；不读 appointment_next）
+    // 上一次：行内优先统一池；预约可补 last 缓存（不读 appointment_next）
     final displayLastAt = row.lastAt;
     final displayLastRemark = row.lastRemark;
     // 热态卡有 lastAt 才展示「上一次」行；对照卡隐藏。
@@ -2800,6 +2853,16 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             remark: displayLastRemark,
             includeEventNamePrefix: !isAppointment,
           )
+        : null;
+    // 竖屏热态非预约：漏记追赶 tip 只读行；横屏/对照/预约/计时中不展示
+    final missedTipsLabel = (!accuracyOnlyChrome &&
+            !isAppointment &&
+            !showActiveTiming &&
+            widget.landscapeMetrics == null &&
+            widget.onToggle != null &&
+            pred != null &&
+            pred.missedTips.isNotEmpty)
+        ? formatPredictionMissedTipsLabel(pred.missedTips, now)
         : null;
     // 下次预约备注（缓存）
     final nextAppointmentRemark = isAppointment
@@ -2856,20 +2919,13 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
         row.lastAt == null &&
         hotCard &&
         widget.onCardTap != null;
-    // 预约：无预测时「补充下次」；非预约：有 lastAt 时「补充大概多久一次」
+    // 预约：无预测时「补充下次」（非预约间隔回忆已硬删）
     final showAppointmentNext = !accuracyOnlyChrome &&
         enabled &&
         !showActiveTiming &&
         pred == null &&
         hotCard &&
         isAppointment;
-    final showIntervalRecall = !accuracyOnlyChrome &&
-        enabled &&
-        !showActiveTiming &&
-        pred == null &&
-        row.lastAt != null &&
-        hotCard &&
-        !isAppointment;
     // 标题旁 logo：列表、计时中、或手机后列紧凑
     final showTitleLogo = !showHeroLogo;
     final content = Opacity(
@@ -3006,6 +3062,23 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                         ),
                 ),
               ],
+              // 可能漏记：只读弱文案，不可点补录
+              if (missedTipsLabel != null && missedTipsLabel.isNotEmpty) ...[
+                SizedBox(height: sectionGapSm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    missedTipsLabel,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: captionFontSize,
+                      color: accent.withValues(alpha: 0.72),
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
               // expect 改挂倒计时区块上方，标题区不再占位
               if (showAddLastOccurrence) ...[
                 SizedBox(height: sectionGapMd),
@@ -3027,16 +3100,34 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                   )),
                 ),
               ],
-              if (showIntervalRecall) ...[
+              // 无亲和 nextAt：原倒计时区展示进度条 + 文案
+              if (enabled &&
+                  pred == null &&
+                  !isAppointment &&
+                  !showActiveTiming &&
+                  row.affinityProgress != null) ...[
                 SizedBox(height: sectionGapMd),
-                _HeartbeatAccentButton(
-                  accent: accent,
-                  busy: _recallBusy,
-                  label: '补充大概多久一次',
-                  onPressed: () => unawaited(_onPickIntervalRecall(
-                    definition: titleDef ?? definition,
-                    eventName: titleName,
-                  )),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: row.affinityProgress!.ratio,
+                    minHeight: 8,
+                    backgroundColor: accent.withValues(alpha: 0.18),
+                    color: accent,
+                  ),
+                ),
+                SizedBox(height: sectionGapSm),
+                Text(
+                  row.affinityProgress!.remaining <= 0
+                      ? '真实${titleName}记录已足够，正在估算下次时间…'
+                      : '再有 ${row.affinityProgress!.remaining} 条真实$titleName记录后即可预估下次时间',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: captionFontSize,
+                    color: AppColor.textOnPanelGlass(context)
+                        .withValues(alpha: 0.85),
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
               ],
             ],
@@ -3161,7 +3252,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                           ),
                         ),
                       )
-                    // 竖列表：准确率柱 / 示例柱 / 点柱小结
+                    // 竖列表：准确率柱 / 示例柱 / 页级门闩空态 / 点柱小结
                     : _PredictAccuracyChartPane(
                         eventId: widget.row.eventId,
                         records: widget.accuracyRecords,
@@ -3169,10 +3260,10 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
                         now: now,
                         accent: accent,
                         pastDaysBeforeToday: widget.pastDaysBeforeToday,
+                        pageHasRealAccuracy: widget.pageHasRealAccuracy,
                         // 对照卡示例柱 oneShot 跟根类型（与根聚合准确率一致）
                         oneShot: (rootDef ?? definition)?.parsedEventType ==
                             EventCatalogEventType.one,
-                        onLongPressLayout: widget.onLongPressLayout,
                       ),
               ),
             ],
@@ -3198,13 +3289,12 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
             // 事件品牌色经 accent 注入 panelGlass（α 在原子内）
             gradient: AppColor.panelGlassGradient(context, accent: accent),
           ),
-          child: widget.onCardTap == null && widget.onLongPressLayout == null
+          child: widget.onCardTap == null
               ? content
               : Material(
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: widget.onCardTap,
-                    onLongPress: widget.onLongPressLayout,
                     borderRadius: BorderRadius.circular(cardBorderRadius),
                     child: content,
                   ),
@@ -3215,7 +3305,7 @@ class _PredictionEventCardState extends ConsumerState<_PredictionEventCard> {
   }
 }
 
-/// 竖列表卡图区：近 N 日准确率柱 ↔ 点柱后当日预测小结（无真样本时示例柱）。
+/// 竖列表卡图区：近 N 日准确率柱 ↔ 点柱后当日预测小结（无真样本时示例柱或页级空态）。
 class _PredictAccuracyChartPane extends StatefulWidget {
   const _PredictAccuracyChartPane({
     required this.eventId,
@@ -3224,8 +3314,8 @@ class _PredictAccuracyChartPane extends StatefulWidget {
     required this.now,
     required this.accent,
     required this.pastDaysBeforeToday,
+    this.pageHasRealAccuracy = false,
     this.oneShot = false,
-    this.onLongPressLayout,
   });
 
   final String eventId;
@@ -3235,11 +3325,11 @@ class _PredictAccuracyChartPane extends StatefulWidget {
   final Color accent;
   final int pastDaysBeforeToday;
 
+  /// 页上已有其它卡真样本时，本卡零样本走空态占位（不出示例）。
+  final bool pageHasRealAccuracy;
+
   /// 一次性事件：示例细节不含量段
   final bool oneShot;
-
-  /// 显式长按切 list↔瀑布（与整卡同回调）
-  final VoidCallback? onLongPressLayout;
 
   @override
   State<_PredictAccuracyChartPane> createState() =>
@@ -3303,9 +3393,12 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
     final realPercents =
         predictDailyAccuracyPercents(days: days, samples: realSamples);
     final hasAny = realPercents.any((e) => e != null);
+    // 页级门闩：它卡已有真样本且本卡仍空 → 空态占位（禁止示例）
+    final useEmptyPlaceholder =
+        !hasAny && widget.pageHasRealAccuracy;
 
-    // 真样本到达后退出示例小结，避免假数据残留
-    if (hasAny && _summaryIsSample) {
+    // 真样本到达、或门闩切到空态时，清掉示例小结残留
+    if ((hasAny || useEmptyPlaceholder) && _summaryIsSample) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_summaryIsSample) return;
         setState(() {
@@ -3315,24 +3408,45 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
       });
     }
 
-    // 阻断冒泡到整卡 InkWell；小结整区单击回柱图；显式长按切布局
+    // 阻断冒泡到整卡 InkWell；小结整区单击回柱图（不再长按切布局）
     return GestureDetector(
-      onTap: _summaryDay == null
+      onTap: _summaryDay == null || useEmptyPlaceholder
           ? () {}
           : () => setState(() {
                 _summaryDay = null;
                 _summaryIsSample = false;
               }),
-      onLongPress: widget.onLongPressLayout,
       behavior: HitTestBehavior.opaque,
-      child: _summaryDay == null
-          ? _buildBars(
-              context,
-              days: days,
-              realPercents: realPercents,
-              hasAny: hasAny,
-            )
-          : _buildSummary(context, isSample: _summaryIsSample && !hasAny),
+      child: useEmptyPlaceholder
+          ? _buildEmptyPlaceholder(context)
+          : (_summaryDay == null
+              ? _buildBars(
+                  context,
+                  days: days,
+                  realPercents: realPercents,
+                  hasAny: hasAny,
+                )
+              : _buildSummary(context, isSample: _summaryIsSample && !hasAny)),
+    );
+  }
+
+  /// 页级门闩空态：暂无对照，无示例柱/小结。
+  Widget _buildEmptyPlaceholder(BuildContext context) {
+    final muted = AppColor.textOnPanelGlassMuted(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _chartTitle(isSample: false),
+        const SizedBox(height: 2),
+        Expanded(
+          child: Center(
+            child: Text(
+              '暂无预测对照',
+              style: TextStyle(fontSize: 11, color: muted),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -3560,6 +3674,11 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
     final title =
         isSample ? '$dayLabel · 预测小结 · 示例' : '$dayLabel · 预测小结';
 
+    // 非合并且有子：真样本行跟叶子 logo/名；合并根 / 示例 / 无子：纯文案
+    final showLeafIdentity = !isSample &&
+        !catalogRootMergePredict(widget.eventId, widget.catalog) &&
+        hasChildren(widget.catalog, widget.eventId);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -3610,19 +3729,63 @@ class _PredictAccuracyChartPaneState extends State<_PredictAccuracyChartPane> {
                   separatorBuilder: (_, __) => const SizedBox(height: 4),
                   itemBuilder: (context, i) {
                     final s = samples[i];
-                    return Text(
-                      _detailLine(s),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: _trafficColor(s.traffic),
-                      ),
+                    return _summaryDetailRow(
+                      context,
+                      s,
+                      showLeafIdentity: showLeafIdentity,
                     );
                   },
                 ),
         ),
+      ],
+    );
+  }
+
+  /// 小结一行：非合并可带叶子 logo+名（子色）；明细用准偏 traffic 色。
+  Widget _summaryDetailRow(
+    BuildContext context,
+    PredictAccuracySample s, {
+    required bool showLeafIdentity,
+  }) {
+    final detailStyle = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w500,
+      color: _trafficColor(s.traffic),
+    );
+    final detail = Text(
+      _detailLine(s),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: detailStyle,
+    );
+    if (!showLeafIdentity) return detail;
+
+    final leafId = s.leafEventId?.trim() ?? '';
+    final leafDef =
+        leafId.isEmpty ? null : lookupEventById(widget.catalog, leafId);
+    if (leafDef == null) return detail;
+
+    // 名跟子品牌色；预计→实际仍跟 traffic
+    final leafAccent = resolveEventColor(context, leafDef);
+    return Row(
+      children: [
+        EventLogo(definition: leafDef, size: 14),
+        const SizedBox(width: 4),
+        Flexible(
+          flex: 2,
+          child: Text(
+            leafDef.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: leafAccent,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(flex: 5, child: detail),
       ],
     );
   }

@@ -88,21 +88,12 @@ class _HomeWidgetLargePreviewState
           now: now,
           birthDate: baby.birthDate,
           activeEventKeys: enabledActive,
-          recallIntervalsByRoot: {
-            for (final e in inputs.recallIntervalsByRoot.entries)
-              if (!disabled.contains(e.key)) e.key: e.value,
-          },
-          lastAtCacheByRoot: {
-            for (final e in inputs.lastAtCacheByRoot.entries)
-              if (!disabled.contains(e.key)) e.key: e.value,
-          },
         );
         final header = formatWidgetHeaderLine(baby, now);
         final sig = Object.hash(
           header,
           visual.shellGradientStart,
           inputs.history.length,
-          inputs.recallIntervalsByRoot.length,
           preds.map((p) => '${p.eventId}:${p.nextAt.millisecondsSinceEpoch}').join('|'),
           disabled.length,
           catalog.length,

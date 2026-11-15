@@ -129,7 +129,6 @@ void scheduleEventLastAtObserveFromHistory(
     if (dn.isEmpty || !ref.read(sessionProvider).isLoggedIn) return;
     final tips = <String, DateTime>{};
     for (final r in real) {
-      if (isPredictionRecallSeedRecord(r)) continue;
       final at = occurrenceInstant(r, includeActive: true);
       if (at == null) continue;
       final id = historyRecordEventId(r);
@@ -152,7 +151,6 @@ Future<void> invalidateEventLastAtForRemovedRecord(
   required List<EventDefinition> catalog,
   required List<HistoryRecord> visibleAfter,
 }) async {
-  if (isPredictionRecallSeedRecord(removed)) return;
   final at = occurrenceInstant(removed, includeActive: true);
   if (at == null) return;
   final id = historyRecordEventId(removed);

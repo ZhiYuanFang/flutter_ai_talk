@@ -3,17 +3,19 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/app_debug_log.dart';
+import '../data/event_next_predictor.dart';
 import '../data/history_list_page.dart';
 import '../data/history_mapper.dart';
 import '../data/home_history_store.dart';
 import '../data/home_history_memory_cache.dart';
 import '../data/models.dart';
+import '../data/prediction_range_history.dart';
 import '../home_widget/home_widget_sync.dart';
 import '../data/smart_prediction_rows.dart';
 import 'device_no_notifier.dart';
 import 'event_catalog_notifier.dart';
 import 'event_last_at_provider.dart';
-import 'prediction_range_history_provider.dart';
 import 'repositories.dart';
 import 'session_provider.dart';
 
@@ -25,21 +27,26 @@ class HomeHistoryState {
     this.total = 0,
     this.highestPageLoaded = 0,
     this.loadingMore = false,
+    this.seeding = false,
+    this.hasMoreOlder = true,
+    this.seedTruncated = false,
   });
 
   final List<HistoryRecord> items;
   final bool initialLoadDone;
   final int total;
+  /// 兼容旧快照；统一池 loadMore 不再依赖页码。
   final int highestPageLoaded;
   final bool loadingMore;
+  /// 近 7 日 filter 种子进行中。
+  final bool seeding;
+  /// 时间游标是否还可能有更旧记录。
+  final bool hasMoreOlder;
+  /// 最近一次种子是否触顶 500。
+  final bool seedTruncated;
 
-  bool get hasMore {
-    if (highestPageLoaded <= 0) return false;
-    if (total > 0) {
-      return highestPageLoaded * kHomeHistoryPageSize < total;
-    }
-    return items.length >= highestPageLoaded * kHomeHistoryPageSize;
-  }
+  /// 喂养列表「还有更多」：统一池以 [hasMoreOlder] 为准。
+  bool get hasMore => hasMoreOlder;
 
   HomeHistoryState copyWith({
     List<HistoryRecord>? items,
@@ -47,6 +54,9 @@ class HomeHistoryState {
     int? total,
     int? highestPageLoaded,
     bool? loadingMore,
+    bool? seeding,
+    bool? hasMoreOlder,
+    bool? seedTruncated,
   }) {
     return HomeHistoryState(
       items: items ?? this.items,
@@ -54,8 +64,27 @@ class HomeHistoryState {
       total: total ?? this.total,
       highestPageLoaded: highestPageLoaded ?? this.highestPageLoaded,
       loadingMore: loadingMore ?? this.loadingMore,
+      seeding: seeding ?? this.seeding,
+      hasMoreOlder: hasMoreOlder ?? this.hasMoreOlder,
+      seedTruncated: seedTruncated ?? this.seedTruncated,
     );
   }
+}
+
+/// 记录发生时刻 unix 秒（startTime，缺省 createdAt）。
+int? historyRecordStartUnixSeconds(HistoryRecord r) {
+  final t = occurrenceInstant(r, includeActive: true);
+  if (t == null) return null;
+  return historyDateTimeToUnixSeconds(t);
+}
+
+void _sortHistoryAscByStart(List<HistoryRecord> items) {
+  items.sort((a, b) {
+    final sa = historyRecordStartUnixSeconds(a) ?? 0;
+    final sb = historyRecordStartUnixSeconds(b) ?? 0;
+    if (sa != sb) return sa.compareTo(sb);
+    return a.id.compareTo(b.id);
+  });
 }
 
 class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
@@ -68,9 +97,16 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
   Future<void>? _warmFuture;
   Future<bool>? _loadPageInFlight;
   Future<bool>? _refreshFuture;
+  Future<bool>? _seedInFlight;
+  Future<bool>? _rollingInFlight;
   var _flyAnimationFrozen = false;
   var _consecutiveLoadMoreFailures = 0;
+  var _consecutiveSeedFailures = 0;
+  /// 本会话是否已成功跑过一次远端 7 日种子（磁盘 hydrate 不算）。
+  var _remoteSeedSucceeded = false;
   final List<void Function()> _queuedWhileFlyFrozen = [];
+
+  static const _kMaxSeedFailures = 3;
 
   /// 切号/注销递增；in-flight 写回比对后丢弃。
   var _epoch = 0;
@@ -123,6 +159,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     List<HistoryRecord> items, {
     int? total,
     int? highestPageLoaded,
+    bool? hasMoreOlder,
     required int epoch,
   }) {
     _applyState(
@@ -130,6 +167,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         items: items,
         total: total,
         highestPageLoaded: highestPageLoaded,
+        hasMoreOlder: hasMoreOlder,
       ),
       epoch: epoch,
     );
@@ -173,6 +211,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         items: cached.items,
         total: cached.total,
         highestPageLoaded: cached.highestPageLoaded,
+        hasMoreOlder: cached.hasMoreOlder,
       ),
       epoch: epoch,
     );
@@ -205,9 +244,12 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     _warmFuture = null;
     _refreshFuture = null;
     _loadPageInFlight = null;
+    _seedInFlight = null;
     _flyAnimationFrozen = false;
     _deviceChangeBootstrapFuture = null;
     _bootstrapInFlightForDeviceNo = null;
+    _consecutiveSeedFailures = 0;
+    _remoteSeedSucceeded = false;
     HomeHistoryMemoryCache.clear();
     state = const HomeHistoryState(initialLoadDone: true);
   }
@@ -235,7 +277,10 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     _warmFuture = null;
     _refreshFuture = null;
     _loadPageInFlight = null;
+    _seedInFlight = null;
     _consecutiveLoadMoreFailures = 0;
+    _consecutiveSeedFailures = 0;
+    _remoteSeedSucceeded = false;
     HomeHistoryMemoryCache.clear();
     state = const HomeHistoryState();
 
@@ -255,6 +300,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       highestPageLoaded: state.highestPageLoaded > 0
           ? state.highestPageLoaded
           : (state.items.isEmpty ? 0 : 1),
+      hasMoreOlder: state.hasMoreOlder,
     );
   }
 
@@ -285,16 +331,10 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     _applyItems(items, epoch: epoch);
     if (_isStale(epoch)) return;
     if (_ref.read(sessionProvider).isLoggedIn) {
-      // 喂养历史变更 → 失效预测 range（防抖重拉），再推小组件
-      _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
+      // 统一池变更 → 推小组件；预测只读本池
       unawaited(scheduleHomeWidgetSync(_ref));
-      // 真历史入内存 → max 刷新事件最近发生 tip
       final catalog = _ref.read(eventCatalogProvider).items;
-      final real = mergeRealHistoryById(
-        rangeItems: _ref.read(predictionRangeHistoryProvider).items,
-        homeItems: state.items,
-      );
-      scheduleEventLastAtObserveFromHistory(_ref, real, catalog);
+      scheduleEventLastAtObserveFromHistory(_ref, state.items, catalog);
     }
     if (persist) unawaited(persistToDisk());
   }
@@ -387,32 +427,18 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
         break;
       }
     }
-    if (removed == null) {
-      for (final e in _ref.read(predictionRangeHistoryProvider).items) {
-        if (e.id == id) {
-          removed = e;
-          break;
-        }
-      }
-    }
     setItems(
       state.items.where((e) => e.id != id).toList(),
       source: 'wsRemove id=$id',
     );
-    // 同步抠掉 range 快照，避免真 lastAt 并集仍命中已删 id
-    _ref.read(predictionRangeHistoryProvider.notifier).removeItemById(id);
     if (removed != null && !isPredictionRecallSeedRecord(removed)) {
       final catalog = _ref.read(eventCatalogProvider).items;
-      final visible = mergeRealHistoryById(
-        rangeItems: _ref.read(predictionRangeHistoryProvider).items,
-        homeItems: state.items,
-      );
       unawaited(
         invalidateEventLastAtForRemovedRecord(
           _ref,
           removed: removed,
           catalog: catalog,
-          visibleAfter: visible,
+          visibleAfter: state.items,
         ),
       );
     }
@@ -426,12 +452,11 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     );
   }
 
-  /// 刷新 home 第 1 页；网络成功 true。single-flight 复用 `_refreshFuture`。
-  /// [preserveLoadedDepth] true：合并 page1 并保留更深页（resume/bootstrap）；
-  /// false：整表替换为最新一页（显式下拉/底部上拉）。
-  Future<bool> refreshFromRemote({bool preserveLoadedDepth = false}) {
+  /// 远端刷新：一次近 7 日 filter 种子；成功 true。
+  /// [preserveLoadedDepth] 保留窗起点之前的更旧行（默认种子均保留）。
+  /// 冷启 / ColdStart 用；resume 与预测下拉请用 [refreshRollingWindow]。
+  Future<bool> refreshFromRemote({bool preserveLoadedDepth = true}) {
     if (_flyAnimationFrozen) {
-      // 飞行动画冻结：入队稍后刷，本调用不视为网络失败
       _enqueueIfFrozen(
         () => unawaited(
           refreshFromRemote(preserveLoadedDepth: preserveLoadedDepth),
@@ -439,18 +464,145 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       );
       return Future.value(true);
     }
-    // 进行中以先入模式为准（single-flight）
     final existing = _refreshFuture;
     if (existing != null) return existing;
-    return _refreshFuture =
-        _refreshFromRemoteImpl(preserveLoadedDepth: preserveLoadedDepth)
-            .whenComplete(() {
+    return _refreshFuture = seedSevenDayHistory(
+      force: true,
+      preserveOlderOutsideWindow: preserveLoadedDepth,
+    ).whenComplete(() {
       _refreshFuture = null;
     });
   }
 
-  Future<bool> _refreshFromRemoteImpl({
-    required bool preserveLoadedDepth,
+  /// resume / 预测下拉：滚动 24h filter 合并；保留窗外更旧本地行。
+  Future<bool> refreshRollingWindow({
+    bool preserveOlderOutsideWindow = true,
+  }) {
+    if (_flyAnimationFrozen) {
+      _enqueueIfFrozen(
+        () => unawaited(
+          refreshRollingWindow(
+            preserveOlderOutsideWindow: preserveOlderOutsideWindow,
+          ),
+        ),
+      );
+      return Future.value(true);
+    }
+    final existing = _rollingInFlight;
+    if (existing != null) return existing;
+    return _rollingInFlight = _refreshRollingWindowImpl(
+      preserveOlderOutsideWindow: preserveOlderOutsideWindow,
+    ).whenComplete(() {
+      _rollingInFlight = null;
+    });
+  }
+
+  Future<bool> _refreshRollingWindowImpl({
+    required bool preserveOlderOutsideWindow,
+  }) async {
+    final epoch = _epoch;
+    if (!_ref.read(sessionProvider).isLoggedIn) {
+      return false;
+    }
+    await _warmFromDisk();
+    if (_isStale(epoch)) return true;
+    final dn = _deviceNo();
+    if (dn == null || dn.isEmpty) {
+      await _ref.read(deviceNoNotifierProvider.notifier).refresh();
+      if (_isStale(epoch)) return true;
+    }
+    final resolvedDn = _deviceNo();
+    if (resolvedDn == null || resolvedDn.isEmpty) {
+      return false;
+    }
+
+    final windowAsc = await fetchPredictionRolling24hHistory(
+      _ref.read(feedRepositoryProvider),
+    );
+    if (_isStale(epoch)) return true;
+    if (windowAsc == null) {
+      AppDebugLog.homeWidget('history rolling24h merge fail');
+      return false;
+    }
+
+    final bounds = predictionRolling24hUnixBounds();
+    final windowStart = bounds.$1;
+    final windowIds = windowAsc.map((e) => e.id).toSet();
+    final olderKept = <HistoryRecord>[];
+    if (preserveOlderOutsideWindow) {
+      for (final e in state.items) {
+        if (windowIds.contains(e.id) || isPendingHistoryId(e.id)) continue;
+        final sec = historyRecordStartUnixSeconds(e);
+        if (sec != null && sec < windowStart) {
+          olderKept.add(e);
+        }
+      }
+    }
+
+    final combined = <HistoryRecord>[...olderKept, ...windowAsc];
+    _sortHistoryAscByStart(combined);
+    final mergedAsc = mergeRemoteHistoryAscWithPendingLocal(
+      remoteAsc: combined,
+      localItems: state.items,
+    );
+    _sortHistoryAscByStart(mergedAsc);
+
+    final next = state.copyWith(
+      items: mergedAsc,
+      total: mergedAsc.length,
+      highestPageLoaded: mergedAsc.isEmpty ? 0 : state.highestPageLoaded,
+      loadingMore: false,
+      seeding: false,
+      hasMoreOlder: state.hasMoreOlder || olderKept.isNotEmpty,
+      initialLoadDone: true,
+    );
+    await HomeHistoryStore.saveSnapshot(
+      resolvedDn,
+      HomeHistoryCacheSnapshot(
+        items: mergedAsc,
+        total: mergedAsc.length,
+        highestPageLoaded: next.highestPageLoaded,
+        hasMoreOlder: next.hasMoreOlder,
+      ),
+    );
+    if (_isStale(epoch) || _deviceNo() != resolvedDn) {
+      await HomeHistoryStore.clearAll();
+      return true;
+    }
+    _applyState(next, epoch: epoch);
+    if (_isStale(epoch)) return true;
+    if (_ref.read(sessionProvider).isLoggedIn) {
+      unawaited(scheduleHomeWidgetSync(_ref));
+      final catalog = _ref.read(eventCatalogProvider).items;
+      scheduleEventLastAtObserveFromHistory(_ref, mergedAsc, catalog);
+    }
+    return true;
+  }
+
+  /// 近 7 日一次 filter 种子（single-flight）；触顶截断不补页。
+  Future<bool> seedSevenDayHistory({
+    bool force = false,
+    bool preserveOlderOutsideWindow = true,
+  }) {
+    final existing = _seedInFlight;
+    if (existing != null) {
+      if (!force) return existing;
+      return existing.then((_) => seedSevenDayHistory(
+            force: true,
+            preserveOlderOutsideWindow: preserveOlderOutsideWindow,
+          ));
+    }
+    return _seedInFlight = _seedSevenDayImpl(
+      force: force,
+      preserveOlderOutsideWindow: preserveOlderOutsideWindow,
+    ).whenComplete(() {
+      _seedInFlight = null;
+    });
+  }
+
+  Future<bool> _seedSevenDayImpl({
+    required bool force,
+    required bool preserveOlderOutsideWindow,
   }) async {
     final epoch = _epoch;
     if (!_ref.read(sessionProvider).isLoggedIn) {
@@ -463,100 +615,86 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (_isStale(epoch)) return true;
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) {
+      await _ref.read(deviceNoNotifierProvider.notifier).refresh();
+      if (_isStale(epoch)) return true;
+    }
+    final resolvedDn = _deviceNo();
+    if (resolvedDn == null || resolvedDn.isEmpty) {
       _clearItemsForUnboundSession(epoch: epoch);
       return false;
     }
 
-    final cachedSnapshot = state.items.isNotEmpty
-        ? _currentSnapshot()
-        : await HomeHistoryStore.loadSnapshot(dn);
-    if (_isStale(epoch)) return true;
-    if (cachedSnapshot.items.isNotEmpty && state.items.isEmpty) {
-      _applyState(
-        state.copyWith(
-          items: cachedSnapshot.items,
-          total: cachedSnapshot.total,
-          highestPageLoaded: cachedSnapshot.highestPageLoaded,
-        ),
-        epoch: epoch,
-      );
+    if (!force && _remoteSeedSucceeded) {
+      return true;
+    }
+    if (_consecutiveSeedFailures >= _kMaxSeedFailures && !force) {
+      AppDebugLog.homeWidget('history seed skipped circuit open');
+      return false;
     }
 
-    final page = await _ref.read(feedRepositoryProvider).tryLoadHistoryPage(page: 1);
+    state = state.copyWith(seeding: true);
+    final windowAsc = await fetchPredictionSevenDayHistory(
+      _ref.read(feedRepositoryProvider),
+    );
     if (_isStale(epoch)) return true;
-    if (page == null) return false;
+    if (windowAsc == null) {
+      _consecutiveSeedFailures += 1;
+      state = state.copyWith(seeding: false);
+      return false;
+    }
+    _consecutiveSeedFailures = 0;
+    _remoteSeedSucceeded = true;
 
-    final remoteAsc = historyListToHomeAsc(page.listDesc);
-    final prevHighest = state.highestPageLoaded;
+    final bounds = predictionSevenDayUnixBounds();
+    final windowStart = bounds.$1;
+    final truncated = windowAsc.length >= kHistoryFilterMaxLimit;
 
-    // 保留深度：page1 upsert + 不在 page1 的本地更旧行；手势路径仍整表 page1
-    final mergedAsc = preserveLoadedDepth
-        ? mergeRemotePage1PreservingLocalDepth(
-            remoteAsc: remoteAsc,
-            localItems: state.items,
-          )
-        : mergeRemoteHistoryAscWithPendingLocal(
-            remoteAsc: remoteAsc,
-            localItems: state.items,
-          );
-    final nextHighest =
-        preserveLoadedDepth && prevHighest > 1 ? prevHighest : 1;
-
-    // 仅瘦快照短路：无更深页且与远端 page1 等价时少写盘
-    if (!preserveLoadedDepth || prevHighest <= 1) {
-      final firstPageOnlyCached = cachedSnapshot.highestPageLoaded <= 1 &&
-          historySnapshotsEqual(cachedSnapshot.items, remoteAsc);
-      if (firstPageOnlyCached) {
-        if (state.items.isEmpty && remoteAsc.isNotEmpty) {
-          _applyState(
-            state.copyWith(
-              items: mergedAsc,
-              total: page.total,
-              highestPageLoaded: 1,
-            ),
-            epoch: epoch,
-          );
-        } else if (state.total != page.total || state.highestPageLoaded != 1) {
-          _applyState(
-            state.copyWith(total: page.total, highestPageLoaded: 1),
-            epoch: epoch,
-          );
+    final windowIds = windowAsc.map((e) => e.id).toSet();
+    final olderKept = <HistoryRecord>[];
+    if (preserveOlderOutsideWindow) {
+      for (final e in state.items) {
+        if (windowIds.contains(e.id) || isPendingHistoryId(e.id)) continue;
+        final sec = historyRecordStartUnixSeconds(e);
+        if (sec != null && sec < windowStart) {
+          olderKept.add(e);
         }
-        if (_isStale(epoch)) return true;
-        if (_ref.read(sessionProvider).isLoggedIn) {
-          _ref
-              .read(predictionRangeHistoryProvider.notifier)
-              .scheduleInvalidation();
-          unawaited(scheduleHomeWidgetSync(_ref));
-        }
-        return true;
       }
     }
 
+    final combined = <HistoryRecord>[...olderKept, ...windowAsc];
+    _sortHistoryAscByStart(combined);
+    final mergedAsc = mergeRemoteHistoryAscWithPendingLocal(
+      remoteAsc: combined,
+      localItems: state.items,
+    );
+    _sortHistoryAscByStart(mergedAsc);
+
     final next = state.copyWith(
       items: mergedAsc,
-      total: page.total,
-      highestPageLoaded: nextHighest,
+      total: mergedAsc.length,
+      highestPageLoaded: mergedAsc.isEmpty ? 0 : 1,
       loadingMore: false,
+      seeding: false,
+      hasMoreOlder: true,
+      seedTruncated: truncated,
+      initialLoadDone: true,
     );
-    await HomeHistoryStore.saveSnapshot(
-      dn,
-      HomeHistoryCacheSnapshot(
-        items: mergedAsc,
-        total: page.total,
-        highestPageLoaded: nextHighest,
-      ),
-    );
-    if (_isStale(epoch) || _deviceNo() != dn) {
+    await HomeHistoryStore.saveSnapshot(resolvedDn, HomeHistoryCacheSnapshot(
+      items: mergedAsc,
+      total: mergedAsc.length,
+      highestPageLoaded: next.highestPageLoaded,
+      hasMoreOlder: true,
+    ));
+    if (_isStale(epoch) || _deviceNo() != resolvedDn) {
       await HomeHistoryStore.clearAll();
       return true;
     }
     _applyState(next, epoch: epoch);
-    // 首页刷新可能变更近 7 日内容 → 失效预测 range
     if (_isStale(epoch)) return true;
     if (_ref.read(sessionProvider).isLoggedIn) {
-      _ref.read(predictionRangeHistoryProvider.notifier).scheduleInvalidation();
       unawaited(scheduleHomeWidgetSync(_ref));
+      final catalog = _ref.read(eventCatalogProvider).items;
+      scheduleEventLastAtObserveFromHistory(_ref, mergedAsc, catalog);
     }
     return true;
   }
@@ -565,7 +703,7 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     await loadNextHistoryPage();
   }
 
-  /// 加载下一页历史；成功返回 true（仅喂养列表分页，不驱动预测 range）。
+  /// 时间游标加载更旧历史；成功返回 true。
   Future<bool> loadNextHistoryPage() async {
     if (_flyAnimationFrozen) {
       _enqueueIfFrozen(() => unawaited(loadNextHistoryPage()));
@@ -574,41 +712,69 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
     if (_loadPageInFlight != null) {
       return _loadPageInFlight!;
     }
-    return _loadPageInFlight = _loadNextHistoryPageImpl().whenComplete(() {
+    return _loadPageInFlight = _loadOlderByTimeCursorImpl().whenComplete(() {
       _loadPageInFlight = null;
     });
   }
 
-  Future<bool> _loadNextHistoryPageImpl() async {
+  Future<bool> _loadOlderByTimeCursorImpl() async {
     final epoch = _epoch;
-    if (!state.hasMore || state.loadingMore) return false;
+    if (!state.hasMoreOlder || state.loadingMore) return false;
     if (!_ref.read(sessionProvider).isLoggedIn) return false;
     if (isLoadMoreCircuitOpen) return false;
     final dn = _deviceNo();
     if (dn == null || dn.isEmpty) return false;
 
-    final nextPage = state.highestPageLoaded + 1;
-    state = state.copyWith(loadingMore: true);
+    // 游标：池内最旧 startTime−1；空池则用 7 日窗起点−1
+    int? oldestSec;
+    for (final e in state.items) {
+      final sec = historyRecordStartUnixSeconds(e);
+      if (sec == null) continue;
+      if (oldestSec == null || sec < oldestSec) oldestSec = sec;
+    }
+    oldestSec ??= predictionSevenDayUnixBounds().$1;
+    final endTime = oldestSec - 1;
+    if (endTime < 1) {
+      state = state.copyWith(hasMoreOlder: false);
+      return true;
+    }
 
-    final page = await _ref.read(feedRepositoryProvider).tryLoadHistoryPage(page: nextPage);
+    state = state.copyWith(loadingMore: true);
+    final listDesc = await _ref.read(feedRepositoryProvider).tryLoadHistoryFilter(
+          endTime: endTime,
+          limit: kHomeHistoryPageSize,
+        );
     if (_isStale(epoch)) return false;
-    if (page == null) {
+    if (listDesc == null) {
       state = state.copyWith(loadingMore: false);
       _consecutiveLoadMoreFailures += 1;
       return false;
     }
 
     _consecutiveLoadMoreFailures = 0;
-    final olderAsc = historyListToHomeAsc(page.listDesc);
+    if (listDesc.isEmpty) {
+      final next = state.copyWith(
+        loadingMore: false,
+        hasMoreOlder: false,
+      );
+      _applyState(next, epoch: epoch);
+      unawaited(persistToDisk());
+      return true;
+    }
+
+    final olderAsc = historyListToHomeAsc(listDesc);
     final existingIds = state.items.map((e) => e.id).toSet();
-    final newOnes = olderAsc.where((e) => !existingIds.contains(e.id)).toList();
+    final newOnes =
+        olderAsc.where((e) => !existingIds.contains(e.id)).toList();
     final merged = [...newOnes, ...state.items];
+    _sortHistoryAscByStart(merged);
 
     final next = state.copyWith(
       items: merged,
-      total: page.total,
-      highestPageLoaded: nextPage,
+      total: merged.length,
       loadingMore: false,
+      hasMoreOlder: newOnes.isNotEmpty,
+      highestPageLoaded: state.highestPageLoaded + 1,
     );
     _applyState(next, epoch: epoch);
     if (_isStale(epoch)) return false;
@@ -616,15 +782,15 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       dn,
       HomeHistoryCacheSnapshot(
         items: merged,
-        total: page.total,
-        highestPageLoaded: nextPage,
+        total: merged.length,
+        highestPageLoaded: next.highestPageLoaded,
+        hasMoreOlder: next.hasMoreOlder,
       ),
     );
     if (_isStale(epoch) || _deviceNo() != dn) {
       await HomeHistoryStore.clearAll();
       return false;
     }
-    // 更旧分页不进入 7 日 range，无需同步小组件预测
     return true;
   }
 
@@ -638,11 +804,11 @@ class HomeHistoryNotifier extends StateNotifier<HomeHistoryState> {
       }
       await loadFromDisk();
       if (_isStale(epoch)) return;
-      // resume / deviceNo bootstrap：合并 page1，保留已 loadMore 深度
-      await refreshFromRemote(preserveLoadedDepth: true);
+      // 主壳/切号：一次 7 日种子，保留窗外更旧
+      await seedSevenDayHistory(force: true, preserveOlderOutsideWindow: true);
     } finally {
       if (!_isStale(epoch)) {
-        state = state.copyWith(initialLoadDone: true);
+        state = state.copyWith(initialLoadDone: true, seeding: false);
       }
     }
   }
@@ -658,6 +824,7 @@ HomeHistoryState _homeHistoryInitialState(Ref ref) {
   return HomeHistoryState(
     items: mem,
     highestPageLoaded: 1,
+    hasMoreOlder: true,
   );
 }
 

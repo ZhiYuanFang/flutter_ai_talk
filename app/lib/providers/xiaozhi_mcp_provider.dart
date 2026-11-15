@@ -5,7 +5,7 @@ import '../data/xiaozhi_mcp_models.dart';
 import '../data/xiaozhi_mcp_unlock_repository.dart';
 import '../services/xiaozhi_mcp_payment_service.dart';
 import 'authorized_api_client_provider.dart';
-import 'cash_vip_provider.dart';
+import 'feature_unlock_provider.dart';
 import 'toast_bus.dart';
 
 final xiaozhiMcpBindingRepositoryProvider =
@@ -27,7 +27,7 @@ final xiaozhiMcpUnlockRepositoryProvider =
 final xiaozhiMcpPaymentServiceProvider = Provider<XiaozhiMcpPaymentService>((ref) {
   return XiaozhiMcpPaymentService(
     ref.watch(xiaozhiMcpUnlockRepositoryProvider),
-    ref.watch(cashVipRepositoryProvider),
+    ref.watch(cashAppleIapRepositoryProvider),
   );
 });
 

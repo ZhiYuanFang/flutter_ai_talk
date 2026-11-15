@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../home_widget/home_widget_sync.dart';
-import '../providers/cash_vip_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_baby.dart';
@@ -38,8 +37,6 @@ class GatewayBootstrapGate {
       container.invalidate(settingsBabyProvider);
     } catch (_) {}
     await ensureWidgetReadyFromRef(container);
-    // 预热 VIP：kick 不挡登录完成，缩短预测页 care-alert settle await。
-    unawaited(container.read(vipStatusProvider.notifier).ensureSettled());
     _loggedInComplete = true;
   }
 

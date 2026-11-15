@@ -8,7 +8,6 @@ import '../config/env.dart';
 import 'app_route_observer.dart';
 import 'focus_cleanup_observer.dart';
 import '../ucg/ui/ucg_home_shell.dart';
-import '../ucg/data/ucg_feature_flags.dart';
 import '../ui/wechat_oauth_callback_screen.dart';
 import '../ui/dev/ios_login_http_probe_screen.dart';
 import '../ui/login_screen.dart';
@@ -25,17 +24,8 @@ import '../ui/xiaozhi_speaker_screen.dart';
 import '../ui/xiaozhi_speaker_field_help_screen.dart';
 import '../ui/xiaozhi_speaker_buy_howto_screen.dart';
 import '../ui/xiaozhi_speaker_guide_video_screen.dart';
-import '../data/prediction_care_alert.dart';
-import '../ui/pangbao_ai_screen.dart';
-import '../ui/prediction_care_alert_screen.dart';
-import '../ui/ai_analysis_screen.dart';
-import '../ui/feeding_analysis_screen.dart';
-import '../ui/growth_trajectory_screen.dart';
 import '../ui/splash_screen.dart';
 import '../ui/trends_screen.dart';
-import '../ui/vip_purchase_screen.dart';
-import '../ui/feature_unlock_hub_screen.dart';
-import '../ui/feature_unlock/invite_code_howto_screen.dart';
 import '../ui/home_widget_showcase_screen.dart';
 
 /// 必须使用 [ref.read]，不能用 [ref.watch]：会话 [notifyListeners] 会触发重建，
@@ -63,9 +53,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         return '/home';
       }
       final loc = state.matchedLocation;
-      if (loc == '/vip/purchase' && !kVipPurchaseEnabled) {
-        return '/home';
-      }
       final splash = loc == '/splash';
       final loggingIn = loc == '/login';
       final registering = loc == '/register';
@@ -81,9 +68,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         '/settings/xiaozhi-speaker/help-token',
         '/settings/xiaozhi-speaker/howto-buy',
         '/settings/xiaozhi-speaker/guide-video',
-        '/features/unlock',
-        '/features/invite-howto',
-        '/vip/purchase',
       };
       final guestAllowed = splash ||
           loggingIn ||
@@ -151,59 +135,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           });
           return '/home';
         },
-      ),
-      GoRoute(
-        // 预测页 tip 卡 push 进入陪伴（本阶段唯一产品入口）
-        path: '/companion',
-        builder: (context, state) =>
-            const PangbaoAiScreen(embeddedInHomePager: false),
-      ),
-      GoRoute(
-        // 护理留意详情：extra 传入 CareAlertEventItem
-        path: '/prediction/alert',
-        builder: (context, state) {
-          final extra = state.extra;
-          if (extra is CareAlertEventItem) {
-            return PredictionCareAlertScreen(item: extra);
-          }
-          return Scaffold(
-            appBar: AppBar(title: const Text('值得留意')),
-            body: const Center(child: Text('暂无预警详情')),
-          );
-        },
-      ),
-      GoRoute(
-        // AI 分析 Hub：资格门 + 入口卡
-        path: '/prediction/ai-analysis',
-        builder: (context, state) => const AiAnalysisScreen(),
-        routes: [
-          GoRoute(
-            path: 'feeding',
-            builder: (context, state) => const FeedingAnalysisScreen(),
-          ),
-          GoRoute(
-            path: 'growth',
-            builder: (context, state) => const GrowthTrajectoryScreen(),
-          ),
-        ],
-      ),
-      GoRoute(
-        // VIP 购买：暂停闸门下 redirect；开启时需登录
-        path: '/vip/purchase',
-        redirect: (context, state) {
-          if (!kVipPurchaseEnabled) return '/home';
-          return null;
-        },
-        builder: (context, state) => const VipPurchaseScreen(),
-      ),
-      GoRoute(
-        path: '/features/unlock',
-        builder: (context, state) => const FeatureUnlockHubScreen(),
-      ),
-      GoRoute(
-        // 邀请码获取方式：来源说明 / 进广场 / 条件微信群二维码
-        path: '/features/invite-howto',
-        builder: (context, state) => const InviteCodeHowtoScreen(),
       ),
       GoRoute(
         path: '/widgets/showcase',
@@ -284,7 +215,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     ],
     errorBuilder: (context, state) => Scaffold(
       appBar: AppBar(title: const Text('路由错误')),
-      body: Center(child: Text(state.error?.message ?? '未知路径：${state.uri}')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                state.error?.message ?? '未知路径：${state.uri}',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              // 旧退休深链等未匹配路径：一键回主页
+              FilledButton(
+                onPressed: () => context.go('/home'),
+                child: const Text('回主页'),
+              ),
+            ],
+          ),
+        ),
+      ),
     ),
   );
 });

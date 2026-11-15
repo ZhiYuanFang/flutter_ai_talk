@@ -48,16 +48,13 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[PredictPostMutation]` | 历史突变后静默调度（锚点链 expect-batch / resume） |
 | `[Survey]` | 主壳满意度问卷 current/submit（GET 失败静默） |
 | `[XiaozhiGuide]` | 小智音箱引导视频清单拉取 / 播放失败 |
+| `[PredictProIdea]` | 预测 Pro 想法 list/submit/like |
 | `[UcgShare]` | 辩论帖微信分享截图上传/分享失败（`upload fail` / `share fail`） |
-| `[PangbaoClinic]` | 胖宝诊疗本地会话 hydrate / session_sync merge |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |
-| `[CareAlert]` | 护理留意日缓存拉取 / 忽略删缓存 / 飞轮固定意图反馈 |
-| `[CashVip]` | VIP 商品/状态/建单/Apple 验单/支付宝回前台轮询 |
-| `[FeatureUnlock]` | 功能 catalog/UCG 资格/建单/邀请码/广告开通 |
+| `[FeatureUnlock]` | 功能 catalog/Pro 资格/建单/邀请码/广告/支付宝/Apple 验单 |
 | `[LandscapeKws]` | 横屏唤醒 KWS 模型 CDN 下载 / 解压 / 缺文件 |
 | `[LandscapeVoice]` | 横屏语音 chat WS 就绪 / 唤醒开听各步失败 |
-| `[GrowthTrajectory]` | 成长轨迹预测 latest / turn SSE |
 | `[ClientUsage]` | 客户端使用上报（页展示/动作；失败静默） |
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
@@ -133,7 +130,7 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 
 **Auth error 统一策略**（`handleWsAuthOrQuotaError`）：`isRefreshInFlight` 不弹 UI → 40301 silent refresh + reconnect → hard 失效才登录引导；40302 额度弹框。
 
-**前置条件重试**：`shouldConnect`/`prepareToken` 失败时传输层自动短退避重试；`bindAuthenticatedWsSession` 在 refresh 结束后 reconnect。胖宝 clinic 使用 `requireHandshakePong: false`（auth_ok 即 ready）。
+**前置条件重试**：`shouldConnect`/`prepareToken` 失败时传输层自动短退避重试；`bindAuthenticatedWsSession` 在 refresh 结束后 reconnect。部分通道可配置 `requireHandshakePong: false`（auth_ok 即 ready）。
 
 **新增通道 checklist**（须 OpenSpec change，见 `openspec/project.md`「WebSocket 韧性传输」与 `AGENTS.md`）：
 
@@ -511,20 +508,22 @@ flutter run -d android --dart-define=FORCE_IPV4=true
 - 事件 **`logo`**：`GET /device/history/api/event/options` 返回 **CDN 绝对 URL**（如 `https://resorce.cuplay.top/event/...`），客户端直接使用。
 - **`downloadUrl`**（版本检查）等仍可能为 path-only，经 `resolveGatewayAbsoluteUrl` 与 `API_BASE_URL` 拼接。
 
-### VIP 开通（留意详情 → 购买页）
+### 功能 / 小智 IAP 开通
 
-护理留意详情在非 VIP 时展示底部「开通 VIP」；购买页拉取 `GET /cash/app/api/vip/product` 展示现价，若 `originalPriceFen > 0` 则划线原价。
+App VIP 商品/状态/建单（`/cash/app/api/vip/product|status|orders`）已下线。商业开通走 **feature catalog**（含预测 Pro）与 **小智 MCP unlock**。
 
 | 平台 | 通道 | 流程 |
 |------|------|------|
-| iOS | Apple IAP（`apple_iap`） | 建单 → StoreKit（`in_app_purchase`）→ `POST /cash/app/api/vip/apple/verify` → 刷新 `GET /cash/app/api/vip/status`；**不嵌入**支付宝 SDK |
-| Android | 支付宝（`alipay`） | 建单 → path 包 `packages/tobias_android`（上游 tobias 5.3.4，仅 Android 插件）调起 `alipayOrderStr` → 回前台有界轮询 status |
+| iOS | Apple IAP（`apple_iap`） | 建单（`POST /cash/app/api/feature/orders` 或小智 orders）→ StoreKit → `POST /cash/app/api/vip/apple/verify`（**历史路径兼容**；履约功能/小智，非 VIP）→ 刷新 feature catalog / 小智 unlock；**不嵌入**支付宝 SDK |
+| Android | 支付宝（`alipay`） | 建单 → path 包 `packages/tobias_android`（上游 tobias 5.3.4，仅 Android 插件）调起 `alipayOrderStr` → 回前台后刷新 catalog/unlock |
 | Web | — | 提示使用手机 App |
+
+预测 Pro 开通前置：`GET /cash/app/api/predict-pro/eligibility`（字段同构 UCG；不挡免费亲和预测/进度）。
 
 **前置（服务端 / 商店，非本仓可改）**
 
-1. gateway 可达 cash-service；ASC 创建 IAP，`appleProductId` 与后端 `CASH_APPLE_PRODUCT_ID` / product API 一致（建议 **消耗型**，便于续期）。
-2. 支付宝开放平台应用 + 服务端 `CASH_ALIPAY_*` / notify URL（见 go_ai_talk `docs/runbooks/cash-vip-sandbox.md`）。
+1. gateway 可达 cash-service；ASC 创建 IAP，`appleProductId` 与功能/小智 SKU 一致。
+2. 支付宝开放平台应用 + 服务端 `CASH_ALIPAY_*` / notify URL（见 go_ai_talk runbooks）。
 3. Android Release：改原生/支付宝依赖后须本地 `flutter build apk --release`；ProGuard 已含 `com.alipay.**` keep。
 4. iOS **不得** 依赖 `tobias.url_scheme` / `no_utdid`（已从 app `pubspec` 移除）；支付宝仅 Android。
 
@@ -534,11 +533,11 @@ flutter run -d android --dart-define=FORCE_IPV4=true
 cd app
 # Android 支付宝
 flutter run -d android --dart-define=API_BASE_URL=https://你的网关
-# iOS Sandbox：StoreKit 沙箱账号；商品 ID 与 product.appleProductId 一致
+# iOS Sandbox：StoreKit 沙箱账号；商品 ID 与 catalog/小智 appleProductId 一致
 flutter run -d ios --dart-define=API_BASE_URL=https://你的网关
 ```
 
-Debug 过滤：`[CashVip]`（见上文 logcat 脚本）。
+Debug 过滤：`[FeatureUnlock]`（验单/目录/支付宝）。
 
 ### 微信登录（fluwx + 网页 OAuth）
 

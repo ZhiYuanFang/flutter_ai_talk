@@ -103,6 +103,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   Future<void>? _activateInFlight;
   /// deactivate 递增，取消进行中的 activate（ensureMic 之后勿再置 _active）。
   var _lifecycleGen = 0;
+  /// lifecycle 表面 want：dn 晚到补激活仅在此为 true 时允许。
+  var _surfaceWant = false;
 
   /// 思考阶段已 resume KWS，可唤醒打断（TTS 播中必须关闭）。
   var _bargeInArmed = false;
@@ -128,7 +130,31 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       _subtitleIdleTimer?.cancel();
       unawaited(_tearDown());
     });
+    // dn 空→有且表面仍 want、尚未激活：soft-check 补 activate（冷启竞态）。
+    ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
+      final prevDn = _normalizedDeviceNo(prev);
+      final nextDn = _normalizedDeviceNo(next);
+      final wasEmpty = prevDn == null || prevDn.isEmpty;
+      final nowHas = nextDn != null && nextDn.isNotEmpty;
+      if (!wasEmpty || !nowHas) return;
+      if (!_surfaceWant || _active) return;
+      AppDebugLog.landscapeVoice('deviceNo arrived → re-activate');
+      unawaited(activate(ensureMic: softCheckLandscapeMicGranted));
+    });
     return const LandscapeVoiceUiState();
+  }
+
+  /// 规范化 deviceNo；loading/error/空串视为无。
+  static String? _normalizedDeviceNo(AsyncValue<String?>? v) {
+    if (v == null) return null;
+    final raw = v.asData?.value?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    return raw;
+  }
+
+  /// 由 [syncLandscapeVoiceLifecycle] 写入；离表面必须清 false。
+  void setSurfaceWant(bool want) {
+    _surfaceWant = want;
   }
 
   void _syncChatFlags() {
@@ -217,7 +243,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _armIdleNoSpeechTimer(quiet: true);
   }
 
-  /// 预测页横屏可见时调用；[ensureMic] 负责用途框 + 系统权限。
+  /// 预测语音表面可见时调用；[ensureMic] 由调用方注入 soft-check 或完整申请。
   Future<void> activate({
     required Future<bool> Function() ensureMic,
   }) async {
@@ -245,8 +271,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     if (_active) return;
     final gen = _lifecycleGen;
 
-    final dn = ref.read(deviceNoNotifierProvider).asData?.value;
-    if (dn == null || dn.isEmpty) {
+    final dn = _normalizedDeviceNo(ref.read(deviceNoNotifierProvider));
+    if (dn == null) {
       state = state.copyWith(
         statusCaption: '绑定宝宝后可语音完成喂养记录',
         micDenied: false,
@@ -256,22 +282,29 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       return;
     }
 
+    // soft-check 失败 = 尚未授权（不置会话拒绝）；仍半激活并预连 chat WS。
     final micOk = await ensureMic();
     if (gen != _lifecycleGen) return;
+
+    _active = true;
     if (!micOk) {
+      AppDebugLog.landscapeVoice('activate soft mic pending');
       state = state.copyWith(
         listening: false,
         micDenied: true,
         statusCaption: '需要麦克风权限才能语音唤醒（点按重试）',
-        chatConnected: false,
-        chatListening: false,
       );
+      _bindChatSession();
       return;
     }
 
-    _active = true;
     state = state.copyWith(micDenied: false);
+    _bindChatSession();
+    await _attachWakeListening(gen: gen);
+  }
 
+  /// 绑定 chat 事件并预连 `/voice/chat/ws`（可无麦）。
+  void _bindChatSession() {
     final chat = ref.read(voiceChatWsClientProvider);
     _chatSub?.cancel();
     _chatSub = chat.events.listen(_onChatEvent);
@@ -296,11 +329,18 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       if (!_active) return;
       AppDebugLog.landscapeVoice('connect ok=$ok');
       _syncChatFlags();
+      if (!ok && state.micDenied) {
+        // 无麦半激活：保留点按授权文案，不覆盖成连接中。
+        return;
+      }
       if (!ok) {
         state = state.copyWith(statusCaption: '语音通道连接中…可稍后再试');
       }
     }));
+  }
 
+  /// 已授权后启动 / 补启本地唤醒监听。
+  Future<void> _attachWakeListening({required int gen}) async {
     _wake ??= createLandscapeWakeWord();
     _wakeSub?.cancel();
     _wakeSub = _wake!.detections.listen((_) {
@@ -315,13 +355,37 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _syncChatFlags();
     state = state.copyWith(
       listening: wakeOk,
+      micDenied: false,
       statusCaption: wakeOk
           ? kLandscapeWakeHint
           : (_wake!.unavailableReason ?? '唤醒未就绪'),
     );
   }
 
+  /// 用户点按后完整申请麦权；半激活时补启 KWS，未激活则带已授权 ensure 走 activate。
+  Future<void> _requestMicAndArmWake(BuildContext context) async {
+    landscapeMicDeniedThisSession = false;
+    final ok = await ensureLandscapeMicPermission(context);
+    if (!context.mounted) return;
+    if (!ok) {
+      state = state.copyWith(
+        listening: false,
+        micDenied: true,
+        statusCaption: '需要麦克风权限才能语音唤醒（点按重试）',
+      );
+      return;
+    }
+    if (!_active) {
+      await activate(ensureMic: () async => true);
+      return;
+    }
+    AppDebugLog.landscapeVoice('chip mic granted → attach wake');
+    state = state.copyWith(micDenied: false);
+    await _attachWakeListening(gen: _lifecycleGen);
+  }
+
   Future<void> deactivate() async {
+    _surfaceWant = false;
     _lifecycleGen++;
     _active = false;
     _cancelIdleNoSpeechTimer(reason: 'deactivate');
@@ -915,6 +979,8 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   /// 主壳回到前台：不在聆听、思考或回复播放时重建麦克风流。
   Future<void> rebuildIdleWakeStreamOnResume() async {
     if (!_active || _exitInFlight || _turnBusy) return;
+    // 尚未授权：不得偷偷开麦恢复 KWS。
+    if (state.micDenied) return;
     if (state.chatListening ||
         _ttsPlaybackActive ||
         _bargeInArmed ||
@@ -926,11 +992,34 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     await _restoreWakeListening(statusIfOk: kLandscapeWakeHint);
   }
 
-  /// 点按左下角：权限被拒时重试用途框；「请说话」假死可强制复位；否则触发唤醒。
+  /// 点按左下角 / 竖屏球：未激活则补会话；未授权走用途框；假死复位；否则触发唤醒。
   Future<void> onListenChipTap(BuildContext context) async {
+    // 冷启竞态兜底：会话未激活时点球再试（dn 已有则 soft activate / 麦权）。
+    if (!_active) {
+      final dn = _normalizedDeviceNo(ref.read(deviceNoNotifierProvider));
+      if (dn == null) {
+        state = state.copyWith(
+          statusCaption: '绑定宝宝后可语音完成喂养记录',
+          micDenied: false,
+          chatConnected: false,
+          chatListening: false,
+        );
+        return;
+      }
+      if (state.micDenied || landscapeMicDeniedThisSession) {
+        await _requestMicAndArmWake(context);
+        return;
+      }
+      AppDebugLog.landscapeVoice('chip retry activate (inactive)');
+      await activate(ensureMic: softCheckLandscapeMicGranted);
+      if (!context.mounted) return;
+      if (state.micDenied) {
+        await _requestMicAndArmWake(context);
+      }
+      return;
+    }
     if (state.micDenied || landscapeMicDeniedThisSession) {
-      landscapeMicDeniedThisSession = false;
-      await activate(ensureMic: () => ensureLandscapeMicPermission(context));
+      await _requestMicAndArmWake(context);
       return;
     }
     // 回复 TTS 播中：不占麦、不停播。
@@ -982,13 +1071,16 @@ void syncLandscapeVoiceLifecycle(
       (Platform.isAndroid || Platform.isIOS);
   final ctrl = ref.read(landscapeVoiceControllerProvider.notifier);
   if (want) {
+    // 记录 want，供 dn 晚到 listen 补激活；表面可见只 soft-check。
+    ctrl.setSurfaceWant(true);
     unawaited(
       ctrl.activate(
-        ensureMic: () => ensureLandscapeMicPermission(context),
+        ensureMic: softCheckLandscapeMicGranted,
       ),
     );
   } else {
-    // 离开应激活的预测语音表面：清会话拒绝标记，下次进入可再提示用途。
+    // 离开应激活的预测语音表面：清 want / 会话拒绝标记。
+    ctrl.setSurfaceWant(false);
     landscapeMicDeniedThisSession = false;
     unawaited(ctrl.deactivate());
   }

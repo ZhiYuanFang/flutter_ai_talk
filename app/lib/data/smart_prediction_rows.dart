@@ -17,6 +17,7 @@ class SmartPredictionRow {
     this.lastAt,
     this.lastRemark = '',
     this.lastLabelEventName = '',
+    this.affinityProgress,
   });
 
   final String eventId;
@@ -37,6 +38,9 @@ class SmartPredictionRow {
 
   /// 「上一次{名}」前缀；空则 UI 回退 [eventName]。
   final String lastLabelEventName;
+
+  /// 无亲和 nextAt 时的卡上进度；有 prediction 时为 null。
+  final AffinityOccurrenceProgress? affinityProgress;
 }
 
 /// root 下历史记录的最近发生时刻。
@@ -344,6 +348,7 @@ class SmartPredictionBuildResult {
   });
 
   final List<SmartPredictionRow> rows;
+  /// 亲和轨预测（含非合并子）；供 imminent pending。
   final List<EventNextPrediction> pendingPredictions;
 }
 
@@ -358,9 +363,9 @@ class PredictionLastOccurrenceRef {
   final String remark;
 }
 
-/// 构建预测页行 + pending 列表。
-/// [history] 必须为真喂养（不得含回忆种子伪记录）；[recallIntervalsByRoot] 仅作间隔旁路。
-/// [latestByEventId] 为服务端批量最近发生；展示主源；缺省时回退窗内/tip。
+/// 构建预测页行 + pending 列表（单轨亲和：展示与 pending 同源）。
+/// [history] 应为真喂养；id 以 `recall_seed_` 开头的记录仍跳过。
+/// 卡面 lastAt 主源：统一池同桶；tip / 预约 last 缓存为回落；latest-by-event 不再优先。
 SmartPredictionBuildResult buildSmartPredictionBundle({
   required List<HistoryRecord> history,
   required List<EventDefinition> catalog,
@@ -368,11 +373,14 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
   required DateTime birthDate,
   required Set<String> disabledForecastIds,
   Set<String> activeEventKeys = const {},
-  Map<String, Duration> recallIntervalsByRoot = const {},
   Map<String, int> appointmentNextAtSecByRoot = const {},
-  /// 根 → 本机曾见真发生 tip；窗口未命中时回退 lastAt（非展示主源）。
+  /// 根 → 本机曾见真发生 tip；窗口未命中时回退展示 lastAt（非预测间隔）。
   Map<String, DateTime> lastAtCacheByRoot = const {},
+  /// 兼容旧调用；展示路径不再优先消费。
   Map<String, PredictionLastOccurrenceRef> latestByEventId = const {},
+  /// 预约根不限窗 last 缓存（池未命中时补洞）；at 可为 null=确认无。
+  Map<String, DateTime?> appointmentLastAtByRoot = const {},
+  Map<String, String> appointmentLastRemarkByRoot = const {},
 }) {
   final byKey = groupHistoryByRootEvent(history: history, catalog: catalog);
   final roots = rootEvents(catalog);
@@ -392,19 +400,38 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
     return null;
   }
 
-  PredictionLastOccurrenceRef? latestRefFor(String eventId) {
-    final direct = latestByEventId[eventId];
-    if (direct != null) return direct;
-    for (final e in latestByEventId.entries) {
-      if (catalogIdsEqual(e.key, eventId)) return e.value;
+  DateTime? appointmentCachedLast(String rootId) {
+    if (appointmentLastAtByRoot.containsKey(rootId)) {
+      return appointmentLastAtByRoot[rootId];
+    }
+    for (final e in appointmentLastAtByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootId)) return e.value;
     }
     return null;
+  }
+
+  bool appointmentLastKnown(String rootId) {
+    if (appointmentLastAtByRoot.containsKey(rootId)) return true;
+    for (final e in appointmentLastAtByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootId)) return true;
+    }
+    return false;
+  }
+
+  String appointmentCachedRemark(String rootId) {
+    final direct = appointmentLastRemarkByRoot[rootId];
+    if (direct != null) return direct;
+    for (final e in appointmentLastRemarkByRoot.entries) {
+      if (catalogIdsEqual(e.key, rootId)) return e.value;
+    }
+    return '';
   }
 
   final enabledHistory = <HistoryRecord>[
     for (final e in byKey.entries)
       if (!disabledForecastIds.contains(e.key)) ...e.value,
   ];
+  // 单轨亲和（展示与 pending 共用）
   final predictions = predictAllUpcoming(
     history: enabledHistory,
     catalog: catalog,
@@ -414,18 +441,8 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
       for (final k in activeEventKeys)
         if (!disabledForecastIds.contains(k)) k,
     },
-    recallIntervalsByRoot: {
-      for (final e in recallIntervalsByRoot.entries)
-        if (!disabledForecastIds.contains(e.key) &&
-            e.value >= kMinIntervalForPrediction)
-          e.key: e.value,
-    },
     appointmentNextAtSecByRoot: {
       for (final e in appointmentNextAtSecByRoot.entries)
-        if (!disabledForecastIds.contains(e.key)) e.key: e.value,
-    },
-    lastAtCacheByRoot: {
-      for (final e in lastAtCacheByRoot.entries)
         if (!disabledForecastIds.contains(e.key)) e.key: e.value,
     },
   );
@@ -470,24 +487,41 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
     final enabled = !disabledForecastIds.contains(key);
     final merge = catalogRootMergePredict(key, catalog);
     final hasKids = hasChildren(catalog, key);
-    // 卡展示：合并/无子/预约用根预测；非合并用胜出子 nextAt/色，标题仍根名
-    EventNextPrediction? pred;
+    final isAppt = catalogRootIsAppointment(key, catalog);
+    // 静默胜出：合并/无子/预约用根预测；非合并用胜出子
+    EventNextPrediction? silentPred;
     var displayName = rootName;
     var displayColor = colorHexFromEvent(root);
     if (enabled) {
-      if (merge || !hasKids || catalogRootIsAppointment(key, catalog)) {
-        pred = predById[key];
+      if (merge || !hasKids || isAppt) {
+        silentPred = predById[key];
       } else {
-        // 非合并：nextAt/色跟胜出子；标题仍用根权威名
-        pred = soonestChildPrediction(key);
-        if (pred != null) {
-          displayColor = pred.colorHex;
+        silentPred = soonestChildPrediction(key);
+        if (silentPred != null) {
+          displayColor = silentPred.colorHex;
         }
       }
     }
-    // 上一次：有 pred 仅同桶；无 pred 用根（可含全窗子窗）
+    // 展示 = 亲和轨
+    final EventNextPrediction? pred = silentPred;
+    // 无 nextAt 且非预约：按预测桶计有效发生进度
+    AffinityOccurrenceProgress? affinityProgress;
+    if (enabled && pred == null && !isAppt) {
+      final bucketRecords = filterRecordsForPredictionBucket(
+        records: records,
+        bucketEventId: key,
+        catalog: catalog,
+      );
+      final times = <DateTime>[];
+      for (final r in bucketRecords) {
+        if (isPredictionRecallSeedRecord(r)) continue;
+        final t = occurrenceInstant(r, includeActive: true);
+        if (t != null) times.add(t);
+      }
+      affinityProgress = affinityProgressFromOccurrenceTimes(times);
+    }
+    // 上一次：非预约=池同桶??tip；预约=只认 appointment last 缓存（不用池盖）
     final lastBucketId = pred?.eventId ?? key;
-    final remoteLast = latestRefFor(lastBucketId);
     final lastWindowRecords = pred != null
         ? filterRecordsForPredictionBucket(
             records: records,
@@ -495,12 +529,18 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
             catalog: catalog,
           )
         : records;
-    final windowLast = latestOccurrenceAtForRecords(lastWindowRecords);
-    final tipLast = cachedTipFor(lastBucketId);
-    final lastAt = remoteLast?.at ?? windowLast ?? tipLast;
-    final lastRemark = (remoteLast != null && remoteLast.at != null)
-        ? remoteLast.remark
-        : latestRealRemarkForRecords(lastWindowRecords);
+    DateTime? lastAt;
+    var lastRemark = '';
+    if (isAppt) {
+      if (appointmentLastKnown(key)) {
+        lastAt = appointmentCachedLast(key);
+        lastRemark = appointmentCachedRemark(key);
+      }
+    } else {
+      lastAt = latestOccurrenceAtForRecords(lastWindowRecords);
+      lastRemark = latestRealRemarkForRecords(lastWindowRecords);
+      lastAt ??= cachedTipFor(lastBucketId);
+    }
     // 「上一次{名}」：有 pred 用桶名；无 pred 用根名
     final String lastLabelEventName;
     if (pred != null) {
@@ -532,6 +572,7 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
         lastAt: lastAt,
         lastRemark: lastRemark,
         lastLabelEventName: lastLabelEventName,
+        affinityProgress: affinityProgress,
       ),
     );
   }
@@ -548,7 +589,17 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
             ? '未知事件'
             : entry.value.last.eventName.trim());
     final enabled = !disabledForecastIds.contains(key);
-    final pred = enabled ? predById[key] : null;
+    final EventNextPrediction? pred = enabled ? predById[key] : null;
+    AffinityOccurrenceProgress? orphanProgress;
+    if (enabled && pred == null && !catalogRootIsAppointment(key, catalog)) {
+      final times = <DateTime>[];
+      for (final r in entry.value) {
+        if (isPredictionRecallSeedRecord(r)) continue;
+        final t = occurrenceInstant(r, includeActive: true);
+        if (t != null) times.add(t);
+      }
+      orphanProgress = affinityProgressFromOccurrenceTimes(times);
+    }
     List<DateTime> points = const [];
     if (enabled && pred != null) {
       points = dailyPointsNearAnchorTod(
@@ -557,7 +608,19 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
         anchorTod: pred.nextAt,
       );
     }
-    final remoteLast = latestRefFor(key);
+    final orphanIsAppt = catalogRootIsAppointment(key, catalog);
+    DateTime? orphanLast;
+    var orphanRemark = '';
+    if (orphanIsAppt) {
+      if (appointmentLastKnown(key)) {
+        orphanLast = appointmentCachedLast(key);
+        orphanRemark = appointmentCachedRemark(key);
+      }
+    } else {
+      orphanLast = latestOccurrenceAtForRecords(entry.value);
+      orphanRemark = latestRealRemarkForRecords(entry.value);
+      orphanLast ??= cachedTipFor(key);
+    }
     rows.add(
       SmartPredictionRow(
         eventId: key,
@@ -566,13 +629,10 @@ SmartPredictionBuildResult buildSmartPredictionBundle({
         forecastEnabled: enabled,
         prediction: pred,
         chartPoints: points,
-        lastAt: remoteLast?.at ??
-            latestOccurrenceAtForRecords(entry.value) ??
-            cachedTipFor(key),
-        lastRemark: (remoteLast != null && remoteLast.at != null)
-            ? remoteLast.remark
-            : latestRealRemarkForRecords(entry.value),
+        lastAt: orphanLast,
+        lastRemark: orphanRemark,
         lastLabelEventName: name,
+        affinityProgress: orphanProgress,
       ),
     );
   }
@@ -606,10 +666,11 @@ List<SmartPredictionRow> buildSmartPredictionRows({
   required DateTime birthDate,
   required Set<String> disabledForecastIds,
   Set<String> activeEventKeys = const {},
-  Map<String, Duration> recallIntervalsByRoot = const {},
   Map<String, int> appointmentNextAtSecByRoot = const {},
   Map<String, DateTime> lastAtCacheByRoot = const {},
   Map<String, PredictionLastOccurrenceRef> latestByEventId = const {},
+  Map<String, DateTime?> appointmentLastAtByRoot = const {},
+  Map<String, String> appointmentLastRemarkByRoot = const {},
 }) {
   return buildSmartPredictionBundle(
     history: history,
@@ -618,10 +679,11 @@ List<SmartPredictionRow> buildSmartPredictionRows({
     birthDate: birthDate,
     disabledForecastIds: disabledForecastIds,
     activeEventKeys: activeEventKeys,
-    recallIntervalsByRoot: recallIntervalsByRoot,
     appointmentNextAtSecByRoot: appointmentNextAtSecByRoot,
     lastAtCacheByRoot: lastAtCacheByRoot,
     latestByEventId: latestByEventId,
+    appointmentLastAtByRoot: appointmentLastAtByRoot,
+    appointmentLastRemarkByRoot: appointmentLastRemarkByRoot,
   ).rows;
 }
 

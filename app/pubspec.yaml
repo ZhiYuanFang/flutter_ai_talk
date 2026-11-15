@@ -1,7 +1,7 @@
 name: pangbao_app
 description: 胖宝 App - 宝宝喂养预测
 publish_to: "none"
-version: 2.2.1+23
+version: 2.2.2+24
 
 fluwx:
   app_id: 'wxe713de83c921f341'
@@ -67,6 +67,8 @@ dependencies:
   sherpa_onnx: ^1.12.15
   archive: ^4.0.7
   china_push: ^1.0.1
+  # 预测三档全屏墙：中卡放大、两侧露出
+  carousel_slider: 5.0.0
 
 dev_dependencies:
   flutter_test:

@@ -42,26 +42,10 @@ abstract final class ClientUsageEvents {
       ClientUsageEvent('page_feedback_show', '展示反馈页');
   static const changePasswordShow =
       ClientUsageEvent('page_change_password_show', '展示修改密码页');
-  static const aiAnalysisShow =
-      ClientUsageEvent('page_ai_analysis_show', '展示 AI 分析页');
-  static const feedingAnalysisShow =
-      ClientUsageEvent('page_feeding_analysis_show', '展示喂养分析页');
-  static const growthShow =
-      ClientUsageEvent('page_growth_show', '展示成长轨迹页');
-  static const careAlertShow =
-      ClientUsageEvent('page_care_alert_show', '展示值得留意详情页');
-  static const unlockHubShow =
-      ClientUsageEvent('page_unlock_hub_show', '展示功能开通中心');
-  static const inviteHowtoShow =
-      ClientUsageEvent('page_invite_howto_show', '展示邀请码说明页');
-  static const vipPurchaseShow =
-      ClientUsageEvent('page_vip_purchase_show', '展示 VIP 购买页');
   static const trendsShow =
       ClientUsageEvent('page_trends_show', '展示趋势页');
   static const widgetShowcaseShow =
       ClientUsageEvent('page_widget_showcase_show', '展示小组件秀页');
-  static const companionShow =
-      ClientUsageEvent('page_companion_show', '展示陪伴页');
   static const xiaozhiSpeakerShow =
       ClientUsageEvent('page_xiaozhi_speaker_show', '展示小智音箱页');
 

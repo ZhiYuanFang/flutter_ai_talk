@@ -10,10 +10,6 @@ const kUcgHomePagerEnabled = false;
 /// 历史编辑「同步广场」开关与 UCG 发帖/改帖/删帖副作用。
 const kHistorySquareSyncEnabled = false;
 
-/// VIP 购买页与开通 CTA 是否可达。
-/// 商业化重开：VIP 与开通中心支付入口可达。
-const kVipPurchaseEnabled = true;
-
 /// 预测页竖屏语音对话（贴边球 / 会话 activate）。
 /// 默认开启；翻 `false` 可紧急关闭竖屏入口（不影响横屏）。
 /// 横屏助手由 [kPredictionLandscapeVoiceEnabled] 单独控制。

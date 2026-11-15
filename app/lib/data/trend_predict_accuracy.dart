@@ -127,6 +127,7 @@ class PredictAccuracySample {
     required this.score,
     this.expectQtyLabel,
     this.actualQtyLabel,
+    this.leafEventId,
   });
 
   /// 实际发生所在自然日
@@ -146,6 +147,9 @@ class PredictAccuracySample {
 
   /// 实际量文案
   final String? actualQtyLabel;
+
+  /// 发生叶子事件 id（历史行）；示例行可空；合并根小结 UI 故意不跟叶子。
+  final String? leafEventId;
 
   /// 兼容旧二元语义（合成分 ≥ 绿档）
   bool get hit => score >= kPredictAccuracyScoreGreen;
@@ -227,6 +231,8 @@ PredictAccuracySample? predictAccuracySampleFromRecord(
     qtyScore: qtyScore,
   );
 
+  // 叶子 id：非合并小结跟叶子身份；合并根 UI 故意忽略
+  final leafId = historyRecordEventId(r).trim();
   return PredictAccuracySample(
     day: predictAccuracyDayKey(actualAt),
     actualAt: actualAt.toLocal(),
@@ -235,6 +241,7 @@ PredictAccuracySample? predictAccuracySampleFromRecord(
     score: score,
     expectQtyLabel: expectQtyLabel,
     actualQtyLabel: actualQtyLabel,
+    leafEventId: leafId.isEmpty ? null : leafId,
   );
 }
 

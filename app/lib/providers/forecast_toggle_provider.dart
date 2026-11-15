@@ -5,8 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/app_debug_log.dart';
 import '../config/forecast_toggle_store.dart';
 import '../home_widget/home_widget_sync.dart';
-import 'cash_vip_provider.dart';
-
 /// 推演关闭的 eventId 集合（默认全开 → 空集）。
 final forecastDisabledIdsProvider =
     AsyncNotifierProvider<ForecastDisabledIdsNotifier, Set<String>>(
@@ -52,10 +50,7 @@ class ForecastDisabledIdsNotifier extends AsyncNotifier<Set<String>> {
     required List<String> enabledEventIds,
     required int allowedCount,
   }) async {
-    // 先 settle VIP，避免 loading 瞬时当非 VIP 误裁。
-    final isVip =
-        (await ensureVipSettled(ref))?.isVip == true;
-    if (isVip) return;
+    // VIP 覆盖已下线；仅按 allowedCount 裁剪。
     // -1 历史全开哨兵：不裁。
     if (allowedCount < 0) return;
     final enabled = <String>{

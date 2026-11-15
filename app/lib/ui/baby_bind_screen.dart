@@ -14,7 +14,6 @@ import '../providers/authorized_api_client_provider.dart';
 import '../providers/client_usage_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/home_history_notifier.dart';
-import '../providers/prediction_range_history_provider.dart';
 import '../providers/repositories.dart';
 import '../providers/settings_baby.dart';
 import '../providers/toast_bus.dart';
@@ -118,12 +117,8 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   }
 
   void _scheduleHistoryBootstrapAfterBind() {
+    // 统一池：切宝宝 bootstrap 已含一次 7 日种子
     unawaited(ref.read(homeHistoryProvider.notifier).onDeviceNoChanged());
-    unawaited(
-      ref
-          .read(predictionRangeHistoryProvider.notifier)
-          .ensureLoaded(force: true),
-    );
   }
 
   Future<void> _bind() async {

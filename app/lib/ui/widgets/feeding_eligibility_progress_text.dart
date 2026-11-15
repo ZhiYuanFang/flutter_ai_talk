@@ -6,9 +6,6 @@ import '../../data/feature_unlock_models.dart';
 enum FeedingEligibilityProgressKind {
   /// 解锁广场 / 个人邀请码（ucg_entry）。
   ucgEntry,
-
-  /// 激活值得留意（care_alert_entry）。
-  careAlert,
 }
 
 /// 客户端自拼进度文案：已累计 X/N + 还需 Y 天；放大数字。
@@ -44,78 +41,41 @@ class FeedingEligibilityProgressText extends StatelessWidget {
             theme.textTheme.bodyMedium?.copyWith(height: 1.35) ??
             const TextStyle(fontSize: 14, height: 1.35))
         .copyWith(
-      // Hub 传入 accent 时正文也跟功能色；缺省保持原 onSurface。
       color: accent != null
           ? accent!.withValues(alpha: 0.9)
           : (baseStyle?.color ?? theme.colorScheme.onSurface),
     );
     final baseSize = base.fontSize ?? 14;
-    // 放大天数数字：更大字号 + 加粗 + 强调色，一眼可读。
+    // 放大天数数字：更大字号 + 加粗 + 强调色。
     final numberStyle = base.copyWith(
       fontSize: baseSize * numberScale,
       fontWeight: FontWeight.w800,
       color: emphasis,
       height: 1.05,
     );
-    // 小字号：已累计数字。
     final numberSmallStyle = base.copyWith(
       fontSize: baseSize * 1,
       fontWeight: FontWeight.w400,
       color: emphasis,
       height: 1.05,
     );
-    // 小字号正常文案（次要说明跟强调色降透明）。
-    final normalTxtSmallStyle = base.copyWith(
-      fontSize: baseSize * 0.8,
-      fontWeight: FontWeight.w400,
-      color: emphasis.withValues(alpha: 0.75),
-      height: 1.05,
-    );
-    // 负值钳为 0，避免异常字段破版。
     final x = eligibility.effectiveDays < 0 ? 0 : eligibility.effectiveDays;
     final n = eligibility.requiredDays < 0 ? 0 : eligibility.requiredDays;
-    final y = eligibility.remainingDays < 0 ? 0 : eligibility.remainingDays;
 
-    // 第一行：已累计进度（两场景共用）。
-    final completedLine = <InlineSpan>[
-      const TextSpan(text: '已累计 '),
-      TextSpan(text: '$x', style: numberStyle),
+    // 目前仅 ucgEntry；保留 kind 便于日后扩展。
+    final remainingLine = <InlineSpan>[
+      const TextSpan(text: '需连续记录 '),
+      TextSpan(text: '$x', style: numberSmallStyle),
       const TextSpan(text: ' / '),
       TextSpan(text: '$n', style: numberStyle),
-      const TextSpan(text: ' 天有效喂养'),
+      const TextSpan(text: ' 天宝宝作息，\n解锁广场与真实带娃家庭分享经验'),
     ];
-
-    // 第二行：剩余天数 + 场景目标。
-    final List<InlineSpan> remainingLine;
-    switch (kind) {
-      case FeedingEligibilityProgressKind.ucgEntry:
-        remainingLine = [
-          const TextSpan(text: '需连续记录 '),
-          TextSpan(text: '$x', style: numberSmallStyle),
-          const TextSpan(text: ' / '),
-          TextSpan(text: '$n', style: numberStyle),
-          const TextSpan(text: ' 天宝宝作息，\n解锁广场与真实带娃家庭分享经验'),
-        ];
-      case FeedingEligibilityProgressKind.careAlert:
-        remainingLine = [
-          const TextSpan(text: '需连续记录 '),
-          TextSpan(text: '$n', style: numberStyle),
-          const TextSpan(text: ' 天宝宝作息'),
-          // 已累计1天
-          TextSpan(text: '(已累计 ', style: normalTxtSmallStyle),
-          TextSpan(text: '$x', style: numberSmallStyle),
-          TextSpan(text: ' 天)', style: normalTxtSmallStyle),
-        ];
-    }
+    assert(kind == FeedingEligibilityProgressKind.ucgEntry);
 
     return Text.rich(
       TextSpan(
         style: base,
-        children: [
-          // ...completedLine,
-          // const TextSpan(text: '\n'),
-          ...remainingLine,
-        ],
+        children: remainingLine,
       ),
       textAlign: textAlign,
     );

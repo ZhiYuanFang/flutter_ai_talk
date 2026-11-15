@@ -9,9 +9,9 @@ Future<Map<dynamic, dynamic>> payWithAlipay(String orderStr) async {
     throw StateError('alipayOrderStr 为空');
   }
   final tobias = Tobias();
-  AppDebugLog.cashVip('alipay pay invoke orderStrLen=${trimmed.length}');
+  AppDebugLog.featureUnlock('alipay pay invoke orderStrLen=${trimmed.length}');
   final result = await tobias.pay(trimmed);
-  AppDebugLog.cashVip(
+  AppDebugLog.featureUnlock(
     'alipay pay resultStatus=${result['resultStatus']} memo=${result['memo']}',
   );
   return result;
@@ -21,7 +21,7 @@ Future<bool> isAlipayInstalled() async {
   try {
     return await Tobias().isAliPayInstalled;
   } catch (e) {
-    AppDebugLog.cashVip('alipay installed check err=$e');
+    AppDebugLog.featureUnlock('alipay installed check err=$e');
     return false;
   }
 }

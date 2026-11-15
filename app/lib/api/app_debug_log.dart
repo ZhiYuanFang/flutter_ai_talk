@@ -45,11 +45,6 @@ abstract final class AppDebugLog {
     debugPrint('[UcgShare] ${_ts()} $message');
   }
 
-  static void pangbaoClinic(String message) {
-    if (!kDebugMode) return;
-    debugPrint('[PangbaoClinic] ${_ts()} $message');
-  }
-
   static void wsTransport(String message) {
     if (!kDebugMode) return;
     debugPrint('[WsTransport] ${_ts()} $message');
@@ -60,19 +55,7 @@ abstract final class AppDebugLog {
     debugPrint('[HomeWidget] ${_ts()} $message');
   }
 
-  /// 护理留意日缓存拉取 / 忽略 / 飞轮反馈。
-  static void careAlert(String message) {
-    if (!kDebugMode) return;
-    debugPrint('[CareAlert] ${_ts()} $message');
-  }
-
-  /// Cash VIP 商品 / 状态 / 建单 / 支付验单。
-  static void cashVip(String message) {
-    if (!kDebugMode) return;
-    debugPrint('[CashVip] ${_ts()} $message');
-  }
-
-  /// 商业功能 catalog / 资格 / 建单 / 邀请码 / 广告。
+  /// 商业功能 catalog / 资格 / 建单 / 邀请码 / 广告 / 支付宝。
   static void featureUnlock(String message) {
     if (!kDebugMode) return;
     debugPrint('[FeatureUnlock] ${_ts()} $message');
@@ -88,12 +71,6 @@ abstract final class AppDebugLog {
   static void landscapeVoice(String message) {
     if (!kDebugMode) return;
     debugPrint('[LandscapeVoice] ${_ts()} $message');
-  }
-
-  /// 成长轨迹预测：latest / turn SSE。
-  static void growthTrajectory(String message) {
-    if (!kDebugMode) return;
-    debugPrint('[GrowthTrajectory] ${_ts()} $message');
   }
 
   /// 客户端使用上报（静默；失败仅 Debug）。
@@ -154,5 +131,11 @@ abstract final class AppDebugLog {
   static void xiaozhiGuide(String message) {
     if (!kDebugMode) return;
     debugPrint('[XiaozhiGuide] ${_ts()} $message');
+  }
+
+  /// 预测 Pro 想法 list/submit/like。
+  static void predictProIdea(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[PredictProIdea] ${_ts()} $message');
   }
 }

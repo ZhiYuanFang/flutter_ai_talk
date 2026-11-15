@@ -846,7 +846,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                           focusNode: _remarkFocusNode,
                           readOnly: readOnly,
                           style: TextStyle(color: glassText, fontSize: 15),
-                          cursorColor: scheme.primary,
+                          // 光标跟事件色（对齐 create sheet）
+                          cursorColor: accent,
                           decoration:
                               historyEditGlassInputDecoration(context, labelText: '备注')
                                   .copyWith(
@@ -877,7 +878,8 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                         remarkText: _remarkCtrl.text,
                         onEdit: _expandRemarkEditor,
                         textColor: glassText,
-                        accentColor: scheme.primary,
+                        // 「编辑备注」跟事件色，不用主题 primary
+                        accentColor: accent,
                       ),
                     if (!readOnly)
                       KeyboardDismissExclude(
@@ -959,8 +961,9 @@ class _HomeHistoryEditSheetBodyState extends ConsumerState<_HomeHistoryEditSheet
                     FilledButton(
                       onPressed: _saving ? null : _save,
                       style: FilledButton.styleFrom(
-                        backgroundColor: scheme.primary,
-                        foregroundColor: AppColor.onFill(context, scheme.primary),
+                        // 保存钮底色跟事件色（对齐 create 确认钮）
+                        backgroundColor: accent,
+                        foregroundColor: AppColor.onFill(context, accent),
                         padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
                         shape: const StadiumBorder(),
                       ),

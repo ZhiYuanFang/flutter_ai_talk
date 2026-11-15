@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/app_debug_log.dart';
+import '../data/cash_apple_iap_repository.dart';
 import '../data/feature_unlock_models.dart';
 import '../data/feature_unlock_repository.dart';
 import '../services/feature_payment_service.dart';
 import 'authorized_api_client_provider.dart';
-import 'cash_vip_provider.dart';
 import 'device_no_notifier.dart';
 import 'session_provider.dart';
 
@@ -15,10 +15,15 @@ final featureUnlockRepositoryProvider = Provider<FeatureUnlockRepository>((ref) 
   return FeatureUnlockRepository(ref.watch(authorizedApiClientProvider));
 });
 
+/// 功能/小智 Apple 验单（历史 vip/apple/verify；非 VIP 履约）。
+final cashAppleIapRepositoryProvider = Provider<CashAppleIapRepository>((ref) {
+  return CashAppleIapRepository(ref.watch(authorizedApiClientProvider));
+});
+
 final featurePaymentServiceProvider = Provider<FeaturePaymentService>((ref) {
   return FeaturePaymentService(
     ref.watch(featureUnlockRepositoryProvider),
-    ref.watch(cashVipRepositoryProvider),
+    ref.watch(cashAppleIapRepositoryProvider),
   );
 });
 
@@ -323,54 +328,126 @@ final ucgEligibilityStateProvider =
   return UcgEligibilityNotifier(ref);
 });
 
-/// 目录功能是否有效开通（含 isVip 覆盖；不含 UCG；不含试用 soft access）。
-/// 预测槽位能力已删除：`prediction_unlock` 不再作商业「已全部激活」门闸。
-bool isFeatureEffectivelyUnlocked({
-  required FeatureCatalogItem? item,
-  required bool isVip,
-}) {
-  if (item?.featureId == kFeatureIdPredictionUnlock) {
-    // 槽位商品下线后视为无需开通（避免 Hub 残留卡误导）。
-    return true;
+/// 预测 Pro 喂养资格（字段同构 UCG；不挡免费亲和预测/进度）。
+class PredictProEligibilityNotifier extends StateNotifier<UcgEligibilityState> {
+  PredictProEligibilityNotifier(this._ref) : super(const UcgEligibilityState());
+
+  final Ref _ref;
+  Future<void>? _inFlight;
+  static const _circuitFailThreshold = 3;
+  static const _circuitCooldown = Duration(seconds: 60);
+  DateTime? _circuitUntil;
+
+  String? _deviceNoOrNull() {
+    final v = _ref.read(deviceNoNotifierProvider).asData?.value?.trim();
+    if (v == null || v.isEmpty) return null;
+    return v;
   }
-  if (isVip) return true;
-  return item?.unlocked == true;
-}
 
-/// 是否可进入详情使用（已开通 / VIP / 仍有免费体验资格）。
-bool canAccessFeatureDetail({
-  required FeatureCatalogItem? item,
-  required bool isVip,
-}) {
-  if (isFeatureEffectivelyUnlocked(item: item, isVip: isVip)) return true;
-  return item?.trialAvailable == true;
-}
-
-/// 开通中心是否展示免费体验（VIP/已开通由 catalog trialAvailable=false；客户端再挡 VIP）。
-bool shouldShowFreeTrialCta({
-  required FeatureCatalogItem? item,
-  required bool isVip,
-}) {
-  if (isVip) return false;
-  if (item == null) return false;
-  if (isFeatureEffectivelyUnlocked(item: item, isVip: false)) return false;
-  return item.trialAvailable;
-}
-
-/// 预测累加 CTA：槽位删除后不再展示开通累加按钮。
-bool shouldShowPredictionAccumulationCtas(FeatureCatalogItem item) {
-  return false;
-}
-
-/// 展示用开通方式：设备 grant 优先，否则 VIP。
-String displayUnlockMethod({
-  required FeatureCatalogItem? item,
-  required bool isVip,
-}) {
-  if (item != null && item.unlocked && item.unlockMethod.trim().isNotEmpty) {
-    return item.unlockMethod.trim();
+  Future<void> ensureLoaded({bool force = false}) {
+    if (!_ref.read(sessionProvider).isLoggedIn) {
+      AppDebugLog.featureUnlock('predict-pro eligibility skipped not logged in');
+      state = const UcgEligibilityState();
+      return Future.value();
+    }
+    if (!force && state.ready && state.data != null) {
+      return Future.value();
+    }
+    if (!force &&
+        _circuitUntil != null &&
+        DateTime.now().isBefore(_circuitUntil!)) {
+      AppDebugLog.featureUnlock('predict-pro eligibility skipped circuit');
+      return Future.value();
+    }
+    return _inFlight ??= _ensureImpl(force: force).whenComplete(() {
+      _inFlight = null;
+    });
   }
-  if (isVip) return 'vip';
-  if (item != null && item.unlocked) return item.unlockMethod;
-  return '';
+
+  Future<void> _ensureImpl({required bool force}) async {
+    var dn = _deviceNoOrNull();
+    if (dn == null) {
+      await _ref.read(deviceNoNotifierProvider.notifier).refresh();
+      dn = _deviceNoOrNull();
+    }
+    if (dn == null) {
+      AppDebugLog.featureUnlock('predict-pro eligibility skipped no deviceNo');
+      state = const UcgEligibilityState();
+      return;
+    }
+
+    state = state.copyWith(loading: true, failed: false, deviceNo: dn);
+    try {
+      final e = await _ref
+          .read(featureUnlockRepositoryProvider)
+          .fetchPredictProEligibility();
+      state = UcgEligibilityState(
+        data: e,
+        loading: false,
+        ready: true,
+        failed: false,
+        deviceNo: dn,
+        failStreak: 0,
+      );
+      _circuitUntil = null;
+    } catch (err) {
+      final streak = state.failStreak + 1;
+      AppDebugLog.featureUnlock(
+        'predict-pro eligibility fail streak=$streak err=$err',
+      );
+      state = state.copyWith(
+        loading: false,
+        failed: true,
+        failStreak: streak,
+      );
+      if (streak >= _circuitFailThreshold) {
+        _circuitUntil = DateTime.now().add(_circuitCooldown);
+      }
+    }
+  }
+
+  Future<void> refresh() => ensureLoaded(force: true);
 }
+
+final predictProEligibilityStateProvider =
+    StateNotifierProvider<PredictProEligibilityNotifier, UcgEligibilityState>(
+        (ref) {
+  return PredictProEligibilityNotifier(ref);
+});
+
+/// 从 catalog 态取预测两档项。
+({FeatureCatalogItem? basic, FeatureCatalogItem? pro}) predictCapabilityItems(
+  FeatureCatalogState catalog,
+) {
+  return (
+    basic: catalog.byId(kFeatureIdPredictCapabilityBasic),
+    pro: catalog.byId(kFeatureIdPredictCapabilityPro),
+  );
+}
+
+/// 预测开通态结算相位：syncing 时不得当未开通触发提醒副作用。
+enum PredictEntitlementSettlePhase {
+  /// catalog 尚未结案。
+  syncing,
+  /// 已结案（含 fail-closed）。
+  ready,
+}
+
+/// 已登录已绑定：catalog 未 ready/未失败结案 → syncing。
+final predictEntitlementSettlePhaseProvider =
+    Provider<PredictEntitlementSettlePhase>((ref) {
+  final loggedIn = ref.watch(sessionProvider).isLoggedIn;
+  final dn =
+      ref.watch(deviceNoNotifierProvider).asData?.value?.trim() ?? '';
+  if (!loggedIn || dn.isEmpty) {
+    return PredictEntitlementSettlePhase.ready;
+  }
+  final catalog = ref.watch(featureCatalogStateProvider);
+  // ready 且 device 对齐，或 failed 已结案（避免永久同步中）
+  final catalogSettled =
+      (catalog.ready && catalog.deviceNo == dn) || catalog.failed;
+  if (!catalogSettled) {
+    return PredictEntitlementSettlePhase.syncing;
+  }
+  return PredictEntitlementSettlePhase.ready;
+});

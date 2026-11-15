@@ -67,31 +67,33 @@ class FeatureUnlockRepository {
     }
   }
 
-  /// 值得留意喂养资格（cash；字段同构 UCG）。
-  Future<UcgEligibility> fetchCareAlertEligibility() async {
+  /// 预测 Pro 喂养资格（cash；字段同构 UCG；计入 usage）。
+  Future<UcgEligibility> fetchPredictProEligibility() async {
     try {
       final data =
-          await _api.getEnvelope('/cash/app/api/care-alert/eligibility');
+          await _api.getEnvelope('/cash/app/api/predict-pro/eligibility');
       if (data == null) {
-        AppDebugLog.careAlert('care eligibility empty data');
-        throw ApiBusinessException(-1, '值得留意资格查询失败');
+        AppDebugLog.featureUnlock('predict-pro eligibility empty data');
+        throw ApiBusinessException(-1, '预测 Pro 资格查询失败');
       }
       final e = UcgEligibility.fromJson(data);
-      AppDebugLog.careAlert(
-        'care eligibility ok qualified=${e.qualified} '
+      AppDebugLog.featureUnlock(
+        'predict-pro eligibility ok qualified=${e.qualified} '
         'effective=${e.effectiveDays}/${e.requiredDays} remaining=${e.remainingDays}',
       );
       return e;
     } on ApiBusinessException catch (e) {
-      AppDebugLog.careAlert(
-        'care eligibility business err=${e.code} ${e.message}',
+      AppDebugLog.featureUnlock(
+        'predict-pro eligibility business err=${e.code} ${e.message}',
       );
       rethrow;
     } on ApiHttpException catch (e) {
-      AppDebugLog.careAlert('care eligibility http err=${e.statusCode}');
+      AppDebugLog.featureUnlock(
+        'predict-pro eligibility http err=${e.statusCode}',
+      );
       rethrow;
     } catch (e) {
-      AppDebugLog.careAlert('care eligibility err=$e');
+      AppDebugLog.featureUnlock('predict-pro eligibility err=$e');
       rethrow;
     }
   }
@@ -137,6 +139,31 @@ class FeatureUnlockRepository {
     AppDebugLog.featureUnlock(
       'invite redeem ok featureId=${featureId.trim()}',
     );
+  }
+
+  /// 预测能力点试用（7 日起算）；仅 basic/pro，care/growth 勿走此路径。
+  Future<void> startFeatureTrial({required String featureId}) async {
+    final id = featureId.trim();
+    try {
+      await _api.postJsonEnvelope(
+        '/cash/app/api/feature/trial/start',
+        {'featureId': id},
+      );
+      AppDebugLog.featureUnlock('trial start ok featureId=$id');
+    } on ApiBusinessException catch (e) {
+      AppDebugLog.featureUnlock(
+        'trial start business err=${e.code} ${e.message} featureId=$id',
+      );
+      rethrow;
+    } on ApiHttpException catch (e) {
+      AppDebugLog.featureUnlock(
+        'trial start http err=${e.statusCode} featureId=$id',
+      );
+      rethrow;
+    } catch (e) {
+      AppDebugLog.featureUnlock('trial start err=$e featureId=$id');
+      rethrow;
+    }
   }
 
   /// 广告完成开通（已下线；保留方法防旧调用编译，服务端应拒绝）。
