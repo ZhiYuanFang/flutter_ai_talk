@@ -413,3 +413,36 @@ if text != original:
 else:
     print(f'Podfile already targets iOS {target}')
 PY
+
+# AppFrameworkInfo.plist：保证 MinimumOSVersion 与主 App 基线一致（默认 15），
+# 避免 Flutter 生成 SPM Package.swift 时落回 12.0。
+python3 <<'PY'
+from pathlib import Path
+import os
+import re
+
+target = os.getenv('IOS_DEPLOYMENT_TARGET', '15.0').strip() or '15.0'
+plist = Path('ios/Flutter/AppFrameworkInfo.plist')
+if not plist.exists():
+    print('AppFrameworkInfo.plist 不存在，跳过 MinimumOSVersion 对齐')
+else:
+    text = plist.read_text(encoding='utf-8')
+    original = text
+    key = 'MinimumOSVersion'
+    if f'<key>{key}</key>' in text:
+        text = re.sub(
+            rf'(<key>{key}</key>\s*<string>)[^<]*(</string>)',
+            rf'\g<1>{target}\g<2>',
+            text,
+            count=1,
+        )
+    else:
+        # 在 </dict> 前插入
+        insert = f'  <key>{key}</key>\n  <string>{target}</string>\n'
+        text = re.sub(r'</dict>\s*</plist>\s*\Z', insert + '</dict>\n</plist>\n', text, count=1)
+    if text != original:
+        plist.write_text(text, encoding='utf-8')
+        print(f'Patched AppFrameworkInfo.plist: MinimumOSVersion={target}')
+    else:
+        print(f'AppFrameworkInfo.plist already MinimumOSVersion={target}')
+PY

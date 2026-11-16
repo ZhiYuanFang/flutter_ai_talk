@@ -273,9 +273,34 @@ def ensure_flutter_plugin_package_on_widget(project, widget_target, runner_targe
   end
 end
 
+# flutter build ipa 可能再次生成 ephemeral Package.swift；在 Runner 编译前再抬一次 platforms，
+# 避免 FlutterFramework(≥13) vs .iOS("12.0") 的 Target Integrity 失败。
+def ensure_spm_platform_align_phase(project, runner)
+  phase_name = '[CI] Align SPM iOS platforms'
+  existing = runner.shell_script_build_phases.find { |p| p.name == phase_name }
+  phase = existing || project.new(Xcodeproj::Project::Object::PBXShellScriptBuildPhase)
+  phase.name = phase_name
+  phase.shell_path = '/bin/sh'
+  phase.shell_script = "/bin/bash \"${SRCROOT}/../tool/ci/align_spm_ios_platforms.sh\"\n"
+  phase.show_env_vars_in_log = '0'
+  phase.always_out_of_date = '1' if phase.respond_to?(:always_out_of_date=)
+
+  unless existing
+    sources = runner.build_phases.find { |p| p.is_a?(Xcodeproj::Project::Object::PBXSourcesBuildPhase) }
+    if sources
+      idx = runner.build_phases.index(sources)
+      runner.build_phases.insert(idx, phase)
+    else
+      runner.build_phases.unshift(phase)
+    end
+    puts "已为 Runner 添加 Build Phase: #{phase_name}"
+  end
+end
+
 ensure_flutter_plugin_package_on_widget(project, widget_target, runner)
 apply_widget_build_settings(widget_target, runner)
 ensure_embed_extension_phase(runner, project, widget_target)
+ensure_spm_platform_align_phase(project, runner)
 apply_team_attributes(project, widget_target)
 disable_parallel_target_builds(project)
 ensure_scheme_builds_widget(project, widget_target)
