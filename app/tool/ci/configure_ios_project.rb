@@ -13,7 +13,9 @@ widget_profile_uuid = ENV['WIDGET_PROFILE_UUID']
 export_method = ENV.fetch('EXPORT_METHOD')
 
 signing_identity = export_method == 'development' ? 'Apple Development' : 'Apple Distribution'
+# 主 App 默认 15；Widget Extension 须独立默认 17，禁止共用同一 DT 覆盖 Extension
 deployment_target = ENV.fetch('IOS_DEPLOYMENT_TARGET', '15.0')
+widget_deployment_target = ENV.fetch('IOS_WIDGET_DEPLOYMENT_TARGET', '17.0')
 project_path = File.join(Dir.pwd, 'ios', 'Runner.xcodeproj')
 project = Xcodeproj::Project.open(project_path)
 runner_target = project.targets.find { |target| target.name == 'Runner' }
@@ -65,9 +67,9 @@ if widget_target
     profile_name: widget_profile_name,
     profile_uuid: widget_profile_uuid,
     bundle_id: widget_bundle_id,
-    deployment_target: deployment_target,
+    deployment_target: widget_deployment_target,
   )
-  puts "Configured PangbaoWidget signing for #{widget_bundle_id} profile=#{widget_profile_name}"
+  puts "Configured PangbaoWidget signing for #{widget_bundle_id} profile=#{widget_profile_name} (iOS #{widget_deployment_target}+)"
 end
 
 (project.targets - [runner_target, widget_target].compact).each do |target|
@@ -79,4 +81,4 @@ end
 end
 
 project.save
-puts "Configured iOS signing for #{bundle_id} (iOS #{deployment_target}+)"
+puts "Configured iOS signing for #{bundle_id} (Runner iOS #{deployment_target}+)"
