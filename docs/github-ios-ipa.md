@@ -553,7 +553,7 @@ CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修�
 
 本仓库主 App 默认 **iOS 15.0**（不是「只升到 13」）。依赖侧：`speech_to_text`（13+）、`ffmpeg_kit_flutter_new_min_gpl`（14+）、SPM `FlutterFramework`（13+）。
 
-报错里的 **「this target supports 12.0」常常是 SwiftPM 的 Package.swift**（`ios/Flutter/ephemeral/Packages/**`），不是 Runner 的 `IPHONEOS_DEPLOYMENT_TARGET`。仅改 Xcode 主 App DT **不够**；CI 已在 `config-only` 后与 `build ipa` 前跑 `tool/ci/align_spm_ios_platforms.sh` 抬 ephemeral `.iOS("…")`。
+报错里的 **「this target supports 12.0」常常是 SwiftPM 插件 target**（例如 `photo_manager` 的 `.iOS("9.0")` 被钳成 12），不是 Runner 的 `IPHONEOS_DEPLOYMENT_TARGET`。仅改 Xcode 主 App DT **不够**。CI 的 `align_spm_ios_platforms.sh` 会抬 ephemeral **以及** `$PUB_CACHE` / `package_config` 里依赖 `FlutterFramework` 的 `Package.swift`。
 
 **对齐方式（与仓库一致）：**
 

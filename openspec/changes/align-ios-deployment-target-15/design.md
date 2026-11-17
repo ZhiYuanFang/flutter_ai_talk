@@ -47,17 +47,18 @@ Runner ← `IOS_DEPLOYMENT_TARGET`（15）；Widget ← `IOS_WIDGET_DEPLOYMENT_T
 
 ### D4：厂商 SDK 12.0 不动
 
-### D5：ephemeral Package.swift 显式对齐 + 直调 archive（CI 关键）
+### D5：ephemeral + pub-cache 消费方 Package.swift 对齐 + 直调 archive
 
-- **选择**：`align_spm_ios_platforms.sh` 抬高 **消费方**（如 `FlutterGeneratedPluginSwiftPackage`）到 `IOS_DEPLOYMENT_TARGET`（默认 15）；`FlutterFramework` 仅保证 ≥13（产品下限），不抬到 15。残留低于基线则失败。
-- **IPA 路径**：`flutter_build_ipa_with_spm_align.sh` = `config-only` → `ensure_pangbao_widget_target` → **align** → `xcodebuild archive` → `exportArchive`。**废弃 PATH 包装**（Flutter/CI 使用绝对路径 `…/usr/bin/xcodebuild`，包装不会执行）。
-- **理由**：仅抬 Runner DT 无效；裸 `flutter build ipa` 会在 archive 前重写 Package.swift 且绕过 PATH；必须在直调 xcodebuild 正前对齐。
+- **选择**：`align_spm_ios_platforms.sh` 扫描 ephemeral（含 symlink）、`package_config.json` 包根、`$PUB_CACHE/**/darwin|ios/**/Package.swift` 中依赖 `FlutterFramework` 的清单；消费方抬到 15；`FlutterFramework` 仅 ≥13。残留则失败。
+- **已知凶手**：`photo_manager` 源码 `.iOS("9.0")`（Xcode 钳成 12），archive 时才以 `.packages/photo_manager @ local` 出现；仅扫 ephemeral 会 `scanned=2` 漏掉。
+- **IPA 路径**：`config-only` → ensure Widget → **align** → `xcodebuild archive` → `exportArchive`（不用 PATH 包装）。
 - **备选**：关闭 SPM — 与 Widget 冲突，不做。
 
 ## Risks / Trade-offs
 
 - [config-only 冲掉 Widget SPM] → IPA 脚本在 align 前再跑 ensure。
 - [误抬 FlutterFramework 产品下限] → 对 FlutterFramework 只保证 ≥13，不抬到 15。
+- [插件源在 pub-cache，ephemeral 未 materialize] → 同步 patch PUB_CACHE / package_config 根。
 - [AppFrameworkInfo 被 flutter create 冲掉] → prepare 幂等补写。
 
 ## Migration Plan

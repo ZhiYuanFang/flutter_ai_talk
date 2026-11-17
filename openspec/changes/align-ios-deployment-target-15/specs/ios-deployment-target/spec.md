@@ -34,7 +34,7 @@ iOS Runner 工程的 `IPHONEOS_DEPLOYMENT_TARGET` MUST 默认为 **15.0**（或�
 
 ### Requirement: ephemeral SPM Package.swift 平台不低于主 App 基线
 
-在启用 Swift Package Manager 的构建中，于生成 ephemeral Packages 之后、执行 **Xcode archive 正前**，构建流程 MUST 将消费方 `Package.swift`（含 `FlutterGeneratedPluginSwiftPackage`）中低于主 App 基线（默认 15.0）的 `.iOS("…")` 提升到该基线。`FlutterFramework` 的 platforms MUST 仅保证不低于 13.0，MUST NOT 被抬到主 App 15 作为产品要求。CI MUST 通过直调 `xcodebuild archive`（而非依赖 PATH 包装的裸 `flutter build ipa`）保证对齐不被绕过。
+在启用 Swift Package Manager 的构建中，于生成 ephemeral Packages 之后、执行 **Xcode archive 正前**，构建流程 MUST 将消费方 `Package.swift`（含 `FlutterGeneratedPluginSwiftPackage`、以及 `$PUB_CACHE` / `package_config` 中依赖 `FlutterFramework` 的插件如 `photo_manager`）中低于主 App 基线（默认 15.0）的 `.iOS("…")` 提升到该基线。`FlutterFramework` 的 platforms MUST 仅保证不低于 13.0，MUST NOT 被抬到主 App 15 作为产品要求。CI MUST 通过直调 `xcodebuild archive`（而非依赖 PATH 包装的裸 `flutter build ipa`）保证对齐不被绕过。
 
 #### Scenario: CI 消除 FlutterFramework 与 SPM 12.0 冲突
 
