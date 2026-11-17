@@ -399,6 +399,8 @@ jobs:
           set -euo pipefail
           flutter build ios --config-only --no-codesign
           test -d ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage
+          # FlutterFramework(≥13) vs 插件 Package.swift 仍声明 12 → Target Integrity 失败
+          bash tool/ci/align_spm_ios_platforms.sh
 
       - name: Ensure PangbaoWidget Extension target (SPM home_widget)
         working-directory: ${{ env.APP_DIR }}
@@ -631,7 +633,8 @@ jobs:
             echo "::notice::未提供 build_number，自动使用时间构建号: $EFFECTIVE_BUILD_NUMBER"
           fi
 
-          args=(flutter build ipa --release --export-options-plist "$EXPORT_OPTIONS_PLIST")
+          # 经 xcodebuild PATH 包装：Flutter 重写 Package.swift 后、真正 archive 前再对齐 platforms
+          args=(bash tool/ci/flutter_build_ipa_with_spm_align.sh --release --export-options-plist "$EXPORT_OPTIONS_PLIST")
           args+=("--dart-define=WECHAT_APP_ID=$WECHAT_APP_ID")
           args+=("--dart-define=WECHAT_UNIVERSAL_LINK=$WECHAT_UNIVERSAL_LINK")
           if [[ "$TARGET_CHANNEL" == "adhoc" ]]; then

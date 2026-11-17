@@ -549,9 +549,21 @@ CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修�
 
 因为 ad-hoc 入口的目标就是“构建并完成蒲公英分发”。若上传失败，结果不可用，所以 workflow 采用硬失败策略，避免出现“构建成功但分发失败”的灰色状态。
 
-### 5. `pod install` 报 speech_to_text 需要更高 deployment target？
+### 5. `pod install` / SPM 报 deployment target 过低（含 FlutterFramework 要 13、target 却是 12）？
 
-本仓库依赖 `speech_to_text`（iOS 13+）与 `ffmpeg_kit_flutter_new_min_gpl`（iOS 14+）。CI 会在 `prepare_ios_project.sh` 中把 `Podfile` 设为 `platform :ios, '15.0'`，并同步 Runner 与 Pods 的 `IPHONEOS_DEPLOYMENT_TARGET`。若本地自行生成 `ios/` 后遇到 CocoaPods「required a higher minimum deployment target」，请确认 `ios/Podfile` 已取消注释并设为 `platform :ios, '15.0'`，再执行 `pod install --repo-update`。
+本仓库主 App 默认 **iOS 15.0**（不是「只升到 13」）。依赖侧：`speech_to_text`（13+）、`ffmpeg_kit_flutter_new_min_gpl`（14+）、SPM `FlutterFramework`（13+）。
+
+报错里的 **「this target supports 12.0」常常是 SwiftPM 的 Package.swift**（`ios/Flutter/ephemeral/Packages/**`），不是 Runner 的 `IPHONEOS_DEPLOYMENT_TARGET`。仅改 Xcode 主 App DT **不够**；CI 已在 `config-only` 后与 `build ipa` 前跑 `tool/ci/align_spm_ios_platforms.sh` 抬 ephemeral `.iOS("…")`。
+
+**对齐方式（与仓库一致）：**
+
+1. 跑 `bash tool/ci/prepare_ios_project.sh`（默认 `IOS_DEPLOYMENT_TARGET=15.0`）：写入 Podfile `platform :ios, '15.0'`、同步 Pod DT，并保证 `AppFrameworkInfo.plist` 的 `MinimumOSVersion=15.0`
+2. 确认 `Runner.xcodeproj` 为 15.0（仓库已提交；签名脚本 `configure_ios_project.rb` 也会写主 App=15）
+3. PangbaoWidget Extension 单独为 **17.0**（`IOS_WIDGET_DEPLOYMENT_TARGET`），不要改成与主 App 相同的 15
+4. `flutter build ios --config-only` 后执行 `bash tool/ci/align_spm_ios_platforms.sh`
+5. CI 打 IPA 使用 `bash tool/ci/flutter_build_ipa_with_spm_align.sh …`（在 Flutter 调用的 xcodebuild 前再对齐）；本地等价于先 align 再 `flutter build ipa`
+
+勿把默认基线只抬到 13「刚好够 FlutterFramework」——相对本仓库是降级，且低于 ffmpeg 相关门槛。厂商 `WechatOpenSDK` 自报 MinimumOSVersion 12.0 可保持不动，不代表 App / SPM 基线应回到 12。
 
 ### 7. `pod install` 报 `Error installing WechatOpenSDK-XCFramework`（curl dldir1.qq.com 失败）？
 
