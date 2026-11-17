@@ -11,8 +11,8 @@
 ## 3. AppFrameworkInfo 与 ephemeral SPM 对齐
 
 - [x] 3.1 在 `app/ios/Flutter/AppFrameworkInfo.plist` 写入 `MinimumOSVersion = 15.0`；`prepare_ios_project.sh` 幂等保证该键
-- [x] 3.2 新增 `app/tool/ci/align_spm_ios_platforms.sh`：将 ephemeral `Package.swift` 中低于 `IOS_DEPLOYMENT_TARGET` 的 `.iOS("…")` 抬到基线（默认 15.0），已更高者不降
-- [x] 3.3 在 `ios-build-core.yml`：`config-only` 后调用 align；`Build signed IPA` 改用 `flutter_build_ipa_with_spm_align.sh`（PATH 包装 xcodebuild）；`ensure_pangbao_widget_target.rb` 注入 Runner Build Phase 兜底
+- [x] 3.2 `align_spm_ios_platforms.sh`：抬消费方到 15；FlutterFramework 仅 ≥13；残留低版本 exit 1
+- [x] 3.3 `flutter_build_ipa_with_spm_align.sh`：config-only → ensure widget → align → xcodebuild archive/export（无 PATH 包装）；workflow Build signed IPA 调用之
 
 ## 4. 文档与厂商 SDK
 

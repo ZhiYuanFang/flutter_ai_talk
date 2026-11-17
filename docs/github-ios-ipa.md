@@ -561,7 +561,7 @@ CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修�
 2. 确认 `Runner.xcodeproj` 为 15.0（仓库已提交；签名脚本 `configure_ios_project.rb` 也会写主 App=15）
 3. PangbaoWidget Extension 单独为 **17.0**（`IOS_WIDGET_DEPLOYMENT_TARGET`），不要改成与主 App 相同的 15
 4. `flutter build ios --config-only` 后执行 `bash tool/ci/align_spm_ios_platforms.sh`
-5. CI 打 IPA 使用 `bash tool/ci/flutter_build_ipa_with_spm_align.sh …`（在 Flutter 调用的 xcodebuild 前再对齐）；本地等价于先 align 再 `flutter build ipa`
+5. CI 打 IPA 使用 `bash tool/ci/flutter_build_ipa_with_spm_align.sh …`：`config-only` → 补 Widget → **align** → `xcodebuild archive` → `exportArchive`（勿依赖 PATH 包装 `xcodebuild`，Flutter 常走绝对路径）
 
 勿把默认基线只抬到 13「刚好够 FlutterFramework」——相对本仓库是降级，且低于 ffmpeg 相关门槛。厂商 `WechatOpenSDK` 自报 MinimumOSVersion 12.0 可保持不动，不代表 App / SPM 基线应回到 12。
 

@@ -633,7 +633,7 @@ jobs:
             echo "::notice::未提供 build_number，自动使用时间构建号: $EFFECTIVE_BUILD_NUMBER"
           fi
 
-          # 经 xcodebuild PATH 包装：Flutter 重写 Package.swift 后、真正 archive 前再对齐 platforms
+          # config-only → ensure widget → align → xcodebuild archive/export（不用 PATH 包装，Flutter 走绝对路径 xcodebuild）
           args=(bash tool/ci/flutter_build_ipa_with_spm_align.sh --release --export-options-plist "$EXPORT_OPTIONS_PLIST")
           args+=("--dart-define=WECHAT_APP_ID=$WECHAT_APP_ID")
           args+=("--dart-define=WECHAT_UNIVERSAL_LINK=$WECHAT_UNIVERSAL_LINK")

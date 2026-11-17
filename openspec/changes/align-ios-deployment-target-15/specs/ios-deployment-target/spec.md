@@ -34,16 +34,21 @@ iOS Runner 工程的 `IPHONEOS_DEPLOYMENT_TARGET` MUST 默认为 **15.0**（或�
 
 ### Requirement: ephemeral SPM Package.swift 平台不低于主 App 基线
 
-在启用 Swift Package Manager 的构建中，于 `flutter build ios --config-only`（或等价生成 ephemeral Packages）之后，以及执行 `flutter build ipa` / archive **之前**，构建流程 MUST 将 `ios/Flutter/ephemeral/Packages/**/Package.swift` 中低于主 App 基线（默认 15.0）的 `.iOS("…")` 声明提升到该基线，使依赖 `FlutterFramework`（要求 ≥13）的包不再以 12.x 参与 Target Integrity 检查。
+在启用 Swift Package Manager 的构建中，于生成 ephemeral Packages 之后、执行 **Xcode archive 正前**，构建流程 MUST 将消费方 `Package.swift`（含 `FlutterGeneratedPluginSwiftPackage`）中低于主 App 基线（默认 15.0）的 `.iOS("…")` 提升到该基线。`FlutterFramework` 的 platforms MUST 仅保证不低于 13.0，MUST NOT 被抬到主 App 15 作为产品要求。CI MUST 通过直调 `xcodebuild archive`（而非依赖 PATH 包装的裸 `flutter build ipa`）保证对齐不被绕过。
 
 #### Scenario: CI 消除 FlutterFramework 与 SPM 12.0 冲突
 
-- **WHEN** 完成 SPM 包生成并对齐脚本后执行 `flutter build ipa`（或 Xcode archive）
+- **WHEN** 完成 config-only、ensure Widget、align 后执行 `xcodebuild archive`
 - **THEN** 不得再出现「FlutterFramework 要求 13.0，但 this target supports 12.0」的 Target Integrity 失败
+
+#### Scenario: FlutterFramework 不被抬到 15
+
+- **WHEN** align 处理 `FlutterFramework/Package.swift` 且其声明为 13.0
+- **THEN** 保持 13.0（或 ≥13），不得改写成 15.0
 
 #### Scenario: 已高于基线的声明不被降低
 
-- **WHEN** 某 `Package.swift` 已声明 `.iOS("17.0")`（或其它 ≥ 基线的值）
+- **WHEN** 某消费方 `Package.swift` 已声明 `.iOS("17.0")`（或其它 ≥ 基线的值）
 - **THEN** 对齐脚本 MUST NOT 将其降低到 15.0
 
 ### Requirement: Widget Extension 保持 17 且不被主 App 覆盖

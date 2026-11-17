@@ -47,25 +47,23 @@ Runner ← `IOS_DEPLOYMENT_TARGET`（15）；Widget ← `IOS_WIDGET_DEPLOYMENT_T
 
 ### D4：厂商 SDK 12.0 不动
 
-### D5：ephemeral Package.swift 显式对齐（CI 关键）
+### D5：ephemeral Package.swift 显式对齐 + 直调 archive（CI 关键）
 
-- **选择**：脚本 `align_spm_ios_platforms.sh` 扫描 `ios/Flutter/ephemeral/Packages/**/Package.swift`，将 `.iOS("X")` 中 `X < 基线` 的声明抬到 `IOS_DEPLOYMENT_TARGET`（默认 15.0）；已 ≥ 基线的不降。
-- **时机**：① `flutter build ios --config-only` 后；② `flutter_build_ipa_with_spm_align.sh` 用 PATH 包装 `xcodebuild`，在 Flutter 每次调用 archive 前再对齐（Target Integrity 发生在包图解析，必须早于 xcodebuild）；③ Runner Build Phase 作为编译期兜底。
-- **理由**：仅抬 Xcode Runner DT 无法修复 SPM Target Integrity；插件 Package.swift 常硬编码 12/11 却依赖 FlutterFramework(13)；`flutter build ipa` 可能在启动 xcodebuild 前重写 ephemeral 包。
-- **备选**：关闭 SPM — 与 Widget `home_widget` SPM 路径冲突，不做。
+- **选择**：`align_spm_ios_platforms.sh` 抬高 **消费方**（如 `FlutterGeneratedPluginSwiftPackage`）到 `IOS_DEPLOYMENT_TARGET`（默认 15）；`FlutterFramework` 仅保证 ≥13（产品下限），不抬到 15。残留低于基线则失败。
+- **IPA 路径**：`flutter_build_ipa_with_spm_align.sh` = `config-only` → `ensure_pangbao_widget_target` → **align** → `xcodebuild archive` → `exportArchive`。**废弃 PATH 包装**（Flutter/CI 使用绝对路径 `…/usr/bin/xcodebuild`，包装不会执行）。
+- **理由**：仅抬 Runner DT 无效；裸 `flutter build ipa` 会在 archive 前重写 Package.swift 且绕过 PATH；必须在直调 xcodebuild 正前对齐。
+- **备选**：关闭 SPM — 与 Widget 冲突，不做。
 
 ## Risks / Trade-offs
 
-- [ipa 再次生成覆盖 patch] → PATH 包装 xcodebuild，保证解析前对齐；Build Phase 兜底。
-- [误抬第三方合法低版本包] → 仅抬低于基线且存在于 ephemeral 树内的声明；基线与主 App 一致。
+- [config-only 冲掉 Widget SPM] → IPA 脚本在 align 前再跑 ensure。
+- [误抬 FlutterFramework 产品下限] → 对 FlutterFramework 只保证 ≥13，不抬到 15。
 - [AppFrameworkInfo 被 flutter create 冲掉] → prepare 幂等补写。
 
 ## Migration Plan
 
-1. 提交 `AppFrameworkInfo.plist` MinimumOSVersion=15.0；prepare 保证之。
-2. 新增 `align_spm_ios_platforms.sh`；workflow 两处调用。
-3. 文档补充「SPM target ≠ Runner target」。
-4. 重跑 TestFlight workflow 验证 Build signed IPA。
+1. 提交 AppFrameworkInfo / prepare / align / IPA 直调 archive 脚本与 workflow 接线。
+2. 重跑 TestFlight：日志须有 `[IPA] 3/5 align` 与 `align_spm_ios_platforms: scanned=`，且无 FlutterFramework vs 12。
 
 回滚：撤脚本调用与 plist 键即可。
 
