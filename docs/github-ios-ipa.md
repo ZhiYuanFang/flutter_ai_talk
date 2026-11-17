@@ -253,7 +253,7 @@ openssl pkcs12 -export -inkey ios_dist.key -in ios_distribution.pem -out ios_dis
 
 Ad Hoc / Development 同理：`IOS_MOBILEPROVISION_WIDGET_ADHOC_BASE64` 等。
 
-CI 会在构建前运行 `validate_ios_workflow_secrets.py` 校验 Bundle ID、Team、App Group 与过期时间。Flutter 版本默认读仓库根 **`.fvmrc`**（workflow 填 `pinned`）。`home_widget` **≥0.9**（含 iOS SPM）。Extension 由 `ensure_pangbao_widget_target.rb` 创建（**Widget Extension 最低 iOS 17**，主 App 仍 15+），并链接 SPM 包 `FlutterGeneratedPluginSwiftPackage` 以 `import home_widget`（**禁止**给 Extension 单独 CocoaPods `home_widget`），**无需本地 Xcode**。
+CI 会在构建前运行 `validate_ios_workflow_secrets.py` 校验 Bundle ID、Team、App Group 与过期时间。Flutter 版本默认读仓库根 **`.fvmrc`**（workflow 填 `pinned`）。`home_widget` **≥0.9**（含 iOS SPM）。Extension 由 `ensure_pangbao_widget_target.rb` 创建（**Widget Extension 与主 App 默认均为 iOS 17**），并链接 SPM 包 `FlutterGeneratedPluginSwiftPackage` 以 `import home_widget`（**禁止**给 Extension 单独 CocoaPods `home_widget`），**无需本地 Xcode**。
 
 详见 `app/ios/PangbaoWidget/README.md`。
 
@@ -551,19 +551,19 @@ CI 在 `app/tool/ci/prepare_ios_project.sh` 中会写入 `zh-Hans` 声明。修�
 
 ### 5. `pod install` / SPM 报 deployment target 过低（含 FlutterFramework 要 13、target 却是 12）？
 
-本仓库主 App 默认 **iOS 15.0**（不是「只升到 13」）。依赖侧：`speech_to_text`（13+）、`ffmpeg_kit_flutter_new_min_gpl`（14+）、SPM `FlutterFramework`（13+）。
+本仓库主 App 默认 **iOS 17.0**（与 PangbaoWidget Extension 对齐；不是「只升到 13」或停在 15）。依赖侧：`speech_to_text`（13+）、`mobile_scanner` 6.x（**15.5+**，由 17.0 覆盖）、SPM `FlutterFramework`（13+）。Live Activity UI 16.1+ / Push-to-Start 17.2+ 仍用运行时 `#available`。
 
 报错里的 **「this target supports 12.0」常常是 SwiftPM 插件 target**（例如 `photo_manager` 的 `.iOS("9.0")` 被钳成 12），不是 Runner 的 `IPHONEOS_DEPLOYMENT_TARGET`。仅改 Xcode 主 App DT **不够**。CI 的 `align_spm_ios_platforms.sh` 会抬 ephemeral **以及** `$PUB_CACHE` / `package_config` 里依赖 `FlutterFramework` 的 `Package.swift`。
 
 **对齐方式（与仓库一致）：**
 
-1. 跑 `bash tool/ci/prepare_ios_project.sh`（默认 `IOS_DEPLOYMENT_TARGET=15.0`）：写入 Podfile `platform :ios, '15.0'`、同步 Pod DT，并保证 `AppFrameworkInfo.plist` 的 `MinimumOSVersion=15.0`
-2. 确认 `Runner.xcodeproj` 为 15.0（仓库已提交；签名脚本 `configure_ios_project.rb` 也会写主 App=15）
-3. PangbaoWidget Extension 单独为 **17.0**（`IOS_WIDGET_DEPLOYMENT_TARGET`），不要改成与主 App 相同的 15
+1. 跑 `bash tool/ci/prepare_ios_project.sh`（默认 `IOS_DEPLOYMENT_TARGET=17.0`）：写入 Podfile `platform :ios, '17.0'`、同步 Pod DT，并保证 `AppFrameworkInfo.plist` 的 `MinimumOSVersion=17.0`
+2. 确认 `Runner.xcodeproj` 为 17.0（仓库已提交；签名脚本 `configure_ios_project.rb` 也会写主 App=17）
+3. PangbaoWidget Extension 默认同为 **17.0**（`IOS_WIDGET_DEPLOYMENT_TARGET`）；勿把 Extension 改到低于 17
 4. `flutter build ios --config-only` 后执行 `bash tool/ci/align_spm_ios_platforms.sh`
 5. CI 打 IPA 使用 `bash tool/ci/flutter_build_ipa_with_spm_align.sh …`：`config-only` → 补 Widget → **align** → `xcodebuild archive` → `exportArchive`（勿依赖 PATH 包装 `xcodebuild`，Flutter 常走绝对路径）
 
-勿把默认基线只抬到 13「刚好够 FlutterFramework」——相对本仓库是降级，且低于 ffmpeg 相关门槛。厂商 `WechatOpenSDK` 自报 MinimumOSVersion 12.0 可保持不动，不代表 App / SPM 基线应回到 12。
+勿把默认基线只抬到 13「刚好够 FlutterFramework」或只抬到 15.5「刚好够 mobile_scanner」——相对本仓库是降级。厂商 `WechatOpenSDK` 自报 MinimumOSVersion 12.0 可保持不动，不代表 App / SPM 基线应回到 12。
 
 ### 7. `pod install` 报 `Error installing WechatOpenSDK-XCFramework`（curl dldir1.qq.com 失败）？
 

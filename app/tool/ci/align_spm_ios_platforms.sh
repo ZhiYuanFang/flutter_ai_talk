@@ -8,14 +8,14 @@
 # 3) $PUB_CACHE 中含 FlutterFramework 依赖的 Package.swift
 #
 # 规则：
-# - FlutterFramework：仅保证 ≥13.0，不抬到主 App 15
-# - 其它消费方：低于 IOS_DEPLOYMENT_TARGET（默认 15）抬到该基线
+# - FlutterFramework：仅保证 ≥13.0，不抬到主 App 17
+# - 其它消费方：低于 IOS_DEPLOYMENT_TARGET（默认 17）抬到该基线
 # - 结束后消费方仍 < 基线 → exit 1
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-target="${IOS_DEPLOYMENT_TARGET:-15.0}"
+target="${IOS_DEPLOYMENT_TARGET:-17.0}"
 packages_root="ios/Flutter/ephemeral/Packages"
 ff_floor="13.0"
 pub_cache="${PUB_CACHE:-${PUB_CACHE_DIR:-}}"
@@ -47,7 +47,7 @@ import re
 import sys
 from pathlib import Path
 
-target = (os.environ.get("TARGET") or "15.0").strip() or "15.0"
+target = (os.environ.get("TARGET") or "17.0").strip() or "17.0"
 ff_floor = (os.environ.get("FF_FLOOR") or "13.0").strip() or "13.0"
 root = Path(os.environ["PACKAGES_ROOT"])
 pub_cache = Path(os.environ["PUB_CACHE"]) if os.environ.get("PUB_CACHE") else None

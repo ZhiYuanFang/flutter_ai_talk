@@ -239,14 +239,14 @@ from pathlib import Path
 import os
 import re
 
-target = os.getenv('IOS_DEPLOYMENT_TARGET', '15.0').strip() or '15.0'
+target = os.getenv('IOS_DEPLOYMENT_TARGET', '17.0').strip() or '17.0'
 podfile = Path('ios/Podfile')
 if not podfile.exists():
     # 仓库可能只提交了部分 ios/（含 xcodeproj 但无 Podfile）；CI 亦不会在 xcodeproj 存在时再 flutter create。
     podfile.parent.mkdir(parents=True, exist_ok=True)
     podfile.write_text(
         """# Uncomment this line to define a global platform for your project
-# platform :ios, '15.0'
+# platform :ios, '17.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -414,14 +414,14 @@ else:
     print(f'Podfile already targets iOS {target}')
 PY
 
-# AppFrameworkInfo.plist：保证 MinimumOSVersion 与主 App 基线一致（默认 15），
+# AppFrameworkInfo.plist：保证 MinimumOSVersion 与主 App 基线一致（默认 17），
 # 避免 Flutter 生成 SPM Package.swift 时落回 12.0。
 python3 <<'PY'
 from pathlib import Path
 import os
 import re
 
-target = os.getenv('IOS_DEPLOYMENT_TARGET', '15.0').strip() or '15.0'
+target = os.getenv('IOS_DEPLOYMENT_TARGET', '17.0').strip() or '17.0'
 plist = Path('ios/Flutter/AppFrameworkInfo.plist')
 if not plist.exists():
     print('AppFrameworkInfo.plist 不存在，跳过 MinimumOSVersion 对齐')

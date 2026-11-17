@@ -13,8 +13,9 @@ widget_profile_uuid = ENV['WIDGET_PROFILE_UUID']
 export_method = ENV.fetch('EXPORT_METHOD')
 
 signing_identity = export_method == 'development' ? 'Apple Development' : 'Apple Distribution'
-# 主 App 默认 15；Widget Extension 须独立默认 17，禁止共用同一 DT 覆盖 Extension
-deployment_target = ENV.fetch('IOS_DEPLOYMENT_TARGET', '15.0')
+# 主 App 默认 17（对齐 Widget / Live Activity 安装门槛，并覆盖 mobile_scanner 15.5）
+# Widget Extension 仍用独立键，禁止误把 Extension 改到低于 17
+deployment_target = ENV.fetch('IOS_DEPLOYMENT_TARGET', '17.0')
 widget_deployment_target = ENV.fetch('IOS_WIDGET_DEPLOYMENT_TARGET', '17.0')
 project_path = File.join(Dir.pwd, 'ios', 'Runner.xcodeproj')
 project = Xcodeproj::Project.open(project_path)

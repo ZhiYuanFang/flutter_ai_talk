@@ -8,7 +8,7 @@ Flutter 侧已通过 `home_widget`（**须 ≥0.9**，含 iOS SPM）写入 App G
 
 1. Flutter 版本以仓库根 **`.fvmrc`** 为准（CI `flutter_version=pinned`）
 2. 启用 SPM：`flutter config --enable-swift-package-manager`，`flutter build ios --config-only` 生成 `FlutterGeneratedPluginSwiftPackage`
-3. 运行 `app/tool/ci/ensure_pangbao_widget_target.rb`：创建 Extension（**IPHONEOS_DEPLOYMENT_TARGET=17.0**，可用 `IOS_WIDGET_DEPLOYMENT_TARGET` 覆盖），并链接上述 SPM 包（**不要**给 Extension 单独 `pod home_widget`，会撞 `Flutter-static`）。iOS 15–16 **无法安装**本小组件（主 App 仍 **15.0**；本地遇 FlutterFramework「要 13 / target 12」须先跑 `prepare_ios_project.sh` 对齐 15，勿只升到 13）
+3. 运行 `app/tool/ci/ensure_pangbao_widget_target.rb`：创建 Extension（**IPHONEOS_DEPLOYMENT_TARGET=17.0**，可用 `IOS_WIDGET_DEPLOYMENT_TARGET` 覆盖），并链接上述 SPM 包（**不要**给 Extension 单独 `pod home_widget`，会撞 `Flutter-static`）。主 App 默认同为 **17.0**（覆盖 `mobile_scanner` 15.5 地板）；iOS 16 及以下无法安装主 App / 小组件。本地遇 FlutterFramework「要 13 / target 12」须先跑 `prepare_ios_project.sh` 对齐 17，勿只升到 13
 4. 使用 **两份**描述文件签名（主 App + Widget Extension）
 5. `flutter build ipa` 产出含小组件的 IPA
 
