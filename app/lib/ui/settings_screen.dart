@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -344,6 +343,7 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final birthStr = HomeWidgetRowPayload.isoDateUtc(baby.birthDate);
     final onShell = AppColor.textPrimary(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return SettingsGlassPanel(
       contentPadding: EdgeInsets.zero,
@@ -376,41 +376,35 @@ class _BabyProfileReadonlyCard extends ConsumerWidget {
                   ),
                   _readonlyRow(context, '性别', _sexLabel(baby.sex)),
                   _readonlyRow(context, '生日', birthStr),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'ID：${baby.id}',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: onShell.withValues(alpha: 0.5),
-                                    ),
-                          ),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () async {
-                            await Clipboard.setData(
-                              ClipboardData(text: baby.id),
-                            );
-                            if (context.mounted) {
-                              ref.showApiToast('ID 已复制');
-                            }
-                          },
-                          icon: Icon(
-                            Icons.copy_rounded,
-                            size: 14,
-                            color: onShell.withValues(alpha: 0.5),
-                          ),
-                          tooltip: '复制 ID',
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
+            ),
+            const SizedBox(height: 4),
+            // 全家共享：出示二维码（对用户隐藏宝宝 ID）
+            ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+              leading: Icon(Icons.qr_code_2_rounded, color: scheme.primary),
+              title: Text(
+                '邀请家人',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: onShell,
+                ),
+              ),
+              subtitle: Text(
+                '出示二维码，家人扫码即可同步',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: onShell.withValues(alpha: 0.65),
+                ),
+              ),
+              trailing: Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: onShell.withValues(alpha: 0.5),
+              ),
+              onTap: () => context.push('/settings/baby-share'),
             ),
           ],
         ),

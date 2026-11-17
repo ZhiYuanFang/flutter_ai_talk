@@ -2,26 +2,30 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_color.dart';
 
-const kAuthHintColor = Color(0xFF8C7E74);
-
-Widget buildAuthBrandHeader(BuildContext context,
-    {Color hintColor = kAuthHintColor}) {
+/// 登录/注册品牌头：圆标 +「胖宝」+ 副文案，色经 [AppColor] 随主题。
+Widget buildAuthBrandHeader(BuildContext context) {
+  final primary = AppColor.primary(context);
+  final surface = AppColor.surface(context);
+  final onShell = AppColor.textPrimary(context);
+  final muted = AppColor.textMuted(context);
+  // 圆标底：surface 上叠一点 primary，避免夜空/浅壳硬编码奶油蓝
+  final logoFill = Color.alphaBlend(primary.withValues(alpha: 0.12), surface);
   return Column(
     children: [
       Container(
         width: 110,
         height: 110,
         decoration: BoxDecoration(
-          color: const Color(0xFFE8F1F9),
+          color: logoFill,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.12),
+              color: onShell.withValues(alpha: 0.12),
               offset: const Offset(8, 8),
               blurRadius: 16,
             ),
             BoxShadow(
-              color: Colors.white.withOpacity(0.9),
+              color: AppColor.pageBg(context).withValues(alpha: 0.55),
               offset: const Offset(-8, -8),
               blurRadius: 16,
             ),
@@ -40,15 +44,14 @@ Widget buildAuthBrandHeader(BuildContext context,
         '胖宝',
         style: Theme.of(context).textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              color: const Color(0xFF4A3428),
+              color: onShell,
               letterSpacing: 4,
             ),
       ),
       const SizedBox(height: 8),
       Text(
         '记录宝宝成长的每一步',
-        style:
-            Theme.of(context).textTheme.bodyLarge?.copyWith(color: hintColor),
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: muted),
       ),
     ],
   );

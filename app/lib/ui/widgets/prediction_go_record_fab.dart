@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/client_usage_events.dart';
+import '../../providers/client_usage_provider.dart';
 import '../../providers/home_pager.dart';
 
 /// 预测竖屏底部：「去记录」入口（视觉对齐已删的桌面小组件 pill FAB）。
@@ -19,6 +23,12 @@ class PredictionGoRecordFab extends ConsumerWidget {
         borderRadius: BorderRadius.circular(24),
         // 经主壳 pager 切到喂养页（不 push 重复路由）
         onTap: () {
+          // 点击即报，不阻塞切页
+          unawaited(
+            ref
+                .read(clientUsageReporterProvider)
+                .reportEvent(ClientUsageEvents.predictionGoRecordFabTap),
+          );
           ref
               .read(homePagerRequestProvider.notifier)
               .requestPage(HomePagerPage.feeding);

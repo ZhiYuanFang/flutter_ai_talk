@@ -442,31 +442,40 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
                                 ),
                                 if (showPay) ...[
                                   const SizedBox(height: 12),
-                                  FilledButton(
-                                    onPressed: _paying
-                                        ? null
-                                        : () => _purchasePermanent(product),
-                                    style: FilledButton.styleFrom(
-                                      foregroundColor:
-                                          AppColor.onPrimary(context),
-                                    ),
-                                    child: _paying
-                                        ? SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color:
-                                                  AppColor.onPrimary(context),
-                                            ),
-                                          )
-                                        : _PermanentPayButtonLabel(
-                                            priceFen: product.priceFen,
-                                            originalPriceFen:
-                                                product.originalPriceFen,
-                                            onPrimary:
-                                                AppColor.onPrimary(context),
-                                          ),
+                                  // 实心钮字色：相对 primary 底用 onFill（对齐喂养弹窗）
+                                  Builder(
+                                    builder: (ctx) {
+                                      final payFill =
+                                          Theme.of(ctx).colorScheme.primary;
+                                      final payOn =
+                                          AppColor.onFill(ctx, payFill);
+                                      return FilledButton(
+                                        onPressed: _paying
+                                            ? null
+                                            : () =>
+                                                _purchasePermanent(product),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: payFill,
+                                          foregroundColor: payOn,
+                                        ),
+                                        child: _paying
+                                            ? SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: payOn,
+                                                ),
+                                              )
+                                            : _PermanentPayButtonLabel(
+                                                priceFen: product.priceFen,
+                                                originalPriceFen: product
+                                                    .originalPriceFen,
+                                                onPrimary: payOn,
+                                              ),
+                                      );
+                                    },
                                   ),
                                 ],
                               ],
@@ -559,23 +568,31 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 child: unlockAsync.when(
                   loading: () => const SizedBox.shrink(),
-                  error: (_, __) => FilledButton.icon(
-                    onPressed: () => _onAddTap(
-                      unlock: const XiaozhiMcpUnlockView(
-                        unlocked: false,
-                        trialAvailable: false,
+                  error: (_, __) {
+                    final fill = scheme.primary;
+                    return FilledButton.icon(
+                      onPressed: () => _onAddTap(
+                        unlock: const XiaozhiMcpUnlockView(
+                          unlocked: false,
+                          trialAvailable: false,
+                        ),
+                        hasBaby: hasBaby,
                       ),
-                      hasBaby: hasBaby,
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('添加音箱'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      foregroundColor: AppColor.onPrimary(context),
-                    ),
-                  ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('添加音箱'),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        backgroundColor: fill,
+                        foregroundColor: AppColor.onFill(context, fill),
+                      ),
+                    );
+                  },
                   data: (unlock) {
                     final disabledLook = !unlock.canAdd || !hasBaby;
+                    // 绘制底：禁用态半透明 primary，否则实心 primary
+                    final fill = disabledLook
+                        ? scheme.primary.withValues(alpha: 0.55)
+                        : scheme.primary;
                     return FilledButton.icon(
                       onPressed: () =>
                           _onAddTap(unlock: unlock, hasBaby: hasBaby),
@@ -589,10 +606,8 @@ class _XiaozhiSpeakerScreenState extends ConsumerState<XiaozhiSpeakerScreen> {
                       ),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
-                        foregroundColor: AppColor.onPrimary(context),
-                        backgroundColor: disabledLook
-                            ? scheme.primary.withValues(alpha: 0.55)
-                            : null,
+                        backgroundColor: fill,
+                        foregroundColor: AppColor.onFill(context, fill),
                       ),
                     );
                   },
@@ -1054,7 +1069,8 @@ class _AddBindingDialogBodyState extends ConsumerState<_AddBindingDialogBody> {
                 onPressed: _submitting ? null : _submit,
                 style: FilledButton.styleFrom(
                   backgroundColor: scheme.primary,
-                  foregroundColor: AppColor.onPrimary(context),
+                  foregroundColor:
+                      AppColor.onFill(context, scheme.primary),
                 ),
                 child: const Text('添加'),
               ),
@@ -1132,7 +1148,8 @@ class _AliasEditDialogBodyState extends State<_AliasEditDialogBody> {
               onPressed: () => Navigator.pop(context, _ctrl.text),
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary,
-                foregroundColor: AppColor.onPrimary(context),
+                foregroundColor:
+                    AppColor.onFill(context, scheme.primary),
               ),
               child: const Text('保存'),
             ),

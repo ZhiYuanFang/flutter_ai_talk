@@ -78,8 +78,10 @@
 	<string>用于展示动态与你的距离</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>用于展示动态与你的距离</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描家人出示的宝宝共享二维码，以便绑定同一宝宝</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于选择照片发布动态，以及将图片保存到相册</string>
+	<string>用于选择照片发布动态、从相册识别宝宝共享码，以及将图片保存到相册</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>用于将你查看的图片保存到相册</string>
 	<key>UILaunchStoryboardName</key>

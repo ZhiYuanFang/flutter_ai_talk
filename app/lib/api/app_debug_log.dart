@@ -138,4 +138,10 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[PredictProIdea] ${_ts()} $message');
   }
+
+  /// 宝宝全家共享：出示码 / 扫码 / 相册识码 / 预览。
+  static void babyShare(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[BabyShare] ${_ts()} $message');
+  }
 }

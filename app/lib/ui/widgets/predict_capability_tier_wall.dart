@@ -382,29 +382,42 @@ class _TierMarkdownBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // panelGlass 正文/次文原子；标题跟档位 accent
+    final onGlass = AppColor.textOnPanelGlass(context);
     final muted = AppColor.textOnPanelGlassMuted(context);
-    // 无 · marker，省横向；emoji 作行首标签；正文 muted
+    final bodyStyle = TextStyle(
+      fontSize: 14,
+      height: 1.45,
+      color: muted,
+    );
+    final headingStyle = TextStyle(
+      fontWeight: FontWeight.w700,
+      color: accent,
+      height: 1.35,
+    );
+    // 无 · marker，省横向；emoji 作行首标签；常用节点全绑主题色
     final config = MarkdownConfig(
       configs: [
-        PConfig(
-          textStyle: TextStyle(
-            fontSize: 14,
-            height: 1.45,
-            color: muted,
-          ),
-        ),
-        H2Config(
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: accent,
-            height: 1.35,
-          ),
-        ),
+        PConfig(textStyle: bodyStyle),
+        H1Config(style: headingStyle.copyWith(fontSize: 18)),
+        H2Config(style: headingStyle.copyWith(fontSize: 16)),
+        H3Config(style: headingStyle.copyWith(fontSize: 15)),
         ListConfig(
           marginLeft: 0,
           marginBottom: 6,
           marker: (isOrdered, depth, index) => const SizedBox.shrink(),
+        ),
+        LinkConfig(
+          style: bodyStyle.copyWith(
+            color: accent,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+        CodeConfig(
+          style: bodyStyle.copyWith(
+            color: onGlass,
+            backgroundColor: accent.withValues(alpha: 0.14),
+          ),
         ),
       ],
     );

@@ -11,6 +11,7 @@ import '../providers/repositories.dart';
 import '../providers/session_provider.dart';
 import '../providers/toast_bus.dart';
 import '../session/credential_history_store.dart';
+import '../theme/app_color.dart';
 import 'auth/auth_field_scroll.dart';
 import 'auth/auth_ui.dart';
 import 'widgets/keyboard_lift.dart';
@@ -172,13 +173,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (box == null || !mounted) return;
 
     final offset = box.localToGlobal(Offset.zero);
+    // 账号历史菜单：跟 modal 原子，避免奶油硬编码混暗壳字色
     final selected = await showMenu<String>(
       context: context,
-      color: const Color(0xFFFBF8F3),
+      color: AppColor.modalFill(context),
       elevation: 4,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: const Color(0xFF8C7E74).withValues(alpha: 0.35)),
+        side: BorderSide(color: AppColor.modalBorder(context)),
       ),
       position: RelativeRect.fromLTRB(
         offset.dx,
@@ -192,7 +194,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               value: entry.account,
               child: Text(
                 entry.account,
-                style: const TextStyle(color: Color(0xFF4A3428), fontSize: 15),
+                style: TextStyle(
+                  color: AppColor.textOnModal(context),
+                  fontSize: 15,
+                ),
               ),
             ),
           )
@@ -348,13 +353,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     });
 
+    // 页底跟壳主题，禁止奶油大理石硬编码
+    final pageBg = AppColor.pageBg(context);
+    final primary = AppColor.primary(context);
+    final onFill = AppColor.onFill(context, primary);
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Color(0xFFFBF8F3), // 浅米色/大理石底色
-        ),
+        decoration: BoxDecoration(color: pageBg),
         child: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -434,12 +441,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               width: double.infinity,
                               child: FilledButton(
                                 onPressed: _loading ? null : _onUsernameLogin,
-                                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(50),
+                                  backgroundColor: primary,
+                                  foregroundColor: onFill,
+                                ),
                                 child: _loading
-                                    ? const SizedBox(
+                                    ? SizedBox(
                                         width: 18,
                                         height: 18,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: onFill,
+                                        ),
                                       )
                                     : const Text('账号密码登录'),
                               ),

@@ -66,6 +66,23 @@ class PredictProIdeaRepository {
     return _likeAction('unlike', id);
   }
 
+  /// 作者软删本人想法。
+  Future<void> delete(int id) async {
+    try {
+      await _api.postJsonEnvelope('$_base/delete', {'id': id});
+      AppDebugLog.predictProIdea('delete ok id=$id');
+    } on ApiBusinessException catch (e) {
+      AppDebugLog.predictProIdea('delete business err=${e.code} ${e.message}');
+      rethrow;
+    } on ApiHttpException catch (e) {
+      AppDebugLog.predictProIdea('delete http err=${e.statusCode}');
+      rethrow;
+    } catch (e) {
+      AppDebugLog.predictProIdea('delete err=$e');
+      rethrow;
+    }
+  }
+
   Future<PredictProIdeaLikeResult> _likeAction(String action, int id) async {
     try {
       final data = await _api.postJsonEnvelope('$_base/$action', {

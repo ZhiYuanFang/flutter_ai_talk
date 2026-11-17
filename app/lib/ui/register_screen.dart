@@ -6,6 +6,7 @@ import '../api/api_exceptions.dart';
 import '../config/env.dart';
 import '../providers/repositories.dart';
 import '../providers/toast_bus.dart';
+import '../theme/app_color.dart';
 import 'auth/auth_field_scroll.dart';
 import 'auth/auth_ui.dart';
 import 'widgets/keyboard_lift.dart';
@@ -165,13 +166,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 与登录同原子：页底/实心钮字色随主题
+    final pageBg = AppColor.pageBg(context);
+    final primary = AppColor.primary(context);
+    final onFill = AppColor.onFill(context, primary);
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Color(0xFFFBF8F3),
-        ),
+        decoration: BoxDecoration(color: pageBg),
         child: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -273,12 +276,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                               width: double.infinity,
                               child: FilledButton(
                                 onPressed: _loading ? null : _onRegisterUsername,
-                                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(50),
+                                  backgroundColor: primary,
+                                  foregroundColor: onFill,
+                                ),
                                 child: _loading
-                                    ? const SizedBox(
+                                    ? SizedBox(
                                         width: 18,
                                         height: 18,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: onFill,
+                                        ),
                                       )
                                     : const Text('注册账号'),
                               ),

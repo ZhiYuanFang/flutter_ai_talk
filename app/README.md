@@ -49,6 +49,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[Survey]` | 主壳满意度问卷 current/submit（GET 失败静默） |
 | `[XiaozhiGuide]` | 小智音箱引导视频清单拉取 / 播放失败 |
 | `[PredictProIdea]` | 预测 Pro 想法 list/submit/like |
+| `[BabyShare]` | 宝宝全家共享：出示码 / 扫码 / 相册识码 / 预览 |
 | `[UcgShare]` | 辩论帖微信分享截图上传/分享失败（`upload fail` / `share fail`） |
 | `[WsTransport]` | 共享 WS 建连/前置条件重试/握手/断线（`ResilientWebSocketClient`） |
 | `[HomeWidget]` | 桌面小组件 payload 写入/预拉历史/刷新失败 |

@@ -1,6 +1,6 @@
 # 过滤 Dart debugPrint 白名单 tag（需 adb 在 PATH，设备已连接）
 # 增删 tag：修改下方 $Tags 数组
-$Tags = @('[ApiHttp]', '[UcgFeed]', '[UcgLocation]', '[UcgVideo]', '[UcgCompose]', '[UcgPlay]', '[UcgUnread]', '[UcgPush]', '[UcgShare]', '[WsTransport]', '[HomeWidget]', '[FeatureUnlock]', '[LandscapeKws]', '[LandscapeVoice]', '[ClientUsage]', '[PredictImminent]', '[PredictInterval]', '[PredictActiveEta]', '[LiveActivity]', '[AppointmentNext]', '[HistoryLatest]', '[PredictPostMutation]', '[Survey]', '[XiaozhiGuide]', '[PredictProIdea]')
+$Tags = @('[ApiHttp]', '[UcgFeed]', '[UcgLocation]', '[UcgVideo]', '[UcgCompose]', '[UcgPlay]', '[UcgUnread]', '[UcgPush]', '[UcgShare]', '[WsTransport]', '[HomeWidget]', '[FeatureUnlock]', '[LandscapeKws]', '[LandscapeVoice]', '[ClientUsage]', '[PredictImminent]', '[PredictInterval]', '[PredictActiveEta]', '[LiveActivity]', '[AppointmentNext]', '[HistoryLatest]', '[PredictPostMutation]', '[Survey]', '[XiaozhiGuide]', '[PredictProIdea]', '[BabyShare]')
 
 $ErrorActionPreference = 'Stop'
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {

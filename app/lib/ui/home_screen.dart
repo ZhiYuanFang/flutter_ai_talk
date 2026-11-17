@@ -384,6 +384,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required EventNextPrediction prediction,
     required HomeNextPredictPromptState state,
   }) async {
+    // 按提示三态分 featureId 点击上报（不阻塞 CTA）
+    final usage = switch (state) {
+      HomeNextPredictPromptState.farUpcoming =>
+        ClientUsageEvents.feedingNextPredictCtaFar,
+      HomeNextPredictPromptState.withinWindow =>
+        ClientUsageEvents.feedingNextPredictCtaWithin,
+      HomeNextPredictPromptState.overdueBackfill =>
+        ClientUsageEvents.feedingNextPredictCtaOverdue,
+    };
+    unawaited(ref.read(clientUsageReporterProvider).reportEvent(usage));
     final isC = state == HomeNextPredictPromptState.overdueBackfill;
     // C：预填卡上预测 nextAt（可跨自然日）；A/B：不传，sheet/直开用当下。
     await _runHomeEventAdd(
@@ -1214,7 +1224,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       nickname: babyDisplay.nickname,
                       ageText: babyDisplay.ageText,
                       onAvatarTap: () => context.push('/settings'),
-                      onTrendsTap: () => context.push('/trends'),
+                      // 趋势入口：先登录/绑定门禁，通过后再进 /trends
+                      onTrendsTap: () async {
+                        if (!await _ensureRemoteGate()) return;
+                        if (!mounted) return;
+                        context.push('/trends');
+                      },
                     ),
                     // 顶部固定本地预测贴士（替代 tip SSE 球/卡）
                     // const HomePredictionTipBar(),

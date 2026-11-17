@@ -253,7 +253,8 @@ class _HomeWidgetDemo extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              color: Colors.white.withValues(alpha: 0.55),
+              // panelGlass 浅叠，禁止固定白底
+              color: AppColor.textOnPanelGlass(context).withValues(alpha: 0.12),
               border: Border.all(color: accent.withValues(alpha: 0.3)),
             ),
             child: Padding(
@@ -330,10 +331,11 @@ class _FamilyShareDemo extends StatelessWidget {
                       backgroundColor: colors[i],
                       child: Text(
                         ['爸', '妈', '奶'][i],
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                          // 相对头像底色成对
+                          color: AppColor.onFill(context, colors[i]),
                         ),
                       ),
                     ),
@@ -446,7 +448,12 @@ class _VoiceBallDemo extends StatelessWidget {
                   shape: BoxShape.circle,
                   color: accent,
                 ),
-                child: const Icon(Icons.mic, color: Colors.white, size: 22),
+                child: Icon(
+                  Icons.mic,
+                  // 相对 accent 实心圆
+                  color: AppColor.onFill(context, accent),
+                  size: 22,
+                ),
               ),
             ],
           ),
@@ -588,7 +595,11 @@ class _SpeakerSilhouettePainter extends CustomPainter {
       const Radius.circular(10),
     );
     canvas.drawRRect(body, paint);
-    final hole = Paint()..color = Colors.white.withValues(alpha: 0.35);
+    // 音箱孔高光：相对壳体亮度提亮/压暗，不用固定白
+    final holeTint = color.computeLuminance() > 0.5
+        ? const Color(0xFF000000)
+        : const Color(0xFFFFFFFF);
+    final hole = Paint()..color = holeTint.withValues(alpha: 0.35);
     canvas.drawCircle(
       Offset(size.width * 0.5, size.height * 0.42),
       size.width * 0.14,

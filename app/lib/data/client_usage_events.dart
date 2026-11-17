@@ -163,6 +163,38 @@ abstract final class ClientUsageEvents {
   static const babyAvatarChangeOk =
       ClientUsageEvent('baby_avatar_change_ok', '更换宝宝头像成功');
 
+  // —— 预测 Pro 想法（API 成功后报）——
+  static const predictProIdeaSubmit =
+      ClientUsageEvent('predict_pro_idea_submit', '提交 Pro 想法');
+  static const predictProIdeaLike =
+      ClientUsageEvent('predict_pro_idea_like', '点赞 Pro 想法');
+  static const predictProIdeaUnlike =
+      ClientUsageEvent('predict_pro_idea_unlike', '取消点赞 Pro 想法');
+  static const predictProIdeaDelete =
+      ClientUsageEvent('predict_pro_idea_delete', '删除 Pro 想法');
+
+  // —— 预测入口点击（点击即报）——
+  static const predictNextThreeHoursCardTap = ClientUsageEvent(
+    'predict_next_three_hours_card_tap',
+    '点击接下来3小时卡',
+  );
+  static const predictionGoRecordFabTap = ClientUsageEvent(
+    'prediction_go_record_fab_tap',
+    '点击去记录',
+  );
+  static const feedingNextPredictCtaFar = ClientUsageEvent(
+    'feeding_next_predict_cta_far',
+    '点击喂养预测卡（去记录）',
+  );
+  static const feedingNextPredictCtaWithin = ClientUsageEvent(
+    'feeding_next_predict_cta_within',
+    '点击喂养预测卡（窗内）',
+  );
+  static const feedingNextPredictCtaOverdue = ClientUsageEvent(
+    'feeding_next_predict_cta_overdue',
+    '点击喂养预测卡（补记）',
+  );
+
   /// 去掉 description 中的非法 `|`，避免污染服务端时间线分隔。
   static String _sanitizeDescPart(String raw) {
     final t = raw.trim().replaceAll('|', '/');

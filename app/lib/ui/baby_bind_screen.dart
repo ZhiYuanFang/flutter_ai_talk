@@ -1,13 +1,18 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pangbao_app/home_widget/home_widget_payload.dart';
 
 import '../api/api_exceptions.dart';
+import '../api/app_debug_log.dart';
 import '../api/gateway_json.dart';
+import '../data/baby_share_qr_payload.dart';
 import '../data/models.dart';
 import '../data/client_usage_events.dart';
 import '../providers/authorized_api_client_provider.dart';
@@ -41,9 +46,16 @@ DateTime _bindClampBirthForPicker(DateTime birth) {
   return d;
 }
 
+/// 预览昵称展示：空则「宝宝」。
+String _previewDisplayName(String? babyName) {
+  final t = babyName?.trim() ?? '';
+  return t.isEmpty ? '宝宝' : t;
+}
+
 enum _BabyBindMode { bind, create }
 
 /// 绑定已有宝宝或创建新宝宝（远程模式）。
+/// 绑定模式：扫一扫 / 相册识码 → bind_preview → 确认昵称 → bindwx（无手输 ID）。
 class BabyBindScreen extends ConsumerStatefulWidget {
   const BabyBindScreen({super.key});
 
@@ -52,33 +64,20 @@ class BabyBindScreen extends ConsumerStatefulWidget {
 }
 
 class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
-  final _deviceCtrl = TextEditingController();
   final _nicknameCtrl = TextEditingController();
-  final _deviceFocusNode = FocusNode();
   final _nicknameFocusNode = FocusNode();
-  final _deviceFieldKey = GlobalKey();
   final _nicknameFieldKey = GlobalKey();
   final _scrollCtrl = ScrollController();
   final _birth = ValueNotifier<DateTime>(_bindDefaultBirth());
   BabySex _sex = BabySex.male;
   var _busy = false;
-  var _mode = _BabyBindMode.create;
+  // 全家共享主路径：进页默认绑定（扫码），创建为次路径
+  var _mode = _BabyBindMode.bind;
 
   @override
   void initState() {
     super.initState();
-    _deviceFocusNode.addListener(_scrollDeviceIntoView);
     _nicknameFocusNode.addListener(_scrollNicknameIntoView);
-  }
-
-  void _scrollDeviceIntoView() {
-    if (!mounted) return;
-    scrollInlineAuthFieldIntoView(
-      _deviceFocusNode,
-      context: context,
-      scrollController: _scrollCtrl,
-      anchorKey: _deviceFieldKey,
-    );
   }
 
   void _scrollNicknameIntoView() {
@@ -92,24 +91,19 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   }
 
   GlobalKey? get _focusedAuthAnchor {
-    if (_deviceFocusNode.hasFocus) return _deviceFieldKey;
     if (_nicknameFocusNode.hasFocus) return _nicknameFieldKey;
     return null;
   }
 
   FocusNode? get _focusedAuthField {
-    if (_deviceFocusNode.hasFocus) return _deviceFocusNode;
     if (_nicknameFocusNode.hasFocus) return _nicknameFocusNode;
     return null;
   }
 
   @override
   void dispose() {
-    _deviceFocusNode.removeListener(_scrollDeviceIntoView);
     _nicknameFocusNode.removeListener(_scrollNicknameIntoView);
-    _deviceFocusNode.dispose();
     _nicknameFocusNode.dispose();
-    _deviceCtrl.dispose();
     _nicknameCtrl.dispose();
     _scrollCtrl.dispose();
     _birth.dispose();
@@ -121,35 +115,121 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     unawaited(ref.read(homeHistoryProvider.notifier).onDeviceNoChanged());
   }
 
-  Future<void> _bind() async {
-    final no = _deviceCtrl.text.trim();
-    if (no.isEmpty) return;
+  /// 扫码/识码得到 deviceNo 后：预览 → 确认 → bindwx。
+  Future<void> _onDeviceNoFromQr(String deviceNo) async {
+    final no = deviceNo.trim();
+    if (no.isEmpty || _busy) return;
     setState(() => _busy = true);
     try {
       final api = ref.read(authorizedApiClientProvider);
-      await api
-          .postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
-      final synced =
-          await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
-      if (!synced) {
-        if (mounted) {
-          ref.showApiToastError('会话刷新失败，请重新登录后再试');
-        }
+      final data = await api.postJsonEnvelope(
+        '/device/app/api/user/bind_preview',
+        {'deviceNo': no},
+      );
+      final echo =
+          readGatewayStr(data ?? const {}, 'deviceNo', 'device_no') ?? no;
+      final babyName =
+          readGatewayStr(data ?? const {}, 'babyName', 'baby_name') ?? '';
+      final display = _previewDisplayName(babyName);
+      AppDebugLog.babyShare(
+        'preview ok deviceNoLen=${echo.length} nameLen=${display.length}',
+      );
+      if (!mounted) return;
+      final go = await showGlassConfirmDialog(
+            context,
+            title: '确认绑定',
+            message: '确认绑定到「$display」？\n绑定后将同步该宝宝的喂养与预测。',
+            cancelLabel: '取消',
+            confirmLabel: '确认绑定',
+          ) ??
+          false;
+      if (!go) {
+        AppDebugLog.babyShare('preview confirm cancelled');
         return;
       }
-      await ref.read(deviceNoNotifierProvider.notifier).setLocal(no);
-      ref.invalidate(settingsBabyProvider);
-      _scheduleHistoryBootstrapAfterBind();
-      unawaited(
-        ref
-            .read(feedRepositoryProvider)
-            .reconnectHistoryWebSocket(resetStrike: true),
-      );
-      if (mounted) GoRouter.of(context).go('/home');
+      await _bindDeviceNo(echo);
     } on ApiBusinessException catch (e) {
+      AppDebugLog.babyShare('preview fail err=${e.message}');
       ref.showApiToastError(e.message);
+    } catch (e) {
+      AppDebugLog.babyShare('preview fail err=$e');
+      ref.showApiToastError('预览失败，请稍后重试');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _bindDeviceNo(String no) async {
+    final api = ref.read(authorizedApiClientProvider);
+    await api.postJsonEnvelope('/device/app/api/user/bindwx', {'deviceNo': no});
+    final synced =
+        await ensureAccessTokenHasDeviceNoFromWidget(ref, localDeviceNo: no);
+    if (!synced) {
+      if (mounted) {
+        ref.showApiToastError('会话刷新失败，请重新登录后再试');
+      }
+      return;
+    }
+    await ref.read(deviceNoNotifierProvider.notifier).setLocal(no);
+    ref.invalidate(settingsBabyProvider);
+    _scheduleHistoryBootstrapAfterBind();
+    unawaited(
+      ref
+          .read(feedRepositoryProvider)
+          .reconnectHistoryWebSocket(resetStrike: true),
+    );
+    if (mounted) GoRouter.of(context).go('/home');
+  }
+
+  Future<void> _openCameraScan() async {
+    if (_busy) return;
+    final dn = await context.push<String>('/settings/scan-baby-qr');
+    if (!mounted || dn == null || dn.trim().isEmpty) return;
+    await _onDeviceNoFromQr(dn);
+  }
+
+  Future<void> _pickAlbumQr() async {
+    if (_busy) return;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 95,
+      );
+      if (picked == null) return;
+      final controller = MobileScannerController();
+      try {
+        final capture = await controller.analyzeImage(picked.path);
+        final raw = capture?.barcodes
+                .map((b) => b.rawValue)
+                .whereType<String>()
+                .map((s) => s.trim())
+                .firstWhere((s) => s.isNotEmpty, orElse: () => '') ??
+            '';
+        if (raw.isEmpty) {
+          AppDebugLog.babyShare('album no barcode');
+          if (mounted) {
+            ref.showApiToastError(BabyShareQrPayload.invalidMessage);
+          }
+          return;
+        }
+        final dn = BabyShareQrPayload.tryDecode(raw);
+        if (dn == null) {
+          AppDebugLog.babyShare('album reject non-product');
+          if (mounted) {
+            ref.showApiToastError(BabyShareQrPayload.invalidMessage);
+          }
+          return;
+        }
+        AppDebugLog.babyShare('album ok deviceNoLen=${dn.length}');
+        await _onDeviceNoFromQr(dn);
+      } finally {
+        await controller.dispose();
+      }
+    } catch (e) {
+      AppDebugLog.babyShare('album fail err=$e');
+      if (mounted) {
+        ref.showApiToastError('无法识别图片中的二维码');
+      }
     }
   }
 
@@ -190,7 +270,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
       );
       final dn = readGatewayStr(data ?? const {}, 'deviceNo', 'device_no');
       if (dn == null || dn.isEmpty) {
-        ref.showApiToastError('创建成功但未返回宝宝ID');
+        ref.showApiToastError('创建成功但未返回宝宝信息');
         return;
       }
       final synced =
@@ -213,8 +293,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     } on ApiBusinessException catch (e) {
       ref.showApiToastError(e.message);
     } finally {
-      // 跳转到主页
-       if (mounted && shouldPop) GoRouter.of(context).go('/home');
+      if (mounted && shouldPop) GoRouter.of(context).go('/home');
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -226,7 +305,6 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     final isDark = tokens?.isDarkShell ??
         (Theme.of(context).brightness == Brightness.dark);
 
-    // 背景渐变：随主色调变化
     final bgStart = tokens?.shellColor ?? scheme.surface;
     final bgEnd =
         Color.lerp(bgStart, scheme.primaryContainer, 0.4) ?? scheme.surface;
@@ -234,54 +312,58 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     return ClientUsageShowOnce(
       event: ClientUsageEvents.bindBabyShow,
       child: Scaffold(
-      resizeToAvoidBottomInset: false,
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('宝宝信息绑定'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(false),
-        ),
-      ),
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [bgStart, bgEnd],
+        resizeToAvoidBottomInset: false,
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          title: const Text('宝宝信息绑定'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(false),
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
-              _buildModeSwitcher(scheme, isDark),
-              const SizedBox(height: 32),
-              Expanded(
-                child: InlineAuthKeyboardLiftHost(
-                  scrollController: _scrollCtrl,
-                  focusedNode: _focusedAuthField,
-                  anchorKey: _focusedAuthAnchor,
-                  child: SingleChildScrollView(
-                    controller: _scrollCtrl,
-                    padding: EdgeInsets.fromLTRB(24, 0, 24,
-                        16 + MediaQuery.viewInsetsOf(context).bottom),
-                    child: _mode == _BabyBindMode.bind
-                        ? _buildBindCard(context, scheme, isDark)
-                        : _buildCreateCard(context, scheme, isDark),
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [bgStart, bgEnd],
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 20),
+                _buildModeSwitcher(scheme, isDark),
+                const SizedBox(height: 32),
+                Expanded(
+                  child: InlineAuthKeyboardLiftHost(
+                    scrollController: _scrollCtrl,
+                    focusedNode: _focusedAuthField,
+                    anchorKey: _focusedAuthAnchor,
+                    child: SingleChildScrollView(
+                      controller: _scrollCtrl,
+                      padding: EdgeInsets.fromLTRB(
+                        24,
+                        0,
+                        24,
+                        16 + MediaQuery.viewInsetsOf(context).bottom,
+                      ),
+                      child: _mode == _BabyBindMode.bind
+                          ? _buildBindCard(context, scheme)
+                          : _buildCreateCard(context, scheme, isDark),
+                    ),
                   ),
                 ),
-              ),
-              _buildFooterButtons(scheme, isDark),
-            ],
+                _buildFooterButtons(scheme, isDark),
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 
@@ -314,49 +396,79 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
     );
   }
 
-  Widget _buildBindCard(BuildContext context, ColorScheme scheme, bool isDark) {
+  Widget _buildBindCard(BuildContext context, ColorScheme scheme) {
+    final onShell = AppColor.textPrimary(context);
+    final scanEnabled = !kIsWeb && !_busy;
+
     return _GlassCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '输入宝宝ID',
+            '扫码绑定',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: AppColor.textPrimary(context),
-            ),
-          ),
-          const SizedBox(height: 16),
-          keyboardLiftTarget(
-            focusNode: _deviceFocusNode,
-            anchorKey: _deviceFieldKey,
-            child: TextField(
-              controller: _deviceCtrl,
-              focusNode: _deviceFocusNode,
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                hintText: '请输入宝宝ID',
-                filled: true,
-                fillColor: AppColor.fieldFill(context),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              ),
+              color: onShell,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            '从你的家人那查看宝宝信息，复制宝宝id输入',
+            '让家人出示共享二维码，扫一扫或从相册选码即可绑定同一宝宝。',
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               height: 1.4,
               color: AppColor.textSecondary(context),
             ),
           ),
+          const SizedBox(height: 20),
+          if (kIsWeb)
+            Text(
+              '请在手机 App 上使用扫码或相册绑定；网页端请改用「创建新宝宝」，或请家人在手机上操作。',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: onShell.withValues(alpha: 0.75),
+              ),
+            )
+          else ...[
+            FilledButton.icon(
+              onPressed: scanEnabled ? _openCameraScan : null,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('扫一扫'),
+              style: FilledButton.styleFrom(
+                backgroundColor: scheme.primary.withValues(alpha: 0.85),
+                foregroundColor: AppColor.onPrimary(context),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: scanEnabled ? _pickAlbumQr : null,
+              icon: const Icon(Icons.photo_library_outlined),
+              label: const Text('相册选码'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: onShell,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+          if (_busy) ...[
+            const SizedBox(height: 16),
+            const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -473,6 +585,21 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
   }
 
   Widget _buildFooterButtons(ColorScheme scheme, bool isDark) {
+    // 绑定模式：扫码即流程，底部仅取消；创建模式保留确认。
+    if (_mode == _BabyBindMode.bind) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: TextButton(
+          onPressed: () => context.pop(false),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColor.textMuted(context),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+          child: const Text('取消', style: TextStyle(fontSize: 16)),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
       child: Row(
@@ -491,9 +618,7 @@ class _BabyBindScreenState extends ConsumerState<BabyBindScreen> {
           Expanded(
             flex: 2,
             child: FilledButton(
-              onPressed: _busy
-                  ? null
-                  : (_mode == _BabyBindMode.bind ? _bind : _create),
+              onPressed: _busy ? null : _create,
               style: FilledButton.styleFrom(
                 backgroundColor: scheme.primary.withValues(alpha: 0.8),
                 foregroundColor: AppColor.onPrimary(context),
@@ -535,7 +660,6 @@ class _ModeTab extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          // 选中态：浅壳近白玻璃；暗壳 surface+primary，避免白板
           color: selected ? AppColor.contentCard(context) : Colors.transparent,
           borderRadius: BorderRadius.circular(99),
           boxShadow: selected
@@ -552,38 +676,12 @@ class _ModeTab extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
               color: selected
                   ? scheme.primary
-                  : scheme.primary.withValues(alpha: 0.7),
-              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-              fontSize: 15,
+                  : AppColor.textPrimary(context).withValues(alpha: 0.6),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-
-  const _GlassCard({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: AppColor.modalFill(context),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: AppColor.modalBorder(context)),
-          ),
-          child: child,
         ),
       ),
     );
@@ -605,33 +703,61 @@ class _SexChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 未选中底/边走主题玻璃；选中保留性别语义色（产品例外）
-    final idleFill = AppColor.fieldFill(context);
-    final idleBorder = AppColor.fieldBorder(context);
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: selected ? color.withValues(alpha: 0.15) : idleFill,
+            color: selected
+                ? color.withValues(alpha: 0.15)
+                : AppColor.fieldFill(context),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? color : idleBorder,
-              width: selected ? 1.5 : 1,
+              color: selected ? color : Colors.transparent,
+              width: 1.5,
             ),
           ),
           child: Center(
             child: Text(
               label,
               style: TextStyle(
+                fontWeight: FontWeight.w600,
                 color: selected ? color : AppColor.textMuted(context),
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13,
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassCard extends StatelessWidget {
+  final Widget child;
+
+  const _GlassCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: (isDark ? Colors.white : Colors.white)
+                .withValues(alpha: isDark ? 0.08 : 0.55),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.4),
+            ),
+          ),
+          child: child,
         ),
       ),
     );

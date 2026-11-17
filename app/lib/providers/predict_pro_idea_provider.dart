@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_exceptions.dart';
+import '../data/client_usage_events.dart';
 import '../data/predict_pro_idea_models.dart';
 import '../data/predict_pro_idea_repository.dart';
 import 'authorized_api_client_provider.dart';
+import 'client_usage_provider.dart';
 import 'toast_bus.dart';
 
 final predictProIdeaRepositoryProvider = Provider<PredictProIdeaRepository>((ref) {
@@ -113,6 +115,12 @@ class PredictProIdeaListNotifier extends StateNotifier<PredictProIdeaListState> 
     try {
       await _repo.submit(t);
       await refresh();
+      // 提交成功：行为日志（静默、不挡 UI）
+      unawaited(
+        _ref
+            .read(clientUsageReporterProvider)
+            .reportEvent(ClientUsageEvents.predictProIdeaSubmit),
+      );
       return true;
     } on ApiBusinessException catch (e) {
       _ref.showApiToastError(e.message);
@@ -122,6 +130,31 @@ class PredictProIdeaListNotifier extends StateNotifier<PredictProIdeaListState> 
       return false;
     } catch (_) {
       _ref.showApiToastError('提交失败，请稍后重试');
+      return false;
+    }
+  }
+
+  /// 作者删除；成功后本地移除并上报。
+  Future<bool> deleteIdea(int id) async {
+    try {
+      await _repo.delete(id);
+      if (!mounted) return true;
+      final next = state.items.where((e) => e.id != id).toList(growable: false);
+      state = state.copyWith(items: next);
+      unawaited(
+        _ref
+            .read(clientUsageReporterProvider)
+            .reportEvent(ClientUsageEvents.predictProIdeaDelete),
+      );
+      return true;
+    } on ApiBusinessException catch (e) {
+      _ref.showApiToastError(e.message);
+      return false;
+    } on ApiHttpException catch (e) {
+      _ref.showApiToastError('网络错误(${e.statusCode})');
+      return false;
+    } catch (_) {
+      _ref.showApiToastError('删除失败，请稍后重试');
       return false;
     }
   }
@@ -154,6 +187,14 @@ class PredictProIdeaListNotifier extends StateNotifier<PredictProIdeaListState> 
         likedByMe: res.likedByMe,
       );
       state = state.copyWith(items: synced);
+      // 赞/取消赞成功后分 featureId 上报
+      unawaited(
+        _ref.read(clientUsageReporterProvider).reportEvent(
+              nextLiked
+                  ? ClientUsageEvents.predictProIdeaLike
+                  : ClientUsageEvents.predictProIdeaUnlike,
+            ),
+      );
     } on ApiBusinessException catch (e) {
       if (!mounted) return;
       state = state.copyWith(items: before);

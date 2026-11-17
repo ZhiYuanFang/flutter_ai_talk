@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/predict_pro_idea_models.dart';
 import '../../providers/predict_pro_idea_provider.dart';
 import '../../theme/app_color.dart';
+import 'app_glass_overlay.dart';
 import 'predict_pro_idea_compose_sheet.dart';
 
 /// 付费意愿小字（空态圆钮 /「我有更多想法」下方共用）。
@@ -95,6 +98,10 @@ class PredictProIdeaPanel extends ConsumerWidget {
             accent: accent,
             onToggleLike: () =>
                 ref.read(predictProIdeaListProvider.notifier).toggleLike(item.id),
+            // 仅本人：长按 → 删除 Sheet
+            onAuthorLongPress: item.isMine
+                ? () => unawaited(_confirmDeleteOwnIdea(context, ref, item))
+                : null,
           ),
           const SizedBox(height: 8),
         ],
@@ -124,6 +131,8 @@ class PredictProIdeaMoreCta extends StatelessWidget {
   Widget build(BuildContext context) {
     final onGlass = AppColor.textOnPanelGlass(context);
     final muted = AppColor.textOnPanelGlassMuted(context);
+    // 浅透 accent 底 + 玻璃字，避免 Material 默认浅底在夜空糊字
+    final ctaFill = accent.withValues(alpha: 0.22);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -133,6 +142,7 @@ class PredictProIdeaMoreCta extends StatelessWidget {
           child: OutlinedButton(
             onPressed: () => _openCompose(context),
             style: OutlinedButton.styleFrom(
+              backgroundColor: ctaFill,
               foregroundColor: onGlass,
               side: BorderSide(color: accent.withValues(alpha: 0.55)),
               shape: RoundedRectangleBorder(
@@ -196,6 +206,8 @@ class _HeartbeatIdeaCircleState extends State<_HeartbeatIdeaCircle>
 
   @override
   Widget build(BuildContext context) {
+    // 浅透 accent 底仍压在 panelGlass 上 → 字用玻璃正文原子（非实心 onFill）
+    final fill = widget.accent.withValues(alpha: 0.28);
     final onGlass = AppColor.textOnPanelGlass(context);
     return Center(
       child: ScaleTransition(
@@ -210,7 +222,7 @@ class _HeartbeatIdeaCircleState extends State<_HeartbeatIdeaCircle>
               height: 96,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: widget.accent.withValues(alpha: 0.22),
+                color: fill,
                 border: Border.all(
                   color: widget.accent.withValues(alpha: 0.65),
                   width: 1.5,
@@ -236,40 +248,135 @@ class _HeartbeatIdeaCircleState extends State<_HeartbeatIdeaCircle>
   }
 }
 
-/// 紧凑列表行：• 正文 | 火赞；本人整行 accent。
+/// 本人想法：动作 Sheet → 确认 → 删除。
+Future<void> _confirmDeleteOwnIdea(
+  BuildContext context,
+  WidgetRef ref,
+  PredictProIdeaItem item,
+) async {
+  final accent = Theme.of(context).colorScheme.primary;
+  final pickDelete = await showGlassAdaptiveBottomSheet<bool>(
+    context: context,
+    eventAccent: accent,
+    maxHeightFraction: 0.35,
+    scrollable: false,
+    bodyBuilder: (ctx) {
+      final onGlass = AppColor.textOnPanelGlass(ctx);
+      final muted = AppColor.textOnPanelGlassMuted(ctx);
+      // 展示当前想法正文，避免多条本人想法时误删
+      final ideaText = item.text.trim();
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '管理想法',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: onGlass,
+            ),
+          ),
+          if (ideaText.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '· ',
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    fontWeight: FontWeight.w700,
+                    color: accent,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    ideaText,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                      fontWeight: FontWeight.w500,
+                      color: muted,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.delete_outline, color: Theme.of(ctx).colorScheme.error),
+            title: Text(
+              '删除',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(ctx).colorScheme.error,
+              ),
+            ),
+            onTap: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      );
+    },
+  );
+  if (pickDelete != true || !context.mounted) return;
+  final ok = await showGlassConfirmDialog(
+        context,
+        title: '删除想法',
+        message: '删除后不可恢复，确定删除这条想法吗？',
+        confirmLabel: '删除',
+        eventAccent: accent,
+      ) ??
+      false;
+  if (!ok || !context.mounted) return;
+  await ref.read(predictProIdeaListProvider.notifier).deleteIdea(item.id);
+}
+
+/// 紧凑列表行：• 正文 | 火赞；本人整行 accent；本人可长按删除。
 class _IdeaCard extends StatelessWidget {
   const _IdeaCard({
     required this.item,
     required this.accent,
     required this.onToggleLike,
+    this.onAuthorLongPress,
   });
 
   final PredictProIdeaItem item;
   final Color accent;
   final VoidCallback onToggleLike;
+  final VoidCallback? onAuthorLongPress;
 
   @override
   Widget build(BuildContext context) {
     final onGlass = AppColor.textOnPanelGlass(context);
     final muted = AppColor.textOnPanelGlassMuted(context);
     final mine = item.isMine;
-    // 本人整行 accent；他人默认玻璃字色
-    final rowColor = mine ? accent : onGlass;
+    // 深 accent 在暗玻璃上不可读时回退 onGlass，仍用字重区分本人
+    final accentReadable = accent.computeLuminance() >= 0.35;
+    final rowColor = !mine
+        ? onGlass
+        : (accentReadable ? accent : onGlass);
     final heatColor = mine || item.likedByMe
-        ? accent
+        ? (accentReadable ? accent : onGlass)
         : muted.withValues(alpha: 0.9);
 
-    return Row(
+    final row = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // 列表 bullet（非 ASCII -）
+        // 列表 bullet（非 ASCII -）；本人始终用 accent 点标便于扫视
         Text(
           '•',
           style: TextStyle(
-            fontSize: 15,
+            fontSize: 13,
             height: 1.35,
             fontWeight: FontWeight.w700,
-            color: rowColor,
+            color: mine ? accent : rowColor,
           ),
         ),
         const SizedBox(width: 8),
@@ -277,7 +384,8 @@ class _IdeaCard extends StatelessWidget {
           child: Text(
             item.text,
             style: TextStyle(
-              fontSize: 13.5,
+              // 与热度/小字齐平，列表更密
+              fontSize: 12,
               height: 1.4,
               fontWeight: mine ? FontWeight.w700 : FontWeight.w500,
               color: rowColor,
@@ -285,7 +393,7 @@ class _IdeaCard extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        // 火标热度：与正文块纵向居中
+        // 火标热度：与正文块纵向居中（独立 InkWell，避免与长按抢手势）
         InkWell(
           onTap: onToggleLike,
           borderRadius: BorderRadius.circular(16),
@@ -315,6 +423,13 @@ class _IdeaCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+
+    if (onAuthorLongPress == null) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: onAuthorLongPress,
+      child: row,
     );
   }
 }

@@ -15,6 +15,8 @@ import '../ui/register_screen.dart';
 import '../ui/policy_screen.dart';
 import '../ui/baby_bind_screen.dart';
 import '../ui/baby_profile_edit_screen.dart';
+import '../ui/baby_qr_scan_screen.dart';
+import '../ui/baby_share_screen.dart';
 import '../ui/change_password_screen.dart';
 import '../ui/feedback_list_screen.dart';
 import '../ui/live_activity_settings_screen.dart';
@@ -58,7 +60,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final registering = loc == '/register';
       const settingsPathsRequiringLogin = <String>{
         '/settings/baby',
+        '/settings/baby-share',
         '/settings/bind-baby',
+        '/settings/scan-baby-qr',
         '/settings/change-password',
         '/settings/feedback',
         '/settings/notifications',
@@ -149,8 +153,16 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const BabyProfileEditScreen(),
       ),
       GoRoute(
+        path: '/settings/baby-share',
+        builder: (context, state) => const BabyShareScreen(),
+      ),
+      GoRoute(
         path: '/settings/bind-baby',
         builder: (context, state) => const BabyBindScreen(),
+      ),
+      GoRoute(
+        path: '/settings/scan-baby-qr',
+        builder: (context, state) => const BabyQrScanScreen(),
       ),
       GoRoute(
         path: '/settings/change-password',

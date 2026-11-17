@@ -66,7 +66,7 @@ Future<void> showThemePaletteSheet(BuildContext context) {
 class _ThemePaletteSheetBody extends ConsumerWidget {
   const _ThemePaletteSheetBody();
 
-  static const _classicSwatch = Color(0xFFF5F5F5);
+  // 彩色色盘无 seed 时的预览占位色
   static const _defaultCustomPreview = Color(0xFFE3F2FD);
 
   Future<void> _applyBaseline(
@@ -113,11 +113,14 @@ class _ThemePaletteSheetBody extends ConsumerWidget {
     final scheduleEnabled = ref.watch(themeScheduleEnabledProvider);
     final baselinePreset = ref.watch(themePresetProvider);
     final baselineSeed = ref.watch(customBackgroundProvider);
+    // 经典色块预览：跟 classicLightBundle 同一性别主色
+    final classicSwatchColor = sexPrimary(ref.watch(babySexProvider));
     final isClassic = baselinePreset == null && baselineSeed == null;
     final isNightBaseline = baselinePreset == ThemePreset.nightSky;
     final isCustom = baselinePreset == null && baselineSeed != null;
     final previewColor = baselineSeed ?? _defaultCustomPreview;
-    final canPickCustom = !scheduleEnabled;
+    // 自动入夜开启时整块色选区不挂载（经典/夜空/彩色/色盘/提示均无）
+    final showBaselinePicker = !scheduleEnabled;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -165,30 +168,30 @@ class _ThemePaletteSheetBody extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _PresetSwatch(
-                label: '经典',
-                color: _classicSwatch,
-                selected: isClassic,
-                onTap: () => unawaited(_clearToClassic(ref)),
-              ),
-              _PresetSwatch(
-                label: '夜空',
-                color: kNightSkyShell,
-                selected: isNightBaseline,
-                onTap: () => unawaited(
-                  _applyBaseline(
-                    ref,
-                    preset: ThemePreset.nightSky,
-                    seed: kNightSkyShell,
+          if (showBaselinePicker) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _PresetSwatch(
+                  label: '经典',
+                  color: classicSwatchColor,
+                  selected: isClassic,
+                  onTap: () => unawaited(_clearToClassic(ref)),
+                ),
+                _PresetSwatch(
+                  label: '夜空',
+                  color: kNightSkyShell,
+                  selected: isNightBaseline,
+                  onTap: () => unawaited(
+                    _applyBaseline(
+                      ref,
+                      preset: ThemePreset.nightSky,
+                      seed: kNightSkyShell,
+                    ),
                   ),
                 ),
-              ),
-              if (canPickCustom)
                 _ColorfulSwatch(
                   label: '彩色',
                   seed: baselineSeed,
@@ -202,24 +205,14 @@ class _ThemePaletteSheetBody extends ConsumerWidget {
                     }
                   },
                 ),
-            ],
-          ),
-          if (canPickCustom) ...[
+              ],
+            ),
             const SizedBox(height: 12),
             _CustomThemeColorPicker(
               color: previewColor,
               selected: isCustom,
               onColorChanged: (c) => unawaited(
                 _applyBaseline(ref, preset: null, seed: c),
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 8),
-            Text(
-              '自动夜空开启时不可自定义颜色',
-              style: TextStyle(
-                fontSize: 12,
-                color: onSheet.withValues(alpha: 0.55),
               ),
             ),
           ],

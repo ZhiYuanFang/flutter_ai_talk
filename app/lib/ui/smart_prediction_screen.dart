@@ -462,12 +462,14 @@ class SmartPredictionScreen extends ConsumerWidget {
       }
     }
 
-    // Auth 冷态（未登录/未绑定）：滑动引导大卡，不展示3小时。
+    // Auth 冷态（未登录/未绑定）：不展示3小时；引导大卡仅 UCG 主壳开启时挂。
     final authGuestChrome = !loggedIn || !bound;
 
-    // 热态不展示留意卡；未登录/未绑定仅滑动引导。
+    // 热态不展示留意卡；冷态 + UCG 开才挂滑动引导（关则整卡不展示）。
     final Widget? careOrGuide =
-        authGuestChrome ? const _PredictionSwipeGuideCard() : null;
+        authGuestChrome && kUcgHomePagerEnabled
+            ? const _PredictionSwipeGuideCard()
+            : null;
 
     // 网格计时中 chrome：统一池真历史
     final historyItems = homeState.items;
@@ -1402,6 +1404,7 @@ class _PredictionSwipeGuideCardState extends State<_PredictionSwipeGuideCard>
 
   @override
   Widget build(BuildContext context) {
+    // 本卡仅在 kUcgHomePagerEnabled 时挂载 → 固定左右双指引
     final onPanel = AppColor.textOnPanelGlass(context);
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
@@ -1712,12 +1715,19 @@ class _PredictionAuthGateCard extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 22),
-          FilledButton(
-            onPressed: onAction,
-            style: FilledButton.styleFrom(
-              foregroundColor: AppColor.onPrimary(context),
-            ),
-            child: Text(actionLabel),
+          // 实心主钮：相对 primary 底用 onFill（对齐喂养弹窗）
+          Builder(
+            builder: (ctx) {
+              final fill = AppColor.primary(ctx);
+              return FilledButton(
+                onPressed: onAction,
+                style: FilledButton.styleFrom(
+                  backgroundColor: fill,
+                  foregroundColor: AppColor.onFill(ctx, fill),
+                ),
+                child: Text(actionLabel),
+              );
+            },
           ),
         ],
       ),
@@ -1772,6 +1782,12 @@ class _NextThreeHoursTimeline extends ConsumerWidget {
         // syncing 时不可点；否则 force 功能包 + 整卡开两档墙（不阻塞开墙）
         onTap: canOpenWall
             ? () {
+                // 整卡开墙点击：行为日志（静默）
+                unawaited(
+                  ref.read(clientUsageReporterProvider).reportEvent(
+                        ClientUsageEvents.predictNextThreeHoursCardTap,
+                      ),
+                );
                 unawaited(
                   ref
                       .read(featureCatalogStateProvider.notifier)
@@ -2410,7 +2426,8 @@ class _HeartbeatAccentButtonState extends State<_HeartbeatAccentButton>
         onPressed: widget.busy ? null : widget.onPressed,
         style: FilledButton.styleFrom(
           backgroundColor: widget.accent,
-          foregroundColor: AppColor.onPrimary(context),
+          // accent 实心底 → onFill，勿用主题 onPrimary
+          foregroundColor: AppColor.onFill(context, widget.accent),
           padding: const EdgeInsets.symmetric(vertical: 8),
           visualDensity: VisualDensity.compact,
         ),

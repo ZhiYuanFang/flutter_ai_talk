@@ -74,21 +74,14 @@ abstract final class AppColor {
   /// 主题强调色：FilledButton 底、选中态、链接强调（随设置主题种子）。
   static Color primary(BuildContext context) => _scheme(context).primary;
 
-  /// 压在 primary 实心底上的字/图标（确认钮文字）。
+  /// ColorScheme 成对 onPrimary（Theme 构建用）；业务实心钮标签请用 [onFill]。
   static Color onPrimary(BuildContext context) => _scheme(context).onPrimary;
 
-  /// 压在任意实心填充色上的字色：Material fromSeed 成对，非二元黑白。
-  /// 用于事件 accent 等非 theme.primary 的 FilledButton 底。
-  // static Color onFill(BuildContext context, Color fill) {
-  //   return ColorScheme.fromSeed(
-  //     seedColor: fill,
-  //     brightness: Brightness.light, // 强制亮色，按钮上的文字成黑色的话，看不清
-  //   ).onPrimary;
-  // }
+  /// 业务实心钮字色唯一入口：相对实际绘制底 [fill] 取对比色（与喂养弹窗确认钮一致）。
+  /// [fill] 为 primary / accent / 半透明 primary 等按钮 backgroundColor。
   static Color onFill(BuildContext context, Color fill) {
-    return fill.computeLuminance() > 0.5
-      ? Colors.black
-      : Colors.white;
+    // 亮度阈值：浅底黑字、深底白字（与 event_record_sheet 同策略）
+    return fill.computeLuminance() > 0.5 ? Colors.black : Colors.white;
   }
 
   /// 表单错误字：提交失败等行内提示，跟主题 error。
