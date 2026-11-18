@@ -7,6 +7,13 @@ import 'package:permission_handler/permission_handler.dart';
 import '../api/app_debug_log.dart';
 import '../data/baby_share_qr_payload.dart';
 import '../theme/app_color.dart';
+import 'widgets/app_glass_overlay.dart';
+
+/// 扫码相机用途说明（系统申请前告知）。
+const _kCameraRationaleTitle = '需要使用相机';
+const _kCameraRationaleMessage =
+    '胖宝将使用相机扫描宝宝共享码，以便加入家庭共享。'
+    '仅在扫码时使用，不会用于其它用途。';
 
 /// 相机扫宝宝共享码；成功 pop 出 deviceNo（String）。
 class BabyQrScanScreen extends StatefulWidget {
@@ -47,17 +54,39 @@ class _BabyQrScanScreenState extends State<BabyQrScanScreen> {
   }
 
   Future<void> _ensureCameraPermission() async {
+    // 已授权：跳过用途框，直接开扫。
+    final existing = await Permission.camera.status;
+    if (existing.isGranted) {
+      if (!mounted) return;
+      _enterReady();
+      return;
+    }
+
+    if (!mounted) return;
+    // 未授权：先用途说明，再系统申请。
+    final proceed = await showGlassConfirmDialog(
+          context,
+          title: _kCameraRationaleTitle,
+          message: _kCameraRationaleMessage,
+          cancelLabel: '暂不',
+          confirmLabel: '继续',
+        ) ??
+        false;
+    if (!proceed) {
+      AppDebugLog.babyShare('camera rationale declined');
+      if (!mounted) return;
+      setState(() {
+        _phase = _CamPhase.denied;
+        _permanentlyDenied = false;
+      });
+      return;
+    }
+
     final status = await Permission.camera.request();
     if (!mounted) return;
     if (status.isGranted) {
       AppDebugLog.babyShare('camera permission granted');
-      setState(() {
-        _controller = MobileScannerController(
-          detectionSpeed: DetectionSpeed.normal,
-          facing: CameraFacing.back,
-        );
-        _phase = _CamPhase.ready;
-      });
+      _enterReady();
       return;
     }
     AppDebugLog.babyShare(
@@ -67,6 +96,17 @@ class _BabyQrScanScreenState extends State<BabyQrScanScreen> {
     setState(() {
       _phase = _CamPhase.denied;
       _permanentlyDenied = status.isPermanentlyDenied;
+    });
+  }
+
+  void _enterReady() {
+    setState(() {
+      _controller?.dispose();
+      _controller = MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        facing: CameraFacing.back,
+      );
+      _phase = _CamPhase.ready;
     });
   }
 

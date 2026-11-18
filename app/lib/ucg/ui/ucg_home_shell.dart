@@ -26,6 +26,7 @@ import '../../providers/history_event_fly_provider.dart';
 import '../../providers/app_push_registration_provider.dart';
 import '../../providers/prediction_recall_provider.dart';
 import '../../providers/repositories.dart';
+import '../../providers/device_model_report_provider.dart';
 import '../../providers/device_no_notifier.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/toast_bus.dart';
@@ -456,6 +457,8 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
         if (!mounted) return;
         unawaited(_activateHistoryWsSessionIfNeeded());
         unawaited(_activateUcgHomeSessionIfNeeded());
+        // 登录成功：异步上报设备型号（节流/静默）。
+        unawaited(syncDeviceModelReport(ref));
       });
     });
 

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'bootstrap/cold_start_background_sync.dart';
 import 'bootstrap/cold_start_bootstrap.dart';
 import 'bootstrap/ios_network_permission_probe.dart';
+import 'config/privacy_policy_consent_store.dart';
 import 'platform/native_splash.dart';
 import 'home_widget/home_widget_sync.dart';
 import 'providers/event_catalog_notifier.dart';
@@ -17,8 +18,10 @@ import 'providers/sign_in_channel_provider.dart';
 import 'api/ai_quota_errors.dart';
 import 'providers/ai_quota_dialog_bus.dart';
 import 'providers/app_notification_preference_provider.dart';
+import 'providers/device_model_report_provider.dart';
 import 'providers/toast_bus.dart';
 import 'scaffold_messenger_key.dart';
+import 'ui/privacy_policy_consent_gate.dart';
 import 'ui/widgets/app_toast.dart';
 import 'ui/widgets/keyboard_input_bridge.dart';
 import 'router/app_router.dart';
@@ -40,7 +43,11 @@ class PangbaoApp extends ConsumerStatefulWidget {
 
 class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObserver {
   var _showStartupOverlay = true;
+  /// 首启隐私门闩（未同意时盖住业务，阻断冷启动联网）。
+  var _showPrivacyGate = false;
   var _startupStarted = false;
+  /// 已同意隐私政策后才允许 resume 侧上报/推送 sync。
+  var _privacyConsentOk = false;
   Timer? _themeScheduleTimer;
 
   @override
@@ -68,10 +75,14 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       refreshScheduledTheme(ref);
+      // 隐私未同意：不跑会联网的 resume 副作用。
+      if (!_privacyConsentOk) return;
       if (ref.read(sessionProvider).isLoggedIn) {
         unawaited(syncHomeWidgetFromRef(ref));
         // 本机无统一 LA 时鉴权 clear 服务端 activity token（取代 update ack）。
         unawaited(maybeClearServerActivityTokenIfNoLocalLiveActivity(ref));
+        // 账号设备型号：节流后静默 PUT（不阻塞 UI）。
+        unawaited(syncDeviceModelReport(ref));
       }
       // 从系统设置返回时刷新通知授权并按需 register。
       unawaited(onAppResumeNotificationSync(ref));
@@ -82,7 +93,7 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
 
   /// 点击发生在子页面时先回主页；分流由主壳消费。启动遮罩期间不抢路由。
   void _openHomeForPushClick() {
-    if (_showStartupOverlay) return;
+    if (_showStartupOverlay || _showPrivacyGate) return;
     if (PushClickInbox.instance.seq == 0) return;
     final router = ref.read(goRouterProvider);
     final loc = router.state.matchedLocation;
@@ -93,7 +104,35 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
   void _beginStartupIfNeeded() {
     if (_startupStarted) return;
     _startupStarted = true;
-    unawaited(hideNativeSplash());
+    unawaited(_beginStartup());
+  }
+
+  /// 先查隐私同意：未同意只出门闩；同意后再探针 + 冷启动。
+  Future<void> _beginStartup() async {
+    await hideNativeSplash();
+    if (!mounted) return;
+    final agreed = await PrivacyPolicyConsentStore.load();
+    if (!mounted) return;
+    if (!agreed) {
+      setState(() {
+        _showPrivacyGate = true;
+        _showStartupOverlay = false;
+      });
+      return;
+    }
+    _privacyConsentOk = true;
+    unawaited(IosNetworkPermissionProbe.run());
+    unawaited(_runColdStart());
+  }
+
+  /// 门闩「同意并继续」：写盘已在门闩内完成，此处继续冷启动。
+  void _onPrivacyAccepted() {
+    if (!mounted) return;
+    _privacyConsentOk = true;
+    setState(() {
+      _showPrivacyGate = false;
+      _showStartupOverlay = true;
+    });
     unawaited(IosNetworkPermissionProbe.run());
     unawaited(_runColdStart());
   }
@@ -215,6 +254,8 @@ class _PangbaoAppState extends ConsumerState<PangbaoApp> with WidgetsBindingObse
               if (child != null) KeyboardOverlayInsetSync(child: child),
               const KeyboardInputConfirmBarOverlay(),
               if (_showStartupOverlay) const StartupBrandingOverlay(),
+              if (_showPrivacyGate)
+                PrivacyPolicyConsentGate(onAccepted: _onPrivacyAccepted),
             ],
           ),
         );

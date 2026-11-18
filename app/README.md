@@ -57,6 +57,7 @@ Debug 构建下，Dart 侧 console 使用 **白名单 tag**（含 ISO8601 时间
 | `[LandscapeKws]` | 横屏唤醒 KWS 模型 CDN 下载 / 解压 / 缺文件 |
 | `[LandscapeVoice]` | 横屏语音 chat WS 就绪 / 唤醒开听各步失败 |
 | `[ClientUsage]` | 客户端使用上报（页展示/动作；失败静默） |
+| `[DeviceModel]` | 账号设备型号上报（登录/resume；失败静默） |
 `app/lib` 内不使用其它零散 `debugPrint`（无 `HomeHistoryLog`、WS 调试等）。
 
 **客户端使用上报（client-usage）**：登录后 `POST /device/app/api/client-usage/report`，Body `{ featureId, description }`（二者勿含 `|`，最长约 128）。须 Bearer；失败丢弃、用户无感知；服务端同账号约 3 秒限流，丢点可接受。事件字典见 `lib/data/client_usage_events.dart`。

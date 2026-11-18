@@ -35,6 +35,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   var _loading = false;
   var _obscurePassword = true;
   var _obscureConfirmPassword = true;
+  /// 协议勾选：默认未勾选。
+  var _agreementChecked = false;
   String? _accountError;
   String? _passwordError;
   String? _confirmPasswordError;
@@ -138,6 +140,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Future<void> _onRegisterUsername() async {
     if (_loading) return;
     if (!_validateRegisterInputs()) return;
+    final agreed = await ensureAuthAgreementOrConfirm(
+      context,
+      agreed: _agreementChecked,
+      onAgreed: () {
+        if (mounted) setState(() => _agreementChecked = true);
+      },
+    );
+    if (!agreed || !mounted) return;
 
     setState(() => _loading = true);
     try {
@@ -301,14 +311,26 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            buildAuthPrivacyAgreement(
+                            buildAuthPrivacyAgreementCheckbox(
                               context,
-                              leadText: '注册即代表您已阅读并同意',
+                              agreed: _agreementChecked,
+                              onChanged: (v) =>
+                                  setState(() => _agreementChecked = v),
                               onTapUserAgreement: () => context.push(
-                                Uri(path: '/policy', queryParameters: {'url': AppEnv.userAgreementUrl}).toString(),
+                                Uri(
+                                  path: '/policy',
+                                  queryParameters: {
+                                    'url': AppEnv.userAgreementUrl,
+                                  },
+                                ).toString(),
                               ),
                               onTapPrivacyPolicy: () => context.push(
-                                Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
+                                Uri(
+                                  path: '/policy',
+                                  queryParameters: {
+                                    'url': AppEnv.privacyPolicyUrl,
+                                  },
+                                ).toString(),
                               ),
                             ),
                               ],

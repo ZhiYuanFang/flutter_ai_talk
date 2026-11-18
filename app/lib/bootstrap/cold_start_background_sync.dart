@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/device_model_report_provider.dart';
 import '../providers/device_no_notifier.dart';
 import '../providers/event_catalog_notifier.dart';
 import '../providers/home_history_notifier.dart';
@@ -32,6 +33,8 @@ class ColdStartBackgroundSync {
       return;
     }
     await container.read(deviceNoNotifierProvider.notifier).refresh();
+    // 设备型号上报：与目录/历史并行，不占串行槽（内部自有节流）。
+    unawaited(syncDeviceModelReport(container));
     // 串行 HTTP，避免 iOS 同 host 连接槽与历史 WS 握手并行占满。
     await container.read(eventCatalogProvider.notifier).bootstrap();
     // Gateway 刚成功种子后，HomeScreen/二次 run 60s 内跳过历史，仅补目录

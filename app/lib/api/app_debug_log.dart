@@ -144,4 +144,10 @@ abstract final class AppDebugLog {
     if (!kDebugMode) return;
     debugPrint('[BabyShare] ${_ts()} $message');
   }
+
+  /// 账号设备型号上报（静默；失败仅 Debug）。
+  static void deviceModel(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[DeviceModel] ${_ts()} $message');
+  }
 }

@@ -36,6 +36,8 @@
         <package android:name="com.android.vending" />
         <package android:name="com.huawei.appmarket" />
         <package android:name="com.xiaomi.market" />
+        <!-- 微信：检测安装 / 调起（Android 11+ package visibility；与 fluwx 合并声明对齐） -->
+        <package android:name="com.tencent.mm" />
         <!-- 支付宝：检测安装 / 调起（Android 11+ package visibility） -->
         <package android:name="com.eg.android.AlipayGphone" />
         <intent>

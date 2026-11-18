@@ -38,6 +38,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   var _loading = false;
   var _resumedPendingWebLogin = false;
   var _obscurePassword = true;
+  /// 协议勾选：默认未勾选。
+  var _agreementChecked = false;
   bool? _isWeChatInstalled;
   List<CredentialEntry> _credentialEntries = const [];
   String? _accountError;
@@ -65,7 +67,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
     try {
-      final installed = await Fluwx().isWeChatInstalled;
+      // fluwx Android：未 registerApi 时 isWeChatInstalled 会抛 Unassigned WxApi。
+      final fluwx = Fluwx();
+      final ul = AppEnv.wechatUniversalLink.trim();
+      final registered = await fluwx.registerApi(
+        appId: AppEnv.wechatAppId,
+        universalLink: ul.isEmpty ? null : ul,
+      );
+      if (!registered) {
+        if (!mounted) return;
+        setState(() => _isWeChatInstalled = false);
+        return;
+      }
+      final installed = await fluwx.isWeChatInstalled;
       if (!mounted) return;
       setState(() => _isWeChatInstalled = installed);
     } catch (_) {
@@ -228,9 +242,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return accountError == null && passwordError == null;
   }
 
+  /// 未勾选协议时先确认；确认后自动勾选。
+  Future<bool> _ensureAgreement() async {
+    return ensureAuthAgreementOrConfirm(
+      context,
+      agreed: _agreementChecked,
+      onAgreed: () {
+        if (mounted) setState(() => _agreementChecked = true);
+      },
+    );
+  }
+
   Future<void> _onUsernameLogin() async {
     if (_loading) return;
     if (!_validateCredentialInputs()) return;
+    if (!await _ensureAgreement()) return;
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final auth = ref.read(authRepositoryProvider);
@@ -282,6 +309,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _onWeChatLogin() async {
     if (_loading) return;
+    if (!await _ensureAgreement()) return;
+    if (!mounted) return;
     if (_canRedirectWebWeChatAuthorize && !hasPendingWeChatWebCode()) {
       try {
         redirectToWeChatWebAuthorize();
@@ -311,6 +340,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _onAppleLogin() async {
     if (_loading) return;
+    if (!await _ensureAgreement()) return;
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final auth = ref.read(authRepositoryProvider);
@@ -478,31 +509,52 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ],
                               ),
                             ),
-                            if (_showAppleLoginButton) ...[
-                              OutlinedButton.icon(
-                                onPressed: _loading ? null : _onAppleLogin,
-                                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                                icon: const Icon(Icons.apple),
-                                label: const Text('通过 Apple 登录'),
+                            // 社交登录：横向图标 + 底注小字（微信用 wx.png）。
+                            if (_showAppleLoginButton || _showWeChatLoginButton) ...[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  if (_showAppleLoginButton)
+                                    buildAuthSocialIconButton(
+                                      icon: buildAppleLoginIcon(),
+                                      label: 'apple',
+                                      onPressed:
+                                          _loading ? null : _onAppleLogin,
+                                    ),
+                                  if (_showAppleLoginButton &&
+                                      _showWeChatLoginButton)
+                                    const SizedBox(width: 28),
+                                  if (_showWeChatLoginButton)
+                                    buildAuthSocialIconButton(
+                                      icon: buildWeChatLoginIcon(),
+                                      label: '微信',
+                                      onPressed:
+                                          _loading ? null : _onWeChatLogin,
+                                    ),
+                                ],
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 16),
                             ],
-                            if (_showWeChatLoginButton)
-                              OutlinedButton.icon(
-                                onPressed: _loading ? null : _onWeChatLogin,
-                                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                                icon: const Icon(Icons.chat_bubble_outline),
-                                label: const Text('微信登录'),
-                              ),
-                            if (_showWeChatLoginButton) const SizedBox(height: 12),
-                            buildAuthPrivacyAgreement(
+                            buildAuthPrivacyAgreementCheckbox(
                               context,
-                              leadText: '登录即代表您已阅读并同意',
+                              agreed: _agreementChecked,
+                              onChanged: (v) =>
+                                  setState(() => _agreementChecked = v),
                               onTapUserAgreement: () => context.push(
-                                Uri(path: '/policy', queryParameters: {'url': AppEnv.userAgreementUrl}).toString(),
+                                Uri(
+                                  path: '/policy',
+                                  queryParameters: {
+                                    'url': AppEnv.userAgreementUrl,
+                                  },
+                                ).toString(),
                               ),
                               onTapPrivacyPolicy: () => context.push(
-                                Uri(path: '/policy', queryParameters: {'url': AppEnv.privacyPolicyUrl}).toString(),
+                                Uri(
+                                  path: '/policy',
+                                  queryParameters: {
+                                    'url': AppEnv.privacyPolicyUrl,
+                                  },
+                                ).toString(),
                               ),
                             ),
                             if (AppEnv.wxLoginCode.isNotEmpty)

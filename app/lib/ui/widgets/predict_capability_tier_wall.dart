@@ -82,9 +82,12 @@ class _PredictCapabilityTierWallPageState
     // 等 dialog 卸掉再 push / 发 request
     Future.microtask(() {
       switch (kind) {
+        // 智能估算下次：仅关墙
         case PredictBasicFeatureDemoKind.nextEstimate:
-        case PredictBasicFeatureDemoKind.familyShare:
           break;
+        // 家庭全员共享：进邀请家人页
+        case PredictBasicFeatureDemoKind.familyShare:
+          router.push('/settings/baby-share');
         case PredictBasicFeatureDemoKind.pushRemind:
           router.push('/settings/notifications');
         case PredictBasicFeatureDemoKind.homeWidget:

@@ -1,7 +1,7 @@
 name: pangbao_app
-description: 胖宝 App - 宝宝喂养预测
+description: 胖宝 App - 宝宝信息记录与节奏预测
 publish_to: "none"
-version: 2.2.2+24
+version: 2.2.3+25
 
 fluwx:
   app_id: 'wxe713de83c921f341'
