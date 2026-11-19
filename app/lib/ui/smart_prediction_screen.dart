@@ -1172,7 +1172,12 @@ class SmartPredictionScreen extends ConsumerWidget {
             ],
           ),
 
-          // 竖屏「去记录」pill（样式对齐旧桌面小组件底栏 FAB）
+          // 竖屏 PTT：预连 chat WS（无 KWS）；离页 teardown
+          LandscapeVoiceLifecycleBinder(
+            landscape: false,
+            surfaceVisible: predictionPageVisible,
+          ),
+          // 竖屏「去记录」pill（短按喂养 / 长按语音）
           if (showGoRecordFab)
             const Positioned(
               left: 16,
@@ -1180,7 +1185,34 @@ class SmartPredictionScreen extends ConsumerWidget {
               bottom: 12,
               child: Center(child: PredictionGoRecordFab()),
             ),
-          // 竖屏语音/小组件球已上移 UcgHomeShell；本页另挂广场贴边球
+          // 竖屏 PTT 字幕（复用横屏 toast；底中，避开 pill）
+          if (showGoRecordFab)
+            Builder(
+              builder: (context) {
+                final voice = ref.watch(landscapeVoiceControllerProvider);
+                final text = voice.subtitle.trim();
+                if (text.isEmpty) return const SizedBox.shrink();
+                return Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: 88,
+                  child: IgnorePointer(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: LandscapeVoiceSubtitleToast(
+                        text: text,
+                        isThinking: voice.subtitleKind ==
+                            LandscapeVoiceSubtitleKind.thinking,
+                        breathe: voice.subtitleKind ==
+                                LandscapeVoiceSubtitleKind.thinking ||
+                            voice.subtitleKind ==
+                                LandscapeVoiceSubtitleKind.status,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
           // 竖屏广场入口贴边球（资格开通后）
           if (showUcgSquareBall)
             Positioned.fill(

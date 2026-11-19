@@ -28,6 +28,12 @@ abstract final class AppEnv {
     defaultValue: '$apiBaseUrl/privacy-policy.html',
   );
 
+  /// Android 发现新版本时「去更新」打开的官网（系统浏览器；非应用内装包）。
+  static const androidUpdateWebUrl = String.fromEnvironment(
+    'ANDROID_UPDATE_WEB_URL',
+    defaultValue: 'https://www.pangbao.cuplay.top/',
+  );
+
   /// 微信开放平台移动应用 AppId（`fluwx.registerApi`）；勿提交 AppSecret。
 
   /// 微信开放平台移动应用 AppId（`fluwx.registerApi`）；勿提交 AppSecret。

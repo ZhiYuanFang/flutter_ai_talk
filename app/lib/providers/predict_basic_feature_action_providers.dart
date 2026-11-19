@@ -24,13 +24,13 @@ class PredictionLandscapeCastRequestNotifier extends Notifier<int?> {
   }
 }
 
-/// 基础版墙「语音球」：关墙后请求贴边 peek → engaged 全圆。
-final predictionVoiceEngageRequestProvider = NotifierProvider<
-    PredictionVoiceEngageRequestNotifier, int?>(
-  PredictionVoiceEngageRequestNotifier.new,
+/// 基础版墙「长按语音记录」：关墙后请求「去记录」pill 心跳 3 次（仅吸引注意）。
+final predictionGoRecordFabPulseRequestProvider = NotifierProvider<
+    PredictionGoRecordFabPulseRequestNotifier, int?>(
+  PredictionGoRecordFabPulseRequestNotifier.new,
 );
 
-class PredictionVoiceEngageRequestNotifier extends Notifier<int?> {
+class PredictionGoRecordFabPulseRequestNotifier extends Notifier<int?> {
   var _seq = 0;
 
   @override

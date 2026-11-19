@@ -64,8 +64,8 @@ const kPredictBasicFeatureItems = <PredictBasicFeatureItem>[
   ),
   PredictBasicFeatureItem(
     emoji: '🎙️',
-    title: '语音球唤醒对话',
-    subtitle: '唤醒后动口完成信息记录与查询，少动手',
+    title: '长按语音记录',
+    subtitle: '按住底部去记录，松手即可记录与查询',
     kind: PredictBasicFeatureDemoKind.voiceBall,
   ),
   PredictBasicFeatureItem(

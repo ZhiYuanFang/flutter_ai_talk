@@ -91,6 +91,13 @@ class LandscapeVoiceUiState {
   }
 }
 
+/// 预测语音表面形态（横屏唤醒 vs 竖屏 FAB PTT）。
+enum VoiceSurfaceMode {
+  none,
+  landscape,
+  portraitPtt,
+}
+
 class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   StreamSubscription<VoiceChatEvent>? _chatSub;
   StreamSubscription<bool>? _readySub;
@@ -105,6 +112,21 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   var _lifecycleGen = 0;
   /// lifecycle 表面 want：dn 晚到补激活仅在此为 true 时允许。
   var _surfaceWant = false;
+
+  /// 当前表面：横屏 KWS 或竖屏预连 PTT。
+  var _surfaceMode = VoiceSurfaceMode.none;
+
+  /// 竖屏 FAB 按住说话中（松手前忽略服务端抢先 commit 业务收口）。
+  var _holdActive = false;
+
+  /// 手指仍希望 hold：松手/取消时先清，供 in-flight startHold 中途放弃。
+  var _holdWanted = false;
+
+  /// startHold single-flight：endHold 必须等其结束再 commit/取消。
+  Future<bool>? _startHoldInFlight;
+
+  /// 本轮 hold 已收到 TurnEnded（服务端抢先答完时松手不再二次 commit）。
+  var _holdGotTurnEnded = false;
 
   /// 思考阶段已 resume KWS，可唤醒打断（TTS 播中必须关闭）。
   var _bargeInArmed = false;
@@ -130,7 +152,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       _subtitleIdleTimer?.cancel();
       unawaited(_tearDown());
     });
-    // dn 空→有且表面仍 want、尚未激活：soft-check 补 activate（冷启竞态）。
+    // dn 空→有且表面仍 want、尚未激活：soft-check 补激活（冷启竞态）。
     ref.listen<AsyncValue<String?>>(deviceNoNotifierProvider, (prev, next) {
       final prevDn = _normalizedDeviceNo(prev);
       final nextDn = _normalizedDeviceNo(next);
@@ -138,11 +160,20 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       final nowHas = nextDn != null && nextDn.isNotEmpty;
       if (!wasEmpty || !nowHas) return;
       if (!_surfaceWant || _active) return;
-      AppDebugLog.landscapeVoice('deviceNo arrived → re-activate');
-      unawaited(activate(ensureMic: softCheckLandscapeMicGranted));
+      AppDebugLog.landscapeVoice(
+        'deviceNo arrived → re-activate mode=$_surfaceMode',
+      );
+      if (_surfaceMode == VoiceSurfaceMode.portraitPtt) {
+        unawaited(activatePortraitPreconnect());
+      } else {
+        unawaited(activate(ensureMic: softCheckLandscapeMicGranted));
+      }
     });
     return const LandscapeVoiceUiState();
   }
+
+  bool get isPortraitPttMode => _surfaceMode == VoiceSurfaceMode.portraitPtt;
+  bool get isHoldActive => _holdActive;
 
   /// 规范化 deviceNo；loading/error/空串视为无。
   static String? _normalizedDeviceNo(AsyncValue<String?>? v) {
@@ -243,12 +274,53 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     _armIdleNoSpeechTimer(quiet: true);
   }
 
-  /// 预测语音表面可见时调用；[ensureMic] 由调用方注入 soft-check 或完整申请。
+  /// 预测**横屏**表面可见时调用；[ensureMic] 由调用方注入 soft-check 或完整申请。
   Future<void> activate({
     required Future<bool> Function() ensureMic,
   }) async {
+    // 须在改 mode 前读取：竖屏预连也会把 _active 置真，不能早退跳过 KWS。
+    final fromPortrait = _surfaceMode == VoiceSurfaceMode.portraitPtt;
+    _holdWanted = false;
+    _holdActive = false;
+    _holdGotTurnEnded = false;
+    ref.read(voiceChatWsClientProvider).setHoldUplinkProtected(false);
+    _surfaceMode = VoiceSurfaceMode.landscape;
     if (kIsWeb) return;
-    if (_active) return;
+
+    // 已是横屏且 KWS 在：幂等。
+    if (_active && !fromPortrait && _wake != null) {
+      return;
+    }
+
+    // 从竖屏 PTT 切来（或 _active 但无 wake）：补挂 KWS，勿整段 deactivate。
+    if (_active && (fromPortrait || _wake == null)) {
+      AppDebugLog.landscapeVoice(
+        'activate rebind landscape fromPortrait=$fromPortrait '
+        'wakeNull=${_wake == null}',
+      );
+      final existing = _activateInFlight;
+      if (existing != null) {
+        try {
+          await existing;
+        } catch (_) {}
+      }
+      final gen = _lifecycleGen;
+      final micOk = await ensureMic();
+      if (gen != _lifecycleGen || !_active) return;
+      if (!micOk) {
+        AppDebugLog.landscapeVoice('activate rebind soft mic pending');
+        state = state.copyWith(
+          listening: false,
+          micDenied: true,
+          statusCaption: '需要麦克风权限才能语音唤醒（点按重试）',
+        );
+        return;
+      }
+      state = state.copyWith(micDenied: false);
+      await _attachWakeListening(gen: gen);
+      return;
+    }
+
     final existing = _activateInFlight;
     if (existing != null) {
       await existing;
@@ -384,10 +456,319 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     await _attachWakeListening(gen: _lifecycleGen);
   }
 
+  /// 预测**竖屏**表面：只预连 chat WS，不启 KWS、不开麦。
+  Future<void> activatePortraitPreconnect() async {
+    if (kIsWeb) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
+    _surfaceMode = VoiceSurfaceMode.portraitPtt;
+    final existing = _activateInFlight;
+    if (existing != null) {
+      await existing;
+      return;
+    }
+    final flight = _activatePortraitBody();
+    _activateInFlight = flight;
+    try {
+      await flight;
+    } finally {
+      if (identical(_activateInFlight, flight)) {
+        _activateInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _activatePortraitBody() async {
+    final gen = _lifecycleGen;
+    final dn = _normalizedDeviceNo(ref.read(deviceNoNotifierProvider));
+    if (dn == null || dn.isEmpty) {
+      AppDebugLog.landscapeVoice('portrait preconnect no deviceNo');
+      _active = false;
+      state = state.copyWith(
+        listening: false,
+        chatConnected: false,
+        chatListening: false,
+        statusCaption: '绑定宝宝后可长按语音记录',
+      );
+      return;
+    }
+    if (gen != _lifecycleGen) return;
+    // 若从横屏切来，先拆 KWS。
+    await _wakeSub?.cancel();
+    _wakeSub = null;
+    await _wake?.stop();
+    _wake = null;
+    _active = true;
+    _holdWanted = false;
+    _holdActive = false;
+    _holdGotTurnEnded = false;
+    ref.read(voiceChatWsClientProvider).setHoldUplinkProtected(false);
+    state = state.copyWith(
+      listening: false,
+      awakened: false,
+      micDenied: false,
+      statusCaption: '',
+    );
+    _bindChatSession();
+    AppDebugLog.landscapeVoice('portrait preconnect bound');
+  }
+
+  /// 竖屏 FAB 长按开始 PTT：ding + text 模态开听。
+  ///
+  /// 与 [endHold] 通过 [_holdWanted] / [_startHoldInFlight] 协调：
+  /// 松手早于开麦完成时，取消则中途放弃；发送则等开麦成功再 commit。
+  Future<bool> startHold(BuildContext context) async {
+    if (kIsWeb) return false;
+    if (_surfaceMode != VoiceSurfaceMode.portraitPtt) {
+      AppDebugLog.landscapeVoice('startHold skip not portraitPtt');
+      return false;
+    }
+    // 已有 in-flight：复用同一 Future，避免双开麦。
+    final inflight = _startHoldInFlight;
+    if (inflight != null) {
+      AppDebugLog.landscapeVoice('startHold join inflight');
+      return inflight;
+    }
+    if (_holdActive) return true;
+
+    _holdWanted = true;
+    final fut = _startHoldBody(context);
+    _startHoldInFlight = fut;
+    try {
+      return await fut;
+    } finally {
+      if (identical(_startHoldInFlight, fut)) {
+        _startHoldInFlight = null;
+      }
+    }
+  }
+
+  Future<bool> _startHoldBody(BuildContext context) async {
+    if (!_active) {
+      await activatePortraitPreconnect();
+    }
+    if (!_holdWanted) {
+      AppDebugLog.landscapeVoice('hold abort after preconnect');
+      return false;
+    }
+    if (!_active) {
+      AppDebugLog.landscapeVoice('hold abort inactive (need deviceNo?)');
+      _setStatusSubtitle('绑定宝宝后可长按语音记录');
+      return false;
+    }
+    if (!context.mounted) {
+      AppDebugLog.landscapeVoice('hold abort context unmounted');
+      return false;
+    }
+
+    final micOk = await ensureLandscapeMicPermission(context);
+    if (!_holdWanted) {
+      AppDebugLog.landscapeVoice('hold abort after mic perm');
+      return false;
+    }
+    if (!context.mounted) {
+      AppDebugLog.landscapeVoice('hold abort context after mic');
+      return false;
+    }
+    if (!micOk) {
+      AppDebugLog.landscapeVoice('hold abort micDenied');
+      state = state.copyWith(
+        micDenied: true,
+        statusCaption: '需要麦克风权限才能语音记录',
+      );
+      _setStatusSubtitle('需要麦克风权限');
+      return false;
+    }
+    state = state.copyWith(micDenied: false);
+
+    _holdActive = true;
+    _holdGotTurnEnded = false;
+    _turnBusy = true;
+    _cancelIdleNoSpeechTimer(reason: 'hold_start');
+    _setStatusSubtitle('正在接通…');
+    state = state.copyWith(awakened: true, thinking: '');
+
+    final chat = ref.read(voiceChatWsClientProvider);
+    chat.onEffectiveSpeech = null;
+    // 开听前即保护：避免短暂静音帧抢停麦。
+    chat.setHoldUplinkProtected(true);
+    try {
+      // 先开麦再 ding，缩短「手指已按住但上行未起」窗口。
+      AppDebugLog.landscapeVoice('hold step=beginListen text');
+      final ok = await chat
+          .beginListen(
+            resetEffectiveSpeech: true,
+            outputModality: 'text',
+          )
+          .timeout(_micHandoffTimeout);
+      if (!_holdWanted || !_active) {
+        AppDebugLog.landscapeVoice('hold abort after beginListen');
+        chat.setHoldUplinkProtected(false);
+        await chat.ensureMicStopped();
+        await chat.endSession(reason: 'hold_abort');
+        _holdActive = false;
+        _turnBusy = false;
+        _clearSubtitle(reason: 'hold_abort');
+        state = state.copyWith(awakened: false, chatListening: false);
+        _syncChatFlags();
+        return false;
+      }
+      if (!ok) {
+        chat.setHoldUplinkProtected(false);
+        _holdActive = false;
+        _turnBusy = false;
+        _setStatusSubtitle('无法开麦，请再试');
+        return false;
+      }
+      _syncChatFlags();
+      _setStatusSubtitle('请说话…');
+      state = state.copyWith(
+        chatListening: true,
+        chatConnected: chat.isReady,
+      );
+      _turnBusy = false;
+      // 竖屏 PTT：开流后禁止并行 ding（Vivo 上 MediaPlayer 会弄脏 AudioRecord → 零 PCM）。
+      AppDebugLog.landscapeVoice('hold step=listening no_ding');
+      return true;
+    } on TimeoutException {
+      chat.setHoldUplinkProtected(false);
+      _holdActive = false;
+      _turnBusy = false;
+      _holdWanted = false;
+      _setStatusSubtitle('开麦超时，请再试');
+      return false;
+    } catch (e) {
+      AppDebugLog.landscapeVoice('hold start err=$e');
+      chat.setHoldUplinkProtected(false);
+      _holdActive = false;
+      _turnBusy = false;
+      _holdWanted = false;
+      _setStatusSubtitle('启动失败，请再试');
+      return false;
+    }
+  }
+
+  /// 竖屏 FAB 松手：keep 区内 commit；取消则停麦不 commit。无退场音。
+  ///
+  /// 若 [startHold] 仍在飞：取消会清 [_holdWanted] 令其放弃；发送则等开麦成功再 commit。
+  Future<void> endHold({required bool cancel}) async {
+    AppDebugLog.landscapeVoice(
+      'endHold cancel=$cancel active=$_holdActive '
+      'inflight=${_startHoldInFlight != null} gotEnded=$_holdGotTurnEnded',
+    );
+
+    final inflight = _startHoldInFlight;
+    if (cancel) {
+      // 先打断 in-flight，再收口。
+      _holdWanted = false;
+      if (inflight != null) {
+        try {
+          await inflight;
+        } catch (_) {}
+      }
+    } else if (inflight != null) {
+      // 发送：保持 wanted，等开麦完成后再 commit。
+      AppDebugLog.landscapeVoice('endHold await startHold for commit');
+      final started = await inflight;
+      if (!started) {
+        AppDebugLog.landscapeVoice('endHold commit skipped startFail');
+        _holdWanted = false;
+        return;
+      }
+    }
+
+    if (!_holdActive && !_holdGotTurnEnded) {
+      AppDebugLog.landscapeVoice('endHold noop hold=false cancel=$cancel');
+      _holdWanted = false;
+      ref.read(voiceChatWsClientProvider).setHoldUplinkProtected(false);
+      return;
+    }
+
+    final wasHolding = _holdActive;
+    _holdActive = false;
+    _holdWanted = false;
+    final chat = ref.read(voiceChatWsClientProvider);
+    // 松手后允许服务端帧停麦；client commit/cancel 显式停麦。
+    chat.setHoldUplinkProtected(false);
+    if (cancel) {
+      await chat.ensureMicStopped();
+      await chat.endSession(reason: 'hold_cancel');
+      _holdGotTurnEnded = false;
+      _turnBusy = false;
+      _clearSubtitle(reason: 'hold_cancel');
+      state = state.copyWith(
+        awakened: false,
+        chatListening: false,
+        thinking: '',
+        statusCaption: '',
+      );
+      _syncChatFlags();
+      return;
+    }
+    // 已有答复：不再二次 commit，只收尾会话窗。
+    if (_holdGotTurnEnded) {
+      await chat.ensureMicStopped();
+      await chat.endSession(reason: 'hold_done');
+      _holdGotTurnEnded = false;
+      _turnBusy = false;
+      state = state.copyWith(
+        awakened: false,
+        chatListening: false,
+      );
+      _syncChatFlags();
+      return;
+    }
+    if (!wasHolding) return;
+    state = state.copyWith(chatListening: false);
+    _setStatusSubtitle('识别中…');
+    await chat.commitUtterance();
+    _syncChatFlags();
+  }
+
+  /// 按住期间若麦已异常停掉：提示并尝试一次续听，禁止继续伪装「请说话…」。
+  Future<void> _rearmHoldUplinkIfDead() async {
+    if (!_holdActive || !_holdWanted) return;
+    final chat = ref.read(voiceChatWsClientProvider);
+    if (chat.isListening) {
+      // 与真实上行对齐 UI。
+      if (!state.chatListening) {
+        state = state.copyWith(chatListening: true);
+      }
+      return;
+    }
+    AppDebugLog.landscapeVoice('hold mic dead → try rearm');
+    _setStatusSubtitle('重新开麦…');
+    state = state.copyWith(chatListening: false);
+    try {
+      final ok = await chat.beginListen(
+        resetEffectiveSpeech: false,
+        outputModality: 'text',
+      );
+      if (!_holdActive || !_holdWanted) return;
+      if (!ok) {
+        _setStatusSubtitle('开麦中断，请重按');
+        state = state.copyWith(chatListening: false);
+        return;
+      }
+      _syncChatFlags();
+      _setStatusSubtitle('请说话…');
+      state = state.copyWith(chatListening: true);
+      AppDebugLog.landscapeVoice('hold mic rearmed');
+    } catch (e) {
+      AppDebugLog.landscapeVoice('hold mic rearm err=$e');
+      if (_holdActive) {
+        _setStatusSubtitle('开麦中断，请重按');
+        state = state.copyWith(chatListening: false);
+      }
+    }
+  }
+
   Future<void> deactivate() async {
     _surfaceWant = false;
     _lifecycleGen++;
     _active = false;
+    _holdWanted = false;
+    _holdActive = false;
+    _holdGotTurnEnded = false;
     _cancelIdleNoSpeechTimer(reason: 'deactivate');
     final inflight = _activateInFlight;
     if (inflight != null) {
@@ -396,19 +777,25 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       } catch (_) {}
     }
     await _tearDown();
+    _surfaceMode = VoiceSurfaceMode.none;
     state = const LandscapeVoiceUiState();
   }
 
   Future<void> _tearDown() async {
     _cancelIdleNoSpeechTimer(reason: 'teardown');
+    _holdWanted = false;
+    _holdActive = false;
+    _holdGotTurnEnded = false;
     await _wakeSub?.cancel();
     _wakeSub = null;
     await _wake?.stop();
+    _wake = null;
     await _chatSub?.cancel();
     _chatSub = null;
     await _readySub?.cancel();
     _readySub = null;
     final chat = ref.read(voiceChatWsClientProvider);
+    chat.setHoldUplinkProtected(false);
     chat.onEffectiveSpeech = null;
     chat.onBeforeTtsPlay = null;
     chat.onTtsStoppedByLifecycle = null;
@@ -594,8 +981,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       AppDebugLog.landscapeVoice('bargeIn step=play_ding');
       unawaited(chat.playAssetWav(kLandscapeDingAsset));
       _setStatusSubtitle('正在接通会话…');
-      AppDebugLog.landscapeVoice('bargeIn step=beginListen');
-      final ok = await chat.beginListen().timeout(_micHandoffTimeout);
+      AppDebugLog.landscapeVoice('bargeIn step=beginListen audio');
+      final ok = await chat
+          .beginListen(outputModality: 'audio')
+          .timeout(_micHandoffTimeout);
       if (!_active) {
         _turnBusy = false;
         return;
@@ -648,8 +1037,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       AppDebugLog.landscapeVoice('wake step=play_ding');
       unawaited(chat.playAssetWav(kLandscapeDingAsset));
       _setStatusSubtitle('正在接通会话…');
-      AppDebugLog.landscapeVoice('wake step=beginListen');
-      final ok = await chat.beginListen().timeout(_micHandoffTimeout);
+      AppDebugLog.landscapeVoice('wake step=beginListen audio');
+      final ok = await chat
+          .beginListen(outputModality: 'audio')
+          .timeout(_micHandoffTimeout);
       if (!_active) {
         _turnBusy = false;
         return;
@@ -696,10 +1087,60 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         state = state.copyWith(thinking: '');
         _setSubtitle(text, kind: LandscapeVoiceSubtitleKind.answer);
       case VoiceChatInterruptCommit():
+        // 竖屏按住：忽略抢先 commit；门闩下麦仍开，保持聆听 UI。
+        if (_holdActive) {
+          AppDebugLog.landscapeVoice('hold ignore interrupt_commit keep mic');
+          _syncChatFlags();
+          unawaited(_rearmHoldUplinkIfDead());
+          return;
+        }
         state = state.copyWith(chatListening: false);
+        // 竖屏松手后的 commit：只停麦示意，不武装横屏 barge-in KWS。
+        if (_surfaceMode == VoiceSurfaceMode.portraitPtt) {
+          _syncChatFlags();
+          if (_heardEffectiveSpeech || state.subtitle.isNotEmpty) {
+            state = state.copyWith(statusCaption: '');
+            _setStatusSubtitle('思考中…');
+          }
+          return;
+        }
         unawaited(_afterServerCommit());
       case VoiceChatTurnEnded(:final ok, :final message, :final finishTalk):
         _ttsPlaybackActive = false;
+        // 竖屏 PTT：按住期间只记结果；松手后也不自动续听。
+        if (_surfaceMode == VoiceSurfaceMode.portraitPtt) {
+          if (!ok && message == 'asr_no_result') {
+            if (_holdActive) {
+              // 勿置 _holdGotTurnEnded，否则松手会跳过 client commit。
+              AppDebugLog.landscapeVoice(
+                'hold asr_no_result while holding ignore',
+              );
+              unawaited(_rearmHoldUplinkIfDead());
+              return;
+            }
+            _holdGotTurnEnded = true;
+            _setStatusSubtitle('没听清，请再按住说');
+            state = state.copyWith(awakened: false, chatListening: false);
+            return;
+          }
+          _holdGotTurnEnded = true;
+          if (!ok && (message != null && message.isNotEmpty)) {
+            state = state.copyWith(statusCaption: message);
+          }
+          // 保留 answer 字幕；不走横屏 idle/KWS 收尾。
+          if (!_holdActive) {
+            state = state.copyWith(
+              awakened: false,
+              chatListening: false,
+              thinking: '',
+            );
+            _syncChatFlags();
+          }
+          AppDebugLog.landscapeVoice(
+            'hold TurnEnded ok=$ok finishTalk=$finishTalk holding=$_holdActive',
+          );
+          return;
+        }
         if (!ok && message == 'asr_no_result') {
           unawaited(_onAsrNoResult());
           return;
@@ -719,6 +1160,12 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       case VoiceChatExit():
         _ttsPlaybackActive = false;
         _clearSubtitle(reason: 'exit_event');
+        if (_surfaceMode == VoiceSurfaceMode.portraitPtt) {
+          _holdActive = false;
+          _holdGotTurnEnded = false;
+          state = state.copyWith(awakened: false, chatListening: false);
+          return;
+        }
         // client 已在 exit 路径发过 end。
         unawaited(_finishTurn(endReason: 'exit', alreadyEnded: true));
     }
@@ -747,7 +1194,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
       AppDebugLog.landscapeVoice('continueListen pause err=$e');
     }
     if (!_active || _exitInFlight) return;
-    final ok = await chat.beginListen(resetEffectiveSpeech: true);
+    final ok = await chat.beginListen(
+      resetEffectiveSpeech: true,
+      outputModality: 'audio',
+    );
     if (!_active || _exitInFlight) return;
     if (!ok) {
       AppDebugLog.landscapeVoice('continueListen beginListen fail');
@@ -777,7 +1227,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
         await _wake?.pause().timeout(_micHandoffTimeout);
         await Future<void>.delayed(_micHandoffGap);
       } catch (_) {}
-      final ok = await chat.beginListen(resetEffectiveSpeech: false);
+      final ok = await chat.beginListen(
+        resetEffectiveSpeech: false,
+        outputModality: 'audio',
+      );
       if (!_active || _exitInFlight) return;
       if (ok) {
         _turnBusy = false;
@@ -797,7 +1250,10 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     }
     // 尚无有效音：麦已被停，续听等待 5s 无声终局（不重置 idle）。
     AppDebugLog.landscapeVoice('asr_no_result ignored awaiting idle');
-    final ok = await chat.beginListen(resetEffectiveSpeech: false);
+    final ok = await chat.beginListen(
+      resetEffectiveSpeech: false,
+      outputModality: 'audio',
+    );
     if (!_active || _exitInFlight) return;
     if (ok) {
       _turnBusy = false;
@@ -921,10 +1377,17 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
   }
 
   Future<void> _restoreWakeListeningBody({required String statusIfOk}) async {
+    // 仅横屏待唤醒需要 KWS；竖屏 PTT 无 wake。
+    if (_surfaceMode != VoiceSurfaceMode.landscape) {
+      AppDebugLog.landscapeVoice('restoreWake skip mode=$_surfaceMode');
+      return;
+    }
     final chat = ref.read(voiceChatWsClientProvider);
-    // 等 asr_no_result 里未 await 的停麦收尾完成。
+    // 等 asr_no_result 里未 await 的停麦收尾完成，避免与 KWS 抢 AudioRecord。
     await chat.ensureMicStopped();
     await Future<void>.delayed(_afterExitResumeGap);
+    // 再多让一拍：部分机型 stop→startStream 过快会静音失败。
+    await Future<void>.delayed(const Duration(milliseconds: 150));
     if (!_active) {
       state = state.copyWith(awakened: false, chatListening: false);
       return;
@@ -936,8 +1399,13 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     );
     _syncChatFlags();
 
-    final wake = _wake;
-    if (wake == null) return;
+    // 竖屏撕掉过 _wake：补挂而非静默 return。
+    if (_wake == null) {
+      AppDebugLog.landscapeVoice('restoreWake wakeNull → attach');
+      await _attachWakeListening(gen: _lifecycleGen);
+      return;
+    }
+    final wake = _wake!;
 
     // 订阅还在时 resume 会直接返回，必须先 pause 清掉旧流。
     AppDebugLog.landscapeVoice('restoreWake step=pause');
@@ -969,6 +1437,7 @@ class LandscapeVoiceController extends Notifier<LandscapeVoiceUiState> {
     } else {
       final reason = wake.unavailableReason ?? '唤醒恢复失败，点按重试';
       AppDebugLog.landscapeVoice('restoreWake fail reason=$reason');
+      AppDebugLog.landscapeKws('restoreWake fail reason=$reason');
       state = state.copyWith(
         listening: false,
         statusCaption: reason,
@@ -1051,9 +1520,9 @@ final landscapeVoiceControllerProvider =
   LandscapeVoiceController.new,
 );
 
-/// 由宿主在「表面可见 ∩ 对应方向 flag 开启」时驱动 activate/deactivate。
-/// 横屏：预测页可见 + [kPredictionLandscapeVoiceEnabled]；
-/// 竖屏：主壳表面（未被其它 PageRoute 覆盖、非 UCG 未合格等）+ [kPredictionPortraitVoiceEnabled]；
+/// 由宿主在「表面可见」时驱动 activate/deactivate。
+/// 横屏：预测页可见 + [kPredictionLandscapeVoiceEnabled] → KWS + audio；
+/// 竖屏：预测页可见 → FAB PTT 预连（无 KWS，无 portrait 球 flag）；
 /// Overlay sheet/dialog 不得单独使竖屏 surface 变 false（见 LandscapeVoiceLifecycleBinder）。
 void syncLandscapeVoiceLifecycle(
   WidgetRef ref, {
@@ -1061,27 +1530,27 @@ void syncLandscapeVoiceLifecycle(
   required bool landscape,
   required bool surfaceVisible,
 }) {
-  // 竖/横各自独立 flag；平台仍限非 Web 的 Android/iOS
-  final orientationOk = landscape
-      ? kPredictionLandscapeVoiceEnabled
-      : kPredictionPortraitVoiceEnabled;
-  final want = !kIsWeb &&
-      surfaceVisible &&
-      orientationOk &&
-      (Platform.isAndroid || Platform.isIOS);
+  final platformOk =
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS) && surfaceVisible;
   final ctrl = ref.read(landscapeVoiceControllerProvider.notifier);
-  if (want) {
-    // 记录 want，供 dn 晚到 listen 补激活；表面可见只 soft-check。
-    ctrl.setSurfaceWant(true);
-    unawaited(
-      ctrl.activate(
-        ensureMic: softCheckLandscapeMicGranted,
-      ),
-    );
-  } else {
-    // 离开应激活的预测语音表面：清 want / 会话拒绝标记。
+  if (!platformOk) {
     ctrl.setSurfaceWant(false);
     landscapeMicDeniedThisSession = false;
     unawaited(ctrl.deactivate());
+    return;
   }
+  if (landscape) {
+    if (!kPredictionLandscapeVoiceEnabled) {
+      ctrl.setSurfaceWant(false);
+      landscapeMicDeniedThisSession = false;
+      unawaited(ctrl.deactivate());
+      return;
+    }
+    ctrl.setSurfaceWant(true);
+    unawaited(ctrl.activate(ensureMic: softCheckLandscapeMicGranted));
+    return;
+  }
+  // 竖屏：预连 chat WS，长按才开麦。
+  ctrl.setSurfaceWant(true);
+  unawaited(ctrl.activatePortraitPreconnect());
 }

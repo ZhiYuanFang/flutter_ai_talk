@@ -76,8 +76,8 @@ class _PredictCapabilityTierWallPageState
     final router = GoRouter.of(context);
     final castReq =
         ref.read(predictionLandscapeCastRequestProvider.notifier);
-    final voiceReq =
-        ref.read(predictionVoiceEngageRequestProvider.notifier);
+    final pulseReq =
+        ref.read(predictionGoRecordFabPulseRequestProvider.notifier);
     Navigator.of(context).pop();
     // 等 dialog 卸掉再 push / 发 request
     Future.microtask(() {
@@ -98,8 +98,9 @@ class _PredictCapabilityTierWallPageState
           router.push('/settings/xiaozhi-speaker');
         case PredictBasicFeatureDemoKind.landscapeCast:
           castReq.request();
+        // 长按语音记录：关墙后让「去记录」心跳 3 次
         case PredictBasicFeatureDemoKind.voiceBall:
-          voiceReq.request();
+          pulseReq.request();
       }
     });
   }

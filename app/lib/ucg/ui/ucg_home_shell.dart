@@ -35,11 +35,8 @@ import '../../ui/history_event_fly_overlay.dart';
 import '../../ui/home_screen.dart';
 import '../../ui/home_satisfaction_survey.dart';
 import '../../ui/home_shell_dialog_bootstrap.dart';
-import '../../ui/landscape_voice_lifecycle_binder.dart';
-import '../../ui/landscape_voice_subtitle_toast.dart';
 import '../../ui/prediction_card_fly_landing.dart';
 import '../../ui/prediction_home_widget_edge_dock.dart';
-import '../../ui/prediction_voice_edge_dock.dart';
 import '../../ui/smart_prediction_screen.dart';
 import '../../ui/widgets/feature_lock_overlay.dart';
 import '../../ui/widgets/feeding_eligibility_progress_text.dart';
@@ -493,14 +490,9 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
     final isPortrait =
         MediaQuery.orientationOf(context) == Orientation.portrait;
     final eligibility = ref.watch(ucgEligibilityStateProvider);
-    // UCG 未合格锁页：藏球并让 binder surfaceVisible=false
+    // UCG 未合格锁页
     final ucgLocked =
         _pageIndex == HomePagerPage.ucg && !eligibility.isQualified;
-    final portraitVoiceSurface =
-        kPredictionPortraitVoiceEnabled && isPortrait && !ucgLocked;
-    final landscapeVoice = portraitVoiceSurface
-        ? ref.watch(landscapeVoiceControllerProvider)
-        : null;
     final mqPad = MediaQuery.paddingOf(context);
     final voiceBottom = 86.0 + mqPad.bottom;
     // 小组件贴边球：竖屏 + 预测 Tab + 已登录已绑定 + 平台支持
@@ -591,51 +583,7 @@ class _UcgHomeShellState extends ConsumerState<UcgHomeShell>
               );
             },
           ),
-          // 竖屏语音：仅竖屏挂 binder/球，避免横屏时 deactivate 冲掉预测页会话
-          if (kPredictionPortraitVoiceEnabled && isPortrait) ...[
-            LandscapeVoiceLifecycleBinder(
-              landscape: false,
-              surfaceVisible: portraitVoiceSurface,
-            ),
-            if (portraitVoiceSurface && landscapeVoice != null) ...[
-              Positioned.fill(
-                child: PredictionVoiceEdgeDock(
-                  statusCaption: landscapeVoice.statusCaption,
-                  chatConnected: landscapeVoice.chatConnected,
-                  chatListening: landscapeVoice.chatListening,
-                  bottomReserve: voiceBottom,
-                  onPointerOccupied: (occupied) {
-                    ref.read(homePagerScrollBlockedProvider.notifier).state =
-                        occupied;
-                  },
-                  onListenTap: () => ref
-                      .read(landscapeVoiceControllerProvider.notifier)
-                      .onListenChipTap(context),
-                ),
-              ),
-              if (landscapeVoice.subtitle.trim().isNotEmpty)
-                Positioned(
-                  left: 24,
-                  right: 24,
-                  bottom: voiceBottom + 24,
-                  child: IgnorePointer(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: LandscapeVoiceSubtitleToast(
-                        text: landscapeVoice.subtitle,
-                        isThinking: landscapeVoice.subtitleKind ==
-                            LandscapeVoiceSubtitleKind.thinking,
-                        breathe: landscapeVoice.subtitleKind ==
-                                LandscapeVoiceSubtitleKind.thinking ||
-                            landscapeVoice.subtitleKind ==
-                                LandscapeVoiceSubtitleKind.status,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ],
-          // 竖屏桌面小组件贴边球（替代预测页底栏 pill FAB）
+          // 竖屏桌面小组件贴边球（预测页「去记录」长按语音已替代竖屏语音球）
           if (showHomeWidgetDock)
             Positioned.fill(
               child: PredictionHomeWidgetEdgeDock(

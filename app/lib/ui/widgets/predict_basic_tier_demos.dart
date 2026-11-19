@@ -403,61 +403,38 @@ class _LandscapeCastDemo extends StatelessWidget {
   }
 }
 
+/// 示意底部「去记录」pill + 长按麦克风（不再画竖屏唤醒球）。
 class _VoiceBallDemo extends StatelessWidget {
   const _VoiceBallDemo({required this.accent});
   final Color accent;
 
   @override
   Widget build(BuildContext context) {
+    final on = AppColor.onFill(context, accent);
     return _demoShell(
       accent: accent,
       height: 96,
-      child: Center(
-        child: SizedBox(
-          width: 72,
-          height: 72,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: accent.withValues(alpha: 0.25),
-                    width: 2,
-                  ),
-                ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.mic, color: accent, size: 22),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: accent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '去记录 · 长按',
+              style: TextStyle(
+                color: on,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
               ),
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: accent.withValues(alpha: 0.4),
-                    width: 2,
-                  ),
-                ),
-              ),
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: accent,
-                ),
-                child: Icon(
-                  Icons.mic,
-                  // 相对 accent 实心圆
-                  color: AppColor.onFill(context, accent),
-                  size: 22,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

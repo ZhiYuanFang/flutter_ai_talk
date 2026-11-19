@@ -46,7 +46,7 @@ dependencies:
   video_player: ^2.9.5
   photo_manager: ^3.9.0
   permission_handler: ^12.0.3
-  geolocator: ^13.0.2
+  # geolocator 已从发布包剔除（隐私不披露定位 SDK；UCG 定位为未启用桩）
   crypto: ^3.0.6
   device_info_plus: ^11.3.0
   uuid: ^4.5.1

@@ -126,7 +126,9 @@ adb logcat -s flutter | Select-String '\[ApiHttp\]|\[UcgFeed\]|\[UcgLocation\]'
 - **意图层**：服务端用 `finish_talk` / `exit` 控制是否续聊。`finish_talk=false` → 客户端同连接续听「请说话…」（不回唤醒词）；`true` / 缺省 / `exit` → 回「说你好胖宝」。
 - **传输层**：成功答完后服务端 `waitEndAfterCommit`，客户端再次上送 PCM 前 MUST `end` 再 `start`（`restartAudioRound` / `beginListen` 内自动）。客户端主动结束本段（含横屏 **5s 无声 idle** 退下「我先退下了」）MUST 发 `type=end`，不得只停麦。
 
-**预测横屏语音**：进入预测横屏后由 `LandscapeVoiceController` 显式 `connect`/`disconnect`（provider 创建不得自动建连）。未授权麦克风时先玻璃用途说明框，确认后再系统申请。唤醒词「你好，胖宝」走 Sherpa-ONNX 中文 KWS（Android/iOS 前台横屏）；模型首次从自有 CDN 下载 **mobile** 包到应用支持目录（`resorce.cuplay.top/app/models/kws/…-mobile.tar.bz2`，Wenetspeech 3.3M mobile；分件 prefer int8）。下载/解压失败见 `[LandscapeKws]`。模型失败时可点按左下角临时联调「我在」→ PCM → ASR/thinking/answer/TTS。引入 `sherpa_onnx` 原生库后须按 `openspec/project.md` 做 release + ProGuard。
+**预测横屏语音**：进入预测横屏后由 `LandscapeVoiceController` 显式 `connect`/`disconnect`（provider 创建不得自动建连）。未授权麦克风时先玻璃用途说明框，确认后再系统申请。唤醒词「胖宝」走 Sherpa-ONNX 中文 KWS（Android/iOS 前台横屏）；模型首次从自有 CDN 下载 **mobile** 包到应用支持目录（`resorce.cuplay.top/app/models/kws/…-mobile.tar.bz2`，Wenetspeech 3.3M mobile；分件 prefer int8）。下载/解压失败见 `[LandscapeKws]`。模型失败时可点按左下角临时联调「我在」→ PCM → ASR/thinking/answer/TTS。`start` 使用 `outputModality=audio`。引入 `sherpa_onnx` 原生库后须按 `openspec/project.md` 做 release + ProGuard。
+
+**预测竖屏语音**：无贴边唤醒球。底部「去记录」pill 短按切喂养；长按 PTT（页可见预连 `/voice/chat/ws`，ding 后开麦，`outputModality=text`，松手 `commit`，滑出 keep 区取消）。答复只走字幕 toast，不播 TTS。竖↔横旋转会撕会话并切换 modality。
 
 **App 语音 PCM 采集**（`AppVoiceRecordConfig`，`app/lib/audio/app_voice_record_config.dart`）：凡经 `record` 包流式上送 PCM 的路径 **MUST** 共用 `pcm16kMono`（16 kHz / mono / PCM16、`autoGain: true`、Android `voiceRecognition`；v1 关闭 NS/AEC）。消费方：`VoiceChatWsClient`、`VoiceAsrWsClient`、`LandscapeWakeWord`（`start`/`resume`）。横屏有效音门槛见 `effectiveChunkAvgAbs`（初值 130）；服务端 Go 对齐见 `go_ai_talk/internal/controller/ws_protocol.go` 的 `pcmEffectiveAvgAbsThreshold`（150）。**例外**：设置中心「系统识别」（`speech_to_text`）不走 `AppVoiceRecordConfig`。远场真机验收脚本见 `openspec/changes/app-voice-far-field-capture/manual-acceptance.md`。
 
@@ -601,7 +603,7 @@ flutter run -d chrome --dart-define=WX_LOGIN_CODE=xxx --dart-define=WS_HISTORY_U
 
 - **Web 隐私页**：`PolicyScreen` 在 Web 上以占位文本为主（`webview_flutter` 能力因浏览器而异）。
 - **Web 刷新**：通过条件导入 `dart:html` 触发 `location.reload()`。
-- **Android 应用内安装**：发现新版本后，Android 将 APK **下载到应用缓存目录**（`path_provider` 临时目录下 `apk_updates/`），经 **FileProvider** 调起系统安装器；Manifest 已声明 `REQUEST_INSTALL_PACKAGES`。若 `canRequestPackageInstalls` 为 false，会跳转系统「安装未知应用」相关设置页，用户授权后需在应用内重新触发下载/安装。
+- **Android 更新**：发现新版本后引导用户前往官网安装最新版；「去更新」用系统浏览器打开 `https://www.pangbao.cuplay.top/`（可用 `--dart-define=ANDROID_UPDATE_WEB_URL=...` 覆盖）。**不再**应用内下载 APK / 声明 `REQUEST_INSTALL_PACKAGES`。
 
 ## 目录说明
 

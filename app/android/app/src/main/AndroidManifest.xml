@@ -57,7 +57,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 宝宝共享码：相机扫一扫（mobile_scanner） -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 上架合规：更新改官网外链，不再声明 REQUEST_INSTALL_PACKAGES -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> -->

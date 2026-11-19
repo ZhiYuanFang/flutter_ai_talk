@@ -102,12 +102,30 @@ class VoiceChatWsClient with WidgetsBindingObserver {
   /// 成功答完后服务端可能 `waitEndAfterCommit`：下次开听前须 end→start。
   var _needsRoundRestart = false;
 
-  /// 自 `answer` 缓存的 finish_talk；以 `audio_end` 为准覆盖。
+  /// 当前会话期望输出：`audio`（TTS）或 `text`（仅文案，跳过等 audio_end）。
+  var _outputModality = 'audio';
+
+  /// 自 `answer` 缓存的 finish_talk；audio 以 `audio_end` 为准；text 在 answer 收口。
   bool? _finishTalkFromAnswer;
+
+  /// text 模式已在 answer 发过 TurnEnded，丢弃迟到 audio_*。
+  var _textTurnSealed = false;
 
   /// 本轮开听是否已出现有效语音能量（见 AppVoiceRecordConfig.effectiveChunkAvgAbs）。
   var _hasEffectiveSpeech = false;
   bool get hasEffectiveSpeech => _hasEffectiveSpeech;
+
+  /// 竖屏 PTT 按住期间：抑制服务端 interrupt_commit / asr_no_result 的自动停麦。
+  /// 客户端主动 [ensureMicStopped] / [commitUtterance] / [endSession] 不受影响。
+  var _holdUplinkProtected = false;
+  bool get holdUplinkProtected => _holdUplinkProtected;
+
+  /// 开启/关闭 hold 上行保护门闩（仅竖屏 PTT 生命周期使用）。
+  void setHoldUplinkProtected(bool protected) {
+    if (_holdUplinkProtected == protected) return;
+    _holdUplinkProtected = protected;
+    AppDebugLog.landscapeVoice('holdUplinkProtected=$protected');
+  }
 
   /// 首次检出有效音时回调（供取消无声 5s）。
   void Function()? onEffectiveSpeech;
@@ -312,7 +330,14 @@ class VoiceChatWsClient with WidgetsBindingObserver {
         if (text.isNotEmpty) _emit(VoiceChatAsrFinal(text));
       case 'asr_no_result':
         // 空片段：编排层 soft rearm；不在此发 end。
-        unawaited(_stopMicOnly());
+        // 竖屏 PTT 按住：保留上行，等松手再 client commit。
+        if (_holdUplinkProtected) {
+          AppDebugLog.landscapeVoice(
+            'asr_no_result suppress mic-stop (hold protected)',
+          );
+        } else {
+          unawaited(_stopMicOnly());
+        }
         _emit(const VoiceChatTurnEnded(ok: false, message: 'asr_no_result'));
       case 'thinking_delta':
         final delta = (map['delta'] as String?) ??
@@ -320,7 +345,7 @@ class VoiceChatWsClient with WidgetsBindingObserver {
             '';
         if (delta.isNotEmpty) _emit(VoiceChatThinkingDelta(delta));
       case 'answer':
-        // 预缓存 finish_talk；话轮结束以 audio_end 为准。
+        // 预缓存 finish_talk；audio 以 audio_end 为准；text 在此 seal。
         final fromAnswer = _parseFinishTalk(map);
         if (fromAnswer != null) {
           _finishTalkFromAnswer = fromAnswer;
@@ -332,14 +357,35 @@ class VoiceChatWsClient with WidgetsBindingObserver {
             (map['answer'] as String?) ??
             '';
         if (text.isNotEmpty) _emit(VoiceChatAnswer(text));
+        // text 输出：无 audio_*，以 answer 收口话轮。
+        if (_outputModality == 'text' && !_textTurnSealed) {
+          _textTurnSealed = true;
+          _needsRoundRestart = true;
+          final finishTalk = fromAnswer ?? _finishTalkFromAnswer ?? true;
+          _finishTalkFromAnswer = null;
+          AppDebugLog.landscapeVoice(
+            'text seal TurnEnded finishTalk=$finishTalk',
+          );
+          _emit(VoiceChatTurnEnded(ok: true, finishTalk: finishTalk));
+        }
       case 'audio_chunk':
+        // text 已 seal：丢弃迟到音频帧
+        if (_textTurnSealed || _outputModality == 'text') return;
         // 串行入队：保证 audio_end 取缓冲前 chunk 已 append
         _enqueueAudioFrame(() => _onAudioChunk(map));
       case 'audio_end':
+        if (_textTurnSealed || _outputModality == 'text') return;
         _enqueueAudioFrame(() => _onAudioEnd(map));
       case 'interrupt_commit':
         _emit(const VoiceChatInterruptCommit());
-        unawaited(_stopMicOnly());
+        // 竖屏 PTT 按住：编排层忽略业务收口，此处也不得停麦。
+        if (_holdUplinkProtected) {
+          AppDebugLog.landscapeVoice(
+            'interrupt_commit suppress mic-stop (hold protected)',
+          );
+        } else {
+          unawaited(_stopMicOnly());
+        }
       case 'exit':
         // 停麦 + end 再通知编排层回唤醒。
         unawaited(_onServerExit());
@@ -621,11 +667,31 @@ class VoiceChatWsClient with WidgetsBindingObserver {
 
   Future<void> disconnect() => _tearDownSocket(keepPlayer: true);
 
+  /// 规范化 audio|text；非法回退 [fallback]。
+  static String normalizeOutputModality(String? raw, {String fallback = 'audio'}) {
+    final s = (raw ?? '').trim().toLowerCase();
+    if (s == 'text' || s == 'audio') return s;
+    return fallback;
+  }
+
   /// 确保已 `start` 流式会话（可跨多轮复用连接）。
-  Future<bool> ensureSessionStarted() async {
+  ///
+  /// [outputModality] 为 `audio`|`text`；与已启动会话不一致时先 end 再 start。
+  Future<bool> ensureSessionStarted({String? outputModality}) async {
     if (!await connect()) {
       AppDebugLog.landscapeVoice('ensureSession connect fail');
       return false;
+    }
+    final want = normalizeOutputModality(
+      outputModality,
+      fallback: _outputModality,
+    );
+    // 已启动但 modality 变了：必须 end→start。
+    if (_sessionStarted && want != _outputModality) {
+      AppDebugLog.landscapeVoice(
+        'ensureSession modality switch $_outputModality→$want',
+      );
+      await endSession(reason: 'modality_switch');
     }
     if (_sessionStarted) return true;
     final dn = deviceNoGetter();
@@ -633,6 +699,8 @@ class VoiceChatWsClient with WidgetsBindingObserver {
       AppDebugLog.landscapeVoice('ensureSession no deviceNo');
       return false;
     }
+    _outputModality = want;
+    _textTurnSealed = false;
     _startedCompleter = Completer<void>();
     final start = jsonEncode({
       'type': 'start',
@@ -642,9 +710,13 @@ class VoiceChatWsClient with WidgetsBindingObserver {
       'channels': 1,
       'length': 32000,
       'mode': 'stream',
+      'inputModality': 'audio',
+      'outputModality': _outputModality,
     });
     try {
-      AppDebugLog.landscapeVoice('ensureSession send start');
+      AppDebugLog.landscapeVoice(
+        'ensureSession send start output=$_outputModality',
+      );
       _channel!.sink.add(start);
       await _startedCompleter!.future.timeout(const Duration(seconds: 8));
       AppDebugLog.landscapeVoice('ensureSession started=$_sessionStarted');
@@ -656,9 +728,9 @@ class VoiceChatWsClient with WidgetsBindingObserver {
   }
 
   /// 清 waitEndAfterCommit：`end` 再 `start`（single-flight）。
-  Future<bool> restartAudioRound() async {
+  Future<bool> restartAudioRound({String? outputModality}) async {
     if (_restartRoundInFlight != null) return _restartRoundInFlight!;
-    _restartRoundInFlight = _restartAudioRoundOnce();
+    _restartRoundInFlight = _restartAudioRoundOnce(outputModality: outputModality);
     try {
       return await _restartRoundInFlight!;
     } finally {
@@ -666,7 +738,7 @@ class VoiceChatWsClient with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> _restartAudioRoundOnce() async {
+  Future<bool> _restartAudioRoundOnce({String? outputModality}) async {
     await _stopMicOnly();
     AppDebugLog.landscapeVoice(
       'restartRound end then start sessionWas=$_sessionStarted',
@@ -680,17 +752,24 @@ class VoiceChatWsClient with WidgetsBindingObserver {
     }
     _sessionStarted = false;
     _needsRoundRestart = false;
-    return ensureSessionStarted();
+    _textTurnSealed = false;
+    return ensureSessionStarted(outputModality: outputModality ?? _outputModality);
   }
 
   /// 唤醒后开始上送用户 PCM（双端共用）。
   ///
   /// [resetEffectiveSpeech] 为 false 时保留本轮「已有有效音」标记（空片段续听）。
-  Future<bool> beginListen({bool resetEffectiveSpeech = true}) async {
+  /// [outputModality] 传入时覆盖本轮 `start` 的输出模态。
+  Future<bool> beginListen({
+    bool resetEffectiveSpeech = true,
+    String? outputModality,
+  }) async {
     // 答完后须 end→start，禁止仅凭 _sessionStarted 继续喂 PCM。
     if (_needsRoundRestart) {
-      if (!await restartAudioRound()) return false;
-    } else if (!await ensureSessionStarted()) {
+      if (!await restartAudioRound(outputModality: outputModality)) {
+        return false;
+      }
+    } else if (!await ensureSessionStarted(outputModality: outputModality)) {
       return false;
     }
     if (_listening) return true;
@@ -701,8 +780,9 @@ class VoiceChatWsClient with WidgetsBindingObserver {
     }
     await _stopMicOnly();
     _ttsPcm.clear();
-    // 新一轮上行：允许再收 TTS
+    // 新一轮上行：允许再收 TTS / text seal
     _ttsDiscard = false;
+    _textTurnSealed = false;
     _audioPipeline = Future<void>.value();
     _pcmAbsSession.reset();
     _pcmDiagChunkCount = 0;
@@ -779,8 +859,11 @@ class VoiceChatWsClient with WidgetsBindingObserver {
   Future<void> commitUtterance() async {
     await _stopMicOnly();
     try {
+      AppDebugLog.landscapeVoice('commitUtterance send');
       _channel?.sink.add(jsonEncode({'type': 'commit'}));
-    } catch (_) {}
+    } catch (e) {
+      AppDebugLog.landscapeVoice('commitUtterance err=$e');
+    }
   }
 
   /// 客户端主动结束音频会话窗（idle / 回唤醒 / dispose）。
@@ -800,10 +883,12 @@ class VoiceChatWsClient with WidgetsBindingObserver {
     _sessionStarted = false;
     _needsRoundRestart = false;
     _finishTalkFromAnswer = null;
+    _textTurnSealed = false;
     // end 后若未立刻开听，保持 discard 直至 beginListen 清除
   }
 
   Future<void> dispose() async {
+    _holdUplinkProtected = false;
     await endSession(reason: 'dispose');
     await _tearDownSocket(keepPlayer: false);
     await _recorder.dispose();
